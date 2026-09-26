@@ -1,0 +1,623 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.push;
+
+import com.codename1.io.ConnectionRequest;
+import com.codename1.io.JSONParser;
+import com.codename1.io.Log;
+import com.codename1.io.NetworkManager;
+import com.codename1.io.Preferences;
+import com.codename1.ui.Display;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.Map;
+
+/// Utility class for sending a push message to a different device
+/// through the Codename One push servers.
+///
+/// @author Shai Almog
+public class Push {
+
+    /// Key for the hashtable argument when pushing to the google play store
+    public static final String GOOGLE_PUSH_KEY = "googlePlay";
+    private final String token;
+    private final String body;
+    private final String[] deviceKeys;
+    private boolean production;
+    private String googleAuthKey = "";
+    private String iosCertificateURL = "";
+    private String iosCertificatePassword = "";
+    private String wnsSID = "";
+    private String wnsClientSecret = "";
+    private int pushType = 1;
+
+    /// Creates a new push notification.
+    ///
+    /// #### Parameters
+    ///
+    /// - `token`: @param token      the authorization token from the account settings in the CodenameOne website, this is used
+    /// to associate push quotas with your app
+    ///
+    /// - `body`: the body of the message
+    ///
+    /// - `deviceKeys`: Device keys when sending to specific devices.
+    public Push(String token, String body, String... deviceKeys) {
+        this.token = token;
+        this.body = body;
+        this.deviceKeys = deviceKeys;
+    }
+
+    /// Sends a push message and returns true if server delivery succeeded, notice that the
+    /// push message isn't guaranteed to reach all devices.
+    ///
+    /// #### Parameters
+    ///
+    /// - `body`: the body of the message
+    ///
+    /// - `deviceKey`: an optional parameter (can be null) when sending to a specific device
+    ///
+    /// - `production`: whether pushing to production or test/sandbox environment
+    ///
+    /// - `googleAuthKey`: authorization key from the google play store
+    ///
+    /// - `iosCertificateURL`: a URL where you host the iOS certificate for this applications push capabilities.
+    ///
+    /// - `iosCertificatePassword`: the password for the push certificate
+    ///
+    /// #### Returns
+    ///
+    /// @return true if the message reached the Codename One server successfully, this makes no guarantee
+    /// of delivery.
+    ///
+    /// #### Deprecated
+    ///
+    /// @deprecated this method sends a push using the old push servers which will be retired, you need to switch
+    /// to the equivalent method that accepts a push token
+    public static boolean sendPushMessage(String body, String deviceKey, boolean production, String googleAuthKey,
+                                          String iosCertificateURL, String iosCertificatePassword) {
+        ConnectionRequest cr = createPushMessage(body, deviceKey, production, googleAuthKey, iosCertificateURL, iosCertificatePassword, "", "", "", "");
+        NetworkManager.getInstance().addToQueueAndWait(cr);
+        return cr.getResposeCode() == 200;
+    }
+
+    /// Sends a push message and returns true if server delivery succeeded, notice that the
+    /// push message isn't guaranteed to reach all devices.
+    ///
+    /// #### Parameters
+    ///
+    /// - `body`: the body of the message
+    ///
+    /// - `deviceKey`: an optional parameter (can be null) when sending to a specific device
+    ///
+    /// - `production`: whether pushing to production or test/sandbox environment
+    ///
+    /// - `googleAuthKey`: authorization key from the google play store
+    ///
+    /// - `iosCertificateURL`: a URL where you host the iOS certificate for this applications push capabilities.
+    ///
+    /// - `iosCertificatePassword`: the password for the push certificate
+    ///
+    /// - `bbUrl`: @param bbUrl                  the URL to which the push should be submitted when sending a blackberry push for evaluation use https://pushapi.eval.blackberry.com
+    /// for production you will need to apply at https://cp310.pushapi.na.blackberry.com
+    ///
+    /// - `bbApp`: the application id to authenticate on push for RIM devices
+    ///
+    /// - `bbPass`: the application password credentials authenticate on push for RIM devices
+    ///
+    /// - `bbPort`: the port of the blackberry push
+    ///
+    /// #### Returns
+    ///
+    /// @return true if the message reached the Codename One server successfully, this makes no guarantee
+    /// of delivery.
+    ///
+    /// #### Deprecated
+    ///
+    /// @deprecated this method sends a push using the old push servers which will be retired, you need to switch
+    /// to the equivalent method that accepts a push token
+    public static boolean sendPushMessage(String body, String deviceKey, boolean production, String googleAuthKey,
+                                          String iosCertificateURL, String iosCertificatePassword, String bbUrl, String bbApp, String bbPass, String bbPort) {
+        ConnectionRequest cr = createPushMessage(body, deviceKey, production, googleAuthKey, iosCertificateURL, iosCertificatePassword, bbUrl, bbApp, bbPass, bbPort);
+        NetworkManager.getInstance().addToQueueAndWait(cr);
+        return cr.getResposeCode() == 200;
+    }
+
+    /// Sends a push message and returns true if server delivery succeeded, notice that the
+    /// push message isn't guaranteed to reach all devices.
+    ///
+    /// #### Parameters
+    ///
+    /// - `body`: the body of the message
+    ///
+    /// - `deviceKey`: an optional parameter (can be null) when sending to a specific device
+    ///
+    /// - `production`: whether pushing to production or test/sandbox environment
+    ///
+    /// - `googleAuthKey`: authorization key from the google play store
+    ///
+    /// - `iosCertificateURL`: a URL where you host the iOS certificate for this applications push capabilities.
+    ///
+    /// - `iosCertificatePassword`: the password for the push certificate
+    ///
+    /// #### Deprecated
+    ///
+    /// @deprecated this method sends a push using the old push servers which will be retired, you need to switch
+    /// to the equivalent method that accepts a push token
+    public static void sendPushMessageAsync(String body, String deviceKey, boolean production, String googleAuthKey,
+                                            String iosCertificateURL, String iosCertificatePassword) {
+        NetworkManager.getInstance().addToQueue(createPushMessage(body, deviceKey, production, googleAuthKey, iosCertificateURL, iosCertificatePassword, "", "", "", ""));
+    }
+
+    /// Sends a push message and returns true if server delivery succeeded, notice that the
+    /// push message isn't guaranteed to reach all devices.
+    ///
+    /// #### Parameters
+    ///
+    /// - `body`: the body of the message
+    ///
+    /// - `deviceKey`: an optional parameter (can be null) when sending to a specific device
+    ///
+    /// - `production`: whether pushing to production or test/sandbox environment
+    ///
+    /// - `googleAuthKey`: authorization key from the google play store
+    ///
+    /// - `iosCertificateURL`: a URL where you host the iOS certificate for this applications push capabilities.
+    ///
+    /// - `iosCertificatePassword`: the password for the push certificate
+    ///
+    /// - `bbUrl`: @param bbUrl                  the URL to which the push should be submitted when sending a blackberry push for evaluation use https://pushapi.eval.blackberry.com
+    /// for production you will need to apply at https://cp310.pushapi.na.blackberry.com
+    ///
+    /// - `bbApp`: the application id to authenticate on push for RIM devices
+    ///
+    /// - `bbPass`: the application password credentials authenticate on push for RIM devices
+    ///
+    /// - `bbPort`: the port of the blackberry push
+    ///
+    /// #### Deprecated
+    ///
+    /// @deprecated this method sends a push using the old push servers which will be retired, you need to switch
+    /// to the equivalent method that accepts a push token
+    public static void sendPushMessageAsync(String body, String deviceKey, boolean production, String googleAuthKey,
+                                            String iosCertificateURL, String iosCertificatePassword, String bbUrl, String bbApp, String bbPass, String bbPort) {
+        NetworkManager.getInstance().addToQueue(createPushMessage(body, deviceKey, production, googleAuthKey, iosCertificateURL, iosCertificatePassword, bbUrl, bbApp, bbPass, bbPort));
+    }
+
+    @SuppressWarnings("PMD.UnusedFormalParameter")
+    private static ConnectionRequest createPushMessage(String body, String deviceKey, boolean production, String googleAuthKey,
+                                                       String iosCertificateURL, String iosCertificatePassword, String bbUrl, String bbApp, String bbPass, String bbPort) {
+        throw new RuntimeException("The old push servers no longer work! Please migrate to the new Push servers!");
+    }
+
+    /// Returns the push device key if the device was previously successfully registered for push
+    /// otherwise returns null
+    ///
+    /// #### Returns
+    ///
+    /// the device key that can be used to push to this specific device.
+    ///
+    /// #### Deprecated
+    ///
+    /// @deprecated this method sends a push using the old push servers which will be retired, you need to switch
+    /// to getPushKey()
+    public static String getDeviceKey() {
+        long l = Preferences.get("push_id", (long) -1);
+        if (l == -1) {
+            return null;
+        }
+        return "" + l;
+    }
+
+    /// Returns the push device key if the device was previously successfully registered for push
+    /// otherwise returns null
+    ///
+    /// #### Returns
+    ///
+    /// the device key that can be used to push to this specific device.
+    public static String getPushKey() {
+        String key = Preferences.get("push_key", null);
+        if (key != null) {
+            if (!key.startsWith("cn1-")) {
+                String pushPrefix = Display.getInstance().getProperty("cn1_push_prefix", null);
+                if (pushPrefix != null) {
+                    return "cn1-" + pushPrefix + "-" + key;
+                }
+            } else {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    /// Subscribes this device to a push topic. Topics are a fan-out mechanism: a single
+    /// server-side push to a topic is delivered to every device subscribed to it, without
+    /// the server needing to track individual device keys.
+    ///
+    /// On Android this maps to Firebase Cloud Messaging topics. On iOS, where the stock
+    /// push transport is raw APNs which has no native topic concept, this is a no-op and
+    /// topic fan-out must be performed server side; a warning is logged.
+    ///
+    /// #### Parameters
+    ///
+    /// - `topic`: the topic name
+    public static void subscribeToTopic(String topic) {
+        Display.getInstance().subscribeToPushTopic(topic);
+    }
+
+    /// Unsubscribes this device from a previously subscribed push topic.
+    ///
+    /// On Android this maps to Firebase Cloud Messaging topics. On iOS this is a no-op;
+    /// a warning is logged.
+    ///
+    /// #### Parameters
+    ///
+    /// - `topic`: the topic name
+    public static void unsubscribeFromTopic(String topic) {
+        Display.getInstance().unsubscribeFromPushTopic(topic);
+    }
+
+    /// Sends a push message and returns true if server delivery succeeded, notice that the
+    /// push message isn't guaranteed to reach all devices.
+    /// This method uses the new push servers
+    ///
+    /// #### Parameters
+    ///
+    /// - `token`: @param token                  the authorization token from the account settings in the CodenameOne website, this is used
+    /// to associate push quotas with your app
+    ///
+    /// - `body`: the body of the message
+    ///
+    /// - `deviceKey`: the device key that will receive the push message (can't be null!)
+    ///
+    /// - `production`: whether pushing to production or test/sandbox environment
+    ///
+    /// - `googleAuthKey`: authorization key from the google play store
+    ///
+    /// - `iosCertificateURL`: a URL where you host the iOS certificate for this applications push capabilities.
+    ///
+    /// - `iosCertificatePassword`: the password for the push certificate
+    ///
+    /// #### Returns
+    ///
+    /// @return true if the message reached the Codename One server successfully, this makes no guarantee
+    /// of delivery.
+    ///
+    /// #### Deprecated
+    ///
+    /// Please use new builder syntax with `#send()` which includes parameters for new platforms such as UWP.
+    public static boolean sendPushMessage(String token, String body, String deviceKey, boolean production, String googleAuthKey,
+                                          String iosCertificateURL, String iosCertificatePassword) {
+        PushConnection cr = createPushMessage(token, body, production, googleAuthKey, iosCertificateURL, iosCertificatePassword, "", "", "", "", "", "", 1, deviceKey);
+        NetworkManager.getInstance().addToQueueAndWait(cr);
+        return cr.successful;
+    }
+
+    /// Sends a push message and returns true if server delivery succeeded, notice that the
+    /// push message isn't guaranteed to reach all devices.
+    /// This method uses the new push servers
+    ///
+    /// #### Parameters
+    ///
+    /// - `token`: @param token                  the authorization token from the account settings in the CodenameOne website, this is used
+    /// to associate push quotas with your app
+    ///
+    /// - `body`: the body of the message
+    ///
+    /// - `production`: whether pushing to production or test/sandbox environment
+    ///
+    /// - `googleAuthKey`: authorization key from the google play store
+    ///
+    /// - `iosCertificateURL`: a URL where you host the iOS certificate for this applications push capabilities.
+    ///
+    /// - `iosCertificatePassword`: the password for the push certificate
+    ///
+    /// - `pushType`: @param pushType               the type for the push in the server, this is useful for sending hidden pushes (type 2) should default
+    /// to 0 or 1
+    ///
+    /// - `deviceKey`: set of devices that should receive the push
+    ///
+    /// #### Returns
+    ///
+    /// @return true if the message reached the Codename One server successfully, this makes no guarantee
+    /// of delivery.
+    ///
+    /// #### Deprecated
+    ///
+    /// Please use new builder syntax with `#send()` which includes parameters for new platforms such as UWP.
+    public static boolean sendPushMessage(String token, String body, boolean production, String googleAuthKey,
+                                          String iosCertificateURL, String iosCertificatePassword, int pushType, String... deviceKey) {
+        PushConnection cr = createPushMessage(token, body, production, googleAuthKey, iosCertificateURL, iosCertificatePassword, "", "", "", "", "", "", pushType, deviceKey);
+        NetworkManager.getInstance().addToQueueAndWait(cr);
+        return cr.successful;
+    }
+
+    /// Sends a push message and returns true if server delivery succeeded, notice that the
+    /// push message isn't guaranteed to reach all devices.
+    /// This method uses the new push servers
+    ///
+    /// #### Parameters
+    ///
+    /// - `token`: @param token                  the authorization token from the account settings in the CodenameOne website, this is used
+    /// to associate push quotas with your app
+    ///
+    /// - `body`: the body of the message
+    ///
+    /// - `deviceKey`: an optional parameter (can be null) when sending to a specific device
+    ///
+    /// - `production`: whether pushing to production or test/sandbox environment
+    ///
+    /// - `googleAuthKey`: authorization key from the google play store
+    ///
+    /// - `iosCertificateURL`: a URL where you host the iOS certificate for this applications push capabilities.
+    ///
+    /// - `iosCertificatePassword`: the password for the push certificate
+    ///
+    /// - `bbUrl`: @param bbUrl                  the URL to which the push should be submitted when sending a blackberry push for evaluation use https://pushapi.eval.blackberry.com
+    /// for production you will need to apply at https://cp310.pushapi.na.blackberry.com
+    ///
+    /// - `bbApp`: the application id to authenticate on push for RIM devices
+    ///
+    /// - `bbPass`: the application password credentials authenticate on push for RIM devices
+    ///
+    /// - `bbPort`: the port of the blackberry push
+    ///
+    /// #### Returns
+    ///
+    /// @return true if the message reached the Codename One server successfully, this makes no guarantee
+    /// of delivery.
+    ///
+    /// #### Deprecated
+    ///
+    /// Please use new builder syntax with `#send()` which includes parameters for new platforms such as UWP.
+    public static boolean sendPushMessage(String token, String body, String deviceKey, boolean production, String googleAuthKey,
+                                          String iosCertificateURL, String iosCertificatePassword, String bbUrl, String bbApp, String bbPass, String bbPort) {
+        PushConnection cr = createPushMessage(token, body, production, googleAuthKey, iosCertificateURL, iosCertificatePassword, bbUrl, bbApp, bbPass, bbPort, "", "", 1, deviceKey);
+        NetworkManager.getInstance().addToQueueAndWait(cr);
+        return cr.successful;
+    }
+
+    /// Sends a push message and returns true if server delivery succeeded, notice that the
+    /// push message isn't guaranteed to reach all devices.
+    /// This method uses the new push servers
+    ///
+    /// #### Parameters
+    ///
+    /// - `token`: @param token                  the authorization token from the account settings in the CodenameOne website, this is used
+    /// to associate push quotas with your app
+    ///
+    /// - `body`: the body of the message
+    ///
+    /// - `deviceKey`: an optional parameter (can be null) when sending to a specific device
+    ///
+    /// - `production`: whether pushing to production or test/sandbox environment
+    ///
+    /// - `googleAuthKey`: authorization key from the google play store
+    ///
+    /// - `iosCertificateURL`: a URL where you host the iOS certificate for this applications push capabilities.
+    ///
+    /// - `iosCertificatePassword`: the password for the push certificate
+    ///
+    /// #### Deprecated
+    ///
+    /// Please use new builder syntax with `#sendAsync()` which includes parameters for new platforms such as UWP.
+    public static void sendPushMessageAsync(String token, String body, String deviceKey, boolean production, String googleAuthKey,
+                                            String iosCertificateURL, String iosCertificatePassword) {
+        NetworkManager.getInstance().addToQueue(createPushMessage(token, body, production, googleAuthKey, iosCertificateURL, iosCertificatePassword, "", "", "", "", "", "", 1, deviceKey));
+    }
+
+    /// Sends a push message and returns true if server delivery succeeded, notice that the
+    /// push message isn't guaranteed to reach all devices.
+    /// This method uses the new push servers
+    ///
+    /// #### Parameters
+    ///
+    /// - `token`: @param token                  the authorization token from the account settings in the CodenameOne website, this is used
+    /// to associate push quotas with your app
+    ///
+    /// - `body`: the body of the message
+    ///
+    /// - `deviceKey`: an optional parameter (can be null) when sending to a specific device
+    ///
+    /// - `production`: whether pushing to production or test/sandbox environment
+    ///
+    /// - `googleAuthKey`: authorization key from the google play store
+    ///
+    /// - `iosCertificateURL`: a URL where you host the iOS certificate for this applications push capabilities.
+    ///
+    /// - `iosCertificatePassword`: the password for the push certificate
+    ///
+    /// - `bbUrl`: @param bbUrl                  the URL to which the push should be submitted when sending a blackberry push for evaluation use https://pushapi.eval.blackberry.com
+    /// for production you will need to apply at https://cp310.pushapi.na.blackberry.com
+    ///
+    /// - `bbApp`: the application id to authenticate on push for RIM devices
+    ///
+    /// - `bbPass`: the application password credentials authenticate on push for RIM devices
+    ///
+    /// - `bbPort`: the port of the blackberry push
+    ///
+    /// #### Deprecated
+    ///
+    /// Please use new builder syntax with `#sendAsync()` which includes parameters for new platforms such as UWP.
+    public static void sendPushMessageAsync(String token, String body, String deviceKey, boolean production, String googleAuthKey,
+                                            String iosCertificateURL, String iosCertificatePassword, String bbUrl, String bbApp, String bbPass, String bbPort) {
+        NetworkManager.getInstance().addToQueue(createPushMessage(token, body, production, googleAuthKey, iosCertificateURL, iosCertificatePassword, bbUrl, bbApp, bbPass, bbPort, "", "", 1, deviceKey));
+    }
+
+    private static PushConnection createPushMessage(String token, String body, boolean production, String googleAuthKey,
+                                                    String iosCertificateURL, String iosCertificatePassword, String bbUrl, String bbApp, String bbPass, String bbPort, String wnsSID, String wnsClientSecret, int type, String... deviceKeys) {
+        PushConnection cr = new PushConnection();
+        cr.setPost(true);
+        cr.setUrl("https://cloud.codenameone.com/push/push");
+        cr.addArgument("token", token);
+        cr.addArguments("device", deviceKeys);
+        cr.addArgument("type", "" + type);
+        cr.addArgument("auth", googleAuthKey);
+        cr.addArgument("certPassword", iosCertificatePassword);
+        cr.addArgument("cert", iosCertificateURL);
+        cr.addArgument("body", body);
+        cr.addArgument("burl", bbUrl);
+        cr.addArgument("bbAppId", bbApp);
+        cr.addArgument("bbPass", bbPass);
+        cr.addArgument("bbPort", bbPort);
+        cr.addArgument("sid", wnsSID);
+        cr.addArgument("client_secret", wnsClientSecret);
+        if (production) {
+            cr.addArgument("production", "true");
+        } else {
+            cr.addArgument("production", "false");
+        }
+        cr.setFailSilently(true);
+        return cr;
+    }
+
+    /// Sets authentication for GMS (Android and Chrome)
+    ///
+    /// #### Parameters
+    ///
+    /// - `googleAuthKey`: authorization key from the google play store
+    ///
+    /// #### Returns
+    ///
+    /// self for chaining
+    public Push gcmAuth(String googleAuthKey) {
+        this.googleAuthKey = googleAuthKey;
+        return this;
+    }
+
+    /// Sets authentication for APNS (iOS)
+    ///
+    /// #### Parameters
+    ///
+    /// - `iosCertificateURL`: a URL where you host the iOS certificate for this applications push capabilities.
+    ///
+    /// - `iosCertificatePassword`: the password for the push certificate
+    ///
+    /// - `production`: True if this is a production certificate.  False if this is a development certificate.
+    ///
+    /// #### Returns
+    ///
+    /// Self for chaining
+    public Push apnsAuth(String iosCertificateURL, String iosCertificatePassword, boolean production) {
+        this.iosCertificateURL = iosCertificateURL;
+        this.iosCertificatePassword = iosCertificatePassword;
+        this.production = production;
+        return this;
+    }
+
+    /// Sets authenticaton for WNS (Windows 10/UWP)
+    ///
+    /// #### Parameters
+    ///
+    /// - `wnsSID`: The SID from the Windows store.
+    ///
+    /// - `wnsClientSecret`: The client secret from the windows store
+    ///
+    /// #### Returns
+    ///
+    /// self for chaining.
+    public Push wnsAuth(String wnsSID, String wnsClientSecret) {
+        this.wnsSID = wnsSID;
+        this.wnsClientSecret = wnsClientSecret;
+        return this;
+    }
+
+    /// Sets the type of push to use.  See developer guide for details of different push types.  Default is 1
+    ///
+    /// #### Parameters
+    ///
+    /// - `pushType`
+    ///
+    /// #### Returns
+    ///
+    /// Self for chaining.
+    public Push pushType(int pushType) {
+        this.pushType = pushType;
+        return this;
+    }
+
+    /// Sends push message.
+    ///
+    /// #### Returns
+    ///
+    /// True if the request was successful.
+    public boolean send() {
+        PushConnection cr = createPushMessage(token, body, production, googleAuthKey, iosCertificateURL, iosCertificatePassword, "", "", "", "", wnsSID, wnsClientSecret, pushType, deviceKeys);
+        NetworkManager.getInstance().addToQueueAndWait(cr);
+        return cr.successful;
+    }
+
+    /// Sends push message asynchronously.
+    public void sendAsync() {
+        NetworkManager.getInstance().addToQueue(createPushMessage(token, body, production, googleAuthKey, iosCertificateURL, iosCertificatePassword, "", "", "", "", wnsSID, wnsClientSecret, pushType, deviceKeys));
+    }
+
+    static class PushConnection extends ConnectionRequest {
+        boolean successful;
+
+        @Override
+        protected void readResponse(InputStream input) throws IOException {
+            JSONParser jp = new JSONParser();
+            Map<String, Object> data = jp.parseJSON(new InputStreamReader(input, "UTF-8"));
+            String error = (String) data.get("error");
+            if (error != null) {
+                // this is an error response...
+                Log.p(error);
+                Log.p("Full error: " + data);
+                successful = false;
+            } else {
+                successful = true;
+            }
+        }
+
+        @Override
+        protected void handleErrorResponseCode(int code, String message) {
+            successful = false;
+        }
+
+        @Override
+        protected void handleException(Exception err) {
+            successful = false;
+            Log.e(err);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (!(o instanceof PushConnection)) {
+                return false;
+            }
+
+            PushConnection that = (PushConnection) o;
+            return super.equals(o) && successful == that.successful;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = super.hashCode();
+            result = 31 * result + (successful ? 1 : 0);
+            return result;
+        }
+    }
+
+}

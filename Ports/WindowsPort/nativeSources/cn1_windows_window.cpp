@@ -1,0 +1,1429 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+/*
+ * Windowing anchor for the Codename One Windows (Win32) port. Owns the single
+ * CN1WindowsContext, the Win32 window + its Direct2D HWND render target, the
+ * DirectWrite / WIC factories, the cross-file string helper, and the input
+ * event ring buffer.
+ *
+ * Threading model: the app's main thread calls Display.init (which runs
+ * initDisplay here, creating the window on the main thread) and then owns the
+ * Win32 message pump via pumpMessages. Win32 delivers a window's messages to the
+ * thread that created it, so the pump must live on the main thread. The window
+ * proc only enqueues encoded events into a small ring buffer; the main thread
+ * then drains that ring (WindowsImplementation.drainInput) into Codename One,
+ * which wakes the EDT. The EDT is a separate thread (spawned by Display.init)
+ * that consumes the Codename One event queue, lays out, and renders with
+ * Direct2D. This producer (main) / consumer (EDT) split mirrors how every
+ * desktop Codename One port feeds input from the native UI thread to the EDT.
+ */
+
+#ifdef _WIN32
+
+#include "cn1_windows.h"
+#include <windowsx.h>   /* GET_X_LPARAM / GET_Y_LPARAM */
+#include <stdio.h>
+#include <string.h>
+#include <malloc.h>     /* _resetstkoflw (stack-overflow guard re-arm) */
+#include <dbghelp.h>    /* SymFromAddr: in-process symbolication of the crash backtrace */
+
+/* This unit is C++ (Direct2D has no C binding), but the ParparVM bridge
+ * functions and the shared helpers must keep C linkage so the translated C
+ * runtime links to them; the whole body is therefore wrapped in extern "C".
+ * stringToUTF8 and the other runtime helpers come from cn1_globals.h. */
+extern "C" {
+
+CN1WindowsContext cn1Win;
+
+/* The HWND render target is kept as its concrete type here so WM_SIZE can call
+ * Resize; everything else uses the base ID2D1RenderTarget via windowGraphics. */
+static ID2D1HwndRenderTarget* g_hwndTarget;
+
+/* --------------------------------------------------------------- logging */
+
+
+void cn1WindowsLog(const char* message) {
+    if (message == NULL) {
+        return;
+    }
+    OutputDebugStringA(message);
+    OutputDebugStringA("\n");
+    fputs(message, stderr);
+    fputc('\n', stderr);
+    fflush(stderr);
+    /* Also append to %TEMP%\cn1windows.log so logs survive when the console is
+     * hidden on an interactive launch (see initDisplay). */
+    {
+        char path[MAX_PATH];
+        DWORD n = GetTempPathA(MAX_PATH, path);
+        if (n > 0 && n < MAX_PATH - 16) {
+            FILE* f;
+            strcpy(path + n, "cn1windows.log");
+            f = fopen(path, "a");
+            if (f != NULL) {
+                fputs(message, f);
+                fputc('\n', f);
+                fclose(f);
+            }
+        }
+    }
+}
+
+
+/* Last-resort crash logger: prints the exception code + faulting address (and a
+ * few raw return addresses) so a silent native crash leaves a breadcrumb. */
+static LONG WINAPI cn1WinUnhandled(EXCEPTION_POINTERS* info) {
+    char buf[256];
+    sprintf(buf, "UNHANDLED EXCEPTION code=0x%08lX addr=%p base=%p",
+            (unsigned long) info->ExceptionRecord->ExceptionCode,
+            (void*) info->ExceptionRecord->ExceptionAddress,
+            (void*) GetModuleHandleW(NULL));
+    cn1WindowsLog(buf);
+    /* The access type + faulting data address pin down what was dereferenced
+     * (e.g. a corrupt String pointer vs a small null+offset). */
+    if (info->ExceptionRecord->NumberParameters >= 2) {
+        ULONG_PTR acc = info->ExceptionRecord->ExceptionInformation[0];
+        sprintf(buf, "  access=%s dataAddr=%p",
+                acc == 0 ? "read" : (acc == 1 ? "write" : (acc == 8 ? "exec" : "?")),
+                (void*) info->ExceptionRecord->ExceptionInformation[1]);
+        cn1WindowsLog(buf);
+    }
+#ifdef _M_ARM64
+    /* On ARM64 the crash context's Lr is the faulting function's caller return
+     * address; walk the x29 frame-pointer chain for the frames above it. */
+    CONTEXT* ctx = info->ContextRecord;
+    sprintf(buf, "  pc=%p lr=%p fp=%p sp=%p", (void*) ctx->Pc, (void*) ctx->Lr, (void*) ctx->Fp, (void*) ctx->Sp);
+    cn1WindowsLog(buf);
+    for (int r = 0; r <= 8; r++) {
+        sprintf(buf, "  x%d=%p", r, (void*) ctx->X[r]);
+        cn1WindowsLog(buf);
+    }
+    /* Proper ARM64 unwind via .pdata (RtlVirtualUnwind); works even when the
+     * x29 frame-pointer chain is corrupt (fp=0x14 in the observed crash).
+     * Prints each frame's RVA so it symbolizes against the PDB. */
+    {
+        DWORD64 modBase = (DWORD64) GetModuleHandleW(NULL);
+        CONTEXT uc = *ctx;
+        /* Symbolize in-process: the /Zi .pdb sits next to the running exe, so
+         * SymFromAddr turns each frame into a Java/C function name + offset. The
+         * process is already dying, so the (small) risk of dbghelp touching a
+         * corrupt heap is acceptable for a last-resort diagnostic; if init fails
+         * the raw rva=... line still symbolizes offline against the .pdb. */
+        HANDLE proc = GetCurrentProcess();
+        BOOL symOk = SymInitialize(proc, NULL, TRUE);
+        if (symOk) {
+            SymSetOptions(SymGetOptions() | SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS);
+        }
+        for (int i = 0; i < 40 && uc.Pc != 0; i++) {
+            char symName[256];
+            symName[0] = 0;
+            if (symOk) {
+                char symBuf[sizeof(SYMBOL_INFO) + 256];
+                SYMBOL_INFO* si = (SYMBOL_INFO*) symBuf;
+                memset(si, 0, sizeof(SYMBOL_INFO));
+                si->SizeOfStruct = sizeof(SYMBOL_INFO);
+                si->MaxNameLen = 255;
+                DWORD64 disp = 0;
+                if (SymFromAddr(proc, uc.Pc, &disp, si)) {
+                    IMAGEHLP_LINE64 line;
+                    memset(&line, 0, sizeof(line));
+                    line.SizeOfStruct = sizeof(line);
+                    DWORD lineDisp = 0;
+                    if (SymGetLineFromAddr64(proc, uc.Pc, &lineDisp, &line) && line.FileName) {
+                        const char* fn = strrchr(line.FileName, '\\');
+                        _snprintf(symName, sizeof(symName), " %s+0x%llX (%s:%lu)",
+                                  si->Name, (unsigned long long) disp,
+                                  fn ? fn + 1 : line.FileName, (unsigned long) line.LineNumber);
+                    } else {
+                        _snprintf(symName, sizeof(symName), " %s+0x%llX",
+                                  si->Name, (unsigned long long) disp);
+                    }
+                    symName[sizeof(symName) - 1] = 0;
+                }
+            }
+            char sbuf[512];
+            _snprintf(sbuf, sizeof(sbuf), "  stack[%d]=%p rva=%p%s", i, (void*) uc.Pc, (void*) (uc.Pc - modBase), symName);
+            sbuf[sizeof(sbuf) - 1] = 0;
+            cn1WindowsLog(sbuf);
+            DWORD64 imageBase = 0;
+            PRUNTIME_FUNCTION fe = RtlLookupFunctionEntry(uc.Pc, &imageBase, NULL);
+            if (fe == NULL) {
+                /* leaf function: the return address is in Lr. */
+                if (uc.Lr == 0 || uc.Lr == uc.Pc) {
+                    break;
+                }
+                uc.Pc = uc.Lr;
+                continue;
+            }
+            PVOID handlerData = NULL;
+            DWORD64 establisher = 0;
+            RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, uc.Pc, fe, &uc,
+                             &handlerData, &establisher, NULL);
+        }
+    }
+#endif
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+/* ----------------------------------------- hardware fault -> Java exception
+ *
+ * The ParparVM "clean" C target only emits an NPE check for a method's `this`
+ * (and only at method entry, after the receiver's vtable has already been read
+ * for the virtual dispatch). A null *argument* deref, or a virtual call on a
+ * null receiver, therefore faults in native code as a raw EXCEPTION_ACCESS_-
+ * VIOLATION instead of a catchable NullPointerException -- and that hard-crashes
+ * the whole process (and, on CI, the entire screenshot suite) with no Java stack
+ * trace. The iOS port solves the same problem with a SIGSEGV handler that calls
+ * throwException(); this is the Win32 analog.
+ *
+ * A vectored exception handler fires first-chance, like a Unix signal. Rather
+ * than run throwException() in the kernel's exception-dispatch context (where a
+ * longjmp out is fragile), we redirect the faulting instruction pointer to a
+ * trampoline and resume: the trampoline then runs on the faulting thread's own
+ * stack, in a normal context, so throwException()'s longjmp to the nearest CN1
+ * try/catch frame behaves exactly as it would for a Java-thrown exception. The
+ * exception unwinds to the test runner's catch, which logs it (with Java method
+ * names, via printStackTrace) and moves on to the next test.
+ *
+ * As the iOS comment notes, this WILL interfere with a native debugger -- a
+ * debugger sees the first-chance AV before us. It is a release/CI resilience
+ * mechanism, not a debugging aid.
+ */
+
+/* Deliver `exc` to the nearest matching CN1 try/catch frame by restoring that
+ * frame's saved setjmp() register state directly into the faulting CONTEXT, then
+ * returning EXCEPTION_CONTINUE_EXECUTION so the kernel resumes at the setjmp()
+ * continuation. This is precisely what longjmp() does MINUS the SEH stack unwind
+ * (RtlUnwind) -- and that unwind is exactly what cannot be driven from a fault-
+ * handler context (it fast-fails and silently kills the process), so we bypass
+ * it and restore the registers ourselves from the jmp_buf (_JUMP_BUFFER).
+ *
+ * The block search mirrors throwException() in cn1_globals.c: synchronized-method
+ * monitors are exited as their frames are skipped, and a frame matches when its
+ * exceptionClass is <=0 (catch-all) or the thrown class is instanceof it.
+ * Returns 1 with ctx updated when a handler is found, 0 when none exists. */
+static int cn1WinDeliverViaContext(CONTEXT* ctx, struct ThreadLocalData* t, JAVA_OBJECT exc) {
+    java_lang_Throwable_fillInStack__(t, exc);
+    t->exception = exc;
+    int excClassId = exc->__codenameOneParentClsReference->classId;
+    t->tryBlockOffset--;
+    while (t->tryBlockOffset >= 0) {
+        struct TryBlock* blk = &t->blocks[t->tryBlockOffset];
+        if (blk->monitor != 0) {
+            monitorExitBlock(t, blk->monitor);
+            t->tryBlockOffset--;
+            continue;
+        }
+        if (blk->exceptionClass <= 0 || instanceofFunction(blk->exceptionClass, excClassId)) {
+            _JUMP_BUFFER* jb = (_JUMP_BUFFER*) blk->destination;
+#if defined(_M_ARM64)
+            for (int i = 19; i <= 28; i++) {     /* x19-x28 callee-saved */
+                ctx->X[i] = (&jb->X19)[i - 19];
+            }
+            ctx->Fp = jb->Fp;
+            ctx->Lr = jb->Lr;
+            ctx->Sp = jb->Sp;
+            ctx->Pc = jb->Lr;   /* setjmp resumes at its saved return address... */
+            ctx->X[0] = 1;      /* ...returning 1 (the longjmp value) */
+            return 1;
+#elif defined(_M_X64)
+            ctx->Rbx = jb->Rbx;
+            ctx->Rsp = jb->Rsp;
+            ctx->Rbp = jb->Rbp;
+            ctx->Rsi = jb->Rsi;
+            ctx->Rdi = jb->Rdi;
+            ctx->R12 = jb->R12;
+            ctx->R13 = jb->R13;
+            ctx->R14 = jb->R14;
+            ctx->R15 = jb->R15;
+            ctx->Rip = jb->Rip; /* the instruction after the setjmp() call */
+            ctx->Rax = 1;       /* setjmp returns 1 (the longjmp value) */
+            return 1;
+#else
+            return 0;
+#endif
+        }
+        t->tryBlockOffset--;
+    }
+    return 0;
+}
+
+static LONG WINAPI cn1WinFaultToException(EXCEPTION_POINTERS* info) {
+    DWORD code = info->ExceptionRecord->ExceptionCode;
+    struct ThreadLocalData* t;
+    JAVA_OBJECT exc;
+
+    if (code == EXCEPTION_ACCESS_VIOLATION) {
+        /* Only treat a genuine null-object deref (null + small field/vtable
+         * offset) as an NPE. A wild/large faulting address is real memory
+         * corruption -- leave it for the unhandled-exception logger so it stays
+         * diagnosable instead of being masked as an NPE. */
+        ULONG_PTR faultAddr = info->ExceptionRecord->NumberParameters >= 2
+                ? info->ExceptionRecord->ExceptionInformation[1] : (ULONG_PTR) ~0;
+        if (faultAddr >= 0x10000) {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+        t = getThreadLocalData();
+        if (t == NULL || t->tryBlockOffset <= 0) {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+        exc = __NEW_INSTANCE_java_lang_NullPointerException(t);
+    } else if (code == EXCEPTION_STACK_OVERFLOW) {
+        /* Re-arm the guard page the overflow consumed so the (small) work below
+         * has stack; the context restore then jumps to a frame high up the stack
+         * with room to spare. */
+        _resetstkoflw();
+        t = getThreadLocalData();
+        if (t == NULL || t->tryBlockOffset <= 0) {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+        exc = __NEW_INSTANCE_java_lang_StackOverflowError(t);
+    } else {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+
+    if (cn1WinDeliverViaContext(info->ContextRecord, t, exc)) {
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+    /* No CN1 catch frame on this thread: fall through to the unhandled-exception
+     * logger, which records the fault and terminates. */
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+/* ----------------------------------------------------------- string helper */
+
+WCHAR* cn1WinJavaStringToWide(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT str, UINT32* outLen) {
+    if (str == JAVA_NULL) {
+        if (outLen != NULL) {
+            *outLen = 0;
+        }
+        WCHAR* empty = (WCHAR*) malloc(sizeof(WCHAR));
+        if (empty != NULL) {
+            empty[0] = 0;
+        }
+        return empty;
+    }
+    const char* utf8 = stringToUTF8(threadStateData, str);
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0); /* includes NUL */
+    if (wlen <= 0) {
+        wlen = 1;
+    }
+    WCHAR* w = (WCHAR*) malloc((size_t) wlen * sizeof(WCHAR));
+    if (w == NULL) {
+        return NULL;
+    }
+    MultiByteToWideChar(CP_UTF8, 0, utf8, -1, w, wlen);
+    if (outLen != NULL) {
+        *outLen = (UINT32) (wlen - 1);
+    }
+    return w;
+}
+
+/* ------------------------------------------------------------ event queue */
+
+void cn1WinPushEvent(CN1EventType type, int x, int y, int keyCode) {
+    cn1WinPushWindowEvent(0, type, x, y, keyCode);
+}
+
+/* Events the framework cannot reconstruct if they are lost, of which there are two
+ * kinds.
+ *
+ * Lifecycle: a lost hide leaves a window the framework believes is on screen, painting
+ * and animating until something else happens to it, and a lost close leaves it
+ * registered with no native window behind it.
+ *
+ * Terminations: a release ends something a press started. Lose it and the component
+ * the press went to stays in that state for good -- the key goes on repeating, the
+ * button stays down, the drag never finishes -- and the focus change that would
+ * otherwise cancel a held gesture is no use as a backstop if it is droppable too.
+ *
+ * Note the asymmetry with presses, which stay droppable: a release that arrives with
+ * no press behind it finds no recorded target and is discarded harmlessly, so when
+ * something has to go it must never be the release. */
+/* Unlike hover motion, leave has no later motion outside the window to repair
+ * a dropped notification. Protect only the terminal sentinel, not the motion stream. */
+static int cn1WinIsProtectedEvent(CN1EventType type, int x, int y) {
+    return type == CN1_EVENT_WINDOW_SHOWN || type == CN1_EVENT_WINDOW_HIDDEN
+            || type == CN1_EVENT_WINDOW_CLOSE
+            || type == CN1_EVENT_KEY_RELEASED
+            || type == CN1_EVENT_POINTER_RELEASED
+            || type == CN1_EVENT_WINDOW_FOCUS
+            || type == CN1_EVENT_SIZE_CHANGED
+            || (type == CN1_EVENT_POINTER_HOVER && x == -1 && y == -1);
+}
+
+/* Visibility only. A close request is protected from eviction like any other
+ * lifecycle event, but it is not a state that a later one supersedes: WM_CLOSE does
+ * not destroy the window, so a close that a subsequent minimize overwrote would take
+ * the close listener and the close operation with it. */
+static int cn1WinStateClass(CN1EventType type) {
+    if (type == CN1_EVENT_WINDOW_SHOWN || type == CN1_EVENT_WINDOW_HIDDEN) {
+        return 1;
+    }
+    if (type == CN1_EVENT_SIZE_CHANGED) {
+        return 2;
+    }
+    return 0;
+}
+
+/* Replaces a queued visibility event for the same window with this newer one. The
+ * latest state is the one that matters -- a hide followed by a show leaves the window
+ * shown -- so superseding costs nothing and needs no room. */
+static int cn1WinCoalesceLifecycleLocked(int windowId, CN1EventType type, int x, int y,
+        int keyCode) {
+    LONG idx = cn1Win.eventHead;
+    LONG newest = -1;
+    int cls = cn1WinStateClass(type);
+    if (cls == 0) {
+        return 0;
+    }
+    /* The *newest* match, not the first one found. A window can already have more than
+     * one transition queued -- a hide then a show -- and replacing the older of the two
+     * leaves the newer one as the last word, so the framework would end up believing a
+     * window that is natively hidden is on screen, and go on painting it. */
+    while (idx != cn1Win.eventTail) {
+        CN1Event* e = &cn1Win.events[idx];
+        if (e->windowId == windowId && cn1WinStateClass((CN1EventType) e->type) == cls) {
+            newest = idx;
+        }
+        idx = (idx + 1) % CN1_EVENT_QUEUE_CAPACITY;
+    }
+    if (newest < 0) {
+        return 0;
+    }
+    cn1Win.events[newest].type = (JAVA_INT) type;
+    cn1Win.events[newest].x = x;
+    cn1Win.events[newest].y = y;
+    cn1Win.events[newest].keyCode = keyCode;
+    return 1;
+}
+
+/* Removes the oldest droppable event, closing the gap. Used to make room for a
+ * protected one: advancing the head instead would evict whatever is oldest, and that
+ * can be a protected event itself -- which is the very thing being kept. */
+static void cn1WinRemoveAtLocked(LONG idx) {
+    LONG cur = idx;
+    LONG follow = (cur + 1) % CN1_EVENT_QUEUE_CAPACITY;
+    while (follow != cn1Win.eventTail) {
+        cn1Win.events[cur] = cn1Win.events[follow];
+        cur = follow;
+        follow = (follow + 1) % CN1_EVENT_QUEUE_CAPACITY;
+    }
+    cn1Win.eventTail = cur;
+}
+
+static int cn1WinEvictInputLocked(void) {
+    LONG idx = cn1Win.eventHead;
+    while (idx != cn1Win.eventTail) {
+        if (!cn1WinIsProtectedEvent((CN1EventType) cn1Win.events[idx].type,
+                cn1Win.events[idx].x, cn1Win.events[idx].y)) {
+            cn1WinRemoveAtLocked(idx);
+            return 1;
+        }
+        idx = (idx + 1) % CN1_EVENT_QUEUE_CAPACITY;
+    }
+    return 0;
+}
+
+/* Last resort when the queue holds nothing but lifecycle events and so has no input to
+ * give up. A window that toggled visibility several times before the framework drained
+ * anything has more than one transition queued, and every one but its last is already
+ * superseded, so dropping the oldest of them frees a slot without changing what any
+ * window ends up as. Without this a close arriving for a *different* window has nowhere
+ * to go and is dropped, which is the one outcome this whole path exists to prevent. */
+static int cn1WinEvictSupersededVisibilityLocked(void) {
+    LONG idx = cn1Win.eventHead;
+    while (idx != cn1Win.eventTail) {
+        CN1Event* e = &cn1Win.events[idx];
+        int cls = cn1WinStateClass((CN1EventType) e->type);
+        if (cls != 0) {
+            LONG scan = (idx + 1) % CN1_EVENT_QUEUE_CAPACITY;
+            while (scan != cn1Win.eventTail) {
+                CN1Event* later = &cn1Win.events[scan];
+                if (later->windowId == e->windowId
+                        && cn1WinStateClass((CN1EventType) later->type) == cls) {
+                    cn1WinRemoveAtLocked(idx);
+                    return 1;
+                }
+                scan = (scan + 1) % CN1_EVENT_QUEUE_CAPACITY;
+            }
+        }
+        idx = (idx + 1) % CN1_EVENT_QUEUE_CAPACITY;
+    }
+    return 0;
+}
+
+/* Last resort before giving up an entry outright: drop the oldest *termination*.
+ *
+ * When the queue cannot grow, the question is only which loss costs least, and the
+ * order is droppable input, then a state a later event already supersedes, then a
+ * termination, then a lifecycle event. A lost release latches one component; a lost
+ * close or hide loses a whole window -- the close operation never runs, or the
+ * framework goes on painting a window that is not on screen. So a queued close or
+ * visibility transition outranks any number of releases behind it. */
+static int cn1WinEvictOldestTerminationLocked(void) {
+    LONG idx = cn1Win.eventHead;
+    while (idx != cn1Win.eventTail) {
+        CN1EventType t = (CN1EventType) cn1Win.events[idx].type;
+        if (t == CN1_EVENT_KEY_RELEASED || t == CN1_EVENT_POINTER_RELEASED
+                || t == CN1_EVENT_WINDOW_FOCUS
+                || (t == CN1_EVENT_POINTER_HOVER && cn1Win.events[idx].x == -1
+                        && cn1Win.events[idx].y == -1)) {
+            cn1WinRemoveAtLocked(idx);
+            return 1;
+        }
+        idx = (idx + 1) % CN1_EVENT_QUEUE_CAPACITY;
+    }
+    return 0;
+}
+
+void cn1WinPushWindowEvent(int windowId, CN1EventType type, int x, int y, int keyCode) {
+    EnterCriticalSection(&cn1Win.eventLock);
+    LONG next = (cn1Win.eventTail + 1) % CN1_EVENT_QUEUE_CAPACITY;
+    if (next == cn1Win.eventHead && cn1WinIsProtectedEvent(type, x, y)) {
+        /* Full, and this one must not be the casualty. Supersede this window's own
+         * queued transition if it has one, otherwise take the room from an input event,
+         * and failing that from a transition that a later one already supersedes. Never
+         * from a transition that is still some window's last word. */
+        if (cn1WinCoalesceLifecycleLocked(windowId, type, x, y, keyCode)) {
+            LeaveCriticalSection(&cn1Win.eventLock);
+            return;
+        }
+        if (cn1WinEvictInputLocked() || cn1WinEvictSupersededVisibilityLocked()
+                || cn1WinEvictOldestTerminationLocked()) {
+            next = (cn1Win.eventTail + 1) % CN1_EVENT_QUEUE_CAPACITY;
+        } else {
+            /* Nothing left but lifecycle events -- closes and visibility transitions
+             * for more distinct windows than the queue can hold, which needs more
+             * windows open than any application has. Giving up the oldest is all that
+             * remains, and the newer event at least describes the more recent state. */
+            cn1Win.eventHead = (cn1Win.eventHead + 1) % CN1_EVENT_QUEUE_CAPACITY;
+            next = (cn1Win.eventTail + 1) % CN1_EVENT_QUEUE_CAPACITY;
+        }
+    }
+    if (next != cn1Win.eventHead) {
+        CN1Event* e = &cn1Win.events[cn1Win.eventTail];
+        e->windowId = windowId;
+        e->type = (JAVA_INT) type;
+        e->x = x;
+        e->y = y;
+        e->keyCode = keyCode;
+        cn1Win.eventTail = next;
+        SetEvent(cn1Win.eventSignal);
+    }
+    /* On overflow a droppable event is simply lost -- the newest is dropped and the
+     * queued ones kept, and the EDT drains continuously so this is only a backstop. A
+     * protected event never reaches here without room, having taken it above. */
+    LeaveCriticalSection(&cn1Win.eventLock);
+}
+
+int cn1WinPollEvent(CN1Event* out) {
+    int hasEvent = 0;
+    EnterCriticalSection(&cn1Win.eventLock);
+    if (cn1Win.eventHead != cn1Win.eventTail) {
+        *out = cn1Win.events[cn1Win.eventHead];
+        cn1Win.eventHead = (cn1Win.eventHead + 1) % CN1_EVENT_QUEUE_CAPACITY;
+        hasEvent = 1;
+    }
+    LeaveCriticalSection(&cn1Win.eventLock);
+    return hasEvent;
+}
+
+/* ------------------------------------------------------------- input helpers */
+
+/* The virtual key whose WM_KEYDOWN a menu accelerator consumed, so the matching WM_KEYUP can
+ * be consumed as well. Zero when no such press is outstanding. Touched only from the window
+ * procedure, which is one thread.
+ *
+ * Declared BELOW the input-helpers marker on purpose. scripts/test_native_hover_queue.py
+ * compiles the event queue standalone by slicing this file from cn1WinPushEvent to that
+ * marker, with -Wall -Wextra -Werror; a static declared inside that slice and used only
+ * further down is "defined but not used" there and fails the build. */
+static int cn1AcceleratorKeyDown = 0;
+
+/* Bitmask (CN1_PE_MASK_*) of the mouse buttons currently held. Mouse capture is
+ * held while ANY button is down so a drag that starts inside the window keeps
+ * delivering WM_MOUSEMOVE after the cursor leaves it, and released only once the
+ * last button comes up. */
+static int cn1WinButtonMask = 0;
+
+static void cn1WinButtonDown(HWND hwnd, int mask) {
+    if (cn1WinButtonMask == 0) {
+        SetCapture(hwnd);
+    }
+    cn1WinButtonMask |= mask;
+}
+
+static void cn1WinButtonUp(HWND hwnd, int mask) {
+    cn1WinButtonMask &= ~mask;
+    if (cn1WinButtonMask == 0) {
+        ReleaseCapture();
+    }
+}
+
+/* Buttons currently held according to a WM_MOUSEMOVE wParam, used to label a
+ * drag with the right button(s). */
+static int cn1WinMoveMask(WPARAM wParam) {
+    int mask = 0;
+    if (wParam & MK_LBUTTON)  mask |= CN1_PE_MASK_PRIMARY;
+    if (wParam & MK_RBUTTON)  mask |= CN1_PE_MASK_SECONDARY;
+    if (wParam & MK_MBUTTON)  mask |= CN1_PE_MASK_MIDDLE;
+    if (wParam & MK_XBUTTON1) mask |= CN1_PE_MASK_BACK;
+    if (wParam & MK_XBUTTON2) mask |= CN1_PE_MASK_FORWARD;
+    return mask;
+}
+
+/* Windows promotes touch and pen input to ordinary mouse messages and tags the
+ * message's extra-info word with a signature (see GetMessageExtraInfo docs:
+ * MI_WP_SIGNATURE 0xFF515700, with bit 0x80 distinguishing pen from touch). We
+ * use it to flag the synthesized mouse event as a touch / pen so the
+ * cross-platform PointerEvent type is correct on touch-enabled PCs. */
+/* Shared with the desktop window proc so a touch or pen contact keeps its source
+ * inside a Window, rather than arriving classified as a mouse. */
+int cn1WinTouchFlag(void) {
+    LONG_PTR extra = GetMessageExtraInfo();
+    if ((extra & 0xFFFFFF00) == 0xFF515700) {
+        /* Microsoft defines bit 0x80 as TOUCH, not pen. Reversing it makes a
+         * touch-only hover filter admit fingers and discard hovering pens.
+         * https://learn.microsoft.com/en-us/windows/win32/tablet/system-events-and-mouse-messages */
+        return (extra & 0x80) ? CN1_PE_TOUCH_FLAG : CN1_PE_PEN_FLAG;
+    }
+    return 0;
+}
+
+#ifdef WM_GESTURE
+/* macOS-style trackpad / touchscreen pinch and rotate via the Win32 gesture API.
+ * GID_ZOOM reports the absolute distance between the fingers and GID_ROTATE the
+ * absolute angle (radians); we forward the incremental scale / radians since the
+ * cross-platform pinch() / rotation() callbacks expect deltas like the Mac.
+ * The baselines are process wide rather than per window, which is correct because
+ * there is one touchpad: a gesture that starts over another window sends GF_BEGIN
+ * first, which is what resets them. Shared by the main window proc and the desktop
+ * window proc, so a pinch over a secondary window produces a gesture too -- the
+ * windowId is what decides whose component tree it reaches. */
+static double cn1WinZoomLast = 0.0;
+static double cn1WinRotateLast = 0.0;
+
+int cn1WinHandleGesture(HWND hwnd, int windowId, LPARAM lParam) {
+    GESTUREINFO gi;
+    ZeroMemory(&gi, sizeof(gi));
+    gi.cbSize = sizeof(gi);
+    if (!GetGestureInfo((HGESTUREINFO) lParam, &gi)) {
+        return 0;
+    }
+    int handled = 0;
+    POINT pt;
+    pt.x = gi.ptsLocation.x;
+    pt.y = gi.ptsLocation.y;
+    ScreenToClient(hwnd, &pt);
+    if (gi.dwID == GID_ZOOM) {
+        double dist = (double) gi.ullArguments;
+        if (gi.dwFlags & GF_BEGIN) {
+            cn1WinZoomLast = dist;
+            /* Forwarded, not only used to reset the baseline. Without an end the
+             * component that zoomed stays mid-pinch: a touchpad produces no
+             * pointer events, so the two-pointer path in Component that normally
+             * calls pinchReleased() never runs on this port. */
+            cn1WinPushWindowEvent(windowId, CN1_EVENT_PINCH_BEGIN, pt.x, pt.y, 0);
+        } else if (gi.dwFlags & GF_END) {
+            cn1WinZoomLast = 0.0;
+            cn1WinPushWindowEvent(windowId, CN1_EVENT_PINCH_END, pt.x, pt.y, 0);
+        } else if (cn1WinZoomLast > 0.0 && dist > 0.0) {
+            double scale = dist / cn1WinZoomLast;
+            cn1WinZoomLast = dist;
+            cn1WinPushWindowEvent(windowId, CN1_EVENT_PINCH, pt.x, pt.y,
+                    (int) (scale * CN1_GESTURE_FIXED + 0.5));
+        }
+        handled = 1;
+    } else if (gi.dwID == GID_ROTATE) {
+        if (gi.dwFlags & GF_BEGIN) {
+            cn1WinRotateLast = 0.0;
+        } else {
+            double angle = GID_ROTATE_ANGLE_FROM_ARGUMENT(gi.ullArguments);
+            double delta = angle - cn1WinRotateLast;
+            cn1WinRotateLast = angle;
+            cn1WinPushWindowEvent(windowId, CN1_EVENT_ROTATE, pt.x, pt.y,
+                    (int) (delta * CN1_GESTURE_FIXED + (delta >= 0 ? 0.5 : -0.5)));
+        }
+        handled = 1;
+    }
+    if (handled) {
+        CloseGestureInfoHandle((HGESTUREINFO) lParam);
+    }
+    return handled;
+}
+#endif
+
+/* ------------------------------------------------------------- window proc */
+
+LRESULT CALLBACK cn1WinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_GETOBJECT:
+            return cn1WinAccessibilityObject(hwnd, wParam, lParam);
+        case WM_LBUTTONDOWN:
+            cn1WinButtonDown(hwnd, CN1_PE_MASK_PRIMARY);
+            cn1WinPushEvent(CN1_EVENT_POINTER_PRESSED, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam),
+                    CN1_PE_MASK_PRIMARY | cn1WinTouchFlag());
+            return 0;
+        case WM_LBUTTONUP:
+            cn1WinButtonUp(hwnd, CN1_PE_MASK_PRIMARY);
+            cn1WinPushEvent(CN1_EVENT_POINTER_RELEASED, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam),
+                    CN1_PE_MASK_PRIMARY | cn1WinTouchFlag());
+            return 0;
+        case WM_RBUTTONDOWN:
+            cn1WinButtonDown(hwnd, CN1_PE_MASK_SECONDARY);
+            cn1WinPushEvent(CN1_EVENT_POINTER_PRESSED, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam),
+                    CN1_PE_MASK_SECONDARY | cn1WinTouchFlag());
+            return 0;
+        case WM_RBUTTONUP:
+            cn1WinButtonUp(hwnd, CN1_PE_MASK_SECONDARY);
+            cn1WinPushEvent(CN1_EVENT_POINTER_RELEASED, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam),
+                    CN1_PE_MASK_SECONDARY | cn1WinTouchFlag());
+            return 0;
+        case WM_MBUTTONDOWN:
+            cn1WinButtonDown(hwnd, CN1_PE_MASK_MIDDLE);
+            cn1WinPushEvent(CN1_EVENT_POINTER_PRESSED, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam),
+                    CN1_PE_MASK_MIDDLE | cn1WinTouchFlag());
+            return 0;
+        case WM_MBUTTONUP:
+            cn1WinButtonUp(hwnd, CN1_PE_MASK_MIDDLE);
+            cn1WinPushEvent(CN1_EVENT_POINTER_RELEASED, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam),
+                    CN1_PE_MASK_MIDDLE | cn1WinTouchFlag());
+            return 0;
+        case WM_XBUTTONDOWN: {
+            int xmask = (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) ? CN1_PE_MASK_BACK : CN1_PE_MASK_FORWARD;
+            cn1WinButtonDown(hwnd, xmask);
+            cn1WinPushEvent(CN1_EVENT_POINTER_PRESSED, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam),
+                    xmask | cn1WinTouchFlag());
+            return TRUE; /* per WM_XBUTTON* contract */
+        }
+        case WM_XBUTTONUP: {
+            int xmask = (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) ? CN1_PE_MASK_BACK : CN1_PE_MASK_FORWARD;
+            cn1WinButtonUp(hwnd, xmask);
+            cn1WinPushEvent(CN1_EVENT_POINTER_RELEASED, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam),
+                    xmask | cn1WinTouchFlag());
+            return TRUE;
+        }
+        case WM_MOUSEMOVE: {
+            int moveMask = cn1WinMoveMask(wParam);
+            if (moveMask != 0) {
+                cn1WinPushEvent(CN1_EVENT_POINTER_DRAGGED, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam),
+                        moveMask | cn1WinTouchFlag());
+            } else {
+                /* No button held: this is hover, and it used to be dropped here.
+                 * Component's hover style is driven by Form.pointerHover, which
+                 * has nothing else to fire it, so every hover rule in a desktop
+                 * theme was inert.
+                 *
+                 * Droppable rather than protected, which is the right side of
+                 * that line: on overflow the ring discards the newest event, and
+                 * a lost hover costs nothing because hover is idempotent -- the
+                 * next motion re-establishes it. A lost RELEASE, by contrast,
+                 * leaves a button held for good, which is why that one is
+                 * protected. */
+                /* A hovering pen is valid hover; only touch-promoted motion is excluded.
+                 * Keep the source flag so Java callbacks receive stylus metadata. */
+                int source = cn1WinTouchFlag();
+                if ((source & CN1_PE_TOUCH_FLAG) == 0) {
+                    cn1WinPushEvent(CN1_EVENT_POINTER_HOVER, GET_X_LPARAM(lParam),
+                            GET_Y_LPARAM(lParam), source);
+                }
+                /* Ask for one WM_MOUSELEAVE. Without it the cursor can move straight off
+                 * the window and the last hovered control stays lit: motion simply stops,
+                 * and Form only clears its tracked hover when a DIFFERENT component is
+                 * reported. TrackMouseEvent is one-shot, so it is re-armed on every hover
+                 * rather than once at creation. */
+                TRACKMOUSEEVENT tme;
+                tme.cbSize = sizeof(tme);
+                tme.dwFlags = TME_LEAVE;
+                tme.hwndTrack = hwnd;
+                tme.dwHoverTime = HOVER_DEFAULT;
+                TrackMouseEvent(&tme);
+            }
+            return 0;
+        }
+        case WM_MOUSELEAVE: {
+            /* -1,-1 is the agreed "nothing is under the pointer" coordinate: the Java side
+             * turns it into pointerHover over no component, which clears the hover style.
+             * A real client coordinate is never negative, so the two cannot be confused. */
+            cn1WinPushEvent(CN1_EVENT_POINTER_HOVER, -1, -1, cn1WinTouchFlag());
+            return 0;
+        }
+#ifdef WM_GESTURE
+        case WM_GESTURE:
+            if (cn1WinHandleGesture(hwnd, 0, lParam)) {
+                return 0;
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+#endif
+        case WM_MOUSEWHEEL:
+        case WM_MOUSEHWHEEL: {
+            /* The wheel message reports the cursor in SCREEN coordinates; the
+             * input ring (and the synthetic scroll the EDT builds from it) work
+             * in client coordinates, so map it. The delta is signed, a multiple
+             * of WHEEL_DELTA (120). */
+            POINT pt;
+            pt.x = GET_X_LPARAM(lParam);
+            pt.y = GET_Y_LPARAM(lParam);
+            ScreenToClient(hwnd, &pt);
+            int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+            cn1WinPushEvent(msg == WM_MOUSEHWHEEL ? CN1_EVENT_MOUSE_HWHEEL : CN1_EVENT_MOUSE_WHEEL,
+                    pt.x, pt.y, delta);
+            return 0;
+        }
+        case WM_KEYDOWN:
+            /* A menu shortcut first. The menu labels advertise accelerators and there is no
+             * accelerator table in this pump, so without this they were decoration. A match
+             * consumes the keystroke: it belongs to the command, not to the focused
+             * component. Only an exact modifier match can match, so ordinary typing and the
+             * Tab/Escape handling below are untouched. */
+            if (cn1WinMenuHandleAccelerator((int) wParam)) {
+                /* Remember the key so its release can be swallowed too. Consuming only the
+                 * press sent the focused component a release with no press before it, which
+                 * is a second action or a corrupted press/release state depending on what has
+                 * focus -- the same half-a-keystroke problem Escape had on the Java side. */
+                cn1AcceleratorKeyDown = (int) wParam;
+                return 0;
+            }
+            cn1WinPushEvent(CN1_EVENT_KEY_PRESSED, 0, 0, (int) wParam);
+            return 0;
+        case WM_KEYUP:
+            if (cn1AcceleratorKeyDown != 0 && cn1AcceleratorKeyDown == (int) wParam) {
+                cn1AcceleratorKeyDown = 0;
+                return 0;
+            }
+            cn1WinPushEvent(CN1_EVENT_KEY_RELEASED, 0, 0, (int) wParam);
+            return 0;
+        case WM_DISPLAYCHANGE:
+            /* Handled on the main window too, not only on the desktop windows: an
+             * application can attach a monitor listener before it has opened any
+             * secondary window, and a display change has to reach it either way. */
+            cn1WinPushEvent(CN1_EVENT_MONITORS_CHANGED, 0, 0, 0);
+            return 0;
+        case WM_SIZE:
+            cn1Win.width = LOWORD(lParam);
+            cn1Win.height = HIWORD(lParam);
+            /* Defer the Direct2D Resize to the EDT (cn1WinApplyPendingResize):
+             * resizing the target from this (window) thread while the EDT is
+             * mid-frame corrupts the present and leaves the new area black. */
+            cn1Win.pendingW = cn1Win.width;
+            cn1Win.pendingH = cn1Win.height;
+            cn1Win.pendingResize = 1;
+            cn1WinPushEvent(CN1_EVENT_SIZE_CHANGED, cn1Win.width, cn1Win.height, 0);
+            return 0;
+        case WM_PAINT: {
+            /* Codename One drives painting from its own loop; just validate the
+             * update region so Windows stops re-posting WM_PAINT. */
+            PAINTSTRUCT ps;
+            BeginPaint(hwnd, &ps);
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_CN1_BROWSER:
+            /* WebView2 operation marshaled from the EDT (cn1_windows_browser.cpp). */
+            cn1WinBrowserHandleMessage(wParam, lParam);
+            return 0;
+        case WM_CN1_EDIT:
+            /* Native EDIT-control op marshaled from the EDT (cn1_windows_edit.c). */
+            cn1WinEditHandleMessage(wParam, lParam);
+            return 0;
+        case WM_CN1_FILEDIALOG:
+            /* Modal file open/save dialog, run synchronously on this (pump) thread
+             * while the EDT blocks in SendMessage (cn1_windows_io.c). */
+            return cn1WinFileDialogHandleMessage(wParam);
+        case WM_CN1_NOTIFY:
+            /* Show a local-notification balloon on the tray icon, marshaled from
+             * the notification Timer thread (cn1_windows_notify.c). */
+            cn1WinNotifyHandleMessage(wParam);
+            return 0;
+        case WM_CN1_TRAY:
+            /* The tray icon's own callback (balloon click etc.). */
+            cn1WinTrayHandleMessage(wParam, lParam);
+            return 0;
+        case WM_CN1_SHARE:
+            /* Show the WinRT share UI on this (window-owning) thread
+             * (cn1_windows_winrt.cpp). */
+            cn1WinShareHandleMessage(wParam);
+            return 0;
+        case WM_CN1_PRINTDLG:
+            /* Modal system print dialog, run synchronously on this (pump) thread
+             * while the printing worker blocks in SendMessage
+             * (cn1_windows_print.cpp). */
+            return cn1WinPrintDialogHandleMessage(wParam);
+        case WM_CN1_DESKTOPWINDOW:
+            /* Additional desktop window create/destroy, marshaled from the EDT.
+             * The pump thread must own the HWND, so this is where they are made
+             * (cn1_windows_desktopwindow.cpp). Secondary windows have their own
+             * WndProc; only the op dispatch lives here, because an op arrives
+             * before its window exists. */
+            cn1WinDesktopHandleMessage(wParam, lParam);
+            return 0;
+        case WM_CN1_WIDGET:
+            /* Floating widget window op (create/pixels/pos/hit-rects/destroy)
+             * marshaled from the EDT (cn1_windows_widgets.cpp). The widget
+             * windows have their own WndProc; this main-window case only hosts
+             * the op dispatch because ops arrive before their windows exist. */
+            cn1WinWidgetHandleMessage(wParam);
+            return 0;
+        case WM_CTLCOLOREDIT: {
+            /* Colour the native edit overlay to match the CN1 field it stands in
+             * for; fall through to default when it is not our control. */
+            HBRUSH br = cn1WinEditCtlColor((HDC) wParam, (HWND) lParam);
+            if (br != NULL) {
+                return (LRESULT) br;
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+        }
+        case WM_CN1_MENU:
+            /* On the window's own thread, which is the whole reason this is a message:
+             * SetMenu is not legal from the EDT. */
+            cn1WinMenuSetCommands((const char*) lParam);
+            return 0;
+        case WM_COMMAND:
+            if (cn1WinMenuHandleCommand(wParam)) {
+                return 0;
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+        case WM_CLOSE:
+            cn1WinPushEvent(CN1_EVENT_CLOSE, 0, 0, 0);
+            DestroyWindow(hwnd);
+            return 0;
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            return 0;
+        default:
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+}
+
+/* --------------------------------------------------------- window creation */
+
+int cn1WinCreateWindow(const char* utf8Title, int width, int height) {
+    HINSTANCE hInstance = GetModuleHandleW(NULL);
+
+    WNDCLASSEXW wc;
+    ZeroMemory(&wc, sizeof(wc));
+    wc.cbSize = sizeof(wc);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc = cn1WinWndProc;
+    wc.hInstance = hInstance;
+    /* IDC_ARROW resolves to the ANSI MAKEINTRESOURCE without UNICODE defined;
+     * cast to the wide resource id for LoadCursorW. */
+    wc.hCursor = LoadCursorW(NULL, (LPCWSTR) IDC_ARROW);
+    wc.lpszClassName = L"CodenameOneWindow";
+    RegisterClassExW(&wc);
+
+    int titleLen = MultiByteToWideChar(CP_UTF8, 0, utf8Title, -1, NULL, 0);
+    if (titleLen <= 0) {
+        titleLen = 1;
+    }
+    WCHAR* wTitle = (WCHAR*) malloc((size_t) titleLen * sizeof(WCHAR));
+    MultiByteToWideChar(CP_UTF8, 0, utf8Title, -1, wTitle, titleLen);
+
+    /* WS_CLIPCHILDREN so the Direct2D present does not paint over native child
+     * controls overlaid on the form (the WebView2 browser peer and the EDIT
+     * control used for native text editing). */
+    cn1Win.hwnd = CreateWindowExW(0, L"CodenameOneWindow", wTitle,
+            WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, width, height,
+            NULL, NULL, hInstance, NULL);
+    free(wTitle);
+    return cn1Win.hwnd != NULL ? 1 : 0;
+}
+
+/* ------------------------------------------------- WindowsNative bridge */
+
+JAVA_VOID com_codename1_impl_windows_WindowsNative_nativeLog___java_lang_String(
+        CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    if (__cn1Arg1 == JAVA_NULL) {
+        return;
+    }
+    cn1WindowsLog(stringToUTF8(threadStateData, __cn1Arg1));
+}
+
+/*
+ * Applies a pending window resize to the HWND render target. Called on the EDT
+ * (from cn1WinBeginFrame) so the Resize happens between frames on the same
+ * thread that draws -- never while a frame is open on another thread.
+ */
+void cn1WinApplyPendingResize(void) {
+    if (cn1Win.pendingResize && g_hwndTarget != NULL) {
+        D2D1_SIZE_U size;
+        size.width = (UINT32) cn1Win.pendingW;
+        size.height = (UINT32) cn1Win.pendingH;
+        ID2D1HwndRenderTarget_Resize(g_hwndTarget, &size);
+        cn1Win.pendingResize = 0;
+    }
+}
+
+/* True when CN1_FAULT_SELFTEST is set in the environment. The clean target does
+ * not translate System.getenv, so the launcher's fault-handler self-test gate
+ * reads the environment here via Win32 instead. */
+JAVA_BOOLEAN com_codename1_impl_windows_WindowsNative_faultSelfTestEnabled___R_boolean(CODENAME_ONE_THREAD_STATE) {
+    char buf[8];
+    DWORD n = GetEnvironmentVariableA("CN1_FAULT_SELFTEST", buf, (DWORD) sizeof(buf));
+    return (n > 0 && n < sizeof(buf)) ? JAVA_TRUE : JAVA_FALSE;
+}
+
+/*
+ * The main window's title, after initDisplay has already set it once.
+ *
+ * Needed because desktop "native" title-bar mode moves the form title OUT of the CN1 title
+ * area and into the OS window's, and until now this port had nowhere to put it: the title was
+ * a CreateWindowExW argument and WindowsNative.desktopWindowSetTitle addresses the SECONDARY
+ * Window peers by slot, never the main one. Without this, suppressing the CN1 title area would
+ * simply lose the title.
+ *
+ * SetWindowTextW is documented as safe to call from any thread -- it sends WM_SETTEXT to the
+ * window's own thread -- so unlike the GTK counterpart this needs no marshalling. A null HWND
+ * (headless screenshot mode never creates one) makes it a no-op.
+ */
+JAVA_VOID com_codename1_impl_windows_WindowsNative_mainWindowSetTitle___java_lang_String(
+        CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    if (cn1Win.hwnd == NULL) {
+        return;
+    }
+    const char* utf8Title = __cn1Arg1 == JAVA_NULL ? "" : stringToUTF8(threadStateData, __cn1Arg1);
+    int titleLen = MultiByteToWideChar(CP_UTF8, 0, utf8Title, -1, NULL, 0);
+    if (titleLen <= 0) {
+        titleLen = 1;
+    }
+    WCHAR* wTitle = (WCHAR*) malloc((size_t) titleLen * sizeof(WCHAR));
+    if (wTitle == NULL) {
+        return;
+    }
+    MultiByteToWideChar(CP_UTF8, 0, utf8Title, -1, wTitle, titleLen);
+    SetWindowTextW(cn1Win.hwnd, wTitle);
+    free(wTitle);
+}
+
+JAVA_VOID com_codename1_impl_windows_WindowsNative_initDisplay___java_lang_String_int_int(
+        CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1, JAVA_INT __cn1Arg2, JAVA_INT __cn1Arg3) {
+#ifdef CN1_WIDGETBOARD
+    /* MSIX Widgets Board activation: when Windows launched this exe with
+     * -RegisterProcessAsComServer it wants the out-of-process widget provider,
+     * not the app UI. The check lives here (the first native call of every
+     * launch, before any window exists) because the process entry point is the
+     * translator-generated C main, which is not in nativeSources. This call
+     * never returns in server mode -- it serves widgets and exits the process. */
+    cn1WidgetBoardMaybeRunComServer();
+#endif
+    if (InterlockedCompareExchange(&cn1Win.initialized, 1, 0) != 0) {
+        return; /* already initialised */
+    }
+
+    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    SetUnhandledExceptionFilter(cn1WinUnhandled);
+    /* First-chance: turn null-deref / stack-overflow faults into catchable Java
+     * exceptions (see cn1WinFaultToException). Installed first (FirstHandler=1)
+     * so it runs before the OS default, but it only redirects genuine null
+     * derefs / overflows with a CN1 catch frame and lets everything else pass
+     * through to the unhandled-exception logger above. */
+    AddVectoredExceptionHandler(1, cn1WinFaultToException);
+
+    /* The exe is linked as a GUI-subsystem app (see writeCmakeProject), so
+     * double-clicking it never allocates a console -- no stray window, no stdout.
+     * When launched from a console (cmd), GUI-subsystem processes do NOT get their
+     * CRT stdout/stderr wired to that console automatically, so attach to the
+     * parent console (if any) and reopen the C streams onto it. AttachConsole fails
+     * with ERROR_INVALID_HANDLE when there is no parent console (the double-click
+     * case) -- we then leave stdio alone so nothing is shown. A redirected stdout
+     * pipe (the screenshot CI harness) is already inherited and must be preserved,
+     * so only reopen a stream when it is not already redirected to a file/pipe. We
+     * must NOT touch GetConsoleWindow() here: from cmd that is the user's own
+     * window. cn1WindowsLog also mirrors to %TEMP%\cn1windows.log regardless. */
+    if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+        if (GetFileType(GetStdHandle(STD_OUTPUT_HANDLE)) == FILE_TYPE_UNKNOWN) {
+            FILE* f = NULL;
+            freopen_s(&f, "CONOUT$", "w", stdout);
+        }
+        if (GetFileType(GetStdHandle(STD_ERROR_HANDLE)) == FILE_TYPE_UNKNOWN) {
+            FILE* f = NULL;
+            freopen_s(&f, "CONOUT$", "w", stderr);
+        }
+    }
+
+    InitializeCriticalSection(&cn1Win.eventLock);
+    cn1Win.eventSignal = CreateEventW(NULL, FALSE, FALSE, NULL);
+    cn1Win.eventHead = 0;
+    cn1Win.eventTail = 0;
+    cn1Win.dpiScale = 1.0f;
+
+    /* Headless screenshot mode: no window; render into an offscreen WIC bitmap
+     * that headlessTick later encodes to PNG. The EDT paints through the same
+     * getWindowGraphics + flushGraphics path as on-screen. */
+    if (cn1Win.headless) {
+        cn1Win.width = cn1Win.shotW > 0 ? cn1Win.shotW : 400;
+        cn1Win.height = cn1Win.shotH > 0 ? cn1Win.shotH : 600;
+        cn1Win.windowGraphics = cn1WinCreateOffscreenGraphics(cn1Win.width, cn1Win.height);
+        if (cn1Win.windowGraphics == NULL) {
+            cn1WindowsLog("initDisplay: headless offscreen target failed");
+        } else {
+            cn1WindowsLog("initDisplay: headless offscreen target created");
+        }
+        return;
+    }
+
+    const char* utf8Title = __cn1Arg1 != JAVA_NULL ? stringToUTF8(threadStateData, __cn1Arg1) : "Codename One";
+    if (!cn1WinCreateWindow(utf8Title, __cn1Arg2, __cn1Arg3)) {
+        cn1WindowsLog("initDisplay: failed to create window");
+        return;
+    }
+
+    /* Direct2D factory + HWND render target sized to the client area. */
+    /* In C++ the COM REFIID/REFCLSID parameters are references, so the GUID is
+     * passed by value (no &). */
+    // Multi-threaded: the window is created/pumped on the app's main thread but
+    // the render target is drawn from the Codename One EDT, so D2D must guard
+    // its own resources across threads.
+    D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, IID_ID2D1Factory, NULL,
+            (void**) &cn1Win.d2dFactory);
+
+    RECT rc;
+    GetClientRect(cn1Win.hwnd, &rc);
+    cn1Win.width = rc.right - rc.left;
+    cn1Win.height = rc.bottom - rc.top;
+
+    D2D1_RENDER_TARGET_PROPERTIES rtProps;
+    ZeroMemory(&rtProps, sizeof(rtProps));
+    rtProps.type = D2D1_RENDER_TARGET_TYPE_DEFAULT;
+    rtProps.pixelFormat.format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    rtProps.pixelFormat.alphaMode = D2D1_ALPHA_MODE_PREMULTIPLIED;
+
+    D2D1_HWND_RENDER_TARGET_PROPERTIES hwndProps;
+    ZeroMemory(&hwndProps, sizeof(hwndProps));
+    hwndProps.hwnd = cn1Win.hwnd;
+    hwndProps.pixelSize.width = (UINT32) cn1Win.width;
+    hwndProps.pixelSize.height = (UINT32) cn1Win.height;
+    /* RETAIN_CONTENTS: Codename One repaints only the dirty region each frame and
+     * relies on the rest of the surface being preserved across presents. The
+     * default (PRESENT_OPTIONS_NONE) discards the back buffer after Present, so
+     * everything the EDT did not repaint that frame showed stale pixels -- the
+     * overscroll "smear" at the form edges (a window resize recreated the target
+     * and briefly hid it). Retaining the contents makes partial repaints correct. */
+    hwndProps.presentOptions = D2D1_PRESENT_OPTIONS_RETAIN_CONTENTS;
+
+    if (FAILED(ID2D1Factory_CreateHwndRenderTarget(cn1Win.d2dFactory, &rtProps, &hwndProps, &g_hwndTarget))) {
+        cn1WindowsLog("initDisplay: failed to create HWND render target");
+        return;
+    }
+    cn1WindowsLog("initDisplay: render target created");
+    if (cn1Win.offscreenCapture) {
+        /* Render into an offscreen WIC bitmap sized to the real client area, so
+         * captureWindowToPngBytes reads back the proven WIC frame instead of a
+         * per-screenshot mutable-image repaint. The HWND target stays created
+         * (the window is valid, just never shown or drawn to). */
+        cn1Win.windowGraphics = cn1WinCreateOffscreenGraphics(cn1Win.width, cn1Win.height);
+        cn1WindowsLog(cn1Win.windowGraphics != NULL
+                ? "initDisplay: offscreen capture target created"
+                : "initDisplay: offscreen capture target FAILED");
+    } else {
+        cn1Win.windowGraphics = cn1WinCreateGraphics((ID2D1RenderTarget*) g_hwndTarget);
+    }
+    if (cn1Win.windowGraphics != NULL) {
+        /* Enables the #5273 flush-region clip clamp in cn1WinPushClip -- window
+         * graphics only, never mutable-image targets. */
+        cn1Win.windowGraphics->isWindowTarget = JAVA_TRUE;
+    }
+
+    /* WIC factory for the image layer. The DirectWrite factory is created lazily
+     * inside the C++ text layer (cn1_windows_dwrite.cpp), not here. */
+    CoCreateInstance(CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER,
+            IID_IWICImagingFactory, (void**) &cn1Win.wicFactory);
+
+    if (!cn1Win.offscreenCapture) {
+        ShowWindow(cn1Win.hwnd, SW_SHOW);
+        UpdateWindow(cn1Win.hwnd);
+        cn1WindowsLog("initDisplay: window shown");
+    } else {
+        cn1WindowsLog("initDisplay: offscreen capture -- window kept hidden");
+    }
+}
+
+JAVA_INT com_codename1_impl_windows_WindowsNative_getDisplayWidth___R_int(CODENAME_ONE_THREAD_STATE) {
+    return cn1Win.width;
+}
+
+/* Real horizontal screen DPI (96 == 100% scale), so the desktop port sizes
+ * mm-based theme metrics correctly instead of using the mobile density
+ * heuristic, which over-scales everything. */
+JAVA_INT com_codename1_impl_windows_WindowsNative_screenDpi___R_int(CODENAME_ONE_THREAD_STATE) {
+    int dpi = 96;
+    HDC dc = GetDC(cn1Win.hwnd);
+    if (dc != NULL) {
+        int v = GetDeviceCaps(dc, LOGPIXELSX);
+        ReleaseDC(cn1Win.hwnd, dc);
+        if (v > 0) {
+            dpi = v;
+        }
+    }
+    return (JAVA_INT) dpi;
+}
+
+/* True when an integrated or external touch digitizer is present, so the
+ * framework reports a touch device (Display.isTouchScreen()). SM_DIGITIZER bits
+ * cover touch and pen; we treat any reported touch capability as a touch
+ * device. */
+JAVA_BOOLEAN com_codename1_impl_windows_WindowsNative_isTouchDevice___R_boolean(CODENAME_ONE_THREAD_STATE) {
+    /* SM_DIGITIZER / NID_* / SM_MAXIMUMTOUCHES need Windows 7+ headers; guard so
+     * the port still builds against an older SDK target (reports no touch then). */
+#if defined(SM_DIGITIZER) && defined(NID_INTEGRATED_TOUCH) && defined(NID_EXTERNAL_TOUCH)
+    int caps = GetSystemMetrics(SM_DIGITIZER);
+    if ((caps & (NID_INTEGRATED_TOUCH | NID_EXTERNAL_TOUCH)) != 0) {
+        return JAVA_TRUE;
+    }
+#endif
+#if defined(SM_MAXIMUMTOUCHES)
+    if (GetSystemMetrics(SM_MAXIMUMTOUCHES) > 0) {
+        return JAVA_TRUE;
+    }
+#endif
+    return JAVA_FALSE;
+}
+
+JAVA_BOOLEAN com_codename1_impl_windows_WindowsNative_isHighContrastEnabled___R_boolean(CODENAME_ONE_THREAD_STATE) {
+    HIGHCONTRASTW contrast = {};
+    contrast.cbSize = sizeof(contrast);
+    if (!SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0)) return JAVA_FALSE;
+    return (contrast.dwFlags & HCF_HIGHCONTRASTON) != 0 ? JAVA_TRUE : JAVA_FALSE;
+}
+
+JAVA_BOOLEAN com_codename1_impl_windows_WindowsNative_isReduceMotionEnabled___R_boolean(CODENAME_ONE_THREAD_STATE) {
+#ifdef SPI_GETCLIENTAREAANIMATION
+    BOOL animationsEnabled = TRUE;
+    if (!SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animationsEnabled, 0)) return JAVA_FALSE;
+    return animationsEnabled ? JAVA_FALSE : JAVA_TRUE;
+#else
+    return JAVA_FALSE;
+#endif
+}
+
+JAVA_BOOLEAN com_codename1_impl_windows_WindowsNative_isScreenReaderEnabled___R_boolean(CODENAME_ONE_THREAD_STATE) {
+    BOOL screenReader = FALSE;
+    if (!SystemParametersInfoW(SPI_GETSCREENREADER, 0, &screenReader, 0)) return JAVA_FALSE;
+    return screenReader ? JAVA_TRUE : JAVA_FALSE;
+}
+
+JAVA_INT com_codename1_impl_windows_WindowsNative_getDisplayHeight___R_int(CODENAME_ONE_THREAD_STATE) {
+    return cn1Win.height;
+}
+
+JAVA_LONG com_codename1_impl_windows_WindowsNative_getWindowGraphics___R_long(CODENAME_ONE_THREAD_STATE) {
+    return (JAVA_LONG) (intptr_t) cn1Win.windowGraphics;
+}
+
+JAVA_VOID com_codename1_impl_windows_WindowsNative_flushGraphics___long_int_int_int_int(
+        CODENAME_ONE_THREAD_STATE, JAVA_LONG __cn1Arg1, JAVA_INT __cn1Arg2, JAVA_INT __cn1Arg3,
+        JAVA_INT __cn1Arg4, JAVA_INT __cn1Arg5) {
+    /* The dirty rectangle is advisory; the HWND render target presents the whole
+     * surface. EndDraw flushes the batched Direct2D commands and presents. */
+    CN1Graphics* g = (CN1Graphics*) (intptr_t) __cn1Arg1;
+    if (g != NULL) {
+        cn1WinEndFrame(g);
+    }
+    /* Mark a completed present so the headless capture can tell when the EDT has
+     * stopped painting (see runHeadlessLoop). */
+    InterlockedIncrement(&cn1Win.flushGen);
+}
+
+JAVA_BOOLEAN com_codename1_impl_windows_WindowsNative_pollEvent___int_1ARRAY_R_boolean(
+        CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    /* The message loop runs on the main thread (pumpMessages), which also drains
+     * this ring into Codename One. pollEvent must not PeekMessage on its own
+     * (empty) queue. */
+    CN1Event ev;
+    if (!cn1WinPollEvent(&ev)) {
+        return JAVA_FALSE;
+    }
+    JAVA_ARRAY_INT* out = (JAVA_ARRAY_INT*) (*(JAVA_ARRAY) __cn1Arg1).data;
+    int len = (*(JAVA_ARRAY) __cn1Arg1).length;
+    if (len > 0) { out[0] = ev.type; }
+    if (len > 1) { out[1] = ev.x; }
+    if (len > 2) { out[2] = ev.y; }
+    if (len > 3) { out[3] = ev.keyCode; }
+    if (len > 4) { out[4] = ev.windowId; }
+    return JAVA_TRUE;
+}
+
+JAVA_BOOLEAN com_codename1_impl_windows_WindowsNative_pumpMessages___R_boolean(CODENAME_ONE_THREAD_STATE) {
+    /* Runs on the app's main thread (the window's owner) after Display.init.
+     * Blocks for the next window message, dispatches it plus any already-queued
+     * burst, then returns to Java so the caller can drain the translated input
+     * into Codename One -- which is what wakes the EDT (it sleeps on the Display
+     * lock, not on the native message queue). Returns JAVA_FALSE once the window
+     * has closed (WM_QUIT) so the Java loop terminates.
+     *
+     * Window messages are delivered to the thread that created the window (this
+     * one). The EDT is a different thread, so it can neither see nor pump them --
+     * the producer/consumer split is deliberate and mirrors how every desktop CN1
+     * port feeds input from the native UI thread to the EDT. */
+    MSG msg;
+    BOOL got;
+    /* Yield the thread state across the (indefinitely) blocking GetMessage so the
+     * GC never waits on this thread. Resume before dispatching so the window proc
+     * runs with an active thread. */
+    CN1_YIELD_THREAD;
+    got = GetMessageW(&msg, NULL, 0, 0);
+    CN1_RESUME_THREAD;
+    if (got <= 0) {
+        return JAVA_FALSE;
+    }
+    TranslateMessage(&msg);
+    DispatchMessageW(&msg);
+    /* Drain the rest of an input/resize burst without blocking, so the whole
+     * batch is translated before we hand control back to drain it. */
+    while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
+        if (msg.message == WM_QUIT) {
+            return JAVA_FALSE;
+        }
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+    return JAVA_TRUE;
+}
+
+JAVA_VOID com_codename1_impl_windows_WindowsNative_runHeadlessLoop__(CODENAME_ONE_THREAD_STATE) {
+    /* Headless capture has no window / message loop. The main thread parks here
+     * to keep the process alive while the EDT (a separate thread) paints into
+     * the offscreen target, then -- after a fixed settle -- encodes the bitmap
+     * to PNG and exits. Driving the capture from here (not the EDT idle hook)
+     * makes it independent of the EDT's scheduling and guarantees termination.
+     * The UI is static, so by the settle the EDT is idle and not mid-paint. */
+    cn1WindowsLog("runHeadlessLoop: enter");
+    /* Wait for painting to SETTLE rather than for a fixed wall-clock time. A flat
+     * settle that is comfortable for a light form (one fillArc) is too short for a
+     * heavy one (draw-arc fills 100 concentric arcs per cell, draw-image-rect a
+     * dozen scaled blits) on the software-rendered headless target -- the frame
+     * was grabbed mid-paint with only the first grid cell drawn. Instead, snapshot
+     * once flushGraphics (one per completed present) has not advanced for a quiet
+     * window, after at least one present, bounded by a hard ceiling so a wedged
+     * EDT still terminates. When the count is stable the EDT is between frames, so
+     * reading the offscreen target is safe. */
+    const int QUIET_MS = 900;     /* paint considered settled after this idle gap */
+    const int MIN_MS = 1500;      /* always give the first paint at least this long */
+    const int MAX_MS = 30000;     /* hard ceiling: capture regardless after this   */
+    int waitedMs = 0;
+    int quietMs = 0;
+    LONG lastGen = -1;
+    CN1_YIELD_THREAD;
+    while (waitedMs < MAX_MS) {
+        Sleep(50);
+        waitedMs += 50;
+        LONG gen = cn1Win.flushGen;
+        if (gen != lastGen) {
+            lastGen = gen;
+            quietMs = 0;            /* a present landed -- restart the quiet timer */
+        } else {
+            quietMs += 50;
+        }
+        /* Settled: at least one present, then a quiet stretch, past the floor. */
+        if (lastGen > 0 && quietMs >= QUIET_MS && waitedMs >= MIN_MS) {
+            break;
+        }
+    }
+    CN1_RESUME_THREAD;
+    JAVA_BOOLEAN ok = cn1WinEncodeGraphicsToPng(cn1Win.windowGraphics, cn1Win.shotPath);
+    cn1WindowsLog(ok ? "runHeadlessLoop: screenshot saved" : "runHeadlessLoop: screenshot FAILED");
+    ExitProcess(ok ? 0 : 2);
+}
+
+JAVA_VOID com_codename1_impl_windows_WindowsNative_exitProcess___int(
+        CODENAME_ONE_THREAD_STATE, JAVA_INT __cn1Arg1) {
+    ExitProcess((UINT) __cn1Arg1);
+}
+
+JAVA_VOID com_codename1_impl_windows_WindowsNative_sleepMillis___int(
+        CODENAME_ONE_THREAD_STATE, JAVA_INT __cn1Arg1) {
+    if (__cn1Arg1 > 0) {
+        CN1_YIELD_THREAD;
+        Sleep((DWORD) __cn1Arg1);
+        CN1_RESUME_THREAD;
+    }
+}
+
+JAVA_VOID com_codename1_impl_windows_WindowsNative_parkMainThread___int(
+        CODENAME_ONE_THREAD_STATE, JAVA_INT __cn1Arg1) {
+    /* Keeps the main thread (and process) alive while worker threads -- the EDT,
+     * the WebSocket reader -- do their work, up to a timeout safety net. Callers
+     * exit early via exitProcess once their async work has completed. */
+    int waitedMs = 0;
+    CN1_YIELD_THREAD;
+    while (waitedMs < __cn1Arg1) {
+        Sleep(50);
+        waitedMs += 50;
+    }
+    CN1_RESUME_THREAD;
+    ExitProcess(3);
+}
+
+} /* extern "C" */
+
+#endif /* _WIN32 */
+
+/* ---------------------------------------------------------------- dark mode */
+
+/* INSIDE extern "C", and that is not decoration. This file is C++ and wraps its whole
+ * body in an extern "C" block that closes above; a ParparVM native appended after it
+ * gets C++ name mangling, and the generated C calls the unmangled name. It compiles, and
+ * the LINKER fails:
+ *
+ *   lld-link: error: undefined symbol:
+ *     com_codename1_impl_windows_WindowsNative_systemUsesDarkTheme___R_boolean
+ *
+ * Note scripts/check-native-signatures.sh does NOT catch this. It verifies that the
+ * NAME matches the Java signature, which it did; linkage is a different property and the
+ * only thing that reports it is a real device build. */
+extern "C" {
+
+/* True when the user has chosen the dark app theme.
+ *
+ * AppsUseLightTheme under HKCU\...\Themes\Personalize is what the Settings app writes
+ * and what every Windows application reads. The name is the trap: it says "use LIGHT",
+ * so 0 is dark and 1 is light, and a MISSING value is light -- the key does not exist
+ * before Windows 10 1607, and reading a failure as "dark" would put every older system
+ * on a dark theme it cannot render.
+ *
+ * RegGetValueW rather than RegOpenKeyEx + RegQueryValueEx: it opens, queries, type
+ * checks and closes in one call, so there is no key handle to leak on an error path.
+ *
+ * The signature is ParparVM's and is checked by nothing at build time -- a wrong name
+ * compiles, links, and leaves the Java method looking unused to the dead-code pass,
+ * which then removes it. scripts/check-native-signatures.sh is what catches that.
+ */
+JAVA_BOOLEAN com_codename1_impl_windows_WindowsNative_systemUsesDarkTheme___R_boolean(CODENAME_ONE_THREAD_STATE) {
+    DWORD value = 1;
+    DWORD size = sizeof(value);
+    LSTATUS st = RegGetValueW(HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            L"AppsUseLightTheme",
+            RRF_RT_REG_DWORD,
+            NULL,
+            &value,
+            &size);
+    if (st != ERROR_SUCCESS) {
+        return JAVA_FALSE;
+    }
+    return value == 0 ? JAVA_TRUE : JAVA_FALSE;
+}
+
+} /* extern "C" */

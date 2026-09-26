@@ -1,0 +1,331 @@
+#!/usr/bin/env bash
+###
+# Prepare Codename One workspace by installing Maven, provisioning JDK 8 and 17,
+# building core modules, and installing Maven archetypes.
+# IMPORTANT: Run this script from the project root!
+###
+set -euo pipefail
+[ "${DEBUG:-0}" = "1" ] && set -x
+
+log() {
+  echo "[setup-workspace] $1"
+}
+
+# Normalize TMPDIR and compose paths without duplicate slashes
+TMPDIR="${TMPDIR:-/tmp}"
+TMPDIR="${TMPDIR%/}"
+
+# Place downloaded tools outside the repository so it isn't filled with binaries
+# Strip any trailing slash again at the join to be extra safe.
+DOWNLOAD_DIR="${TMPDIR%/}/codenameone-tools"
+ENV_DIR="$DOWNLOAD_DIR/tools"
+mkdir -p "$DOWNLOAD_DIR"
+mkdir -p "$ENV_DIR"
+CN1_BINARIES_PARENT="$(cd .. && pwd -P)"
+CN1_BINARIES="${CN1_BINARIES_PARENT%/}/cn1-binaries"
+mkdir -p "$CN1_BINARIES_PARENT"
+
+ENV_FILE="$ENV_DIR/env.sh"
+
+log "The DOWNLOAD_DIR is ${DOWNLOAD_DIR}"
+
+mkdir -p ~/.codenameone
+cp maven/CodeNameOneBuildClient.jar ~/.codenameone
+
+# Reuse previously saved environment if present (so we can skip downloads)
+if [ -f "$ENV_FILE" ]; then
+  log "Found existing workspace environment at $ENV_FILE"
+  ls -l "$ENV_FILE" | while IFS= read -r line; do log "$line"; done
+  log "Existing workspace environment file contents"
+  sed 's/^/[setup-workspace] ENV: /' "$ENV_FILE"
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+fi
+
+JAVA_HOME="${JAVA_HOME:-}"
+JAVA17_HOME="${JAVA17_HOME:-}"
+MAVEN_HOME="${MAVEN_HOME:-}"
+
+log "Detecting host platform"
+os_name=$(uname -s)
+arch_name=$(uname -m)
+case "$os_name" in
+  Linux) os="linux" ;;
+  Darwin) os="mac" ;;
+  *) echo "Unsupported OS: $os_name" >&2; exit 1 ;;
+esac
+case "$arch_name" in
+  x86_64|amd64) arch="x64" ;;
+  arm64|aarch64) arch="aarch64" ;;
+  *) echo "Unsupported architecture: $arch_name" >&2; exit 1 ;;
+esac
+
+# Determine platform-specific JDK download URLs
+arch_jdk8="$arch"
+if [ "$os" = "mac" ] && [ "$arch" = "aarch64" ]; then
+  arch_jdk8="x64"
+fi
+
+JDK8_URL="https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u462-b08/OpenJDK8U-jdk_${arch_jdk8}_${os}_hotspot_8u462b08.tar.gz"
+JDK17_URL="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.16%2B8/OpenJDK17U-jdk_${arch}_${os}_hotspot_17.0.16_8.tar.gz"
+MAVEN_URL="https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.6/apache-maven-3.9.6-bin.tar.gz"
+
+# Downloads a toolchain archive, waiting out a rate limit rather than sprinting into it.
+#
+# curl's own --retry has a flat delay, and this script already knows why that is not enough:
+# the note on mvn_retry below says a flat retry lands inside the same window a 429 is still
+# rate limiting in. The downloads were doing exactly that -- six attempts fifteen seconds
+# apart, ninety seconds in total, against repo.maven.apache.org handing out 429s to a whole
+# CI matrix provisioning at once. The inner --retry still handles a dropped connection
+# quickly; the outer loop is what survives a throttle.
+download_archive() {
+  local url="$1" out="$2" delay
+  for delay in 0 30 120 300; do
+    if [ "$delay" -gt 0 ]; then
+      log "download failed; retrying in ${delay}s in case the mirror is rate limiting"
+      sleep "$delay"
+    fi
+    # curl waits for the larger of --retry-delay and any Retry-After the server sends.
+    if curl -fL --retry 3 --retry-delay 5 --retry-max-time 120 --retry-all-errors \
+        "$url" -o "$out"; then
+      return 0
+    fi
+  done
+  log "could not download $url" >&2
+  return 1
+}
+
+install_jdk() {
+  local url="$1" dest_var="$2"
+  local archive="$DOWNLOAD_DIR/$(basename "$url")"
+
+  if [ -f "$archive" ]; then
+    log "Using cached JDK archive $(basename "$archive")"
+  else
+    log "Downloading JDK from $url"
+    # Every Android job provisions its own JDKs from the same GitHub release at the
+    # same moment, so the whole matrix can trip 429 together.
+    download_archive "$url" "$archive"
+  fi
+
+  local top
+  top=$(tar -tzf "$archive" 2>/dev/null | head -1 | cut -d/ -f1 || true)
+  if [ -z "$top" ]; then
+    log "Unable to determine extracted directory from $(basename "$archive")" >&2
+    exit 1
+  fi
+
+  local extracted="$DOWNLOAD_DIR/$top"
+  if [ -d "$extracted" ]; then
+    log "JDK already extracted at $extracted"
+  else
+    log "Extracting JDK to $DOWNLOAD_DIR"
+    tar -xzf "$archive" -C "$DOWNLOAD_DIR"
+  fi
+
+  local home="$extracted"
+  if [ -d "$home/Contents/Home" ]; then
+    home="$home/Contents/Home"
+  fi
+
+  printf -v "$dest_var" '%s' "$home"
+}
+
+CN1_VERSION=$(awk -F'[<>]' '/<version>/{print $3; exit}' maven/pom.xml)
+log "Detected Codename One snapshot version ${CN1_VERSION}"
+
+log "Ensuring JDK 8 is available"
+if [ -z "${JAVA_HOME:-}" ] || [ ! -x "$JAVA_HOME/bin/java" ] || ! "$JAVA_HOME/bin/java" -version 2>&1 | grep -q '8\.0'; then
+  log "Provisioning JDK 8..."
+  install_jdk "$JDK8_URL" JAVA_HOME
+else
+  log "Using existing JDK 8 at $JAVA_HOME"
+fi
+
+log "Ensuring JDK 17 is available"
+if [ -z "${JAVA17_HOME:-}" ] || [ ! -x "$JAVA17_HOME/bin/java" ] || ! "$JAVA17_HOME/bin/java" -version 2>&1 | grep -q '17\.0'; then
+  log "Provisioning JDK 17..."
+  install_jdk "$JDK17_URL" JAVA17_HOME
+else
+  log "Using existing JDK 17 at $JAVA17_HOME"
+fi
+
+log "Ensuring Maven is available"
+if [ -z "${MAVEN_HOME:-}" ] || ! [ -x "$MAVEN_HOME/bin/mvn" ]; then
+  mvn_archive="$DOWNLOAD_DIR/$(basename "$MAVEN_URL")"
+  if [ -f "$mvn_archive" ]; then
+    log "Using cached Maven archive $(basename "$mvn_archive")"
+  else
+    log "Downloading Maven from $MAVEN_URL"
+    download_archive "$MAVEN_URL" "$mvn_archive"
+  fi
+  mvn_top=$(tar -tzf "$mvn_archive" 2>/dev/null | head -1 | cut -d/ -f1 || true)
+  if [ -z "$mvn_top" ]; then
+    log "Unable to determine extracted directory from $(basename "$mvn_archive")" >&2
+    exit 1
+  fi
+  if [ -n "$mvn_top" ] && [ -d "$DOWNLOAD_DIR/$mvn_top" ]; then
+    log "Maven already extracted at $DOWNLOAD_DIR/$mvn_top"
+  else
+    log "Extracting Maven to $DOWNLOAD_DIR"
+    tar -xzf "$mvn_archive" -C "$DOWNLOAD_DIR"
+  fi
+  MAVEN_HOME="$DOWNLOAD_DIR/$mvn_top"
+else
+  log "Using existing Maven at $MAVEN_HOME"
+fi
+
+ARCHETYPE_PLUGIN_COORD="org.apache.maven.plugins:maven-archetype-plugin:3.2.1"
+log "Preloading Maven archetype plugin ($ARCHETYPE_PLUGIN_COORD) for offline project generation"
+if "$MAVEN_HOME/bin/mvn" -B -N "$ARCHETYPE_PLUGIN_COORD:help" -Ddetail -Dgoal=generate >/dev/null 2>&1; then
+  log "Maven archetype plugin cached locally"
+else
+  log "Failed to preload $ARCHETYPE_PLUGIN_COORD; archetype generation may download dependencies" >&2
+fi
+
+log "Writing environment to $ENV_FILE"
+cat > "$ENV_FILE" <<ENV
+export JAVA_HOME="$JAVA_HOME"
+export JAVA17_HOME="$JAVA17_HOME"
+export MAVEN_HOME="$MAVEN_HOME"
+export PATH="\$JAVA_HOME/bin:\$MAVEN_HOME/bin:\$PATH"
+ENV
+
+log "Workspace environment file metadata"
+if [ -f "$ENV_FILE" ]; then
+  ls -l "$ENV_FILE" | while IFS= read -r line; do log "$line"; done
+  log "Workspace environment file contents"
+  sed 's/^/[setup-workspace] ENV: /' "$ENV_FILE"
+else
+  log "Environment file was not created at $ENV_FILE" >&2
+fi
+
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+
+log "JDK 8 version:"; "$JAVA_HOME/bin/java" -version
+log "JDK 17 version:"; "$JAVA17_HOME/bin/java" -version
+log "Maven version:"; "$MAVEN_HOME/bin/mvn" -version
+
+PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
+
+log "Preparing cn1-binaries checkout"
+if [ -d "$CN1_BINARIES/.git" ]; then
+  log "Found existing cn1-binaries repository at $CN1_BINARIES"
+  if git -C "$CN1_BINARIES" remote get-url origin >/dev/null 2>&1; then
+    if git -C "$CN1_BINARIES" fetch --depth=1 origin; then
+      remote_head=$(git -C "$CN1_BINARIES" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
+      if [ -z "$remote_head" ]; then
+        current_branch=$(git -C "$CN1_BINARIES" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+        if [ -n "$current_branch" ] && [ "$current_branch" != "HEAD" ]; then
+          remote_head="origin/$current_branch"
+        else
+          remote_head="origin/master"
+        fi
+      fi
+      if ! git -C "$CN1_BINARIES" rev-parse --verify "$remote_head" >/dev/null 2>&1; then
+        if git -C "$CN1_BINARIES" rev-parse --verify origin/main >/dev/null 2>&1; then
+          remote_head="origin/main"
+        elif git -C "$CN1_BINARIES" rev-parse --verify origin/master >/dev/null 2>&1; then
+          remote_head="origin/master"
+        else
+          log "Unable to determine remote head for cached cn1-binaries; removing checkout"
+          rm -rf "$CN1_BINARIES"
+        fi
+      fi
+      if [ -d "$CN1_BINARIES/.git" ]; then
+        log "Updating cn1-binaries to $remote_head"
+        git -C "$CN1_BINARIES" reset --hard "$remote_head"
+      fi
+    else
+      log "Failed to fetch updates for cached cn1-binaries; removing checkout"
+      rm -rf "$CN1_BINARIES"
+    fi
+  else
+    log "Cached cn1-binaries checkout missing origin remote; removing"
+    rm -rf "$CN1_BINARIES"
+  fi
+fi
+
+if [ ! -d "$CN1_BINARIES/.git" ]; then
+  log "Cloning cn1-binaries"
+  git clone --depth=1 --filter=blob:none https://github.com/codenameone/cn1-binaries "$CN1_BINARIES"
+fi
+
+# Both builds below run with -T 1C, so several modules install into the local
+# repository at once and contend for its lock. Maven's default wait is 30 seconds,
+# and on a cold cache under a loaded runner that is not always enough -- the build
+# then dies with "Could not acquire lock(s)" having compiled nothing wrong. Waiting
+# longer costs nothing when there is no contention.
+MVN_LOCK_ARGS="-Daether.syncContext.named.time=300 -Daether.syncContext.named.timeUnit=SECONDS"
+
+# Maven Central resets the connection or throttles a runner often enough to matter,
+# and Maven treats that as a PERMANENT resolution failure -- observed killing this
+# script while fetching a build plugin, before any project code compiled. The delay
+# grows because a flat retry lands inside the same window a 429 is still rate
+# limiting in. A real build failure fails identically every attempt, so this costs
+# one extra run of a broken build and rescues a green one.
+#
+# The retry has to FORCE re-resolution, and until it did it could not rescue anything.
+# Maven records a failed download in the local repository and then refuses to try again
+# until the update interval elapses -- it says so itself: "was not found ... during a
+# previous attempt. This failure was cached in the local repository and resolution is not
+# reattempted until the update interval of central has elapsed or updates are forced".
+# So every retry re-read the cached miss and failed identically, for exactly the transient
+# outage the retry was written to absorb. Observed on a javascript-screenshots run that
+# spent seven minutes failing three times on one plugin. -U from the second attempt is
+# what "or updates are forced" means; it is not on the first, where there is nothing
+# cached to invalidate and it would only cost update checks on every snapshot.
+mvn_retry() {
+  local delay
+  local attempt=0
+  for delay in 30 120 300 0; do
+    attempt=$((attempt + 1))
+    if [ "$attempt" -eq 1 ]; then
+      if "$MAVEN_HOME/bin/mvn" "$@"; then
+        return 0
+      fi
+    else
+      if "$MAVEN_HOME/bin/mvn" -U "$@"; then
+        return 0
+      fi
+    fi
+    if [ "$delay" = "0" ]; then
+      log "maven failed after all retries"
+      return 1
+    fi
+    log "maven failed; retrying in ${delay}s with -U in case Maven Central was flaky"
+    sleep "$delay"
+  done
+}
+
+log "Building Codename One core modules"
+mvn_retry -f maven/pom.xml $MVN_LOCK_ARGS -T 1C -Dmaven.javadoc.skip=true -Dmaven.source.skip=true -DskipTests -Djava.awt.headless=true -Dcn1.binaries="$CN1_BINARIES" -Dcodename1.platform=javase -P local-dev-javase,compile-android,!download-cn1-binaries install "$@"
+
+log "Building Codename One Maven plugin"
+mvn_retry -f maven/pom.xml \
+  -pl codenameone-maven-plugin -am \
+  $MVN_LOCK_ARGS -T 1C -Dmaven.javadoc.skip=true -Dmaven.source.skip=true \
+  -DskipTests -Djava.awt.headless=true \
+  -Dcn1.binaries="$CN1_BINARIES" \
+  -P !download-cn1-binaries \
+  install "$@"
+
+BUILD_CLIENT="$HOME/.codenameone/CodeNameOneBuildClient.jar"
+log "Ensuring CodeNameOneBuildClient.jar is installed"
+if [ ! -f "$BUILD_CLIENT" ]; then
+  if ! "$MAVEN_HOME/bin/mvn" -f maven/pom.xml -Dcn1.binaries="$CN1_BINARIES" -P !download-cn1-binaries cn1:install-codenameone "$@"; then
+    log "Falling back to copying CodeNameOneBuildClient.jar"
+    mkdir -p "$(dirname "$BUILD_CLIENT")"
+    cp maven/CodeNameOneBuildClient.jar "$BUILD_CLIENT" || true
+  fi
+fi
+
+# The cn1{app,lib}-archetype modules are inlined into the maven/ reactor
+# (see maven/cn1app-archetype/ and maven/cn1lib-archetype/), so they're
+# already installed into the local repo by the main `mvn install` above.
+# Refresh the local archetype catalog so `mvn archetype:generate` can
+# resolve them without a network round-trip.
+log "Refreshing local archetype catalog"
+( cd maven && "$MAVEN_HOME/bin/mvn" -q archetype:update-local-catalog ) || \
+  log "archetype:update-local-catalog failed; archetype:generate may need -DarchetypeCatalog=local manually."

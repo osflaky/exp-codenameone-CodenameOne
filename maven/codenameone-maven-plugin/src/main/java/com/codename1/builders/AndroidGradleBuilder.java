@@ -1,0 +1,11956 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.builders;
+
+import com.codename1.build.shared.PlatformFeatureCatalog;
+
+import static com.codename1.maven.PathUtil.path;
+
+import net.lingala.zip4j.exception.ZipException;
+import net.lingala.zip4j.ZipFile;
+
+import com.codename1.builders.util.JSONParser;
+
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.Image;
+import java.awt.Toolkit;
+import java.awt.image.BufferedImage;
+import java.awt.image.FilteredImageSource;
+import java.awt.image.ImageFilter;
+import java.awt.image.ImageProducer;
+import java.awt.image.RGBImageFilter;
+import java.io.*;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
+
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Collections;
+
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Scanner;
+import java.util.Set;
+import java.util.StringTokenizer;
+
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import javax.imageio.ImageIO;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+
+import org.apache.commons.io.FileUtils;
+import org.w3c.dom.Document;
+import org.w3c.dom.NamedNodeMap;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xeustechnologies.jtar.TarEntry;
+import org.xeustechnologies.jtar.TarOutputStream;
+
+/**
+ *
+ * @author Shai Almog
+ * @author Steve Hannah
+ */
+public class AndroidGradleBuilder extends Executor {
+
+    private static final String GRADLE_8_VERSION = "8.13";
+    private static final String ANDROID_GRADLE_PLUGIN_8_VERSION = "8.13.2";
+    private static final String DESUGAR_JDK_LIBS_VERSION = "2.1.5";
+    private static final String GRADLE_8_DISTRIBUTION_URL =
+            "https://services.gradle.org/distributions/gradle-" + GRADLE_8_VERSION + "-bin.zip";
+    // Four attempts with a GROWING wait -- 10s, 40s, 160s -- rather than three a couple
+    // of seconds apart.
+    //
+    // The distribution is served by GitHub releases, and what fails there is an outage
+    // with a duration, not a blip: an Android job died on three HTTP 500s inside six
+    // seconds, then the same URL served a range request perfectly a few minutes later.
+    // Three closely spaced attempts all land inside the same outage window, so they cost
+    // the runner six seconds and buy nothing -- and then a sixteen-minute job is thrown
+    // away over a transient upstream error. This is the lesson scripts/ci/retry.sh
+    // already records for Maven Central 403s, applied to the other download this build
+    // cannot proceed without.
+    //
+    // The worst case adds about three and a half minutes before the build gives up,
+    // which is cheap next to the job it saves and next to a developer re-running it.
+    private static final int GRADLE_DOWNLOAD_ATTEMPTS = 4;
+    private static final long GRADLE_DOWNLOAD_RETRY_DELAY_MS = 10000L;
+    private static final long GRADLE_DOWNLOAD_RETRY_DELAY_FACTOR = 4L;
+    private static final long GRADLE_DOWNLOAD_MAX_RETRY_DELAY_MS = 180000L;
+    private static final int GRADLE_DOWNLOAD_CONNECT_TIMEOUT_MS = 30000;
+    private static final int GRADLE_DOWNLOAD_READ_TIMEOUT_MS = 300000;
+
+    private String minimumGradleVersion = "6";
+
+    private String gradleDistributionUrl = "https://services.gradle.org/distributions/gradle-6.8.3-bin.zip";
+
+    private String gradle8DistributionUrl = GRADLE_8_DISTRIBUTION_URL;
+    public boolean PREFER_MANAGED_GRADLE=true;
+
+    private boolean rootCheck = false;
+
+    private boolean fridaDetection = false;
+
+    private boolean playIntegrity = false;
+
+    private boolean accessibilityGuard = false;
+
+    private boolean tapjackingGuard = false;
+
+    private boolean useGradle8 = true;
+
+    // Flag to indicate whether we should strip kotlin from user classes
+    // Necessary for using gradle 8 because kotlin seems to be included by default,
+    // so we get duplicate class errors.
+    private boolean stripKotlinFromUserClasses = true;
+
+    private boolean extendAppCompatActivity = false;
+
+    private File gradleProjectDirectory;
+
+    private boolean playServicesVersionSetInBuildHint = false;
+
+    private String facebookSdkVersion;
+
+    public File getGradleProjectDirectory() {
+        return gradleProjectDirectory;
+    }
+
+    private boolean decouplePlayServiceVersions = false;
+
+    // Temporary flag to update firebase messaging to version 23.2.1
+    // which is necessary to support Push on the latest Android devices.
+    private boolean newFirebaseMessaging = false;
+
+    // A flag to indicate whether we should use 'implementation' or 'compile' for dependencies
+    private boolean useArrImplementation = false;
+
+    // R8 configuration flags to control optimization behavior
+    // Setting disableR8FullMode=true puts R8 in compatibility mode (less aggressive optimization)
+    // which prevents issues with reflection-based code like CommonProgressAnimations
+    private boolean disableR8FullMode = true;
+    private boolean disableR8 = false;
+
+    public static final String[] ANDROID_PERMISSIONS = new String[]{
+            "android.permission.ACCESS_BACKGROUND_LOCATION",
+            "android.permission.ACCESS_CHECKIN_PROPERTIES",
+            "android.permission.ACCESS_COARSE_LOCATION",
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.ACCESS_LOCATION_EXTRA_COMMANDS",
+            "android.permission.ACCESS_NETWORK_STATE",
+            "android.permission.ACCESS_NOTIFICATION_POLICY",
+            "android.permission.ACCESS_WIFI_STATE",
+            "android.permission.ACCOUNT_MANAGER",
+            "com.android.voicemail.permission.ADD_VOICEMAIL",
+            "android.permission.BATTERY_STATS",
+            "android.permission.BIND_ACCESSIBILITY_SERVICE",
+            "android.permission.BIND_APPWIDGET",
+            "android.permission.BIND_CARRIER_MESSAGING_SERVICE",
+            "android.permission.BIND_CARRIER_SERVICES",
+            "android.permission.BIND_CHOOSER_TARGET_SERVICE",
+            "android.permission.BIND_DEVICE_ADMIN",
+            "android.permission.BIND_DREAM_SERVICE",
+            "android.permission.BIND_INCALL_SERVICE",
+            "android.permission.BIND_INPUT_METHOD",
+            "android.permission.BIND_MIDI_DEVICE_SERVICE",
+            "android.permission.BIND_NFC_SERVICE",
+            "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE",
+            "android.permission.BIND_PRINT_SERVICE",
+            "android.permission.BIND_REMOTEVIEWS",
+            "android.permission.BIND_SCREENING_SERVICE",
+            "android.permission.BIND_TELECOM_CONNECTION_SERVICE",
+            "android.permission.BIND_TEXT_SERVICE",
+            "android.permission.BIND_TV_INPUT",
+            "android.permission.BIND_VOICE_INTERACTION",
+            "android.permission.BIND_VPN_SERVICE",
+            "android.permission.BIND_WALLPAPER",
+            "android.permission.BLUETOOTH",
+            "android.permission.BLUETOOTH_ADMIN",
+            "android.permission.BLUETOOTH_ADVERTISE",
+            "android.permission.BLUETOOTH_CONNECT",
+            "android.permission.BLUETOOTH_PRIVILEGED",
+            "android.permission.BLUETOOTH_SCAN",
+            "android.permission.BODY_SENSORS",
+            "android.permission.BROADCAST_PACKAGE_REMOVED",
+            "android.permission.BROADCAST_SMS",
+            "android.permission.BROADCAST_STICKY",
+            "android.permission.BROADCAST_WAP_PUSH",
+            "android.permission.CALL_PHONE",
+            "android.permission.CALL_PRIVILEGED",
+            "android.permission.CAMERA",
+            "android.permission.CAPTURE_AUDIO_OUTPUT",
+            "android.permission.CAPTURE_SECURE_VIDEO_OUTPUT",
+            "android.permission.CAPTURE_VIDEO_OUTPUT",
+            "android.permission.CHANGE_COMPONENT_ENABLED_STATE",
+            "android.permission.CHANGE_CONFIGURATION",
+            "android.permission.CHANGE_NETWORK_STATE",
+            "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+            "android.permission.CHANGE_WIFI_STATE",
+            "android.permission.CLEAR_APP_CACHE",
+            "android.permission.CONTROL_LOCATION_UPDATES",
+            "android.permission.DELETE_CACHE_FILES",
+            "android.permission.DELETE_PACKAGES",
+            "android.permission.DIAGNOSTIC",
+            "android.permission.DISABLE_KEYGUARD",
+            "android.permission.DUMP",
+            "android.permission.EXPAND_STATUS_BAR",
+            "android.permission.FACTORY_TEST",
+            "android.permission.FLASHLIGHT",
+            "android.permission.GET_ACCOUNTS",
+            "android.permission.GET_ACCOUNTS_PRIVILEGED",
+            "android.permission.GET_PACKAGE_SIZE",
+            "android.permission.GET_TASKS",
+            "android.permission.GLOBAL_SEARCH",
+            "android.permission.INSTALL_LOCATION_PROVIDER",
+            "android.permission.INSTALL_PACKAGES",
+            "com.android.launcher.permission.INSTALL_SHORTCUT",
+            "android.permission.INTERNET",
+            "android.permission.KILL_BACKGROUND_PROCESSES",
+            "android.permission.LOCATION_HARDWARE",
+            "android.permission.MANAGE_DOCUMENTS",
+            "android.permission.MASTER_CLEAR",
+            "android.permission.MEDIA_CONTENT_CONTROL",
+            "android.permission.MODIFY_AUDIO_SETTINGS",
+            "android.permission.MODIFY_PHONE_STATE",
+            "android.permission.MOUNT_FORMAT_FILESYSTEMS",
+            "android.permission.MOUNT_UNMOUNT_FILESYSTEMS",
+            "android.permission.NFC",
+            "android.permission.PACKAGE_USAGE_STATS",
+            "android.permission.MANAGE_OWN_CALLS",
+            "android.permission.PERSISTENT_ACTIVITY",
+            "android.permission.PROCESS_OUTGOING_CALLS",
+            "android.permission.QUERY_ALL_PACKAGES",
+            "android.permission.READ_CALENDAR",
+            "android.permission.READ_CALL_LOG",
+            "android.permission.READ_CONTACTS",
+            "android.permission.READ_EXTERNAL_STORAGE",
+            "android.permission.READ_FRAME_BUFFER",
+            "android.permission.READ_INPUT_STATE",
+            "android.permission.READ_LOGS",
+            "android.permission.READ_PHONE_STATE",
+            "android.permission.READ_SMS",
+            "android.permission.READ_SYNC_SETTINGS",
+            "android.permission.READ_SYNC_STATS",
+            "com.android.voicemail.permission.READ_VOICEMAIL",
+            "android.permission.REBOOT",
+            "android.permission.RECEIVE_BOOT_COMPLETED",
+            "android.permission.RECEIVE_MMS",
+            "android.permission.RECEIVE_SMS",
+            "android.permission.RECEIVE_WAP_PUSH",
+            "android.permission.RECORD_AUDIO",
+            "android.permission.REORDER_TASKS",
+            "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+            "android.permission.REQUEST_INSTALL_PACKAGES",
+            "android.permission.RESTART_PACKAGES",
+            "android.permission.SEND_RESPOND_VIA_MESSAGE",
+            "android.permission.SEND_SMS",
+            "com.android.alarm.permission.SET_ALARM",
+            "android.permission.SET_ALWAYS_FINISH",
+            "android.permission.SET_ANIMATION_SCALE",
+            "android.permission.SET_DEBUG_APP",
+            "android.permission.SET_PREFERRED_APPLICATIONS",
+            "android.permission.SET_PROCESS_LIMIT",
+            "android.permission.SET_TIME",
+            "android.permission.SET_TIME_ZONE",
+            "android.permission.SET_WALLPAPER",
+            "android.permission.SET_WALLPAPER_HINTS",
+            "android.permission.SIGNAL_PERSISTENT_PROCESSES",
+            "android.permission.STATUS_BAR",
+            "android.permission.SYSTEM_ALERT_WINDOW",
+            "android.permission.TRANSMIT_IR",
+            "com.android.launcher.permission.UNINSTALL_SHORTCUT",
+            "android.permission.UPDATE_DEVICE_STATS",
+            "android.permission.USE_FINGERPRINT",
+            "android.permission.USE_BIOMETRIC",
+            "android.permission.USE_SIP",
+            "android.permission.VIBRATE",
+            "android.permission.WAKE_LOCK",
+            "android.permission.WRITE_APN_SETTINGS",
+            "android.permission.WRITE_CALENDAR",
+            "android.permission.WRITE_CALL_LOG",
+            "android.permission.WRITE_CONTACTS",
+            "android.permission.WRITE_EXTERNAL_STORAGE",
+            "android.permission.WRITE_GSERVICES",
+            "android.permission.WRITE_SECURE_SETTINGS",
+            "android.permission.WRITE_SETTINGS",
+            "android.permission.WRITE_SYNC_SETTINGS",
+            "com.android.voicemail.permission.WRITE_VOICEMAIL",
+            "android.permission.FOREGROUND_SERVICE",
+            "android.permission.FOREGROUND_SERVICE_PHONE_CALL"
+    };
+
+
+    /**
+     * The Android port sources Jar file.
+     */
+    private File androidPortSrcJar;
+
+    private String playFlag;
+
+    private boolean capturePermission;
+    private boolean usesBiometrics;
+    private boolean usesNfc;
+    private boolean usesNfcHce;
+    private boolean usesForegroundService;
+    private boolean usesSharedContent;
+    // Set when the app references com.codename1.car.* (Google Android Auto support). Gates the
+    // androidx.car.app gradle dependency, the CarAppService manifest entry and the injected glue.
+    private boolean usesCar;
+    // Set when the app references com.codename1.surfaces.* (home-screen widgets / live
+    // activities). Gates the surfaces.json parse, the per-kind widget provider codegen, the
+    // pre-baked layout resources and the manifest receivers/trampoline activity.
+    private boolean usesSurfaces;
+
+    // Set when the app references com.codename1.documents. Gates the DocumentsProvider
+    // manifest entry, which is the whole of the Android lowering -- unlike Apple there is no
+    // extension and no app group, the provider runs in this app's own process.
+    private boolean usesDocuments;
+    /// The kinds declaring a watch complication family, as {id, label, comma-joined families}.
+    ///
+    /// Collected while the surfaces manifest is parsed and consumed after the module layout is
+    /// known, because where the generated services go -- the phone module or a separate wear one
+    /// -- depends on the distribution and there is only one code path for both.
+    private final List<String[]> watchSurfaceKinds = new ArrayList<String[]>();
+    /// The androidx.wear dependency block, which belongs to the WATCH module alone.
+    ///
+    /// These declare minSdk 26, so adding them to a companion build's shared dependency hint
+    /// fails the phone module's manifest merge against a library it never uses.
+    private String watchSurfaceDependencies = "";
+    /// The generated phone stub's source, so the Wear module can derive its own from it.
+    private String generatedStubSource;
+    /**
+     * Permission declarations the Wear manifest needs but is not otherwise given.
+     *
+     * <p>The companion manifest is generated independently rather than merged, so
+     * anything the phone half computes locally has to be carried across by hand.</p>
+     */
+    private String watchSharedPermissions = "";
+
+    /** Push service declarations the Wear manifest needs too; see the phone manifest. */
+    private String watchPushManifestEntries = "";
+
+    /** The FileProvider declaration the Wear manifest needs too. */
+    private String watchProviderTag = "";
+
+    /** The local-notification receiver the Wear manifest needs too. */
+    private String watchAlarmReceiver = "";
+
+    /** The JobScheduler service declaration the Wear manifest needs too. */
+    private String watchBackgroundWorkService = "";
+
+    /** The background-fetch handler and trampoline the Wear manifest needs too. */
+    private String watchBackgroundFetchService = "";
+
+    /** Location, geofence and foreground-service declarations the Wear manifest needs too. */
+    private String watchFeatureComponents = "";
+    /// The com.codename1.intents wiring, carried into the generated Wear manifest. See where
+    /// they are assigned for why both halves have to travel together.
+    private String watchIntentsActivityMetaData = "";
+    private String watchIntentsManifestEntries = "";
+
+    /** Audio and remote-control declarations the Wear manifest needs too. */
+    private String watchMediaComponents = "";
+    /// True when the app references com.codename1.intents. Gates the shortcut resources, the
+    /// trampoline activity and the headless service, so an app that exposes nothing to the
+    /// launcher carries none of them.
+    private boolean usesIntents;
+    /// The `android.app.shortcuts` meta-data, which must be spliced into the launcher activity
+    /// rather than emitted beside it. Empty when the app declares no static shortcuts.
+    private String intentsShortcutsMetaData = "";
+    // Set when the app references com.codename1.wearable.* (the phone-to-watch link). Gates the
+    // play-services-wearable dependency, the WearableListenerService manifest entry and the
+    // injected Data Layer glue.
+    private boolean usesWearable;
+
+    /**
+     * The lifecycle class the generated stub instantiates.
+     *
+     * <p>Normally the phone main class. In a standalone Wear OS build the watch app is the product
+     * -- there is no phone app beside it -- so the single APK is rooted at {@code
+     * codename1.watchMain} instead; without this the watch declaration only reached the manifest
+     * and the app still started the phone UI.
+     *
+     * @param request the build being generated
+     * @return the class name the stub should instantiate
+     */
+    /** The declared watch lifecycle class, or an empty string when the project declares none. */
+    private static String watchMainClass(BuildRequest request) {
+        return request.getArg("watchMain", "").trim();
+    }
+
+    /**
+     * Which Gradle module is the Wear OS product, or null when this build produces none.
+     *
+     * <p>One question, answered once, because everything downstream -- where the complication
+     * services are generated, which manifest carries them, which module gets the androidx.wear
+     * dependencies -- is the same code either way and differs only in the destination.</p>
+     *
+     * <ul>
+     *   <li>{@code app} when the build is a standalone Wear APK: the single artifact IS the
+     *       watch app.</li>
+     *   <li>{@code wear} for a companion build, where the watch app is a second module beside
+     *       the phone one.</li>
+     *   <li>null when the project declares no watch lifecycle class, which is every project
+     *       that has not asked for a watch.</li>
+     * </ul>
+     *
+     * @param request the build being generated
+     * @return the module directory name, or null
+     */
+    static String watchModuleName(BuildRequest request) {
+        if (watchMainClass(request).length() == 0) {
+            return null;
+        }
+        if ("true".equals(request.getArg("watchStandalone", "false"))) {
+            return "app";
+        }
+        // A companion build generates the watch app beside the phone app. Opting out leaves the
+        // phone build exactly as it was, which is what a project that only wants the wearable
+        // link -- not a watch app -- is asking for.
+        if ("false".equals(request.getArg("android.watchModule", "true"))) {
+            return null;
+        }
+        return "wear";
+    }
+
+    /// Whether the new wearable declaration governs, leaving the retired android.wear hints out.
+    ///
+    /// The one rule the manifest and the lifecycle selection share. They used to disagree: the
+    /// manifest honoured android.wear on its own, while the lifecycle read only the new settings --
+    /// so a migrated project asking for a COMPANION got a Wear-only APK rooted at the phone
+    /// lifecycle, which is neither thing it could have meant.
+    ///
+    /// A project that has not declared watchMain has not migrated, and its legacy hints keep
+    /// working exactly as they did.
+    static boolean watchMainRetiresLegacyWear(String watchMain, String watchStandalone) {
+        return watchMain != null && watchMain.trim().length() > 0;
+    }
+
+    private String appLifecycleClass(BuildRequest request) {
+        // Unit-test mode wins. generateUnitTestFiles has already replaced the main class with
+        // CodenameOneUnitTestExecutor, and rooting the APK at the watch lifecycle instead started
+        // the watch application rather than DeviceRunner -- so the tests never ran and the build
+        // reported no results rather than failing, which is the worse of the two.
+        if (isUnitTestMode()) {
+            return request.getMainClass();
+        }
+        String watchMain = request.getArg("watchMain", "").trim();
+        boolean standalone = "true".equals(request.getArg("watchStandalone", "false"));
+        if (watchMain.length() > 0 && standalone) {
+            return watchMain;
+        }
+        return request.getMainClass();
+    }
+
+    private boolean usesOidc;
+    private boolean usesAppleSignIn;
+    private boolean usesWebauthn;
+    private boolean usesAppReview;
+    private boolean vibratePermission;
+    private boolean smsPermission;
+    private boolean gpsPermission;
+
+    /// Set when the application references `com.codename1.location.LocationButton`.
+    ///
+    /// The system-rendered location button will not render at all without
+    /// `USE_LOCATION_BUTTON` in the merged manifest, and there is no runtime way
+    /// to acquire it. Detected from actual usage, so an application that never
+    /// shows one does not carry the permission.
+    private boolean locationButtonPermission;
+
+    /// Set when the application uses a location API that needs precise location
+    /// the ordinary way, rather than through the location button.
+    ///
+    /// The two together decide whether `ACCESS_FINE_LOCATION` can be declared
+    /// `onlyForLocationButton`: the button alone means it can, anything else
+    /// means it cannot.
+    private boolean otherLocationUse;
+
+    /// Whether a feature of this builder's own -- Bluetooth scanning, Wi-Fi,
+    /// Nearby -- declared ACCESS_FINE_LOCATION for itself.
+    private boolean featureNeedsOrdinaryFineLocation;
+
+    /// What the platform requires before it will render the system location
+    /// button. Google Play requires that button for transactional precise
+    /// location from Android 17.
+    ///
+    /// Its optional companion -- `usesPermissionFlags="onlyForLocationButton"`
+    /// on `ACCESS_FINE_LOCATION`, which takes ordinary precise location away
+    /// from the application entirely -- is deliberately NOT inferred. Whether
+    /// that is safe depends on what else the application does with location,
+    /// which is the developer's answer to give through `android.xpermissions`.
+    static final String LOCATION_BUTTON_PERMISSION =
+            "    <uses-permission android:name=\"android.permission.USE_LOCATION_BUTTON\" />\n";
+
+    /// Whether a class the application references is the location button.
+    ///
+    /// Nested classes count -- an anonymous listener written inside the
+    /// component is still the component -- while every other class in the
+    /// location package does not: they are the ordinary location APIs, which
+    /// need `ACCESS_FINE_LOCATION` and not this.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cls`: an internal class name, e.g. `com/codename1/location/LocationButton`
+    ///
+    /// #### Returns
+    ///
+    /// whether the application shows a location button
+    /// The ACCESS_FINE_LOCATION declaration this application gets.
+    ///
+    /// An application whose only precise-location use is the location button
+    /// declares the permission `onlyForLocationButton`, which means the system
+    /// will never grant it any other way: no "allow precise location" question,
+    /// nothing held between taps, and nothing to justify to Play. An
+    /// application that also tracks, navigates or geofences needs the ordinary
+    /// grant and gets the ordinary declaration.
+    ///
+    /// Inferred rather than asked for, because the compiled scan already knows:
+    /// it reports the classes the APPLICATION reaches, and the framework's own
+    /// code is not in it -- LocationButton calls LocationManager internally and
+    /// that call is not attributed to the application. So "uses the button and
+    /// nothing else from the location or maps packages" is exactly the
+    /// question, and it is already answered.
+    ///
+    /// `android.locationButton.exclusive` overrides the inference either way,
+    /// for an application whose location use the scan cannot see -- native
+    /// Android code calling the platform's own location APIs is the case that
+    /// matters, since Gradle compiles it after this decision is made.
+    ///
+    /// #### Parameters
+    ///
+    /// - `request`: the build request
+    ///
+    /// #### Returns
+    ///
+    /// the manifest line for ACCESS_FINE_LOCATION
+    private String fineLocationPermission(BuildRequest request, int compileSdk)
+            throws BuildException {
+        // A hand-written fragment reaches the manifest through xPermissions and
+        // is never routed through this method: permissionAdd() suppresses ours
+        // when xPermissions already names ACCESS_FINE_LOCATION, so the guard
+        // below would pass while the unsupported value sat in the manifest
+        // regardless. Checked as text because that is all a free-form hint is,
+        // and refused here so the developer gets this sentence instead of an
+        // AAPT resource-linking error further down.
+        if (!compileSdkSupportsExclusiveLocation(compileSdk)
+                && xPermissions != null
+                && xPermissions.indexOf("onlyForLocationButton") >= 0) {
+            throw new BuildException(requireExclusiveCompileSdkMessage(compileSdk)
+                    + " It was found in android.xpermissions; note that the build"
+                    + " infers this declaration on its own and the hint is not"
+                    + " the way to ask for it.");
+        }
+        // A capped ACCESS_FINE_LOCATION in xpermissions is NOT checked here,
+        // and a check that failed the build over one was reverted after it broke
+        // the health leg. The capped entries are ours: Bluetooth emits one at
+        // maxSdkVersion 30 for BLE scanning and the Wi-Fi block used to emit one
+        // at 32, so the message told developers to remove a fragment they had
+        // never written and could not reach.
+        //
+        // The real limitation is permissionAdd(), which suppresses this build's
+        // declaration for any permission already named in xpermissions by bare
+        // name, never looking at maxSdkVersion. That is one bug, in one place,
+        // shared by every feature that caps a permission -- not something for
+        // this method to police one caller at a time. The Wi-Fi instance is
+        // fixed once, after the injectors, by uncapFineLocation().
+        String hint = request.getArg("android.locationButton.exclusive", "auto");
+        boolean asked = "true".equals(hint);
+        if (asked && featureNeedsOrdinaryFineLocation) {
+            // Refused rather than warned. Emitting the restriction would be
+            // dropped by permissionAdd() in favour of the feature's own
+            // declaration, and the application would ship ordinary precise
+            // access having asked for restricted -- silently, which is the
+            // failure this flag exists to prevent. Honouring it is not an option
+            // either: onlyForLocationButton would stop the feature being granted
+            // location at all.
+            throw new BuildException("android.locationButton.exclusive=true"
+                    + " cannot be honoured: this application also uses a feature"
+                    + " that needs ordinary precise location -- Bluetooth"
+                    + " scanning, Wi-Fi or Nearby -- and declaring"
+                    + " ACCESS_FINE_LOCATION onlyForLocationButton would stop that"
+                    + " feature being granted location at all. Drop the hint, or"
+                    + " stop using the feature that needs location.");
+        }
+        if (!wantsExclusiveLocation(hint, locationButtonPermission, otherLocationUse)) {
+            // The mirror of the conflict below, and just as silent. Answering
+            // "ordinary" here decides nothing on its own: permissionAdd() drops
+            // this declaration whenever android.xpermissions already names
+            // ACCESS_FINE_LOCATION, so a hand-written fragment carrying
+            // onlyForLocationButton stays in the manifest and the application
+            // ships restricted precise location -- the opposite of the force-off
+            // that was asked for, and it is native code, invisible to this scan,
+            // that such a build usually turns off the restriction FOR. It would
+            // then be handed approximate location at runtime with nothing in the
+            // build saying why.
+            if (declaresRestrictedFineLocation(xPermissionsAsSupplied)) {
+                if ("false".equals(hint)) {
+                    throw new BuildException("android.locationButton.exclusive=false"
+                            + " conflicts with an ACCESS_FINE_LOCATION this"
+                            + " application declares itself carrying"
+                            + " onlyForLocationButton, which the build can neither"
+                            + " rewrite nor override. Precise location would stay"
+                            + " limited to the location button despite the hint."
+                            + " Remove onlyForLocationButton from that declaration,"
+                            + " or drop the hint if the manual restriction is what"
+                            + " you want.");
+                }
+                // `auto` did not ask for anything, and an explicit fragment beats
+                // an inference -- the same precedence as the forced case below.
+                warn("android.xpermissions declares ACCESS_FINE_LOCATION"
+                        + " onlyForLocationButton, so precise location is limited to"
+                        + " the location button even though the build did not infer"
+                        + " that restriction.");
+            }
+            return FINE_LOCATION_PERMISSION;
+        }
+        // onlyForLocationButton is an API 37 enum value, and AAPT resolves
+        // manifest enum values against the COMPILE SDK, not the target: below
+        // 37 it fails resource linking outright --
+        //   AAPT: error: 'onlyForLocationButton' is incompatible with attribute
+        //   usesPermissionFlags (attr) flags [neverForLocation=65536]
+        // -- which is a broken build rather than the graceful fallback the
+        // component is supposed to give on older platforms. Measured against
+        // compileSdk 36; the same hazard the comment on compileSdkVersion
+        // further down describes, reached from a different direction.
+        //
+        // The level is passed in rather than read off compileSdkVersion,
+        // which is assigned thousands of lines after this runs; the caller asks
+        // the same shared helper the rest of the manifest fragments use.
+        //
+        // This is the compile SDK the BUILD GENERATES. A tool that rewrites
+        // app/build.gradle afterwards can still lower it out from under the
+        // manifest -- scripts/build-android-app.sh does exactly that, pinning
+        // the project for reproducible screenshots -- and AAPT would then
+        // reject the value this decided was safe to emit. Nothing here can see
+        // that; a tool that lowers the compile SDK below 37 has to drop this
+        // flag too. No sample currently qualifies for it, because
+        // hellocodenameone uses com/codename1/maps and so takes the ordinary
+        // declaration anyway.
+        // A hand-written ACCESS_FINE_LOCATION wins over ours: permissionAdd()
+        // suppresses this method's answer the moment xPermissions names the
+        // permission. For `auto` that is the right precedence -- an explicit
+        // fragment beats an inference -- but a forced `true` would then succeed
+        // while shipping ordinary precise access, which is the opposite of what
+        // was asked for, and silently.
+        if (declaresOrdinaryFineLocation(xPermissionsAsSupplied)) {
+            if (asked) {
+                throw new BuildException("android.locationButton.exclusive=true"
+                        + " conflicts with an ACCESS_FINE_LOCATION this application"
+                        + " declares itself -- either a fragment in"
+                        + " android.xpermissions or"
+                        + " android.permission.ACCESS_FINE_LOCATION=true. The build"
+                        + " cannot rewrite either, and both take precedence over the"
+                        + " declaration it generates, so the restriction would not"
+                        + " reach the manifest. Drop whichever of the two you did not"
+                        + " mean.");
+            }
+            warn("This application declares ACCESS_FINE_LOCATION itself, through"
+                    + " android.xpermissions or"
+                    + " android.permission.ACCESS_FINE_LOCATION=true, so the build's"
+                    + " own declaration is suppressed and precise location is not"
+                    + " limited to the location button.");
+            return FINE_LOCATION_PERMISSION;
+        }
+        if (!compileSdkSupportsExclusiveLocation(compileSdk)) {
+            if (asked) {
+                // THROWN, not logged. Executor.error() only writes to the
+                // logger and returns, so reporting it that way would leave the
+                // build green while quietly shipping an application without the
+                // privacy restriction its developer asked for by hand -- the
+                // exact silent failure this flag exists to prevent, moved from
+                // the manifest into the build log.
+                throw new BuildException(requireExclusiveCompileSdkMessage(compileSdk));
+            } else {
+                warn("Not declaring ACCESS_FINE_LOCATION onlyForLocationButton:"
+                        + " the compile SDK is " + compileSdk + " and the value"
+                        + " needs 37. The location button still works; the"
+                        + " application keeps the ordinary precise-location"
+                        + " declaration.");
+            }
+            return FINE_LOCATION_PERMISSION;
+        }
+        debug("Declaring ACCESS_FINE_LOCATION onlyForLocationButton");
+        return FINE_LOCATION_PERMISSION_EXCLUSIVE;
+    }
+
+    /// The ordinary ACCESS_FINE_LOCATION declaration.
+    static final String FINE_LOCATION_PERMISSION =
+            "    <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" android:required=\"false\" />\n";
+
+    /// The declaration that limits precise location to the location button.
+    static final String FINE_LOCATION_PERMISSION_EXCLUSIVE =
+            "    <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\""
+            + " android:usesPermissionFlags=\"onlyForLocationButton\""
+            + " android:required=\"false\" />\n";
+
+    /// The API level that first understands `onlyForLocationButton`. AAPT
+    /// resolves manifest enum values against the compile SDK, so below this the
+    /// value is a resource-linking failure rather than a newer-platform hint.
+    static final int EXCLUSIVE_LOCATION_MIN_COMPILE_SDK = 37;
+
+    /// Whether precise location should be limited to the location button.
+    ///
+    /// #### Parameters
+    ///
+    /// - `hint`: `android.locationButton.exclusive` -- `true`, `false`, or
+    ///   anything else for the inference
+    ///
+    /// - `buttonUsed`: whether the application references the location button
+    ///
+    /// - `otherLocationUse`: whether it also reaches location the ordinary way
+    ///
+    /// #### Returns
+    ///
+    /// whether to declare the restriction, before the compile SDK is consulted
+    /// Removes any `maxSdkVersion` from the ACCESS_FINE_LOCATION declarations
+    /// in `xPermissions`, leaving everything else exactly as it was.
+    ///
+    /// Only the attribute goes; the element, its other attributes and every
+    /// other permission are untouched, so a cap on a different permission --
+    /// USE_FINGERPRINT at 28, BLUETOOTH_SCAN, WRITE_EXTERNAL_STORAGE -- is not
+    /// disturbed.
+    ///
+    /// #### Parameters
+    ///
+    /// - `xPermissions`: the extra permissions accumulated so far, possibly null
+    ///
+    /// #### Returns
+    ///
+    /// the same value with precise location left effective on every version
+    static String uncapFineLocation(String xPermissions) {
+        if (xPermissions == null
+                || xPermissions.indexOf("ACCESS_FINE_LOCATION") < 0) {
+            return xPermissions;
+        }
+        StringBuilder out = new StringBuilder();
+        int from = 0;
+        while (true) {
+            int at = xPermissions.indexOf("ACCESS_FINE_LOCATION", from);
+            if (at < 0) {
+                out.append(xPermissions.substring(from));
+                return out.toString();
+            }
+            int open = xPermissions.lastIndexOf('<', at);
+            int close = xPermissions.indexOf('>', at);
+            if (open < from || close < 0) {
+                out.append(xPermissions, from, at + 1);
+                from = at + 1;
+                continue;
+            }
+            out.append(xPermissions, from, open);
+            out.append(stripMaxSdkVersion(
+                    xPermissions.substring(open, close + 1)));
+            from = close + 1;
+        }
+    }
+
+    /// Removes a `maxSdkVersion` attribute from one element.
+    ///
+    /// #### Parameters
+    ///
+    /// - `element`: the whole element text, from its `<` to its `>`
+    private static String stripMaxSdkVersion(String element) {
+        int at = element.indexOf("android:maxSdkVersion");
+        if (at < 0) {
+            return element;
+        }
+        int quote = element.indexOf('"', at);
+        if (quote < 0) {
+            return element;
+        }
+        int end = element.indexOf('"', quote + 1);
+        if (end < 0) {
+            return element;
+        }
+        // Take the whitespace in front of the attribute with it, so the element
+        // does not end up with a double space where it used to be.
+        int start = at;
+        while (start > 0 && element.charAt(start - 1) == ' ') {
+            start--;
+        }
+        return element.substring(0, start) + element.substring(end + 1);
+    }
+
+    /// Whether one of this builder's own features declared ACCESS_FINE_LOCATION,
+    /// as opposed to the application declaring it.
+    ///
+    /// Bluetooth scanning, Wi-Fi and Nearby each declare it for themselves. That
+    /// makes precise location something other than the location button's alone,
+    /// and not only because permissionAdd() would drop the button's declaration:
+    /// onlyForLocationButton would BREAK those features, since a permission
+    /// restricted to the button is never granted for a scan.
+    ///
+    /// #### Parameters
+    ///
+    /// - `supplied`: xpermissions as the application supplied it
+    /// - `accumulated`: xpermissions after this builder added its own fragments
+    static boolean featureDeclaredFineLocation(String supplied,
+            String accumulated) {
+        if (accumulated == null
+                || accumulated.indexOf("ACCESS_FINE_LOCATION") < 0) {
+            return false;
+        }
+        return supplied == null
+                || supplied.indexOf("ACCESS_FINE_LOCATION") < 0;
+    }
+
+    /// Whether `android.xpermissions` hand-declares ACCESS_FINE_LOCATION
+    /// WITHOUT the location-button restriction.
+    ///
+    /// Both of these matter because permissionAdd() drops this build's own
+    /// declaration as soon as the fragment names the permission, so whatever
+    /// the fragment says is what ships and neither hint value can change it.
+    ///
+    /// #### Parameters
+    ///
+    /// - `xPermissions`: the raw android.xpermissions value, possibly null
+    static boolean declaresOrdinaryFineLocation(String xPermissions) {
+        return xPermissions != null
+                && xPermissions.indexOf("ACCESS_FINE_LOCATION") >= 0
+                && xPermissions.indexOf("onlyForLocationButton") < 0;
+    }
+
+    /// Whether `android.xpermissions` hand-declares ACCESS_FINE_LOCATION WITH
+    /// the location-button restriction on it.
+    ///
+    /// #### Parameters
+    ///
+    /// - `xPermissions`: the raw android.xpermissions value, possibly null
+    static boolean declaresRestrictedFineLocation(String xPermissions) {
+        return xPermissions != null
+                && xPermissions.indexOf("ACCESS_FINE_LOCATION") >= 0
+                && xPermissions.indexOf("onlyForLocationButton") >= 0;
+    }
+
+    static boolean wantsExclusiveLocation(String hint, boolean buttonUsed,
+            boolean otherLocationUse) {
+        if ("true".equals(hint)) {
+            return true;
+        }
+        if ("false".equals(hint)) {
+            return false;
+        }
+        return buttonUsed && !otherLocationUse;
+    }
+
+    /// What to tell a developer whose explicit restriction the compile SDK
+    /// cannot express.
+    ///
+    /// #### Parameters
+    ///
+    /// - `compileSdk`: the level this build compiles against
+    ///
+    /// #### Returns
+    ///
+    /// the message for the BuildException that stops the build
+    static String requireExclusiveCompileSdkMessage(int compileSdk) {
+        return "android.locationButton.exclusive=true needs a compile SDK of "
+                + EXCLUSIVE_LOCATION_MIN_COMPILE_SDK + " or newer; this build"
+                + " compiles against " + compileSdk + ", where AAPT rejects the"
+                + " onlyForLocationButton value. Raise the compile SDK, or"
+                + " remove the hint to let the build infer the declaration.";
+    }
+
+    /// Whether a compile SDK can express `onlyForLocationButton` at all.
+    static boolean compileSdkSupportsExclusiveLocation(int compileSdk) {
+        return compileSdk >= EXCLUSIVE_LOCATION_MIN_COMPILE_SDK;
+    }
+
+    /// Whether a class the application references means it needs precise
+    /// location outside the location button.
+    ///
+    /// Three classes in the location package belong to the button's own path
+    /// and do not count: the button, its listener, and the [Location] value the
+    /// listener is handed. Everything else in the package is the ordinary
+    /// location API -- managers, listeners, requests, geofences -- and so is the
+    /// maps package, whose components locate the user.
+    ///
+    /// Anything unrecognised counts as ordinary use on purpose. A class added to
+    /// the package later is then read as "needs the ordinary grant", which costs
+    /// an application the flag it might have qualified for; the other default
+    /// would silently take precise location away from an application that needs
+    /// it, and the whole point of this is that the failure is silent.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cls`: an internal class name
+    ///
+    /// #### Returns
+    ///
+    /// whether it rules out a button-only declaration
+    static boolean needsOrdinaryPreciseLocation(String cls) {
+        if (cls == null) {
+            return false;
+        }
+        if (cls.indexOf("com/codename1/maps") == 0) {
+            return true;
+        }
+        if (cls.indexOf("com/codename1/location/") != 0) {
+            return false;
+        }
+        return !isLocationButtonClass(cls)
+                && !isNamed(cls, "com/codename1/location/LocationSharedListener")
+                && !isNamed(cls, "com/codename1/location/Location");
+    }
+
+    /// Whether `cls` is `name` or one of its nested classes.
+    private static boolean isNamed(String cls, String name) {
+        return cls.equals(name) || cls.startsWith(name + "$");
+    }
+
+    static boolean isLocationButtonClass(String cls) {
+        if (cls == null) {
+            return false;
+        }
+        return cls.equals("com/codename1/location/LocationButton")
+                || cls.startsWith("com/codename1/location/LocationButton$");
+    }
+    private boolean pushPermission;
+    private int pushVersion;
+    private boolean foregroundServicePermission;
+    private boolean contactsReadPermission;
+    private boolean calendarReadPermission;
+    private boolean calendarWritePermission;
+    private boolean contactsWritePermission;
+    /**
+     * Which of the two contacts permissions the application actually needs.
+     *
+     * <p>Its own class because "referenced a class under
+     * com.codename1.contacts" stopped being the answer once the contact
+     * picker, which needs no permission at all, started returning
+     * {@code Contact} objects from that same package.</p>
+     */
+    private final ContactsPermissionScan contactsScan = new ContactsPermissionScan();
+    private boolean addRemoteControlService;
+    /**
+     * @deprecated for use to build 1.1 version
+     */
+
+
+    private boolean contactsPermission;
+
+    static boolean usesFcmPush(int detectedPushVersion, String messagingService,
+            boolean hasFirebaseConfiguration) {
+        return "fcm".equalsIgnoreCase(messagingService)
+                || (detectedPushVersion == 3
+                        && "auto".equalsIgnoreCase(messagingService)
+                        && hasFirebaseConfiguration);
+    }
+
+    /**
+     * True when a rename-delivering hardening profile is requested but Android R8 -- the only renamer
+     * on Android -- is not enabled to deliver it. R8 minification is emitted only when
+     * {@code android.enableProguard} is exactly {@code "true"} (the {@code minifyEnabled} gate), so any
+     * other value ({@code off}, {@code 0}, {@code False}, {@code no}, ...) leaves the rename unfulfilled;
+     * the check must mirror that predicate, not just reject the literal {@code "false"}, or a rename
+     * profile would be stamped {@code rename:r8}/hardened and ship without renaming.
+     */
+    static boolean r8RenameRequiredButDisabled(boolean renameRequested, String enableProguardArg) {
+        return renameRequested && !"true".equals(enableProguardArg);
+    }
+
+    /**
+     * True when a rename-delivering hardening profile is active for THIS build, so the R8 renaming the
+     * profile promises must be enforced. Gated first on the VERIFIED {@code cn1.hardened} output (set only
+     * after a successful, entitled engine run, exactly as {@link #hardeningR8Keep(BuildRequest)}): a build
+     * that took the {@code harden.allowUnhardenedLocalBuild} escape hatch has {@code cn1.harden.forceOff}
+     * set, so {@code hardenSourceJar} returned the original jar stamped {@code cn1.hardened=false} and
+     * nothing was renamed to enforce -- enforcing R8 there would defeat the documented escape hatch. The
+     * tri-state opt-outs ({@code androidHardeningEnabled}, {@code renameRequested}) are resolved by the
+     * caller with the engine's {@code boolTri} rules.
+     */
+    static boolean androidRenameHardeningActive(BuildRequest request, boolean androidHardeningEnabled,
+            boolean renameRequested) {
+        if (!"true".equals(request.getArg("cn1.hardened", "false"))) {
+            return false;
+        }
+        String hardenLevel = request.getArg("harden.level", "off");
+        return androidHardeningEnabled
+                && hardenLevel != null && !"off".equalsIgnoreCase(hardenLevel.trim())
+                && hardenLevel.trim().length() > 0
+                && renameRequested;
+    }
+
+    /**
+     * True when this build will produce a signed release variant -- the only variant whose Gradle
+     * buildType carries {@code minifyEnabled}, and therefore the only one R8 actually renames. A
+     * debug-only build ({@code android.release=false} with a debug variant) or a build with no signing
+     * certificate runs only {@code assembleDebug}, so R8 never renames even with
+     * {@code android.enableProguard=true}. Mirrors the release/debug task selection.
+     */
+    static boolean androidReleaseVariantBuilt(BuildRequest request) {
+        if (request.getCertificate() == null) {
+            return false;
+        }
+        boolean release = "true".equals(request.getArg("android.release", "true"));
+        boolean debug = release
+                ? "true".equals(request.getArg("android.debug", "false"))
+                : "true".equals(request.getArg("android.debug", "true"));
+        if (!release && !debug) {
+            // Neither explicitly selected: the builder falls back to building both, including release.
+            return true;
+        }
+        return release;
+    }
+
+    static boolean usesHuaweiPush(int detectedPushVersion, String messagingService,
+            boolean hasHuaweiConfiguration) {
+        return detectedPushVersion == 3
+                && ("hms".equalsIgnoreCase(messagingService)
+                        || "huawei".equalsIgnoreCase(messagingService)
+                        || ("auto".equalsIgnoreCase(messagingService)
+                                && hasHuaweiConfiguration));
+    }
+
+    static String pendingPushReplayCode(int detectedPushVersion) {
+        if (detectedPushVersion != 3) {
+            return "        if(com.codename1.impl.CodenameOneImplementation.getPushCallback() != null) {\n"
+                    + "            AndroidImplementation.firePendingPushes(com.codename1.impl.CodenameOneImplementation.getPushCallback(), this);\n"
+                    + "        }\n";
+        }
+        return "        AndroidImplementation.firePendingPushes(new PushCallback() {\n"
+                + "            public void push(String value) {\n"
+                + "                PushCallback callback = com.codename1.impl.CodenameOneImplementation.getPushCallback();\n"
+                + "                if(callback != null) {\n"
+                + "                    callback.push(value);\n"
+                + "                } else {\n"
+                + "                    PushClient.dispatch(value);\n"
+                + "                }\n"
+                + "            }\n"
+                + "            public void registeredForPush(String deviceId) {}\n"
+                + "            public void pushRegistrationError(String error, int errorCode) {}\n"
+                + "        }, this);\n";
+    }
+
+    /**
+     * Whether a createMedia call reads media the app does not own, and so
+     * needs the READ_MEDIA_* permissions on API 33 and up.
+     *
+     * <p>Only the URI overloads can: {@code createMedia(String,boolean)}
+     * and {@code createMediaAsync(String,boolean,Runnable)} hand the
+     * string to the platform, which may resolve it against the
+     * MediaStore. The InputStream overloads cannot -- the Android
+     * implementation either plays an already-open FileInputStream's
+     * descriptor or copies the stream into a temp file in app-private
+     * storage, and asks for no permission at any point.</p>
+     *
+     * <p>They were told apart by name alone, so they were not told apart
+     * at all, and an app playing a bundled resource through a stream was
+     * built asking to read the user's photos and videos. That is not
+     * merely a spurious permission: READ_MEDIA_IMAGES and
+     * READ_MEDIA_VIDEO put the app under Play's Photo and Video
+     * Permissions policy, so the author gets a declaration form and a
+     * compliance deadline for something the app never does (issue
+     * #5507).</p>
+     *
+     * <p>A null descriptor is treated as the URI overload. Over-declaring
+     * costs a permission; under-declaring costs a SecurityException on a
+     * user's device.</p>
+     */
+    static boolean readsSharedMediaForPlayback(String cls, String method,
+            String descriptor) {
+        if (cls == null || method == null) {
+            return false;
+        }
+        if (cls.indexOf("com/codename1/media/MediaManager") != 0
+                && cls.indexOf("com/codename1/ui/Display") != 0) {
+            return false;
+        }
+        if (method.indexOf("createMedia") < 0
+                || method.indexOf("createMediaRecorder") > -1) {
+            return false;
+        }
+        return descriptor == null
+                || descriptor.startsWith("(Ljava/lang/String;");
+    }
+
+    /**
+     * The READ_MEDIA_* permissions the manifest should declare, in
+     * manifest order.
+     *
+     * <p>Images are declared only when the app asked for them outright
+     * with {@code android.requestReadMediaPermissions}, never because
+     * media playback was detected. Playback cannot read an image: the one
+     * runtime request site in the Android port passes
+     * {@code PERMISSION_READ_VIDEO} or {@code PERMISSION_READ_AUDIO}, and
+     * nothing anywhere in the port passes
+     * {@code PERMISSION_READ_IMAGES}, so an inferred READ_MEDIA_IMAGES
+     * was a permission the app had no way to use.</p>
+     *
+     * <p>It was not free either. READ_MEDIA_IMAGES together with
+     * READ_MEDIA_VIDEO is what puts an app under Play's Photo and Video
+     * Permissions policy, so an app that only plays audio was handed a
+     * declaration form and a compliance deadline for a capability it does
+     * not have (issue #5507).</p>
+     *
+     * <p>Video and audio stay paired because the runtime picks between
+     * them on the {@code isVideo} flag of the call, which is a value this
+     * scan does not read.</p>
+     */
+    static List<String> readMediaPermissionNames(boolean blocked,
+            int targetSdkVersion, boolean mediaPlayback,
+            boolean requestedOutright) {
+        List<String> out = new ArrayList<String>();
+        if (blocked || targetSdkVersion < 33
+                || (!mediaPlayback && !requestedOutright)) {
+            return out;
+        }
+        if (requestedOutright) {
+            out.add("android.permission.READ_MEDIA_IMAGES");
+        }
+        out.add("android.permission.READ_MEDIA_VIDEO");
+        out.add("android.permission.READ_MEDIA_AUDIO");
+        return out;
+    }
+
+    private boolean wakeLock;
+    private boolean recordAudio;
+    private boolean mediaPlaybackPermission;
+    private boolean phonePermission;
+    private boolean purchasePermissions;
+    private boolean accessNetworkStatePermission;
+    private boolean recieveBootCompletedPermission;
+
+    private boolean postNotificationsPermission;
+    private boolean getAccountsPermission;
+    private boolean credentialsPermission;
+    private boolean backgroundLocationPermission;
+
+    private boolean accessWifiStatePermissions;
+    private boolean browserBookmarksPermissions;
+    private boolean launcherPermissions;
+
+    // Deeper-network connectivity flags. Set by the classpath scanner when
+    // the app references com.codename1.io.wifi.* / com.codename1.io.bonjour.*
+    // / com.codename1.io.usb.* / NetworkManager.addNetworkTypeListener. The
+    // corresponding <uses-permission> / <uses-feature> elements are emitted
+    // further down based on these flags; apps that never touch the APIs see
+    // no change in their manifest.
+    private boolean usesWifiInfo;
+    private boolean usesWifiManagement;
+    private boolean usesWifiDirect;
+    private boolean usesBonjour;
+    private boolean usesUsbHost;
+    private boolean usesNetworkTypeListener;
+
+    // First-class Bluetooth (com.codename1.bluetooth.*). The scanner sets
+    // per-capability flags keyed on the permission-aligned package layout
+    // (le/ = central, le/server/ = advertise, classic/ = BR/EDR) so a
+    // central-only app never carries BLUETOOTH_ADVERTISE and a non-Bluetooth
+    // app sees no manifest change. Injection happens through
+    // BluetoothManifestFragments to keep the Android 12 nuances testable.
+    private boolean usesBluetooth;
+    private boolean usesBluetoothScan;
+    private boolean usesBluetoothConnect;
+    private boolean usesBluetoothPeripheral;
+    private boolean usesBluetoothClassic;
+
+    // Health. usesHealthStore is deliberately distinct from usesHealth:
+    // com.codename1.health.sensors is pure com.codename1.bluetooth.le and
+    // needs no Health Connect at all, so a heart-rate-strap app must not be
+    // treated as a health-data app.
+    private boolean usesHealth;
+    private boolean usesHealthStore;
+    private boolean usesHealthData;
+    /// Whether a read-direction store call was seen. Tracked apart from
+    /// [#usesHealthWrite] because Health Connect permissions are
+    /// directional: an app that only reads but declares only
+    /// android.health.write passed validation and shipped a manifest with
+    /// no read permission, so every read failed at runtime with nothing in
+    /// the build log to explain it.
+    private boolean usesHealthRead;
+    private boolean usesHealthWrite;
+    private boolean usesHealthWorkout;
+    /// What the scan saw about health background listeners, and which of
+    /// them the generated factory can actually construct.
+    private final HealthListenerScan healthScan = new HealthListenerScan();
+
+    // Computed while the permissions are assembled but consumed later, at
+    // the points where <queries>, the <application> body and the gradle
+    // dependency list are actually built.
+    private String healthQueriesFragment = "";
+    private String healthApplicationFragment = "";
+    private String healthGradleDependency = "";
+    // The artifact only. The configuration keyword -- implementation or the
+    // legacy compile -- is decided further down, after useAndroidX is known,
+    // and a generated project that predates implementation fails evaluating a
+    // build.gradle that uses it.
+    private String smartHomeGradleArtifact = "";
+
+    // Smart home (com.codename1.home.*). usesSmartHome gates the whole
+    // feature; usesHomeCommissioning is tracked separately because on iOS it
+    // costs an entire extra Xcode target, and both builders read the same
+    // package split so the two agree about what an app asked for.
+    private boolean usesSmartHome;
+    private boolean usesHomeCommissioning;
+    private String smartHomeQueriesFragment = "";
+
+    // Nearby devices (com.codename1.nearby.*). Three flags rather than one,
+    // because the three packages cost three different dependency and
+    // permission sets and the package prefix is the only opt-in a developer
+    // performs. usesNearbyPresence is separate again: presence observation is
+    // what earns the background companion permissions, and asking for those
+    // without it is asking a user for background privileges with nothing to
+    // show for them.
+    private boolean usesNearbyRanging;
+    private boolean usesNearbyTransport;
+    private boolean usesNearbyCompanion;
+    private boolean usesNearbyPresence;
+
+    // The three call packages are tracked separately for the reason the
+    // nearby ones are: they buy different things and the expensive halves
+    // must not ride along with the cheap one. Owning a call costs
+    // MANAGE_OWN_CALLS and an API 26 floor; ringing while backgrounded adds a
+    // foreground service; labelling somebody else's caller buys neither and
+    // must not, because Play Console flags gratuitous telephony permissions.
+
+    /// Class-name prefixes whose presence in a submitted library counts the
+    /// same as presence in the application's own classes.
+    ///
+    /// The builder's scanner reads only the app's compiled classes, so a
+    /// feature used exclusively by a cn1lib was invisible to it: no
+    /// permissions, no services, no native defines, and a library calling an
+    /// API that was never switched on.
+    private static final String[] CALL_VPN_LIB_PREFIXES = {
+        "com/codename1/call/session/",
+        "com/codename1/call/voip/",
+        "com/codename1/call/directory/",
+        "com/codename1/vpn/profile/",
+        "com/codename1/vpn/tunnel/",
+    };
+
+    /// The invite entry points, for the same library scan.
+    ///
+    /// Both of them, because an application can reference either alone: the
+    /// button without the facade, or the facade without the button. The second
+    /// is an exact class rather than a package, and matching it as a prefix is
+    /// the same answer -- a class name starts with itself.
+    private static final String[] INVITE_LIB_PREFIXES = {
+        "com/codename1/analytics/invite/",
+        "com/codename1/components/InviteButton",
+    };
+
+    /// Folds invite usage found inside submitted libraries into the scanner's
+    /// flags.
+    ///
+    /// A library that encapsulates invites was invisible to the scan over the
+    /// application's own classes, so usesInvites stayed false and every part of
+    /// the Android integration went missing at once: no App Links filter, no
+    /// onNewIntent splice, the install-referrer package deleted from the
+    /// generated sources, and the Play Install Referrer dependency never
+    /// selected. The library compiled against an API nothing had switched on.
+    ///
+    /// @param libsDir the submitted-libraries folder
+    /// @return the prefixes found, for the feature catalog
+    private java.util.Set<String> foldInInviteLibraryUsage(java.io.File libsDir) {
+        java.util.Set<String> found =
+                LibraryClassPrefixScan.prefixesFound(libsDir, INVITE_LIB_PREFIXES);
+        if (found.isEmpty()) {
+            return found;
+        }
+        debug("Invite usage found inside a submitted library: " + found);
+        usesInvites = true;
+        return found;
+    }
+
+    /// Folds call and VPN usage found inside submitted libraries into the
+    /// scanner's flags.
+    ///
+    /// @param libsDir the submitted-libraries folder
+    private java.util.Set<String> foldInCallAndVpnLibraryUsage(
+            java.io.File libsDir) {
+        java.util.Set<String> found =
+                LibraryClassPrefixScan.prefixesFound(libsDir,
+                        CALL_VPN_LIB_PREFIXES);
+        if (found.isEmpty()) {
+            return found;
+        }
+        debug("Call/VPN usage found inside a submitted library: " + found);
+        usesCallSession |= found.contains("com/codename1/call/session/");
+        usesCallVoip |= found.contains("com/codename1/call/voip/");
+        usesCallDirectory |= found.contains("com/codename1/call/directory/");
+        usesManagedVpn |= found.contains("com/codename1/vpn/profile/");
+        usesCustomTunnel |= found.contains("com/codename1/vpn/tunnel/");
+        return found;
+    }
+
+    private boolean usesCallSession;
+    private boolean usesCallVoip;
+    private boolean usesCallDirectory;
+    private boolean usesManagedVpn;
+
+    /// Whether the app referenced com.codename1.vpn.tunnel.
+    private boolean usesCustomTunnel;
+
+    /// Whether the app referenced the invite attribution API, and therefore
+    /// needs the App Links filter that lets an invite link open it.
+    private boolean usesInvites;
+
+    private boolean integrateMoPub = false;
+
+    private static final boolean isMac;
+
+    private String playServicesVersion = "12.0.1";
+    private static final Map<String,String> defaultPlayServiceVersions = new HashMap<>();
+    static {
+        // Defaults obtained from https://developers.google.com/android/guides/setup
+        defaultPlayServiceVersions.put("ads", "22.6.0");
+        defaultPlayServiceVersions.put("ads-identifier", "18.0.1");
+        defaultPlayServiceVersions.put("ads-lite", "21.5.0");
+        defaultPlayServiceVersions.put("afs-native", "19.0.3");
+        defaultPlayServiceVersions.put("analytics", "18.0.2");
+        defaultPlayServiceVersions.put("appindex", "16.1.0");
+        defaultPlayServiceVersions.put("appset", "16.0.2");
+        defaultPlayServiceVersions.put("auth", "20.4.1");
+        defaultPlayServiceVersions.put("auth-api-phone", "18.0.1");
+        defaultPlayServiceVersions.put("auth-blockstore", "16.1.0");
+        defaultPlayServiceVersions.put("awareness", "19.0.1");
+        defaultPlayServiceVersions.put("base", "18.2.0");
+        defaultPlayServiceVersions.put("base-testing", "16.0.0");
+        defaultPlayServiceVersions.put("basement", "18.1.0");
+        defaultPlayServiceVersions.put("cast", "21.2.0");
+        defaultPlayServiceVersions.put("cast-framework", "21.2.0");
+        defaultPlayServiceVersions.put("code-scanner", "16.0.0-beta3");
+        defaultPlayServiceVersions.put("cronet", "18.0.1");
+        defaultPlayServiceVersions.put("dtdi", "16.0.0-beta01");
+        defaultPlayServiceVersions.put("fido", "19.0.1");
+        defaultPlayServiceVersions.put("fitness", "21.1.0");
+        defaultPlayServiceVersions.put("games-v2", "17.0.0");
+        defaultPlayServiceVersions.put("games-v2-native-c", "17.0.0-beta1");
+        defaultPlayServiceVersions.put("games", "23.1.0");
+        defaultPlayServiceVersions.put("home", "16.0.0");
+        defaultPlayServiceVersions.put("instantapps", "18.0.1");
+        defaultPlayServiceVersions.put("location", "21.0.1");
+        defaultPlayServiceVersions.put("maps", "18.1.0");
+        defaultPlayServiceVersions.put("mlkit-barcode-scanning", "18.1.0");
+        defaultPlayServiceVersions.put("mlkit-face-detection", "17.1.0");
+        defaultPlayServiceVersions.put("mlkit-image-labeling", "16.0.8");
+        defaultPlayServiceVersions.put("mlkit-image-labeling-custom", "16.0.0-beta4");
+        defaultPlayServiceVersions.put("mlkit-language-id", "17.0.0");
+        defaultPlayServiceVersions.put("mlkit-smart-reply", "16.0.0-beta1");
+        defaultPlayServiceVersions.put("mlkit-text-recognition", "18.0.2");
+        defaultPlayServiceVersions.put("nearby", "18.4.0");
+        defaultPlayServiceVersions.put("oss-licenses", "17.0.0");
+        defaultPlayServiceVersions.put("password-complexity", "18.0.1");
+        defaultPlayServiceVersions.put("pay", "16.1.0");
+        defaultPlayServiceVersions.put("recaptcha", "17.0.1");
+        defaultPlayServiceVersions.put("safetynet", "18.0.1");
+        defaultPlayServiceVersions.put("tagmanager", "18.0.2");
+        defaultPlayServiceVersions.put("tasks", "18.0.2");
+        defaultPlayServiceVersions.put("tflite-gpu", "16.1.0");
+        defaultPlayServiceVersions.put("tflite-java", "16.0.1");
+        defaultPlayServiceVersions.put("tflite-support", "16.0.1");
+        defaultPlayServiceVersions.put("threadnetwork", "16.0.0-beta02");
+        defaultPlayServiceVersions.put("vision", "20.1.3");
+        defaultPlayServiceVersions.put("wallet", "19.1.0");
+        defaultPlayServiceVersions.put("wearable", "18.0.0");
+
+        // TODO: See what an appropriate default version is for firebase
+        // Setting to 12.0.1 for now only to match the previous google play services default.
+        defaultPlayServiceVersions.put("firebase-core", "12.0.1");
+        defaultPlayServiceVersions.put("firebase-messaging", "12.0.1");
+        defaultPlayServiceVersions.put("gcm", "12.0.1");
+    }
+
+    private Map<String,String> playServiceVersions = new HashMap<>();
+    private boolean playServicesPlus;
+    private boolean playServicesAuth;
+    private boolean playServicesBase;
+    private boolean playServicesIdentity;
+    private boolean playServicesIndexing;
+    private boolean playServicesInvite;
+    private boolean playServicesAnalytics;
+    private boolean playServicesCast;
+    private boolean playServicesGcm;
+    private boolean playServicesDrive;
+    private boolean playServicesFit;
+    private boolean playServicesLocation;
+    private boolean playServicesMaps;
+    private boolean playServicesAds;
+    private boolean playServicesVision;
+    private boolean playServicesNearBy;
+    private boolean playServicesSafetyPanorama;
+    private boolean playServicesGames;
+    private boolean playServicesSafetyNet;
+    private boolean playServicesWallet;
+    private boolean playServicesWear;
+    private String xPermissions, xQueries;
+
+    /// `android.xpermissions` exactly as the application supplied it, before
+    /// any of this builder's own fragments were added to it.
+    private String xPermissionsAsSupplied = "";
+    /**
+     * The names of the installed platforms, as sdkmanager reports them.
+     *
+     * <p>Names, not levels, because from API 37 the two differ: the level is
+     * 37 and the name is android-37.0, android-37.1 or android-37.2. Every
+     * numeric decision in this class uses the level; only the value written as
+     * {@code compileSdkVersion} needs the name, and it needs it exactly.</p>
+     */
+    private final List<String> installedPlatformNames = new ArrayList<>();
+
+    private int buildToolsVersionInt;
+    private String buildToolsVersion;
+    private boolean useAndroidX;
+    private boolean migrateToAndroidX;
+    private boolean shouldIncludeGoogleImpl;
+    private boolean arSupport;
+    /** The catalog entry that carries the SQLCipher dependencies and their minimum SDK. */
+    private static final String DATABASE_CIPHER_CATALOG_CLASS = "com/codename1/db/DatabaseConfig";
+
+    boolean dbCipherSupport;
+
+    /// Whether the application touches com.codename1.db at all, which is what the database
+    /// compatibility default is keyed on.
+    private boolean usesDatabase;
+    private boolean visionSupport;
+    private boolean inferenceSupport;
+    private boolean languageSupport;
+    private final Set<String> includedAiAdapterSources =
+            new HashSet<String>();
+
+    static {
+        isMac = System.getProperty("os.name").toLowerCase().contains("mac");
+    }
+
+    public void setAndroidPortSrcJar(File androidPortSrcJar) {
+        this.androidPortSrcJar = androidPortSrcJar;
+    }
+
+    public File getAndroidPortSrcJar() {
+        return androidPortSrcJar;
+    }
+
+    protected String getDeviceIdCode() {
+        return "\"\"";
+    }
+
+    protected boolean deriveGlobalInstrumentClasspath() {
+        return true;
+    }
+
+    protected long getTimeoutValue() {
+        // limit to 8 minutes
+        return 8 * 60 * 60 * 1000;
+    }
+
+    private String getGradleVersion(String gradleExe) throws Exception {
+        defaultEnvironment.put("JAVA_HOME", getGradleJavaHome());
+
+        String result = execString(new File(System.getProperty("user.dir")), gradleExe, "--version");
+        Scanner scanner = new Scanner(result);
+        while (scanner.hasNextLine()) {
+            String line = scanner.nextLine();
+            log("Gradle version line: "+line);
+            if (line.startsWith("Gradle ")) {
+                return line.substring(line.indexOf(" ")+1).trim();
+            }
+        }
+        throw new RuntimeException("Failed to get gradle version for "+gradleExe);
+    }
+
+    private String getGradleJavaHome() throws BuildException {
+        if (useGradle8) {
+            String home =  System.getenv("JAVA17_HOME");
+            if (home == null && (home = getLocalBuilderProperties().getProperty("java17.home", null)) != null) {
+                if (!(new File(home)).isDirectory()) {
+                    throw new BuildException("The java17.home property is not set to a valid directory.  " +
+                            "You have defined it in your ~/.codenameone/local.properties file, " +
+                            "but it is not a valid directory."
+                    );
+                }
+            }
+            if (home == null && currentJvmIsJava17OrLater()) {
+                // The Maven plugin itself is already running on a JDK that Gradle 8 accepts
+                // (Java 17+). Use that JVM's home instead of forcing the user to duplicate
+                // the JDK location in JAVA17_HOME.
+                return System.getProperty("java.home");
+            }
+            if (home == null) {
+                throw new BuildException(
+                        "When using gradle 8, " +
+                                "you must set the JAVA17_HOME environment variable to the location of a Java 17 JDK " +
+                                "(or run Maven on Java 17+ and let the build reuse the current JVM)"
+                );
+            }
+
+            if (!(new File(home).isDirectory())) {
+                throw new BuildException("The JAVA17_HOME environment variable is not set to a valid directory");
+            }
+
+            return home;
+        }
+        return System.getProperty("java.home");
+    }
+
+    private static boolean currentJvmIsJava17OrLater() {
+        String spec = System.getProperty("java.specification.version", "");
+        if (spec.startsWith("1.")) {
+            // 1.5 .. 1.8 era -- definitely older than 17.
+            return false;
+        }
+        try {
+            return Integer.parseInt(spec) >= 17;
+        } catch (NumberFormatException ex) {
+            return false;
+        }
+    }
+    private int parseVersionStringAsInt(String versionString) {
+        if (versionString.indexOf(".") > 0) {
+            try {
+                return Integer.parseInt(versionString.substring(0, versionString.indexOf(".")).trim());
+            } catch (Exception ex) {
+                return 0;
+            }
+        } else {
+            try {
+                return Integer.parseInt(versionString);
+            } catch (Exception ex) {
+                return 0;
+            }
+        }
+    }
+
+    /// Whether `url` can serve as the health privacy-policy link.
+    ///
+    /// Absolute, https, and with a host. The rationale screen hands the
+    /// value to the platform as a link, so a non-blank string is not
+    /// enough: a scheme-less "example.com/privacy" opens nothing, and
+    /// http:// is blocked outright by the cleartext policy that applies at
+    /// the target API levels health builds require.
+    static boolean isHealthPolicyUrl(String url) {
+        if (url == null || url.length() == 0) {
+            return false;
+        }
+        try {
+            java.net.URI uri = new java.net.URI(url);
+            return "https".equalsIgnoreCase(uri.getScheme())
+                    && uri.getHost() != null && uri.getHost().length() > 0;
+        } catch (java.net.URISyntaxException malformed) {
+            return false;
+        }
+    }
+
+    private static String escape(String str, String chars) {
+        if(str == null) {
+            return null;
+        }
+        char[] charArray = chars.toCharArray();
+        for (char c : charArray) {
+            str = str.replace(String.valueOf(c), "\\" + c);
+        }
+        return str;
+    }
+
+    @Override
+    protected String hardeningPlatform(BuildRequest request) {
+        return "and";
+    }
+
+    /**
+     * R8 keep rules contributed by app hardening, appended to the generated {@code proguard.cfg}.
+     * On Android the engine does not rename, so the user's {@code harden.keep} rules and the
+     * name-bound property-object rule (renaming a {@code PropertyBusinessObject}'s members silently
+     * changes JSON/DB schema) must be handed to R8 here. Empty when hardening is off.
+     */
+    private String hardeningR8Keep(BuildRequest request) {
+        // Gate on the VERIFIED cn1.hardened output (set only after a successful, entitled engine run),
+        // not harden.level: an Android opt-out (harden.and.enabled=off/0/false, or a level whose
+        // transforms are all disabled) makes the engine decline, and these keep rules must not then
+        // change which names R8 obfuscates.
+        if (!"true".equals(request.getArg("cn1.hardened", "false"))) {
+            return "";
+        }
+        // Prefer the full keep set the engine derived from the input jar: the native-interface peers
+        // it found, plus the user's harden.keep. Those the automatic R8 analysis can't see, so without
+        // them R8 would rename a name-resolved class and the hardened release wouldn't resolve it.
+        String engineKeep = getLastHardeningR8Keep();
+        if (engineKeep != null && engineKeep.trim().length() > 0) {
+            return engineKeep.endsWith("\n") ? engineKeep : engineKeep + "\n";
+        }
+        // Fallback when the engine emitted no keep file (e.g. build() invoked without runBuild): the
+        // user's harden.keep. PropertyBusinessObject needs no keep -- its JSON/DB keys come from the
+        // string passed to its Property, not the field name, so renaming the field is safe.
+        StringBuilder sb = new StringBuilder();
+        String keep = request.getArg("harden.keep", "");
+        if (keep != null && keep.trim().length() > 0) {
+            // Newlines only: a ';' is legal inside a ProGuard rule body.
+            for (String rule : keep.split("\\r?\\n")) {
+                if (rule.trim().length() > 0) {
+                    sb.append(rule.trim()).append('\n');
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    @Override
+    protected boolean hardeningRenameSupported() {
+        // R8 remains the sole renamer on Android; the engine only encrypts strings here and
+        // exports its keep rules to the generated proguard.cfg.
+        return false;
+    }
+
+    @Override
+    public boolean build(File sourceZip, final BuildRequest request) throws BuildException {
+        boolean facebookSupported = request.getArg("facebook.appId", null) != null;
+        newFirebaseMessaging = request.getArg("android.newFirebaseMessaging", "true").equals("true");
+        useGradle8 = request.getArg("android.useGradle8", ""+(useGradle8 || newFirebaseMessaging || facebookSupported)).equals("true");
+        rootCheck = request.getArg("android.rootCheck", "false").equals("true");
+        fridaDetection = request.getArg("android.fridaDetection", "false").equals("true");
+        playIntegrity = request.getArg("android.playIntegrity", "false").equals("true");
+        accessibilityGuard = request.getArg("android.accessibilityGuard", "false").equals("true");
+        tapjackingGuard = request.getArg("android.tapjackingGuard", "false").equals("true");
+        extendAppCompatActivity = request.getArg("android.extendAppCompatActivity", "false").equals("true");
+        // When using gradle 8 we need to strip kotlin files from user classes otherwise we get duplicate class errors
+        stripKotlinFromUserClasses = useGradle8;
+        if (!request.getArg("android.java8", "true").equals("true")) {
+            // Java 6 source level was produced by running retrolambda over the compiled
+            // classes. Retrolambda is gone (it never supported the JDK 17 that Gradle 8
+            // requires), so this hint no longer has an implementation behind it. It stays
+            // accepted rather than fatal because it is still present in older
+            // codenameone_settings.properties files.
+            log("NOTICE: android.java8=false is no longer supported and is ignored -- "
+                    + "Android builds always use a Java 8 source level.");
+        }
+
+        // R8 configuration - disable full mode by default to prevent issues with reflection
+        disableR8 = request.getArg("android.disableR8", "false").equals("true");
+        disableR8FullMode = request.getArg("android.disableR8FullMode", "true").equals("true");
+
+        // On-device debugging: when set, mark the APK debuggable so Dalvik/ART exposes
+        // a JDWP socket the cn1:android-on-device-debugging Mojo can forward through adb.
+        // Forcing debuggable also flips off R8 and ProGuard so symbols, method names,
+        // and line numbers survive the build -- we may be invoked from the android-device
+        // cloud target which would otherwise run full optimisation. Also force the build
+        // down to debug-only -- Android otherwise produces both a release and a debug
+        // APK from the same manifest, so without this a stray hint could ship a
+        // release-signed, debuggable APK. Release builds and projects that don't opt
+        // in see no change.
+        boolean onDeviceDebug = request.getArg("android.onDeviceDebug", "false").equals("true");
+        if (onDeviceDebug) {
+            disableR8 = true;
+            request.putArgument("android.enableProguard", "false");
+            request.putArgument("android.release", "false");
+            request.putArgument("android.debug", "true");
+        }
+        // On Android renaming is delivered by R8 (the engine does not rename here), so a hardening
+        // level that promises renaming cannot be honored with R8 turned off. Fail rather than ship a
+        // build stamped "hardened" that was never renamed. (harden.rename=false opts out explicitly.)
+        String hardenLevel = request.getArg("harden.level", "off");
+        // Parse the opt-outs with the same tri-state rules the engine's HardeningConfig.boolTri uses
+        // (false/0/off/no all mean off), so harden.rename=off and harden.rename=0 behave identically
+        // to harden.rename=false here rather than being misread as "renaming still requested".
+        boolean androidHardeningEnabled = hardenBoolArg(request, "harden.and.enabled", true);
+        boolean hardenRenames = androidRenameHardeningActive(request, androidHardeningEnabled,
+                hardenBoolArg(request, "harden.rename", true));
+        // R8 actually renames only for a signed RELEASE variant built with minification: minifyEnabled
+        // lives in the release buildType and is emitted only when android.enableProguard is exactly
+        // "true", and a debug-only build (or one with no signing certificate) runs only assembleDebug.
+        // So a rename hardening profile must be rejected unless R8 will really run, not just when
+        // enableProguard is the literal "false" -- otherwise the APK ships stamped rename:r8/hardened
+        // without ever being renamed.
+        String enableProguard = request.getArg("android.enableProguard", "true");
+        if (r8RenameRequiredButDisabled(hardenRenames, enableProguard)
+                || (hardenRenames && !androidReleaseVariantBuilt(request))) {
+            String reason = !"true".equals(enableProguard)
+                    ? "android.enableProguard=" + enableProguard + " disables R8 (it renames only when "
+                            + "android.enableProguard=true)"
+                    : "this build produces no signed release variant (android.release="
+                            + request.getArg("android.release", "true") + ", android.debug="
+                            + request.getArg("android.debug", "false") + ", certificate "
+                            + (request.getCertificate() == null ? "absent" : "present")
+                            + "), and R8 minification applies only to the release build";
+            throw new BuildException("harden.level=" + hardenLevel + " requires Android's R8/ProGuard "
+                    + "renaming, but " + reason + ". Build a signed release variant with R8 enabled, set "
+                    + "harden.rename=false, or set harden.level=off.");
+        }
+        if (useGradle8) {
+            getGradleJavaHome(); // will throw build exception if JAVA17_HOME is not set
+            minimumGradleVersion = GRADLE_8_VERSION;
+            gradleDistributionUrl = gradle8DistributionUrl;
+        }
+        if (newFirebaseMessaging && !useGradle8) {
+            throw new BuildException("android.newFirebaseMessaging requires Gradle 8.13 or higher. Please remove the android.gradleVersion build hint");
+        }
+        debug("Request Args: ");
+        debug("-----------------");
+        for (String arg : request.getArgs()) {
+            debug(arg+"="+request.getArg(arg, null));
+        }
+        debug("-------------------");
+
+        facebookSdkVersion = request.getArg("android.facebookSdkVersion", "16.2.0");
+        String facebookSupport = "";
+        String facebookProguard = "";
+        String facebookActivityMetaData = "";
+        String facebookActivity = "";
+        String facebookHashCode = "";
+        String facebookClientToken = null;
+
+        if (facebookSupported && compareVersions(facebookSdkVersion, "16.0.0") >= 0) {
+            facebookClientToken = request.getArg("facebook.clientToken", null);
+            if (facebookClientToken == null) {
+                throw new BuildException("You must specify a facebook.clientToken when using facebookSdkVersion "+facebookSdkVersion);
+            }
+        }
+        decouplePlayServiceVersions = request.getArg("android.decouplePlayServiceVersions", newFirebaseMessaging ? "true" : "false").equals("true");
+        if (!decouplePlayServiceVersions && newFirebaseMessaging) {
+            throw new BuildException(
+                    "android.newFirebaseMessaging=true is not compatible with android.decouplePlayServiceVersions=false.  Please remove one of these build hints."
+            );
+        }
+
+        String defaultAndroidHome = isMac ? path(System.getProperty("user.home"), "Library", "Android", "sdk")
+                : is_windows ? path(System.getProperty("user.home"), "AppData", "Local", "Android", "Sdk")
+                : path(System.getProperty("user.home"), "Android", "Sdk"); // linux
+
+        String androidHome = System.getenv("ANDROID_HOME");
+        if (androidHome == null) {
+            log("Using default ANDROID_HOME of "+defaultAndroidHome);
+            androidHome = defaultAndroidHome;
+        } else {
+            log("Using ANDROID_HOME of "+androidHome);
+        }
+
+
+        File androidSDKDir;
+        String bat = "";
+        if (is_windows) {
+
+            bat = ".bat";
+        }
+
+
+        androidSDKDir = new File(androidHome);
+        if (!androidSDKDir.exists()) {
+            throw new BuildException("Cannot find Android SDK at "+androidHome+".  Please install Android studio, or set the ANDROID_HOME environment variable to point to your android sdk directory.");
+        }
+        if (!androidSDKDir.getName().equalsIgnoreCase("sdk")) {
+            androidSDKDir = new File(androidSDKDir, "Sdk");
+            if (!androidSDKDir.isDirectory()) {
+                androidSDKDir = new File(androidSDKDir.getParentFile(), "sdk");
+            }
+        }
+
+        File sdkmanager = new File(androidSDKDir, path("tools", "bin", "sdkmanager"+bat));
+        if (!sdkmanager.canExecute()) {
+            sdkmanager = new File(androidSDKDir, path("cmdline-tools", "latest", "bin", "sdkmanager"+bat));
+        }
+        if (!sdkmanager.canExecute()) {
+            Exception ex = new RuntimeException(
+                    "Android SDK Command-Line Tools not found at "+sdkmanager.getAbsolutePath()+".  " +
+                            "Please install the Android SDK Command-Line Tools from the Android Studio SDK Manager." +
+                            "Note: Set the ANDROID_HOME environment variable to the location of your Android SDK, or set the android.sdk.path build hint to the location of your Android SDK.");
+            error("Cannot find executable sdkmanager"+bat+" in "+androidSDKDir+"; tried tools and cmdline-tools/latest", ex);
+            throw new BuildException("Cannot find executable sdkmanager"+bat+" in "+androidSDKDir+"; tried tools and cmdline-tools/latest", ex);
+        }
+
+        String sdkListStr;
+        try {
+            sdkListStr = execString(tmpDir, sdkmanager.getAbsolutePath(), "--list");
+        } catch (Exception ex) {
+            error("Failed to get SDK list using "+sdkmanager+".  "+ex.getMessage(), ex);
+            throw new BuildException("Failed to get SDK list using "+sdkmanager, ex);
+        }
+        Scanner sdkScanner = new Scanner(sdkListStr);
+        List<String> installedPlatforms = new ArrayList<>();
+        List<String> installedBuildToolsVersions = new ArrayList<>();
+        while (sdkScanner.hasNextLine()) {
+            String line = sdkScanner.nextLine().trim();
+            if (line.startsWith("build-tools;")) {
+                String[] columns = line.split("\\|");
+                if (columns.length >= 4) {
+                    // If there are only 3 columns, then this is not referring to an installed build-tools
+                    // but an available one.
+                    String[] col1Parts = columns[0].split(";");
+                    if (col1Parts.length > 1) {
+                        installedBuildToolsVersions.add(col1Parts[1].trim());
+                    }
+                }
+            } else if (line.startsWith("platforms;")) {
+                String[] columns = line.split("\\|");
+                if (columns.length > 1) {
+                    String[] col1Parts = columns[0].split(";");
+                    String platform = col1Parts[1].trim();
+                    if (platform.contains("-")) {
+                        platform = platform.substring(platform.indexOf("-")+1);
+                    }
+
+                    installedPlatforms.add(platform);
+                    // Only genuinely installed rows here. sdkmanager --list
+                    // prints the installed packages with a fourth column
+                    // holding their location and the available ones with
+                    // three, and the branch above accepts either -- so
+                    // installedPlatforms has always carried platforms nobody
+                    // has. That is survivable where the answer is only a
+                    // number, because AGP downloads a level it is asked for.
+                    // It is not survivable here: this list is used to name an
+                    // exact platform, and naming one that was merely on offer
+                    // turns a working build into a download, or into a
+                    // failure with no network. The build-tools branch above
+                    // already requires the fourth column for the same reason.
+                    if (columns.length >= 4) {
+                        installedPlatformNames.add(platform);
+                    }
+                }
+            }
+        }
+
+        debug("Installed platforms: "+installedPlatforms);
+
+        int maxBuildToolsVersionInt = 0;
+        String maxBuildToolsVersion = "0";
+        for (String ver : installedBuildToolsVersions) {
+            int verInt = parseVersionStringAsInt(ver);
+            if (verInt > maxBuildToolsVersionInt) {
+                maxBuildToolsVersion = ver;
+                maxBuildToolsVersionInt = verInt;
+            }
+        }
+
+        int maxPlatformVersionInt = 0;
+        String maxPlatformVersion = "0";
+        for (String ver : installedPlatforms) {
+            int verInt = parseVersionStringAsInt(ver);
+            if (verInt > maxPlatformVersionInt) {
+                maxPlatformVersionInt = verInt;
+                maxPlatformVersion = ver;
+            }
+        }
+
+        if (maxPlatformVersionInt == 0) {
+            maxPlatformVersionInt = 31;
+            maxPlatformVersion = "31";
+        }
+
+        // sdkmanager reports a platform by its full name, and from API 37 that
+        // name always carries a minor: there is no "platforms;android-37", only
+        // android-37.0, android-37.1 and android-37.2. The string above is
+        // therefore "37.2" where every earlier release gave "36", and it is fed
+        // to Integer.parseInt in three places that predate minor SDKs -- the
+        // targetSdkVersion below throws NumberFormatException outright, and
+        // compileSdkInt answers 0, which every caller reads as "could not be
+        // determined". Reduce it to the API level once, here, so the rest of
+        // the builder keeps seeing the integer form it was written against.
+        // The gradle8 branch below already did exactly this and so was never
+        // exposed; doing it unconditionally is what covers the legacy path.
+        maxPlatformVersion = "" + maxPlatformVersionInt;
+
+        if (maxBuildToolsVersionInt == 0) {
+            maxBuildToolsVersionInt = 31;
+            maxBuildToolsVersion = "31";
+        }
+
+        if (useGradle8) {
+            // Build Tools and platform SDK versions are independent; compileSdk is
+            // raised to at least targetSdk when the Gradle project is generated below.
+            maxBuildToolsVersionInt = Math.max(33, maxBuildToolsVersionInt);
+            maxBuildToolsVersion = "" + maxBuildToolsVersionInt;
+
+            maxPlatformVersionInt = Math.max(36, maxPlatformVersionInt);
+            // Re-derived because the floor above may have raised it; the
+            // minor-version reduction itself already happened for every path.
+            maxPlatformVersion = "" + maxPlatformVersionInt;
+        }
+
+        useAndroidX = request.getArg(
+                "android.useAndroidX",
+                ((newFirebaseMessaging || decouplePlayServiceVersions || useGradle8) || (facebookSupported && compareVersions(facebookSdkVersion, "16.0.0") >= 0))
+                        ? "true"
+                        : "false"
+        ).equals("true");
+        if (!useAndroidX && newFirebaseMessaging) {
+            throw new BuildException("android.newFirebaseMessaging requires useAndroidX to be true.  Please remove the android.useAndroidX build hint");
+        }
+        log("useAndroidX: "+useAndroidX);
+        log("Compare facebookSdkVersion to 16.0.0: " + (compareVersions(facebookSdkVersion, "16.0.0") >= 0));
+        log("Facebook supported: " + facebookSupported);
+        migrateToAndroidX = useAndroidX && request.getArg("android.migrateToAndroidX", "true").equals("true");
+
+        buildToolsVersionInt = maxBuildToolsVersionInt;
+
+        this.buildToolsVersion = request.getArg("android.buildToolsVersion", maxBuildToolsVersion);
+        String buildToolsVersionIntStr = this.buildToolsVersion;
+        if (buildToolsVersionIntStr.indexOf(".") > 1) {
+            buildToolsVersionIntStr = buildToolsVersionIntStr.substring(0, buildToolsVersionIntStr.indexOf("."));
+        }
+        buildToolsVersionInt = Integer.parseInt(buildToolsVersionIntStr.replaceAll("[^0-9]", ""));
+        if (newFirebaseMessaging) {
+            buildToolsVersionInt = 33;
+        }
+        if (useAndroidX && buildToolsVersionInt < 29) {
+            buildToolsVersionInt = 29;
+            this.buildToolsVersion = "29";
+        } else if (buildToolsVersionInt > 28 && !useAndroidX) {
+            useAndroidX = true;
+            migrateToAndroidX = useAndroidX && request.getArg("android.migrateToAndroidX", "true").equals("true");
+        }
+        debug("Effective build tools version = "+this.buildToolsVersion);
+
+
+        // Augment the xpermissions request arg with explicit android.permissions.XXX build hints
+        xPermissions = request.getArg("android.xpermissions", "");
+
+        debug("Adding android permissions...");
+        for (String xPerm : ANDROID_PERMISSIONS) {
+            String permName = xPerm.substring(xPerm.lastIndexOf(".")+1);
+            if (request.getArg("android.permission."+permName, "false").equals("true")) {
+                debug("Found permission "+permName);
+                String maxSdk = request.getArg("android.permission."+permName+".maxSdkVersion", "");
+                String required = request.getArg("android.permission."+permName+".required", "");
+                String addString =  "    <uses-permission android:name=\""+xPerm+"\" ";
+                if (!"".equals(required)) {
+                    addString += "android:required=\""+required+"\" ";
+                }
+
+                if (!"".equals(maxSdk)) {
+                    addString += "android:maxSdkVersion=\""+maxSdk+"\" ";
+                }
+                addString += "/>\n";
+
+                xPermissions += permissionAdd(request, xPerm, addString);
+            }
+        }
+
+        final String usesFeaturePrefix = "android.uses_feature.";
+        final int usesFeaturePrefixLen = usesFeaturePrefix.length();
+        for (final String arg : request.getArgs()) {
+            if (!arg.startsWith(usesFeaturePrefix)) {
+                continue;
+            }
+            final String featureName = arg.substring(usesFeaturePrefixLen);
+            final String rawArgValue = request.getArg(arg, "false");
+            if (rawArgValue.equals("false")) {
+                continue;
+            }
+            final boolean requiredFlag = rawArgValue.equals("required");
+            String addString =  "    <uses-feature android:name=\""+featureName+"\" ";
+            if (requiredFlag) {
+                addString += "android:required=\"true\" ";
+            }
+            addString += "/>\n";
+            xPermissions += permissionAdd(request, featureName, addString);
+        }
+
+        final String usesPermissionPrefix = "android.uses_permission.";
+        final int usesPermissionPrefixLen = usesPermissionPrefix.length();
+        final String maxSdkVersionPrefix = "maxSdkVersion:";
+        final int maxSdkVersionPrefixLen = maxSdkVersionPrefix.length();
+        for (final String arg : request.getArgs()) {
+            if (!arg.startsWith(usesPermissionPrefix)) {
+                continue;
+            }
+            final String permissionName = arg.substring(usesPermissionPrefixLen);
+            final String rawArgValue = request.getArg(arg, "false");
+            if (rawArgValue.equals("false")) {
+                continue;
+            }
+            final boolean requiredFlag = rawArgValue.contains("required");
+            final int maxSdkVersionPos = rawArgValue.indexOf(maxSdkVersionPrefix);
+            String maxSdkVersion = maxSdkVersionPos >= 0 ? rawArgValue.substring(maxSdkVersionPos + maxSdkVersionPrefixLen) : "";
+            if (!maxSdkVersion.isEmpty() && maxSdkVersion.contains(" ")) {
+                maxSdkVersion = maxSdkVersion.substring(0, maxSdkVersion.indexOf(" "));
+            }
+
+            String addString =  "    <uses-permission android:name=\""+permissionName+"\" ";
+            if (requiredFlag) {
+                addString += "android:required=\"true\" ";
+            }
+            if (!"".equals(maxSdkVersion)) {
+                addString += "android:maxSdkVersion=\""+maxSdkVersion+"\" ";
+            }
+            addString += "/>\n";
+            xPermissions += permissionAdd(request, permissionName, addString);
+        }
+
+        // What the DEVELOPER asked for, kept because everything below adds this
+        // builder's own fragments to the same string and nothing afterwards can
+        // tell the two apart. Whether a fine-location declaration is theirs or
+        // ours decides whether the build may rewrite it, whether it counts as a
+        // manual declaration that beats this build's inference, and whether a
+        // feature is what needs precise location.
+        //
+        // Below ALL of the loops above, which are three ways of saying the same
+        // thing and all of them the application's:
+        //
+        //   android.xpermissions             -- the fragment, written out by hand
+        //   android.permission.XXX=true      -- with its own .maxSdkVersion
+        //   android.uses_permission.XXX=maxSdkVersion:NN
+        //
+        // Each was found sitting below this line in turn, and each time the
+        // effect was the same: the application's own declaration read as the
+        // build's, its cap rewritten, and a forced exclusive restriction either
+        // refused for the wrong reason or dropped without a word.
+        xPermissionsAsSupplied = xPermissions;
+
+        File tmpFile = getBuildDirectory();
+        if (tmpFile == null) {
+            throw new IllegalStateException("Build directory must be set before running build.");
+        }
+        if (tmpFile.exists()) {
+            delTree(tmpFile);
+        }
+        tmpFile.mkdirs();
+        String gradleHomeVersion = useGradle8 ? "8" : "6_5";
+        File managedGradleHome = new File(path(System.getProperty("user.home"), ".codenameone", "gradle" + gradleHomeVersion));
+
+        String gradleHome = System.getenv("GRADLE_HOME");
+        if (gradleHome == null && managedGradleHome.exists()) {
+            gradleHome = managedGradleHome.getAbsolutePath();
+        }
+        String gradleExe = System.getenv("GRADLE_PATH");
+
+        if (gradleExe == null) {
+            if (gradleHome != null) {
+                gradleExe = new File(gradleHome + File.separator + "bin"
+                        + File.separator + "gradle" + bat).getAbsolutePath();
+            } else {
+                gradleExe = "gradle";
+            }
+        }
+
+        if (PREFER_MANAGED_GRADLE) {
+            debug("PREFER_MANAGED_GRADLE flag is set.  Ignoring GRADLE_HOME and GRADLE_PATH environment variables.  Using managed gradle at "+managedGradleHome+" instead");
+            gradleHome = managedGradleHome.getAbsolutePath();
+            gradleExe = new File(managedGradleHome, path("bin", "gradle"+bat)).getAbsolutePath();
+
+        }
+
+        String gradleVersion;
+        try {
+            gradleVersion = getGradleVersion(gradleExe);
+        } catch (Exception ex) {
+            gradleVersion = "0";
+        }
+        debug("FOUND gradleVersion "+gradleVersion);
+        int gradleVersionInt = parseVersionStringAsInt(gradleVersion);
+        debug("Found gradleVersionInt="+gradleVersionInt);
+        if (compareVersions(gradleVersion, minimumGradleVersion) < 0) {
+            // The minimum version is too low.
+            if (managedGradleHome.exists()) {
+                gradleExe = new File(managedGradleHome, path("bin", "gradle"+bat)).getAbsolutePath();
+                try {
+                    gradleVersion = getGradleVersion(gradleExe);
+                } catch (Exception ex) {
+                    gradleVersion = "0";
+                }
+                gradleVersionInt = parseVersionStringAsInt(gradleVersion);
+
+            }
+            if (compareVersions(gradleVersion, minimumGradleVersion) < 0) {
+                if (managedGradleHome.exists()) {
+                    delTree(managedGradleHome);
+                }
+                File gradleZip = new File(managedGradleHome+".zip");
+                downloadGradleDistribution(gradleZip);
+                try {
+                    ZipFile gradleZipFile = new ZipFile(gradleZip);
+                    File extracted = new File(path(gradleZip.getAbsolutePath()+"-extracted"));
+                    extracted.mkdir();
+                    gradleZipFile.extractAll(extracted.getAbsolutePath());
+                    gradleZip.delete();
+
+                    for (File extractedChild : extracted.listFiles()) {
+                        if (extractedChild.getName().startsWith("gradle") && extractedChild.isDirectory()) {
+                            try {
+                                if (managedGradleHome.exists()) {
+                                    if (managedGradleHome.isDirectory()) {
+                                        FileUtils.deleteDirectory(managedGradleHome);
+                                    } else {
+                                        managedGradleHome.delete();
+                                    }
+                                }
+                                FileUtils.moveDirectory(extractedChild, managedGradleHome);
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+
+                            break;
+                        }
+                    }
+
+                } catch (ZipException zex) {
+                    throw new BuildException("Failed to unzip gradle distribution after downloading it", zex);
+                }
+
+                if (!managedGradleHome.exists()) {
+                    throw new BuildException("There was a problem extracting the gradle distribution. Expected it to be extracted at "+managedGradleHome+", but was not found");
+                }
+
+                File managedGradleExe = new File(managedGradleHome, path("bin", "gradle"+bat));
+                if (!managedGradleExe.exists()) {
+                    throw new BuildException("Expected to find gradle executable at "+managedGradleExe+" after download and extraction, but it wasn't there.  Something about the gradle install must have failed.  Try again.");
+                }
+
+                gradleExe = managedGradleExe.getAbsolutePath();
+                try {
+                    gradleVersion = getGradleVersion(gradleExe);
+
+                } catch (Exception ex) {
+                    throw new BuildException("Failed to get gradle version even after downloading it from "+gradleDistributionUrl+".  Something must have gone wrong with the gradle installation.");
+                }
+                gradleVersionInt = parseVersionStringAsInt(gradleVersion);
+                if (compareVersions(gradleVersion, minimumGradleVersion) < 0) {
+                    throw new BuildException("Required Gradle version is "+minimumGradleVersion+" but found version "+gradleVersion);
+                }
+            }
+        }
+
+        File androidToolsDir = new File(androidSDKDir, "tools");
+        File projectDir = new File(tmpFile, request.getMainClass());
+        gradleProjectDirectory = projectDir;
+
+        String androidVersion = "android-14";
+        String defaultVersion = maxPlatformVersion;
+        String usesLibrary = "        <uses-library android:name=\"org.apache.http.legacy\" android:required=\"false\" />\n";
+
+        String targetNumber = request.getArg("android.targetSDKVersion", defaultVersion);
+
+        if(!targetNumber.equals(defaultVersion)) {
+            try {
+                if(Integer.parseInt(targetNumber) < 28) {
+                    usesLibrary = "";
+                }
+            } catch(Exception err) {
+
+            }
+        }
+
+        String targetSDKVersion = targetNumber;
+        final int targetSDKVersionInt = Integer.parseInt(targetSDKVersion);
+
+        if (targetSDKVersionInt > 14) {
+            androidVersion = "android-" + targetSDKVersion;
+        }
+        targetSDKVersion = " android:targetSdkVersion=\"" + targetSDKVersion + "\" ";
+        log("TargetSDKVersion="+targetSDKVersion);
+
+
+
+
+        String gradlePluginVersion = "1.3.1";
+        if(gradleVersionInt < 3){
+            gradlePluginVersion = "2.0.0";
+        } else {
+            if(gradleVersionInt < 6){
+                if (useAndroidX) {
+                    gradlePluginVersion = "3.2.0";
+                } else {
+
+                    gradlePluginVersion = "3.0.1";
+                }
+            } else  {
+                useArrImplementation = true;
+                gradlePluginVersion = "4.1.1";
+            }
+        }
+        boolean androidAppBundle = request.getArg("android.appBundle", gradleVersionInt >= 5 ? "true" : "false").equals("true");
+
+        debug("gradlePluginVersion="+gradlePluginVersion);
+        projectDir = new File(projectDir, "app");
+        File studioProjectDir = projectDir.getParentFile();
+
+
+        if (isUnitTestMode()) {
+
+            throw new BuildException("Unit Test mode not currently supported for local android builds.");
+
+        } else {
+            try {
+                log("Creating AndroidStudioProject from template");
+                if (studioProjectDir.exists()) {
+                    delTree(studioProjectDir);
+                }
+                createAndroidStudioProject(studioProjectDir);
+
+            } catch (Exception ex) {
+                error("Failed to create AndroidStudioProject: "+ex.getMessage(), ex);
+                throw new BuildException("Failed to create android project", ex);
+            }
+        }
+
+        File assetsDir = new File(projectDir + "/src/main", "assets");
+        assetsDir.mkdirs();
+        File resDir = new File(projectDir + "/src/main", "res");
+        resDir.mkdirs();
+        File valsDir = new File(resDir, "values");
+        valsDir.mkdirs();
+
+        File vals11Dir = null;
+        vals11Dir = new File(resDir, "values-v11");
+        vals11Dir.mkdirs();
+
+        File vals21Dir = null;
+        vals21Dir = new File(resDir, "values-v21");
+        vals21Dir.mkdirs();
+
+        File layoutDir = new File(resDir, "layout");
+        layoutDir.mkdirs();
+
+        File xmlDir = new File(resDir, "xml");
+        xmlDir.mkdirs();
+
+        File srcDir = new File(projectDir, "src/main/java");
+        srcDir.mkdirs();
+        // Native map provider injection (no-op unless maps.provider is set):
+        // pushes the selected provider's implementation into the app's
+        // com.codename1.maps package and returns the onCreate snippet that
+        // registers it. Keeps the core framework free of any map SDK.
+        String mapsProviderSupport = MapsProviderInjector.injectAndroid(this, request, srcDir);
+        // The smart-home delegate is injected further down, after the class
+        // scan has run: usesSmartHome is still false here, and injecting on it
+        // now would never inject at all -- the API would report itself
+        // unsupported on a device that supports it, with nothing in the build
+        // log to say why.
+        String smartHomeSupport = "";
+        File dummyClassesDir = new File(tmpFile, "Classes");
+        dummyClassesDir.mkdirs();
+        File libsDir = new File(projectDir, "libs");
+        libsDir.mkdirs();
+        try {
+            debug("Extracting "+sourceZip);
+            unzip(sourceZip, dummyClassesDir, assetsDir, srcDir, libsDir, xmlDir);
+        } catch (Exception ex) {
+            throw new BuildException("Failed to extract source zip "+sourceZip, ex);
+        }
+        if (stripKotlinFromUserClasses) {
+            stripKotlin(dummyClassesDir);
+        }
+
+        File appDir = buildToolsVersionInt >= 27 ?
+                new File(srcDir.getParentFile(), "app") :
+                new File(libsDir.getParentFile(), "app");
+        File googleServicesJson = new File(appDir, "google-services.json");
+
+        googleServicesJson = new File(libsDir.getParentFile(), "google-services.json");
+        File agconnectServicesJson = new File(libsDir.getParentFile(), "agconnect-services.json");
+        String additionalImports = request.getArg("android.activityClassImports", "");
+        String additionalMembers = request.getArg("android.activityClassBody", "");
+        String additionalKeyVals = "";
+        String mopubActivities = "";
+        String mopubBannerXML = "";
+        String permissions = "";
+        String telephonyRequired = "false";
+
+        String aarDependencies = "";
+        //move dependant projects to a separate directory
+        File[] childs = libsDir.listFiles();
+        for (int i = 0; i < childs.length; i++) {
+            File file = childs[i];
+            if (file.getName().endsWith(".andlib")) {
+                throw new BuildException("andlib format is not supported anymore, use aar instead");
+            }
+            if (file.getName().endsWith(".aar")) {
+                String name = file.getName().substring(0, file.getName().lastIndexOf("."));
+                boolean arrCompileLib = request.getArg("android.arrcompile", "").contains(
+                        name);
+                boolean arrImplementationLib = request.getArg("android.arrimplementation", "").contains(
+                        name);
+                if(!arrCompileLib && (useArrImplementation || arrImplementationLib)) {
+                    aarDependencies += "    implementation(name:'" + name + "', ext:'aar')\n";
+                } else {
+                    aarDependencies += "    compile(name:'" + name + "', ext:'aar')\n";
+                }
+            }
+
+        }
+
+
+        String minSDK = request.getArg("android.min_sdk_version", "19");
+
+        if (facebookSupported) {
+            facebookHashCode = "        try {\n"
+                    + "            android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(\n"
+                    + "                  \"" + request.getPackageName() + "\", android.content.pm.PackageManager.GET_SIGNATURES);\n"
+                    + "            for (android.content.pm.Signature signature : info.signatures){\n"
+                    + "                   java.security.MessageDigest md = java.security.MessageDigest.getInstance(\"SHA\");\n"
+                    + "                   md.update(signature.toByteArray());\n"
+                    + "                   android.util.Log.d(\"KeyHash:\", android.util.Base64.encodeToString(md.digest(), android.util.Base64.DEFAULT));\n"
+                    + "                   Display.getInstance().setProperty(\"facebook_hash\", android.util.Base64.encodeToString(md.digest(), android.util.Base64.DEFAULT));\n"
+                    + "            }\n"
+                    + "        } catch (android.content.pm.PackageManager.NameNotFoundException e) {\n"
+                    + "            e.printStackTrace();\n"
+                    + "        } catch (java.security.NoSuchAlgorithmException e) {\n"
+                    + "            e.printStackTrace();\n"
+                    + "        }\n\n";
+
+            String permissionsStr = request.getArg("android.facebook_permissions", "\"public_profile\",\"email\",\"user_friends\"");
+            permissionsStr = request.getArg("and.facebook_permissions", permissionsStr);
+            permissionsStr = permissionsStr.replace('"', ' ');
+
+            facebookSupport = "Display.getInstance().setProperty(\"facebook_app_id\", \"" + request.getArg("facebook.appId", "706695982682332") + "\");\n"
+                    + "        Display.getInstance().setProperty(\"facebook_permissions\", \"" + permissionsStr + "\");\n"
+                    + " com.codename1.social.FacebookImpl.init();\n";
+
+            facebookProguard = "-keep class com.facebook.** { *; }\n"
+                    + "-keepattributes Signature\n"
+                    + "-dontwarn bolts.**\n"
+                    + "-dontnote android.support.**\n"
+                    + "-dontnote androidx.**\n";
+
+
+            facebookActivityMetaData = " <meta-data android:name=\"com.facebook.sdk.ApplicationId\" android:value=\"@string/facebook_app_id\"/>\n";
+            if (facebookClientToken != null) {
+                facebookActivityMetaData += " <meta-data android:name=\"com.facebook.sdk.ClientToken\" android:value=\"" + facebookClientToken + "\"/>\n";
+            }
+            facebookActivity = " <activity android:name=\"com.facebook.FacebookActivity\" android:exported=\"true\"/>\n";
+            additionalKeyVals += "<string name=\"facebook_app_id\">" + request.getArg("facebook.appId", "706695982682332") + "</string>";
+        }
+
+        String googlePlayAdsMetaData = "";
+        String googlePlayAdsActivity = "";
+        String googlePlayObfuscation = "";
+        String googleAdUnitId = request.getArg("android.googleAdUnitId", request.getArg("google.adUnitId", null));
+        String googlePlayAdViewCode = "";
+        String userXapplication = request.getArg("android.xapplication", "");
+
+        // Wear OS support, driven by the same entry point as the Apple Watch
+        // build: a project declares a watch lifecycle class with
+        // codename1.watchMain and gets a watch app on both platforms. A Wear app
+        // is a regular Android app that declares the watch hardware feature; the
+        // Codename One UI renders through the same Android pipeline (no separate
+        // render backend is needed, unlike the Apple Watch port), and
+        // CN.isWatch() returns true at runtime via PackageManager.FEATURE_WATCH.
+        //
+        // codename1.watchStandalone=true means the watch app IS the product: it
+        // installs and runs directly on the watch with no paired phone app, so
+        // this single APK becomes the watch app. Without it the watch app is a
+        // companion to the phone app and ships as its own artifact, which leaves
+        // this (phone) manifest untouched.
+        String wearApplicationMetaData = "";
+        String watchMain = request.getArg("watchMain", "").trim();
+        boolean watchStandalone = "true".equals(request.getArg("watchStandalone", "false"));
+        // The retired android.wear / android.wear.standalone hints still have to work. A project
+        // configured against them predates codename1.watchMain and declares neither of the new
+        // settings, so keying only on those would silently drop the watch hardware feature, the API
+        // 23 floor and the standalone marker from a manifest that used to have them -- turning a
+        // working Wear app into a phone APK with no error. android.wear alone implied standalone,
+        // which is why it maps to the standalone branch.
+        //
+        // Keyed on android.wear ALONE. android.wear.standalone is a sub-hint that only ever
+        // applied inside android.wear=true, so treating it as an independent trigger inverts the
+        // relationship: android.wear implied standalone, standalone never implied wear. A legacy
+        // phone project carrying a stray android.wear.standalone=true would otherwise be given the
+        // API 23 floor and a REQUIRED android.hardware.type.watch feature, and Play would filter
+        // that APK off every phone -- a working phone app made undeliverable, with no error.
+        //
+        // And the legacy flag yields entirely once watchMain is declared. A migrated project that
+        // adds watchMain and leaves watchStandalone false is asking for a COMPANION, but the old
+        // flag still forced the required watch feature and the standalone marker -- producing a
+        // Wear-only APK, while appLifecycleClass (which reads only the new settings) rooted it at
+        // the PHONE lifecycle. A watch-only artifact running the phone app is not either of the two
+        // things the project could have meant. One rule now governs both: the new declaration wins
+        // where it exists, and the legacy flag keeps working exactly as before where it does not.
+        boolean migrated = watchMainRetiresLegacyWear(watchMain,
+                request.getArg("watchStandalone", "false"));
+        boolean legacyWear = !migrated
+                && legacyWearMode(request.getArg("android.wear", "false"));
+        boolean legacyStandaloneStillOn = !migrated && legacyWearStandalone(
+                request.getArg("android.wear", "false"),
+                request.getArg("android.wear.standalone", ""));
+        if (migrated && legacyWearMode(request.getArg("android.wear", "false"))) {
+            log("[wearable] ignoring android.wear: codename1.watchMain is declared, so"
+                    + " codename1.watchStandalone alone decides whether this is a standalone watch"
+                    + " app or a companion.");
+        }
+        if (legacyWear) {
+            log("[wearable] android.wear is superseded by codename1.watchMain plus "
+                    + "codename1.watchStandalone; still honoured, but the new settings also build "
+                    + "the Apple Watch app from the same declaration.");
+        }
+        boolean standaloneWatchBuild =
+                (watchMain.length() > 0 && watchStandalone) || legacyStandaloneStillOn;
+        if ((watchMain.length() > 0 && watchStandalone) || legacyWear) {
+            // Wear OS 2.0 (the standalone-app baseline) is API 23.
+            minSDK = maxInt("23", minSDK);
+            if (!xPermissions.contains("android.hardware.type.watch")) {
+                xPermissions += "    <uses-feature android:name=\"android.hardware.type.watch\" android:required=\"true\" />\n";
+            }
+            if (standaloneWatchBuild
+                    && !userXapplication.contains("com.google.android.wearable.standalone")) {
+                wearApplicationMetaData = "        <meta-data android:name=\"com.google.android.wearable.standalone\" android:value=\"true\" />\n";
+            }
+        }
+
+        // Android TV / Google TV support. android.tv=true marks this as an
+        // Android TV app: the Leanback launcher category makes the app appear on
+        // the TV home screen, the leanback software feature plus an optional
+        // touchscreen declaration advertise TV compatibility, and a 320x180
+        // banner is generated from the app icon (see below). The same APK still
+        // runs on phones/tablets and CN.isTV() returns true at runtime via
+        // PackageManager.FEATURE_TELEVISION/leanback. With the hint off the
+        // manifest is unchanged.
+        String tvLeanbackCategory = "";
+        String tvActivityBanner = "";
+        if ("true".equals(request.getArg("android.tv", "false"))) {
+            tvLeanbackCategory = "                <category android:name=\"android.intent.category.LEANBACK_LAUNCHER\" />\n";
+            tvActivityBanner = "                  android:banner=\"@drawable/tv_banner\"\n";
+            if (!xPermissions.contains("android.software.leanback")) {
+                xPermissions += "    <uses-feature android:name=\"android.software.leanback\" android:required=\"false\" />\n";
+            }
+            if (!xPermissions.contains("android.hardware.touchscreen")) {
+                xPermissions += "    <uses-feature android:name=\"android.hardware.touchscreen\" android:required=\"false\" />\n";
+            }
+        }
+
+        if (playServicesAds) {
+            minSDK = maxInt("21", minSDK);
+        }
+        if (googleAdUnitId != null && googleAdUnitId.length() > 0) {
+            minSDK = maxInt("9", minSDK);
+            if (!userXapplication.contains("com.google.android.gms.version")) {
+                googlePlayAdsMetaData = "<meta-data android:name=\"com.google.android.gms.version\" android:value=\"@integer/google_play_services_version\"/>";
+            }
+            if (!userXapplication.contains("com.google.android.gms.ads.AdActivity")) {
+                googlePlayAdsActivity = "<activity android:name=\"com.google.android.gms.ads.AdActivity\" android:configChanges=\"keyboard|keyboardHidden|orientation|screenLayout|uiMode|screenSize|smallestScreenSize\"/>";
+            }
+            accessNetworkStatePermission = true;
+
+            String testDevice = request.getArg("android.googleAdUnitTestDevice", "C6783E2486F0931D9D09FABC65094FDF");
+            googlePlayAdViewCode
+                    = "            com.google.android.gms.ads.AdView adView = new com.google.android.gms.ads.AdView(this);\n"
+                    + "            adView.setAdUnitId(\"" + googleAdUnitId + "\");\n"
+                    + "            adView.setId(2002);\n"
+                    + "            adView.setAdSize(com.google.android.gms.ads.AdSize.SMART_BANNER);\n"
+                    + "            AndroidImplementation.setViewAboveBelow(null, adView, 0, com.google.android.gms.ads.AdSize.SMART_BANNER.getHeightInPixels(this));\n"
+                    + "            com.google.android.gms.ads.AdRequest adRequest = new com.google.android.gms.ads.AdRequest.Builder().addTestDevice(\""
+                    + testDevice
+                    + "\").build();\n"
+                    + "            adView.loadAd(adRequest);\n";
+
+            googlePlayObfuscation
+                    = "-keep class * extends java.util.ListResourceBundle {\n"
+                    + "    protected Object[][] getContents();\n"
+                    + "}\n"
+                    + "\n"
+                    + "-keep public class com.google.android.gms.common.internal.safeparcel.SafeParcelable {\n"
+                    + "    public static final *** NULL;\n"
+                    + "}\n"
+                    + "\n"
+                    + "-keepnames @com.google.android.gms.common.annotation.KeepName class *\n"
+                    + "-keepclassmembernames class * {\n"
+                    + "    @com.google.android.gms.common.annotation.KeepName *;\n"
+                    + "}\n"
+                    + "\n"
+                    + "-keepnames class * implements android.os.Parcelable {\n"
+                    + "    public static final ** CREATOR;\n"
+                    + "}\n";
+
+        }
+
+
+        playServicesVersion = request.getArg("android.playServicesVersion", playServicesVersion);
+        playServicesVersionSetInBuildHint = request.getArg("android.playServicesVersion", null) != null;
+
+        final String playServicesValue = request.getArg("android.includeGPlayServices", null);
+        playFlag = "true";
+
+        gpsPermission = request.getArg("android.gpsPermission", "false").equals("true");
+        if (request.getArg("android.delayPushCompletion", "false").equals("true") ||
+                request.getArg("delayPushCompletion", "false").equals("true")) {
+            wakeLock = true;
+        }
+        mediaPlaybackPermission = false;
+        visionSupport = false;
+        inferenceSupport = false;
+        languageSupport = false;
+        includedAiAdapterSources.clear();
+
+        // Accumulator for AI/ML class hits. After the scan we apply
+        // every matched PlatformFeatureCatalog.Entry -- appending Gradle
+        // deps to additionalDependencies (later) and permissions/
+        // features to xPermissions right now.
+        final PlatformFeatureCatalog.Accumulator aiAcc = new PlatformFeatureCatalog.Accumulator();
+
+        // scanClassesForPermissions invokes callbacks serially on this build
+        // thread. The mutable feature flags and source set are intentionally
+        // unsynchronized; parallelizing the scanner requires revisiting them.
+        try {
+            DatabaseUsage databaseUsage = scanForDatabaseUsage(dummyClassesDir);
+            // libs as well as the classes: unzip writes submitted library jars there, and the
+            // generated gradle links them through a fileTree, so encryption used only inside a
+            // library is invisible to a scan of the loose class tree -- and the build would then
+            // delete the cipher implementation out from under the library that calls it.
+            DatabaseUsage libraryUsage = scanForDatabaseUsage(libsDir);
+            usesDatabase = databaseUsage.usesDatabase() || libraryUsage.usesDatabase();
+            // Keeps the SQLCipher-backed impl package, which is deleted below for apps that never
+            // encrypt, and pulls in the AAR through the catalog. The AAR carries minSdk 23, so a
+            // false positive here raises the floor of every application that never encrypts.
+            dbCipherSupport = databaseUsage.usesDatabaseCipher()
+                    || libraryUsage.usesDatabaseCipher();
+            if (dbCipherSupport) {
+                // Fed by name rather than by the scan, so the catalog applies its dependencies and
+                // its minimum SDK only when the application itself configures encryption.
+                aiAcc.consume(DATABASE_CIPHER_CATALOG_CLASS);
+            }
+            scanClassesForPermissions(dummyClassesDir, new Executor.ClassScanner() {
+                @Override
+                public void implementsInterface(String cls, String iface) {
+                    healthScan.implementsInterface(cls, iface);
+                }
+
+                @Override
+                public void declaresEnclosedBy(String cls, String outer) {
+                    healthScan.declaresEnclosedBy(cls, outer);
+                }
+
+                @Override
+                public void declaresPublicType(String cls) {
+                    healthScan.declaresPublicType(cls);
+                }
+
+                @Override
+                public void declaresType(String cls, String superName,
+                        boolean isConcrete) {
+                    healthScan.declaresType(cls, superName, isConcrete);
+                }
+
+
+
+                @Override
+                public void usesClass(String cls) {
+                    // The catalog matches on a class reference and this callback cannot say which
+                    // class made one, so the SQLCipher entry is withheld here and fed from the
+                    // attributed scan below instead. Display references DatabaseConfig, so letting
+                    // it through adds both SQLCipher dependencies and takes minSdk to 23 for every
+                    // application -- which the later deletion of the cipher source package does
+                    // not undo, since the dependency and the floor are already in the gradle file.
+                    if (!DATABASE_CIPHER_CATALOG_CLASS.equals(cls)) {
+                        aiAcc.consume(cls);
+                    }
+                    String aiAdapter = androidAiAdapterSource(cls);
+                    if (aiAdapter != null) {
+                        includedAiAdapterSources.add(aiAdapter);
+                    }
+                    if (aiAdapter != null
+                            && cls.indexOf("com/codename1/ai/vision/") == 0) {
+                        visionSupport = true;
+                    }
+                    if ("com/codename1/ai/inference/InferenceSession".equals(cls)) {
+                        inferenceSupport = true;
+                    }
+                    if (aiAdapter != null
+                            && cls.indexOf("com/codename1/ai/language/") == 0) {
+                        languageSupport = true;
+                    }
+                    // Deliberately not scanned here. This callback cannot say which class made
+                    // the reference, and the tree it walks is the application merged with the
+                    // framework, where Display alone carries openOrCreate(String, DatabaseConfig)
+                    // -- so the cipher gate would answer yes for every application ever built and
+                    // raise its minimum SDK to 23 for nothing. Attributed below instead.
+                    if (cls.indexOf("com/codename1/ar/") == 0) {
+                        // Keeps the ARCore-backed impl sources (deleted for
+                        // non-AR apps below) and bumps minSdk to the ARCore
+                        // floor.
+                        arSupport = true;
+                    }
+                    if (cls.indexOf("com/codename1/notifications") == 0) {
+                        recieveBootCompletedPermission = true;
+                        if (targetSDKVersionInt >= 33) {
+                            postNotificationsPermission = true;
+                        }
+                    }
+                    if (cls.indexOf("com/codename1/capture") == 0) {
+                        capturePermission = true;
+                    }
+                    if (cls.indexOf("com/codename1/ads") == 0) {
+                        debug("Adding phone permission because of class " + cls);
+                        phonePermission = true;
+                    }
+                    if (cls.indexOf("com/codename1/components/Ads") == 0) {
+                        debug("Adding phone permission because of class " + cls);
+                        phonePermission = true;
+                    }
+                    if (cls.indexOf("com/codename1/maps") == 0 || cls.indexOf("com/codename1/location") == 0) {
+                        gpsPermission = true;
+                    }
+                    // This sees cn1lib code too, so there is nothing to fold in
+                    // from libsDir and a scan of it would be dead weight.
+                    // CN1BuildMojo merges the dependency jars -- which is what a
+                    // cn1lib is on the Maven classpath -- into
+                    // jar-with-dependencies.jar via mergeJars(), and that becomes
+                    // dist.jar, which the builder unzips into dummyClassesDir:
+                    // the very tree this scan walks. A library that tracks or
+                    // geofences therefore reaches usesClass() here like any other
+                    // caller and takes the exclusive declaration away by itself.
+                    //
+                    // Review has now raised "libsDir is scanned separately, so
+                    // library usage is invisible" twice on this code. It is not
+                    // true of cn1lib Java, and the libsDir scans that do exist
+                    // (database, call/VPN, Nearby) are there for the native and
+                    // aar half, which never references com/codename1/location at
+                    // all and so could not affect this decision either way.
+                    //
+                    // The mirror-image claim has been raised too: that the
+                    // FRAMEWORK is scanned, so LocationButton.acquire()'s own
+                    // call to LocationManager.getLocationManager() would set
+                    // otherLocationUse for every application that shows a button
+                    // and defeat the inference entirely. It would -- if the
+                    // framework were there. It is not:
+                    // CN1BuildMojo.BUNDLE_ARTIFACT_ID_BLACKLIST holds
+                    // codenameone-core and java-runtime out of the merged jar,
+                    // and the staged userClasses.jar of an application whose
+                    // form holds nothing but a LocationButton contains no
+                    // com/codename1/location/LocationButton, no LocationManager
+                    // and not even com/codename1/ui/Display -- checked with
+                    // unzip -l, and confirmed by the outcome: that application's
+                    // manifest gets onlyForLocationButton, which requires
+                    // otherLocationUse to be false.
+                    if (needsOrdinaryPreciseLocation(cls)) {
+                        debug("Precise location is not button-only because of class " + cls);
+                        otherLocationUse = true;
+                    }
+                    // Counting the nested classes here does NOT make this fire
+                    // for every application, which is the obvious reading of a
+                    // scan over a jar that also holds the framework:
+                    // LocationButton's own constructor references
+                    // LocationButton$1, so if every framework class were walked
+                    // this would be set unconditionally. It is not -- usesClass
+                    // reports what the application reaches, so an application
+                    // that never names LocationButton never scans it and never
+                    // reaches its nested classes either.
+                    //
+                    // Measured both ways rather than argued: a generated app
+                    // whose only code is a Form and a Label produces a manifest
+                    // with no USE_LOCATION_BUTTON and no ACCESS_FINE_LOCATION,
+                    // while the same app with a LocationButton on the form gets
+                    // both. The same reasoning is why the gpsPermission rule
+                    // just above can match the whole com/codename1/location
+                    // package without giving every Codename One application
+                    // location permissions.
+                    if (isLocationButtonClass(cls)) {
+                        debug("Adding location button permission because of class " + cls);
+                        locationButtonPermission = true;
+                    }
+                    if (cls.indexOf("com/codename1/push") > -1) {
+                        pushPermission = true;
+                        if ("com/codename1/push/PushClient".equals(cls)) {
+                            pushVersion = 3;
+                        } else if (pushVersion == 0) {
+                            pushVersion = 1;
+                        }
+                        if (targetSDKVersionInt >= 28) {
+                            foregroundServicePermission = true;
+                        }
+                    }
+                    contactsScan.usesClass(cls);
+                    if (cls.indexOf("com/codename1/payment") > -1) {
+                        purchasePermissions = true;
+                    }
+                    // App review API -> pull in the Play In-App Review library
+                    // (see dependency injection further below). Detected from
+                    // actual usage so apps that never review stay lean.
+                    if (!usesAppReview && cls.indexOf("com/codename1/appreview") == 0) {
+                        usesAppReview = true;
+                    }
+                    if (cls.indexOf("com/codename1/location/Geofence") > -1) {
+                        if (!"true".equals(playServicesValue)) {
+                            // If play services are not currently "blanket" enabled
+                            // we will enable them here
+                            debug("Adding location playservice");
+                            request.putArgument("android.location.minPlayServicesVersion", "12.0.1");
+                            playServicesLocation = true;
+                            playFlag = "false";
+                            if (targetSDKVersionInt >= 29) {
+                                backgroundLocationPermission = true;
+                            }
+                        }
+                    }
+
+                    if (cls.indexOf("com/codename1/social") > -1) {
+                        credentialsPermission = true;
+                        getAccountsPermission = true;
+                    }
+
+                    if (cls.indexOf("com/codename1/security/") == 0) {
+                        usesBiometrics = true;
+                    }
+
+                    if (cls.indexOf("com/codename1/nfc/") == 0) {
+                        usesNfc = true;
+                        if (cls.equals("com/codename1/nfc/HostCardEmulationService")) {
+                            usesNfcHce = true;
+                        }
+                    }
+
+                    // Google Android Auto (com.codename1.car.*). Gated on actual usage so the
+                    // androidx.car.app dependency, the CarAppService and the injected glue are only
+                    // added for apps that build an in-car experience.
+                    if (cls.indexOf("com/codename1/car/") == 0) {
+                        usesCar = true;
+                    }
+
+                    // External surfaces (home-screen widgets / live activities). Gated on
+                    // actual usage so the widget receivers, the trampoline activity and the
+                    // pre-baked layout resources are only added for apps that publish surfaces.
+                    if (!usesSurfaces && cls.indexOf("com/codename1/surfaces/") == 0) {
+                        usesSurfaces = true;
+                    }
+                    // Document provider: the app's content shown as a source in the storage
+                    // picker. Gated on actual usage so the provider is only declared for apps
+                    // that publish documents -- a declared provider that answers nothing is a
+                    // source the user can open and find empty.
+                    // Scoped to the APPLICATION's classes, not the framework's. The scanner
+                    // walks the tree unzipped from the submitted project (later zipped back as
+                    // userClasses.jar); the Codename One jar is never unpacked into it, so the
+                    // framework's own references between DocumentProvider, DocumentNode and the
+                    // bridge are not visible here and cannot switch this on by themselves. The
+                    // hit that does switch it on is an application class referencing the API,
+                    // which is the intended signal -- and the same reasoning every other feature
+                    // gate in this scan relies on.
+                    // Library-encapsulated usage is deliberately out of scope here. This reads
+                    // the application's own classes; a cn1lib that publishes on the app's behalf
+                    // is packaged separately and is not walked, which is true of every feature
+                    // gate in this scan rather than of this one. Rescanning library bytecode is a
+                    // change to that shared machinery, not to this line -- the documented route
+                    // for a library is android.documentProvider.enabled.
+                    if (!usesDocuments && cls.indexOf("com/codename1/documents/") == 0) {
+                        usesDocuments = true;
+                    }
+                    if (!usesIntents && cls.indexOf("com/codename1/intents/") == 0) {
+                        usesIntents = true;
+                    }
+
+                    // Phone-to-watch link (com.codename1.wearable.*). Gated on actual usage so the
+                    // play-services-wearable dependency, the listener service and the injected Data
+                    // Layer glue are only added for apps that talk to their watch app.
+                    if (!usesWearable && cls.indexOf("com/codename1/wearable/") == 0) {
+                        usesWearable = true;
+                    }
+
+                    if (cls.equals("com/codename1/background/ForegroundService")) {
+                        usesForegroundService = true;
+                    }
+                    if (cls.equals("com/codename1/share/SharedContent")) {
+                        usesSharedContent = true;
+                    }
+
+                    // OidcClient / SystemBrowser drive sign-in through
+                    // androidx.browser Custom Tabs on Android. Mark usage so
+                    // the gradle dep gets pulled in (see further below).
+                    if (!usesOidc && cls.indexOf("com/codename1/io/oidc/") == 0) {
+                        usesOidc = true;
+                    }
+                    if (!usesAppleSignIn
+                            && cls.indexOf("com/codename1/social/AppleSignIn") == 0) {
+                        usesAppleSignIn = true;
+                    }
+                    // WebAuthn / passkeys -- drives the OS through
+                    // androidx.credentials.CredentialManager. Mark so the
+                    // gradle dep gets injected further below.
+                    if (!usesWebauthn
+                            && cls.indexOf("com/codename1/io/webauthn/") == 0) {
+                        usesWebauthn = true;
+                    }
+                    // Deeper-network connectivity: each subpackage maps to a
+                    // distinct permission set. The scanner sets booleans; the
+                    // injection block below builds the manifest fragments only
+                    // for the flags that fired.
+                    if (cls.indexOf("com/codename1/io/wifi/WiFiDirect") == 0) {
+                        usesWifiDirect = true;
+                        usesWifiInfo = true;
+                    } else if (cls.indexOf("com/codename1/io/wifi/") == 0) {
+                        usesWifiInfo = true;
+                        if (cls.endsWith("WiFi")) {
+                            // The umbrella WiFi class references both info
+                            // and management methods; tag management so the
+                            // CHANGE_WIFI_STATE permission is injected too.
+                            usesWifiManagement = true;
+                        }
+                    }
+                    if (cls.indexOf("com/codename1/io/bonjour/") == 0) {
+                        usesBonjour = true;
+                    }
+                    if (cls.indexOf("com/codename1/io/usb/") == 0) {
+                        usesUsbHost = true;
+                    }
+                    if (cls.equals("com/codename1/io/NetworkTypeListener")) {
+                        usesNetworkTypeListener = true;
+                    }
+
+                    // First-class Bluetooth: the package layout is
+                    // permission-aligned so class references map straight
+                    // onto the Android 12 permission split. Scan/connect
+                    // are refined by which model classes the app touches
+                    // (Scan* handles vs the GATT/stream types); the
+                    // usesClassMethod hook below catches facade-only
+                    // callers.
+                    // Smart home (com.codename1.home.*). Gated on actual
+                    // usage so the Play services home dependency and the
+                    // injected bridge are only added for apps that reference
+                    // the API.
+                    if (cls.indexOf("com/codename1/home/") == 0
+                            && !isSmartHomeSetupPayload(cls)) {
+                        usesSmartHome = true;
+                        if (cls.indexOf("com/codename1/home/commissioning/")
+                                == 0
+                                && !SmartHomeManifestFragments
+                                    .isCommissioningCapabilityType(cls)) {
+                            // Commissioner and CommissioningStyle are left
+                            // out: an app asking whether it COULD add an
+                            // accessory names both and may never add one.
+                            // The Commissioner call decides it instead.
+                            usesHomeCommissioning = true;
+                        }
+                    }
+                    if (cls.indexOf("com/codename1/health/") == 0) {
+                        usesHealth = true;
+                        // The facade itself is not evidence of the store:
+                        // the documented sensor-only flow is
+                        // Health.getInstance().getSensors(), which the
+                        // scanner reports with com/codename1/health/Health
+                        // as the owner. Treating that as store usage failed
+                        // the build for BLE-only apps over Health Connect
+                        // hints they have no use for. The usesClassMethod
+                        // hook below decides for the facade.
+                        // Naming a class is not using the store. A
+                        // sensor-only app implements SensorSampleListener,
+                        // which puts HealthSample in its signature, and the
+                        // documented heart-rate example reads a value off a
+                        // QuantitySample -- both live outside the sensors
+                        // subpackage, so demanding Health Connect types and
+                        // a privacy-policy URL of a BLE-only app was the
+                        // exact failure the sensors exemption exists to
+                        // prevent. Store *calls* count, and the
+                        // usesClassMethod hook below sees those.
+                        if (cls.indexOf("com/codename1/health/sensors/") != 0
+                                && !"com/codename1/health/Health".equals(cls)
+                                && !isSharedHealthModel(cls)) {
+                            usesHealthStore = true;
+                        }
+                        if (cls.indexOf("com/codename1/health/workout/") == 0) {
+                            usesHealthWorkout = true;
+                            // Write only, as the getWorkouts() hook is.
+                            // Naming WorkoutConfiguration or WorkoutSession
+                            // says no more about reading than calling
+                            // getWorkouts() does, and nothing in the package
+                            // reads -- so this branch went on demanding
+                            // android.health.read of an app that had
+                            // correctly declared only a write.
+                            usesHealthWrite = true;
+                        }
+                    }
+                    if (cls.indexOf("com/codename1/call/session/") == 0) {
+                        usesCallSession = true;
+                    }
+                    if (cls.indexOf("com/codename1/call/voip/") == 0) {
+                        usesCallVoip = true;
+                    }
+                    if (cls.indexOf("com/codename1/call/directory/") == 0) {
+                        usesCallDirectory = true;
+                    }
+                    // Only .profile. There is no com.codename1.vpn.tunnel
+                    // to scan for: a tunnel needs a bound VpnService and a
+                    // packet API this framework does not have, and on iOS its
+                    // body would run in an extension with no Java virtual
+                    // machine in it. So no <service> guarded by
+                    // BIND_VPN_SERVICE is emitted anywhere, deliberately --
+                    // declaring one for a package nobody can import would
+                    // put a VPN permission on the manifest of an app that
+                    // cannot tunnel anything.
+                    if (cls.indexOf("com/codename1/vpn/profile/") == 0) {
+                        usesManagedVpn = true;
+                    }
+                    if (cls.indexOf("com/codename1/vpn/tunnel/") == 0) {
+                        usesCustomTunnel = true;
+                    }
+                    // Both entry points, because an app can reference either
+                    // one alone: the button without the facade, or the facade
+                    // without the button.
+                    if (cls.indexOf("com/codename1/analytics/invite/") == 0
+                            || "com/codename1/components/InviteButton".equals(cls)) {
+                        usesInvites = true;
+                    }
+                    if (cls.indexOf("com/codename1/nearby/ranging/") == 0) {
+                        usesNearbyRanging = true;
+                    }
+                    if (cls.indexOf("com/codename1/nearby/transport/") == 0) {
+                        usesNearbyTransport = true;
+                    }
+                    if (cls.indexOf("com/codename1/nearby/companion/") == 0) {
+                        usesNearbyCompanion = true;
+                    }
+                    if (cls.indexOf("com/codename1/bluetooth/") == 0) {
+                        usesBluetooth = true;
+                        if (cls.indexOf("com/codename1/bluetooth/le/server/") == 0) {
+                            usesBluetoothPeripheral = true;
+                        } else if (cls.indexOf("com/codename1/bluetooth/classic/") == 0) {
+                            usesBluetoothClassic = true;
+                            if (cls.indexOf("com/codename1/bluetooth/classic/ClassicDiscovery") == 0) {
+                                usesBluetoothScan = true;
+                            }
+                            if (cls.indexOf("com/codename1/bluetooth/classic/Rfcomm") == 0
+                                    || cls.indexOf("com/codename1/bluetooth/classic/BluetoothClassic") == 0) {
+                                usesBluetoothConnect = true;
+                            }
+                        } else if (cls.indexOf("com/codename1/bluetooth/gatt/") == 0) {
+                            usesBluetoothConnect = true;
+                        } else if (cls.indexOf("com/codename1/bluetooth/le/Scan") == 0
+                                || cls.indexOf("com/codename1/bluetooth/le/BleScan") == 0) {
+                            usesBluetoothScan = true;
+                        } else if (cls.indexOf("com/codename1/bluetooth/le/BlePeripheral") == 0
+                                || cls.indexOf("com/codename1/bluetooth/le/Connection") == 0
+                                || cls.indexOf("com/codename1/bluetooth/le/L2cap") == 0) {
+                            usesBluetoothConnect = true;
+                        }
+                    }
+                }
+
+
+                @Override
+                public void usesClassMethodWithBooleanArgument(String cls,
+                        String method, Boolean value) {
+                    // Sensor write-through is store use. An app can enable
+                    // it with SensorSessionOptions.setWriteToStore(true)
+                    // and never name HealthStore, so the sensors-package
+                    // exemption -- which exists so a BLE-only app is not
+                    // dragged into Health Connect -- hid the one call that
+                    // genuinely needs it, and the build shipped no bridge
+                    // and no permissions for a documented flow.
+                    //
+                    // The argument decides it, which is why this is not in
+                    // usesClassMethod: an explicit setWriteToStore(false)
+                    // is a BLE-only app switching the store off, and
+                    // reading it as store use handed that app a Health
+                    // Connect dependency, a permission set and a Play
+                    // health review it had just declined.
+                    if (HealthManifestFragments.enablesSensorWriteThrough(
+                            cls, method, value)) {
+                        usesHealth = true;
+                        usesHealthStore = true;
+                        usesHealthData = true;
+                        usesHealthWrite = true;
+                    }
+                }
+
+                @Override
+                public void usesClassMethodWithDescriptor(String cls,
+                        String method, String descriptor) {
+                    if (readsSharedMediaForPlayback(cls, method,
+                            descriptor)) {
+                        mediaPlaybackPermission = true;
+                    }
+                }
+
+                @Override
+                public void usesClassMethod(String cls, String method) {
+                    // The catalog first: it decides frameworks, gradle
+                    // dependencies and plist entries for every feature,
+                    // health included, and is indifferent to what follows.
+                    aiAcc.consumeMethod(cls, method);
+                    String scriptAdapter =
+                            androidTextScriptAdapterSource(cls, method);
+                    if (scriptAdapter != null) {
+                        includedAiAdapterSources.add(scriptAdapter);
+                    }
+                    // A store method reached through a passed-in HealthStore
+                    // never names Health at all, so the facade hook below
+                    // cannot see it -- and without this the build skipped the
+                    // type validation and shipped a manifest with no per-type
+                    // permissions, leaving those calls unauthorized.
+                    // Presence observation is a method call, not a class
+                    // reference: an app that associates a device and one that
+                    // also asks the platform to watch for it name exactly the
+                    // same classes. Only the call tells them apart, and only
+                    // the second should carry the background permissions.
+                    if ("com/codename1/nearby/companion/CompanionDevices"
+                            .equals(cls)) {
+                        usesNearbyCompanion = true;
+                        // START, specifically. stopObservingPresence is a
+                        // cleanup call -- an app version that dropped
+                        // observation still makes it, to undo an observation
+                        // a previous version persisted -- and counting it as
+                        // observing kept the exported companion service and
+                        // the background companion permissions in the
+                        // manifest of an app that no longer observes
+                        // anything, which is the opposite of what the
+                        // per-operation gating above is for.
+                        usesNearbyPresence |=
+                                "startObservingPresence".equals(method);
+                    }
+                    if (cls.indexOf("com/codename1/health/HealthStore") == 0) {
+                        usesHealth = true;
+                        usesHealthStore = true;
+                        usesHealthWrite |=
+                                HealthManifestFragments.isWriteCall(method);
+                        usesHealthRead |=
+                                HealthManifestFragments.isReadCall(method);
+                        // Data access, not merely touching the store. The
+                        // capability probes -- isSupported, isTypeSupported,
+                        // isWritable, getSupportedTypes -- read no records and
+                        // need no permission, so demanding declared types for
+                        // them made a build that only asks "is this available"
+                        // request permissions it never uses.
+                        usesHealthData |= usesHealthRead || usesHealthWrite;
+                    }
+                    // Health.getStore()/getWorkouts() mean a real platform
+                    // store; Health.getSensors() means BLE only. The class
+                    // reference alone cannot tell them apart, so the facade
+                    // is decided here.
+                    if ("com/codename1/health/Health".equals(cls)) {
+                        usesHealth = true;
+                        if (method.startsWith("getStore")
+                                || method.startsWith("getWorkouts")
+                                || method.startsWith("openHealthSettings")
+                                || method.startsWith("openProviderSetup")
+                                || method.startsWith("getAvailability")
+                                // The probes need the backend as much as a read
+                                // does: isSupported() asks the Health Connect
+                                // delegate whether it is there and hkIsAvailable()
+                                // asks the native, and neither exists unless the
+                                // build bundles them -- so an app whose only health
+                                // call was "is this supported?" was told no on every
+                                // device, for ever, because it had asked.
+                                || method.startsWith("isSupported")
+                                || method.startsWith("getConfigurationProblems")) {
+                            usesHealthStore = true;
+                        }
+                        // getStore() installs the bridge but is not itself
+                        // data access: an app that takes the handle to probe
+                        // isTypeSupported reads nothing, and availability and
+                        // the settings shortcuts read nothing either. The
+                        // HealthStore method hook above sets usesHealthData
+                        // when a real read or write is called.
+                        if (method.startsWith("getWorkouts")) {
+                            usesHealthWorkout = true;
+                            // A recorded workout writes: end() stores the
+                            // child samples it was fed. Without this the
+                            // manifest carried only ACTIVITY_RECOGNITION
+                            // and every one of those writes was
+                            // unauthorized at runtime.
+                            //
+                            // It does not read. Nothing in the workout
+                            // package calls readSamples or aggregate --
+                            // the rollup is computed from the samples the
+                            // app fed in -- so demanding a read token
+                            // forced a workout-only app to request a
+                            // sensitive permission it never uses, which
+                            // Play policy asks you not to do and which the
+                            // build then refused to proceed without.
+                            usesHealthData = true;
+                            usesHealthWrite = true;
+                        }
+                        if (method.startsWith("getSensors")) {
+                            // The BLE sensor layer runs entirely on the
+                            // public bluetooth API, and an app that only
+                            // calls getSensors() never names that package
+                            // itself -- so without this the manifest got no
+                            // BLUETOOTH_SCAN/CONNECT and discovery failed on
+                            // Android 12+.
+                            usesBluetooth = true;
+                            usesBluetoothScan = true;
+                            usesBluetoothConnect = true;
+                        }
+                    }
+                    if (cls.indexOf("com/codename1/calendar/LocalCalendarSource") == 0
+                            || (cls.indexOf("com/codename1/calendar/CalendarManager") == 0
+                            && (method.indexOf("getLocalSource") >= 0
+                            || method.indexOf("getSources") >= 0))
+                            || (cls.indexOf("com/codename1/ui/Display") == 0
+                            && method.indexOf("getLocalCalendarSource") >= 0)) {
+                        // Local calendar access is runtime capability-gated, but
+                        // Android still requires both dangerous permissions in
+                        // the manifest. Recognize every public local-source entry
+                        // point, including CalendarManager's typed facade.
+                        calendarReadPermission = true;
+                        calendarWritePermission = true;
+                    }
+                    if (cls.indexOf("com/codename1/ui/Display") == 0 && (method.indexOf("vibrate") > -1 || method.indexOf("notifyStatusBar") > -1)) {
+                        vibratePermission = true;
+                    }
+
+                    // Bluetooth facade-only callers: refine scan/connect/
+                    // peripheral flags from the invoked entry-point methods
+                    // when the app never references the model classes
+                    // directly.
+                    if (cls.indexOf("com/codename1/bluetooth/le/BluetoothLE") == 0) {
+                        if (method.indexOf("startScan") > -1) {
+                            usesBluetoothScan = true;
+                        }
+                        if (method.indexOf("openGattServer") > -1
+                                || method.indexOf("startAdvertising") > -1
+                                || method.indexOf("openL2capServer") > -1) {
+                            usesBluetoothPeripheral = true;
+                        }
+                        if (method.indexOf("getPeripheral") > -1
+                                || method.indexOf("getConnectedPeripherals") > -1
+                                || method.indexOf("getBondedPeripherals") > -1) {
+                            usesBluetoothConnect = true;
+                        }
+                    }
+                    if (cls.indexOf("com/codename1/bluetooth/classic/BluetoothClassic") == 0) {
+                        if (method.indexOf("startDiscovery") > -1
+                                || method.indexOf("requestDiscoverable") > -1) {
+                            usesBluetoothScan = true;
+                        }
+                        if (method.indexOf("connect") > -1
+                                || method.indexOf("listen") > -1
+                                || method.indexOf("createBond") > -1) {
+                            usesBluetoothConnect = true;
+                        }
+                    }
+
+                    // Apps that call the low-level CN/Display review entry point
+                    // directly (without the com.codename1.appreview facade).
+                    if (!usesAppReview
+                            && (cls.indexOf("com/codename1/ui/CN") == 0 || cls.indexOf("com/codename1/ui/Display") == 0)
+                            && method.indexOf("equestNativeInAppReview") > -1) {
+                        usesAppReview = true;
+                    }
+
+                    if ((cls.indexOf("com/codename1/media/MediaManager") == 0 && method.indexOf("createBackgroundMedia") > -1)) {
+                        if (targetSDKVersionInt >= 28) {
+                            foregroundServicePermission = true;
+                        }
+                    }
+
+                    if ((cls.indexOf("com/codename1/ui/Display") == 0 && method.indexOf("createBackgroundMedia") > -1)) {
+                        if (targetSDKVersionInt >= 28) {
+                            foregroundServicePermission = true;
+                        }
+                    }
+
+                    if (cls.indexOf("com/codename1/location/LocationManager") == 0 && (method.indexOf("addGeoFencing") > -1 || method.indexOf("setBackgroundLocationListener") > -1)) {
+
+                        if (!"true".equals(playServicesValue)) {
+                            if (targetSDKVersionInt >= 29) {
+                                backgroundLocationPermission = true;
+                            }
+                        }
+                    }
+                    if (cls.indexOf("com/codename1/location/LocationManager") == 0 && (method.indexOf("addGeoFencing") > -1 || method.indexOf("getLocationManager") > -1)) {
+
+                        if (!"true".equals(playServicesValue)) {
+                            // If play services are not currently "blanket" enabled
+                            // we will enable them here
+                            debug("Adding location playservice");
+                            request.putArgument("android.location.minPlayServicesVersion", "12.0.1");
+                            playServicesLocation = true;
+                            playFlag = "false";
+                        }
+                    }
+                    if (cls.indexOf("com/codename1/media/MediaManager") == 0 && method.indexOf("setRemoteControlListener") > -1) {
+                        debug("Adding wake lock permission due to use of MediaManager.setRemoteControlListener");
+                        //smsPermission = true;
+                        wakeLock = true;
+                        addRemoteControlService = true;
+                    }
+
+                    if (cls.indexOf("com/codename1/ui/Display") == 0 && method.indexOf("getUdid") > -1) {
+                        debug("Adding phone permission because of Display.getUdid method");
+                        phonePermission = true;
+                    }
+                    if (cls.indexOf("com/codename1/ui/Display") == 0 && method.indexOf("getMsisdn") > -1) {
+                        phonePermission = true;
+                    }
+                    contactsScan.usesClassMethod(cls, method);
+                    if (cls.indexOf("com/codename1/ui/Display") == 0 && method.indexOf("lockScreen") > -1) {
+                        wakeLock = true;
+                    }
+                    if (cls.indexOf("com/codename1/ui/Display") == 0 && method.indexOf("setScreenSaverEnabled") > -1) {
+                        wakeLock = true;
+                    }
+                    if (cls.indexOf("com/codename1/media/MediaManager") == 0 && method.indexOf("createMediaRecorder") > -1) {
+                        recordAudio = true;
+                    }
+                    if (cls.indexOf("com/codename1/ui/Display") == 0 && method.indexOf("createMediaRecorder") > -1) {
+                        recordAudio = true;
+                    }
+                    // createMedia is handled in
+                    // usesClassMethodWithDescriptor: which overload was
+                    // called decides whether any shared media is read,
+                    // and the name alone cannot say.
+
+                    // WiFi scan implies management. We detect the method
+                    // rather than just the class so that apps that only read
+                    // SSID/BSSID (no scan) do not pick up CHANGE_WIFI_STATE.
+                    if (cls.equals("com/codename1/io/wifi/WiFi")
+                            && (method.indexOf("scan") > -1
+                                || method.indexOf("connect") > -1
+                                || method.indexOf("disconnect") > -1)) {
+                        usesWifiManagement = true;
+                    }
+                    // NetworkManager.addNetworkTypeListener is the active
+                    // signal; reading getCurrentNetworkType alone needs only
+                    // ACCESS_NETWORK_STATE which we'd already inject via
+                    // accessNetworkStatePermission below.
+                    if (cls.equals("com/codename1/io/NetworkManager")
+                            && method.indexOf("NetworkTypeListener") > -1) {
+                        usesNetworkTypeListener = true;
+                    }
+                }
+            });
+        } catch (IOException ex) {
+            throw new BuildException("An error occurred while trying to scan the classes for API usage.", ex);
+        }
+        contactsReadPermission = contactsScan.readPermissionRequired();
+        contactsWritePermission = contactsScan.writePermissionRequired();
+
+        // The libraries as well as the loose class tree.
+        //
+        // scanClassesForPermissions reads .class files and never opens a jar,
+        // so a library that is the only code touching these APIs -- the
+        // application calls the library and never names a nearby class --
+        // left every flag false. This build then DELETED
+        // com/codename1/impl/android/nearby out of the sources and omitted
+        // the dependencies and manifest entries, so the library called into
+        // classes the build had removed. The database scan above reads both
+        // trees for exactly that reason; this is the same fix for the same
+        // hazard, kept to the feature whose implementation gets deleted
+        // rather than turned on for every flag the scanner carries.
+        java.util.Set<String> callVpnFromLibraries =
+                foldInCallAndVpnLibraryUsage(libsDir);
+        // Consumed into the catalog as well as folded into the flags. The
+        // flags decide the defines and the extension targets; the CATALOG is
+        // what adds CallKit, PushKit, AVFoundation, NetworkExtension and the
+        // microphone privacy string. Setting only the flags left a
+        // library-only app with the defines enabled and the frameworks
+        // unlinked -- a build that fails late for a reason nothing in it
+        // names, exactly as the nearby comment below describes.
+        //
+        // The entry prefix IS the key: the catalog matches a consumed class
+        // by startsWith, and a prefix starts with itself.
+        for (String callVpnPrefix : callVpnFromLibraries) {
+            aiAcc.consume(callVpnPrefix);
+        }
+        // Invites, for the same two reasons. The flag decides the App Links
+        // filter, the onNewIntent splice and whether the install-referrer
+        // package survives; the CATALOG is what adds the Play Install Referrer
+        // dependency and lifts minSdk to 21. Setting only the flag left the
+        // referrer sources in the project with nothing to compile them against.
+        for (String invitePrefix : foldInInviteLibraryUsage(libsDir)) {
+            aiAcc.consume(invitePrefix);
+        }
+        NearbyManifestFragments.NearbyUsage libraryNearby =
+                NearbyManifestFragments.scanForNearbyUsage(libsDir);
+        if (!libraryNearby.isEmpty()) {
+            debug("Nearby usage found inside a submitted library"
+                    + (libraryNearby.usesRanging() ? " ranging" : "")
+                    + (libraryNearby.usesTransport() ? " transport" : "")
+                    + (libraryNearby.usesCompanion() ? " companion" : "")
+                    + (libraryNearby.usesPresence() ? " presence" : ""));
+        }
+        usesNearbyRanging |= libraryNearby.usesRanging();
+        usesNearbyTransport |= libraryNearby.usesTransport();
+        usesNearbyCompanion |= libraryNearby.usesCompanion();
+        usesNearbyPresence |= libraryNearby.usesPresence();
+
+        // Fed to the CATALOG as well as to the flags. The flags decide which
+        // sources survive and which manifest fragments are written; the
+        // accumulator is what supplies the dependencies, the frameworks, the
+        // privacy strings and the minimum SDK. Setting only the flags kept
+        // AndroidUwbRanging.java in the generated sources without
+        // androidx.core.uwb to compile it against, and enabled the iOS
+        // defines without NearbyInteraction to link -- a build that fails
+        // late for a reason nothing in it names.
+        //
+        // The entry prefix IS the key: the catalog matches a consumed class
+        // by startsWith, and a prefix starts with itself.
+        if (libraryNearby.usesRanging()) {
+            aiAcc.consume("com/codename1/nearby/ranging/");
+        }
+        if (libraryNearby.usesTransport()) {
+            aiAcc.consume("com/codename1/nearby/transport/");
+        }
+        if (libraryNearby.usesCompanion()) {
+            aiAcc.consume("com/codename1/nearby/companion/");
+        }
+
+        // Apply AI/ML dependency table hits accumulated during the
+        // scan. Permissions / features go to xPermissions right
+        // away (so they're visible to all the downstream manifest
+        // assembly). Gradle deps are stashed in
+        // aiExtraGradleDependencies and appended just before
+        // additionalDependencies is written to build.gradle below.
+        StringBuilder aiExtraGradleDependencies = new StringBuilder();
+        String aiApplicationMetaData = "";
+        for (PlatformFeatureCatalog.Entry entry : aiAcc.hits()) {
+            for (String perm : entry.androidPermissions()) {
+                String addString = "    <uses-permission android:name=\"" + perm + "\" />\n";
+                xPermissions += permissionAdd(request, perm, addString);
+            }
+            for (String feat : entry.androidFeatures()) {
+                String required = "false";
+                if ("android.hardware.camera.ar".equals(feat)
+                        && "true".equals(request.getArg("android.ar.required", "false"))) {
+                    // The app opts into being AR-only: the store then hides it
+                    // from devices without ARCore support.
+                    required = "true";
+                }
+                String addString = "    <uses-feature android:name=\"" + feat + "\" android:required=\"" + required + "\" />\n";
+                if (!xPermissions.contains("<uses-feature android:name=\"" + feat + "\"")) {
+                    xPermissions += addString;
+                }
+            }
+            for (String[] md : entry.androidMetaDataEntries()) {
+                String name = md[0];
+                String value = md[1];
+                if ("com.google.ar.core".equals(name)
+                        && "true".equals(request.getArg("android.ar.required", "false"))) {
+                    value = "required";
+                }
+                // Skip when the developer already declared the same meta-data
+                // through android.xapplication.
+                if (!userXapplication.contains(name)
+                        && !aiApplicationMetaData.contains("\"" + name + "\"")) {
+                    aiApplicationMetaData += "        <meta-data android:name=\"" + name
+                            + "\" android:value=\"" + value + "\" />\n";
+                }
+            }
+            for (String gav : entry.androidGradleDeps()) {
+                aiExtraGradleDependencies.append("    implementation '").append(gav).append("'\n");
+            }
+        }
+        if (aiAcc.minimumAndroidSdk() > 0) {
+            minSDK = maxInt(Integer.toString(aiAcc.minimumAndroidSdk()), minSDK);
+        }
+        if (aiAcc.anyRequiresBigUpload()) {
+            request.putArgument("cn1.ai.requiresBigUpload", "true");
+        }
+        if (arSupport) {
+            // ARCore requires API 24.
+            minSDK = maxInt("24", minSDK);
+        }
+
+        // Inject USE_BIOMETRIC / USE_FINGERPRINT only when the app actually
+        // touches com.codename1.security (Biometrics / SecureStorage). Both
+        // are "normal" permissions (no runtime prompt) so injecting them
+        // when used is invisible to the user; apps that never reference the
+        // API see no manifest change. If the developer already declared
+        // either permission via android.xpermissions we leave it alone.
+        if (usesBiometrics) {
+            if (!xPermissions.contains("android.permission.USE_BIOMETRIC")) {
+                xPermissions = "    <uses-permission android:name=\"android.permission.USE_BIOMETRIC\" />\n" + xPermissions;
+            }
+            if (!xPermissions.contains("android.permission.USE_FINGERPRINT")) {
+                xPermissions = "    <uses-permission android:name=\"android.permission.USE_FINGERPRINT\" android:maxSdkVersion=\"28\" />\n" + xPermissions;
+            }
+        }
+
+        // NFC: classpath scanner sets usesNfc / usesNfcHce. Both permissions
+        // are "normal" so the injection is invisible to the user; apps that
+        // never reference com.codename1.nfc see no manifest change. HCE
+        // additionally needs BIND_NFC_SERVICE and android.hardware.nfc.hce
+        // feature + a registered HostApduService.
+        if (usesNfc || "true".equalsIgnoreCase(request.getArg("android.hce", "false"))) {
+            usesNfc = true;
+            if (!xPermissions.contains("android.permission.NFC")) {
+                xPermissions = "    <uses-permission android:name=\"android.permission.NFC\" />\n" + xPermissions;
+            }
+            if (!xPermissions.contains("android.hardware.nfc")) {
+                xPermissions = "    <uses-feature android:name=\"android.hardware.nfc\" android:required=\"false\" />\n" + xPermissions;
+            }
+        }
+        if (usesNfcHce || request.getArg("android.hceAids", null) != null) {
+            usesNfcHce = true;
+            if (!xPermissions.contains("android.permission.BIND_NFC_SERVICE")) {
+                xPermissions = "    <uses-permission android:name=\"android.permission.BIND_NFC_SERVICE\" />\n" + xPermissions;
+            }
+            if (!xPermissions.contains("android.hardware.nfc.hce")) {
+                xPermissions = "    <uses-feature android:name=\"android.hardware.nfc.hce\" android:required=\"false\" />\n" + xPermissions;
+            }
+        }
+
+        // Deeper-network connectivity permission injection. Each block is
+        // gated on a flag set by the scanner above so apps that never touch
+        // the API see no manifest change. Permissions are "normal" or
+        // "runtime"; runtime permissions still need the app to call
+        // Display.requestPermission at runtime -- the manifest entry only
+        // makes them eligible to ask.
+        if (usesWifiInfo || usesWifiManagement || usesWifiDirect || usesBonjour
+                || usesNetworkTypeListener) {
+            if (!xPermissions.contains("android.permission.ACCESS_WIFI_STATE")) {
+                xPermissions = "    <uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\" />\n" + xPermissions;
+            }
+            if (!xPermissions.contains("android.permission.ACCESS_NETWORK_STATE")) {
+                xPermissions = "    <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />\n" + xPermissions;
+            }
+        }
+        if (usesWifiManagement || usesWifiDirect) {
+            if (!xPermissions.contains("android.permission.CHANGE_WIFI_STATE")) {
+                xPermissions = "    <uses-permission android:name=\"android.permission.CHANGE_WIFI_STATE\" />\n" + xPermissions;
+            }
+            if (!xPermissions.contains("android.permission.CHANGE_NETWORK_STATE")) {
+                xPermissions = "    <uses-permission android:name=\"android.permission.CHANGE_NETWORK_STATE\" />\n" + xPermissions;
+            }
+            // Reading the SSID/BSSID on Android 8.0+ requires a location
+            // permission; on 13+ the dedicated NEARBY_WIFI_DEVICES permission
+            // can replace it for scan-only flows. We declare both with
+            // appropriate maxSdkVersion so the right one is requested per OS.
+            if (!xPermissions.contains("android.permission.ACCESS_FINE_LOCATION")) {
+                xPermissions = "    <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" android:maxSdkVersion=\"32\" />\n" + xPermissions;
+            }
+            if (targetSDKVersionInt >= 33
+                    && !xPermissions.contains("android.permission.NEARBY_WIFI_DEVICES")) {
+                xPermissions = "    <uses-permission android:name=\"android.permission.NEARBY_WIFI_DEVICES\" android:usesPermissionFlags=\"neverForLocation\" />\n" + xPermissions;
+            }
+        }
+        if (usesBonjour) {
+            if (!xPermissions.contains("android.permission.CHANGE_WIFI_MULTICAST_STATE")) {
+                xPermissions = "    <uses-permission android:name=\"android.permission.CHANGE_WIFI_MULTICAST_STATE\" />\n" + xPermissions;
+            }
+            // INTERNET is already in basePermissions and Bonjour over IPv6
+            // multicast inherits it transparently, so nothing extra needed.
+        }
+        if (usesUsbHost) {
+            if (!xPermissions.contains("android.hardware.usb.host")) {
+                xPermissions = "    <uses-feature android:name=\"android.hardware.usb.host\" android:required=\"false\" />\n" + xPermissions;
+            }
+        }
+
+        // First-class Bluetooth permission injection. The scanner above set
+        // per-capability flags; BluetoothManifestFragments handles the
+        // Android 12 permission split (BLUETOOTH_SCAN/CONNECT/ADVERTISE with
+        // legacy permissions capped at API 30) and quote-delimited dedup so
+        // projects migrating from the old BLE cn1lib (which merged legacy
+        // permissions via android.xpermissions) don't get duplicates.
+        // android.bluetooth.neverForLocation (default true) declares scan
+        // results are never used for location -- beacon/location apps must
+        // set it to false; android.bluetooth.required=true hides the app
+        // from devices without BLE hardware.
+        if (usesBluetooth) {
+            boolean neverForLocation = !"false".equalsIgnoreCase(
+                    request.getArg("android.bluetooth.neverForLocation", "true"));
+            boolean bleRequired = "true".equalsIgnoreCase(
+                    request.getArg("android.bluetooth.required", "false"));
+            xPermissions = BluetoothManifestFragments.inject(xPermissions,
+                    usesBluetoothScan, usesBluetoothConnect,
+                    usesBluetoothPeripheral, usesBluetoothClassic,
+                    neverForLocation, bleRequired, targetSDKVersionInt);
+        }
+
+        // Nearby devices (com.codename1.nearby.*). The permissions live in
+        // NearbyManifestFragments rather than in PlatformFeatureCatalog
+        // because they are version-conditional in three different ways --
+        // UWB_RANGING is API 31 and later, the transport needs the Android 12
+        // Bluetooth split with maxSdkVersion caps, and NEARBY_WIFI_DEVICES
+        // needs usesPermissionFlags from 33 -- and a flat list cannot say any
+        // of that.
+        //
+        // The profile hints are hints rather than something the scanner
+        // works out: the profile arrives as an enum constant, which is a
+        // field reference, and Executor.visitFieldInsn is an empty override.
+        // Each defaults false because a REQUEST_COMPANION_PROFILE_* is a
+        // strong permission to ask for on a guess.
+        //
+        // All three the portable API exposes have a hint, not only watch:
+        // AndroidNearbyBackend forwards COMPUTER on API 33 and GLASSES on 34,
+        // and without the matching permission the platform rejects the
+        // association before the chooser opens.
+        if (usesNearbyRanging || usesNearbyTransport || usesNearbyCompanion) {
+            StringBuilder profiles = new StringBuilder();
+            if ("true".equalsIgnoreCase(
+                    request.getArg("android.nearby.watchProfile", "false"))) {
+                profiles.append("watch,");
+            }
+            if ("true".equalsIgnoreCase(request.getArg(
+                    "android.nearby.computerProfile", "false"))) {
+                profiles.append("computer,");
+            }
+            if ("true".equalsIgnoreCase(request.getArg(
+                    "android.nearby.glassesProfile", "false"))) {
+                profiles.append("glasses,");
+            }
+            log("Nearby fragments version "
+                    + NearbyManifestFragments.FRAGMENT_VERSION
+                    + (usesNearbyRanging ? " ranging" : "")
+                    + (usesNearbyTransport ? " transport" : "")
+                    + (usesNearbyCompanion ? " companion" : "")
+                    + (usesNearbyPresence ? " presence" : ""));
+            xPermissions = NearbyManifestFragments.inject(xPermissions,
+                    usesNearbyRanging, usesNearbyTransport,
+                    usesNearbyCompanion, usesNearbyPresence,
+                    profiles.toString(), targetSDKVersionInt);
+            String presenceService =
+                    NearbyManifestFragments.presenceService(usesNearbyPresence);
+            if (presenceService.length() > 0
+                    && !request.getArg("android.xapplication", "")
+                            .contains("CN1CompanionDeviceService")) {
+                request.putArgument("android.xapplication",
+                        request.getArg("android.xapplication", "")
+                                + presenceService);
+            }
+        }
+
+        // System call integration (com.codename1.call.*).
+        //
+        // The permissions and the <service> elements both come from
+        // CallManifestFragments rather than PlatformFeatureCatalog: the
+        // catalog can name a permission but cannot qualify it and cannot emit
+        // a <service> at all, and a self-managed ConnectionService needs one
+        // carrying its own permission attribute and intent filter.
+        if (usesCallSession || usesCallVoip || usesCallDirectory) {
+            log("Call fragments version "
+                    + CallManifestFragments.FRAGMENT_VERSION
+                    + (usesCallSession ? " session" : "")
+                    + (usesCallVoip ? " voip" : "")
+                    + (usesCallDirectory ? " directory" : ""));
+            xPermissions = CallManifestFragments.injectPermissions(
+                    xPermissions, usesCallSession, usesCallVoip,
+                    usesCallDirectory,
+                    CallManifestFragments.videoRequested(
+                            request.getArg("android.call.video", null),
+                            request.getArg("call.video", null)),
+                    targetSDKVersionInt);
+            // Suppression is per service, inside services(): an app that
+            // hand-declared one of the two used to suppress both.
+            String existingApplication = request.getArg("android.xapplication", "");
+            // The COMPILE sdk, not the target: AAPT rejects a manifest that
+            // names an enum value the platform it compiles against does not
+            // know, and android:foregroundServiceType="phoneCall" arrived in
+            // API 29. The legacy android.useGradle8=false with
+            // android.buildToolsVersion=28 configuration is still supported
+            // and compiles against 28.
+            String callServices = CallManifestFragments.services(
+                    usesCallSession, usesCallVoip, usesCallDirectory,
+                    existingApplication,
+                    compileSdkInt(maxPlatformVersion, buildToolsVersion,
+                            targetNumber, usesNearbyRanging,
+                            usesNearbyRanging || usesNearbyTransport
+                                    || usesNearbyCompanion, usesCallVoip,
+                            usesCustomTunnel));
+            if (callServices.length() > 0) {
+                request.putArgument("android.xapplication",
+                        existingApplication + callServices);
+            }
+        }
+
+        // The App Links filter that lets an invite link open the app instead
+        // of the browser (com.codename1.analytics.invite).
+        //
+        // AFTER the class scan, beside the call fragments, because the flag it
+        // reads is set BY that scan -- the same ordering the tunnel block below
+        // documents the hard way.
+        //
+        // Appended to android.xintent_filter rather than emitted at a new
+        // manifest site. That hint is already rendered inside the main
+        // <activity>, and rendered again into the wear companion manifest, so
+        // one append reaches both and cannot drift.
+        if (usesInvites && "true".equals(request.getArg("android.invite.appLinks", "true"))) {
+            String inviteHost = InviteBuildHints.domain(request);
+            String existingFilter = request.getArg("android.xintent_filter", "");
+            String withAppLinks = InviteManifestFragments.injectAppLinks(existingFilter,
+                    inviteHost, InviteBuildHints.slug(request));
+            if (!withAppLinks.equals(existingFilter)) {
+                debug("Invite attribution: adding the App Links filter for " + inviteHost);
+                request.putArgument("android.xintent_filter", withAppLinks);
+            }
+            // launchMode decides WHICH delivery path a link takes, not whether
+            // it arrives.
+            //
+            // singleTop (the default) and singleTask route a link into the
+            // running activity through onNewIntent. "standard" starts a SECOND
+            // activity instead -- and that activity's `currentForm` is an
+            // INSTANCE field, so it is null, `wasStopped` is true, and the
+            // generated run() goes on to createStartInvocation(): the
+            // application's start() runs and reads the link out of getAppArg()
+            // exactly as it does on a cold launch.
+            //
+            // This refused the build outright until a review round pointed at
+            // that field. It was wrong: the invite is delivered, and refusing
+            // rejected a configuration the app already built and shipped with.
+            // Warned instead, because the delivery is real but the path is the
+            // colder one and the second activity is a surprise worth naming.
+            String launchMode = request.getArg("android.activity.launchMode", "singleTop");
+            if ("standard".equals(launchMode)) {
+                warn("This app uses invite attribution "
+                        + "(com.codename1.analytics.invite) with "
+                        + "android.activity.launchMode=\"standard\". An invite link then starts a "
+                        + "second activity rather than reaching the running one, so the invite "
+                        + "arrives through the application's start() instead of onNewIntent(). "
+                        + "That works, and it is what a cold launch does anyway -- but "
+                        + "checkForInvite() has to be called from start(), and singleTop (the "
+                        + "default) or singleTask avoids the second activity entirely.");
+            }
+        }
+
+        // A packet tunnel the app implements (com.codename1.vpn.tunnel).
+        //
+        // AFTER the class scan, beside the call fragments, because the flag
+        // it reads is set BY that scan. Placed earlier -- which is where it
+        // was -- it ran with usesCustomTunnel still false, nothing revisited
+        // it, and the manifest shipped without CN1VpnService or the
+        // foreground-service permissions: the whole Android half silently
+        // absent from an app that had asked for it.
+        //
+        // Separate from the managed-profile flag: a profile asks the OS to
+        // run its own IKEv2 client and needs no component of ours, while a
+        // tunnel is a VpnService the system binds.
+        if (usesCustomTunnel) {
+            log("VPN tunnel fragments version "
+                    + VpnManifestFragments.FRAGMENT_VERSION);
+            xPermissions = VpnManifestFragments.injectPermissions(true,
+                    xPermissions);
+            String existingTunnelApplication =
+                    request.getArg("android.xapplication", "");
+            String tunnelService = VpnManifestFragments.services(true,
+                    existingTunnelApplication);
+            if (tunnelService.length() > 0) {
+                request.putArgument("android.xapplication",
+                        existingTunnelApplication + tunnelService);
+            }
+        }
+
+
+        // Smart home (com.codename1.home.*).
+        //
+        // Deliberately no permissions. Play services runs the entire
+        // add-device interaction in its OWN activity, holding its own
+        // permissions, and the play-services-home AAR declares none -- so an
+        // app that never scans for anything does not get a Bluetooth prompt
+        // it cannot explain. See SmartHomeManifestFragments.
+        if (usesSmartHome) {
+            log("Smart home fragments version "
+                    + SmartHomeManifestFragments.FRAGMENT_VERSION
+                    + (usesHomeCommissioning ? " (with commissioning)" : ""));
+            // The delegate, and the onCreate snippet that registers it. Here
+            // rather than beside the maps injection above, because that runs
+            // before the scan that sets this flag.
+            //
+            // The play-services-home dependency the injected file imports.
+            // Added here rather than in PlatformFeatureCatalog because
+            // catalog entries match on a prefix with no way to express an
+            // exclusion, and com/codename1/home/ also covers the pure-Java
+            // setup-payload parser -- see isSmartHomeSetupPayload. An app
+            // that only validates a scanned code would otherwise ship a Play
+            // Services AAR it never calls. This gate is the one that knows
+            // the difference, and it keeps the dependency and the delegate
+            // that imports it inseparable.
+            smartHomeGradleArtifact =
+                    "com.google.android.gms:play-services-home:"
+                    + request.getArg("android.home.playServicesVersion",
+                            "16.0.0-beta1");
+            smartHomeSupport = SmartHomeInjector.injectAndroid(this, srcDir);
+            if (targetSDKVersionInt >= 30) {
+                // Package visibility. Without this
+                // getLaunchIntentForPackage answers null even when Google
+                // Home is installed, so SmartHome.openEcosystemApp() -- the
+                // recovery an app offers a user with no home set up --
+                // silently does nothing.
+                smartHomeQueriesFragment =
+                        SmartHomeManifestFragments.injectQueries("");
+            }
+            minSDK = maxInt(
+                    Integer.toString(SmartHomeManifestFragments.MINIMUM_SDK),
+                    minSDK);
+        }
+
+        // First-class health (com.codename1.health.*). Gated on
+        // usesHealthStore, NOT usesHealth: com.codename1.health.sensors is
+        // pure BLE and must not drag in Health Connect or a Google Play
+        // health-permissions review.
+        if (usesNearbyRanging || usesNearbyTransport || usesNearbyCompanion) {
+            // Every nearby build compiles against SDK 33 -- see the floor
+            // further down, which AndroidNearbyBackend's use of
+            // android.companion.AssociationInfo forces. An Android Gradle
+            // plugin from before that SDK existed cannot build such a
+            // project: it either rejects the compile SDK outright or, on the
+            // legacy toolchain, is handed a DSL it does not have. Refused
+            // here rather than left to fail during Gradle evaluation with a
+            // message that names none of this.
+            // The Gradle that will actually run, not the hint that usually
+            // selects it. android.useGradle8=false does not always mean an
+            // old toolchain -- android.newFirebaseMessaging selects the
+            // modern one on its own -- so testing the hint rejected a
+            // configuration whose plugin was perfectly capable.
+            if (gradleVersionInt < 8) {
+                throw new BuildException(
+                        "com.codename1.nearby needs to compile against"
+                        + " Android SDK 33, which the Android Gradle plugin"
+                        + " for Gradle " + gradleVersion + " predates. Set"
+                        + " android.useGradle8=true and leave"
+                        + " android.gradleVersion unset to build a nearby"
+                        + " app.");
+            }
+        }
+        if (usesNearbyRanging) {
+            // androidx.core.uwb's AAR declares minAgpVersion=8.9.1 as well as
+            // minCompileSdk=36, and Gradle's dependency check rejects the
+            // project rather than building it -- with a message about AAR
+            // metadata that names neither UWB nor this hint. Raising the
+            // compile SDK alone is not enough, so a build that has explicitly
+            // selected an older toolchain is refused here, where the reason
+            // can still be explained.
+            //
+            // The version that will actually run, not the flag that usually
+            // selects it: android.gradleVersion overrides the choice, which is
+            // the same trap the Health Connect gate below documents.
+            //
+            // The Gradle MAJOR is the right test here, and only here: the
+            // dependency branch in this builder gives every Gradle 8 build
+            // ANDROID_GRADLE_PLUGIN_8_VERSION, which is well past the floor,
+            // so the major really does decide the plugin. The BuildDaemon
+            // copy selects the plugin by exact Gradle version and has to
+            // test for the modern pairing instead; the conditions differ
+            // because the selections do.
+            if (gradleVersionInt < 8) {
+                throw new BuildException(
+                        "com.codename1.nearby.ranging needs androidx.core.uwb,"
+                        + " whose Android Gradle plugin floor is 8.9.1, but"
+                        + " this build would use Gradle " + gradleVersion
+                        + " and an older plugin with it. Set"
+                        + " android.useGradle8=true and leave"
+                        + " android.gradleVersion unset to build a ranging"
+                        + " app.");
+            }
+        }
+
+        if (usesHealthStore) {
+            String readHint = request.getArg("android.health.read", "");
+            String writeHint = request.getArg("android.health.write", "");
+            List<String> readTypes =
+                    HealthManifestFragments.parseTypeList(readHint);
+            List<String> writeTypes =
+                    HealthManifestFragments.parseTypeList(writeHint);
+            // Checked after parsing, so "  , " counts as empty rather than
+            // passing a raw length test and installing the bridge with no
+            // permissions at all. Availability-only apps are exempt: they
+            // touch no data type, and demanding one would put a permission
+            // in the manifest the app never uses.
+            if (usesHealthData && readTypes.isEmpty()
+                    && writeTypes.isEmpty()) {
+                // The scanner cannot infer these: a data type is referenced
+                // as a constant, and field reads are not recorded. Play
+                // also requires declaring exactly the types you use.
+                throw new BuildException("This app uses com.codename1.health"
+                        + " but declares no health data types. Health"
+                        + " Connect permissions are "
+                        + "per-data-type and cannot be inferred from "
+                        + "bytecode, so list them explicitly:\n"
+                        + "  android.health.read=steps,heart_rate,sleep\n"
+                        + "  android.health.write=steps\n"
+                        + "Known tokens: "
+                        + HealthManifestFragments.knownTokens());
+            }
+            if (usesHealthRead && readTypes.isEmpty()) {
+                throw new BuildException("This app reads health data but"
+                        + " android.health.read is empty. Health Connect"
+                        + " permissions are directional, "
+                        + "so a write declaration does not authorize a read:\n"
+                        + "  android.health.read=steps,heart_rate\n"
+                        + "Known tokens: "
+                        + HealthManifestFragments.knownTokens());
+            }
+            if (usesHealthWrite && writeTypes.isEmpty()) {
+                throw new BuildException("This app writes or deletes"
+                        + " health data"
+                        + " but android.health.write is empty. Health Connect "
+                        + "permissions are directional, so a read declaration "
+                        + "does not authorize a write:\n"
+                        + "  android.health.write=steps\n"
+                        + "Known tokens: "
+                        + HealthManifestFragments.knownTokens());
+            }
+            // No workout-token requirement. Android never reads or writes
+            // the WORKOUT type in this release -- HealthWire excludes it
+            // from both capability tables, and a recorded workout persists
+            // only its writable child samples and marks the session record
+            // as not persisted. Demanding READ_EXERCISE and WRITE_EXERCISE
+            // would make apps request permissions no runtime path uses, and
+            // invite a Play health-data declaration for the same nothing.
+            java.util.List<String> readTokens =
+                    HealthManifestFragments.parseTypeList(readHint);
+            java.util.List<String> writeTokens =
+                    HealthManifestFragments.parseTypeList(writeHint);
+            // Declared, permitted, and unusable. Thirteen tokens have a
+            // Health Connect permission but no record class the bridge can
+            // read or delete, so an app declaring one shipped a health
+            // permission it could never exercise -- and Play asks what
+            // every health permission is for.
+            // One list for both directions. A permission covers more than
+            // one operation -- write authorises inserts and deletes, read
+            // covers reads and change subscriptions -- and deletes and
+            // subscriptions go through the wider recordClassFor gate. So
+            // the union for each direction is recordClassFor, and the
+            // build cannot know which operation an app will use. Rejecting
+            // per direction refused an app that only deletes power records
+            // and one that only subscribes to sleep changes; both work.
+            java.util.List<String> unreadable =
+                    HealthManifestFragments.unsupportedTokens(readTokens);
+            unreadable.addAll(
+                    HealthManifestFragments.unsupportedTokens(writeTokens));
+            if (!unreadable.isEmpty()) {
+                throw new BuildException("Health Connect support for "
+                        + unreadable
+                        + " is not implemented in this build, so declaring"
+                        + " it would request a permission the app cannot"
+                        + " use. Remove it from android.health.read /"
+                        + " android.health.write.");
+            }
+            java.util.List<String> unknown =
+                    HealthManifestFragments.unknownTokens(readTokens);
+            unknown.addAll(HealthManifestFragments.unknownTokens(writeTokens));
+            if (!unknown.isEmpty()) {
+                throw new BuildException("Unknown health data type(s) "
+                        + unknown
+                        + " in android.health.read / android.health.write. "
+                        + "Known tokens: "
+                        + HealthManifestFragments.knownTokens());
+            }
+            // Only when the app actually requests a Health Connect
+            // permission. An availability-only app never presents the
+            // rationale screen, so demanding a policy URL rejected a
+            // harmless flow for a hint it would never use.
+            // The two special reads count as permissions in their own
+            // right: they are injected into the manifest whether or not
+            // any type list is populated, so a build declaring only
+            // android.health.background shipped READ_HEALTH_DATA_IN_
+            // BACKGROUND with a rationale screen that had no policy link
+            // to show -- exactly the Play rejection this gate exists to
+            // prevent.
+            boolean specialReads = "true".equalsIgnoreCase(request.getArg(
+                    "android.health.background", "false"))
+                    || "true".equalsIgnoreCase(request.getArg(
+                            "android.health.history", "false"));
+            boolean requestsPermissions =
+                    !readTypes.isEmpty() || !writeTypes.isEmpty()
+                    || specialReads;
+            // Trimmed before it is judged, and the trimmed value is what
+            // gets emitted. A raw length test accepted "   " and wrote a
+            // whitespace-only resource, so the rationale screen had no
+            // usable link while the build reported the policy requirement
+            // as satisfied.
+            String policyUrl = request.getArg(
+                    "android.health.privacyPolicyUrl", "").trim();
+            if (requestsPermissions && !isHealthPolicyUrl(policyUrl)) {
+                // Play requires a privacy policy for health permissions and
+                // the rationale screen has to link to it, so a missing URL
+                // means a rejected app rather than a broken build later.
+                // The value is parsed rather than merely counted: the
+                // rationale screen turns it into a link, so "example.com" or
+                // an ftp URL passed the requirement and shipped a disclosure
+                // nothing on the device can open.
+                throw new BuildException("Google Play requires a privacy"
+                        + " policy for apps that request Health"
+                        + " Connect permissions, and the "
+                        + "permissions-rationale screen must link to it. Set "
+                        + "android.health.privacyPolicyUrl to an absolute "
+                        + "https:// URL"
+                        + (policyUrl.length() == 0 ? "; it is unset."
+                                : "; it is \"" + policyUrl + "\"."));
+            }
+            if (isHealthPolicyUrl(policyUrl)) {
+                // Emit the URL as the string resource
+                // HealthPermissionsRationaleActivity looks up. Validating
+                // the hint without emitting it would leave the rationale
+                // screen with nothing to show, which is the exact
+                // disclosure the check above claims to enforce.
+                additionalKeyVals += "    <string name=\""
+                        + HealthManifestFragments.POLICY_URL_RESOURCE
+                        + "\">"
+                        + xmlize(policyUrl)
+                        + "</string>\n";
+            }
+            if (targetSDKVersionInt < 30) {
+                // <queries> is only emitted from API 30, and without it the
+                // provider is invisible to package visibility.
+                throw new BuildException("Health Connect requires"
+                        + " android.targetSDKVersion 30 "
+                        + "or higher so the provider <queries> entry is "
+                        + "emitted; this app targets "
+                        + targetSDKVersionInt + ".");
+            }
+            log("Health Connect fragments version "
+                    + HealthManifestFragments.FRAGMENT_VERSION);
+            xPermissions = HealthManifestFragments.injectPermissions(
+                    xPermissions, readTokens, writeTokens,
+                    "true".equalsIgnoreCase(request.getArg(
+                            "android.health.background", "false")),
+                    "true".equalsIgnoreCase(request.getArg(
+                            "android.health.history", "false")),
+                    targetSDKVersionInt);
+            healthQueriesFragment =
+                    HealthManifestFragments.injectQueries("");
+            healthApplicationFragment =
+                    HealthManifestFragments.injectApplicationEntries("",
+                            targetSDKVersionInt);
+
+            // Health Connect ships as an AndroidX library with a Kotlin
+            // coroutine API; the port itself never references it (see
+            // HealthConnectDelegate) but the app module must resolve it.
+            healthGradleDependency = "    implementation "
+                    + "'androidx.health.connect:connect-client:"
+                    + request.getArg("android.health.connectVersion",
+                            "1.1.0-alpha07") + "'\n";
+            minSDK = maxInt("26", minSDK);
+            log("Health Connect raises minSdkVersion to " + minSDK);
+        }
+
+        // After every injector, because they are the ones that cap it. Wi-Fi,
+        // Bluetooth BLE and Nearby each declare ACCESS_FINE_LOCATION with a
+        // maxSdkVersion so an application that uses only THEM stops asking for
+        // location on the versions that no longer require it. That is right for
+        // those applications and wrong for one that needs precise location in
+        // its own right: permissionAdd() suppresses this build's declaration for
+        // any permission already named in xpermissions -- a bare name match that
+        // never reads maxSdkVersion -- so the capped entry would be the only
+        // ACCESS_FINE_LOCATION in the manifest and there would be none in effect
+        // past the cap.
+        //
+        // For an ordinary location application that is a silent loss of precise
+        // location on recent Android. For the location button it is fatal on the
+        // one platform it exists for: the system grants through a permission the
+        // manifest no longer really declares.
+        //
+        // Done in one place rather than in each injector. A check that refused
+        // the build over a capped entry was tried instead and was wrong twice
+        // over -- it fired on fragments this builder had written itself, and it
+        // told developers to remove something they had never written.
+        if (featureDeclaredFineLocation(xPermissionsAsSupplied, xPermissions)) {
+            // Precise location is not the button's alone: a feature needs it the
+            // ordinary way. The class scan cannot see this -- Bluetooth, Wi-Fi
+            // and Nearby ask through their own manifest fragments, never through
+            // com/codename1/location -- so it is recorded here, where both
+            // strings are in hand.
+            featureNeedsOrdinaryFineLocation = true;
+            otherLocationUse = true;
+        }
+        if (gpsPermission
+                && xPermissionsAsSupplied.indexOf("ACCESS_FINE_LOCATION") < 0) {
+            // Only when every fine-location entry is one of ours. A developer
+            // who wrote their own -- capped or not -- gets it back untouched:
+            // rewriting a fragment somebody hand-wrote is not this build's to
+            // do, and permissionAdd() will suppress this build's declaration in
+            // favour of theirs anyway.
+            xPermissions = uncapFineLocation(xPermissions);
+        }
+
+        String messagingService = request.getArg("android.messagingService",
+                pushVersion == 3 ? "auto" : "fcm");
+        boolean automaticPush = pushVersion == 3
+                && "auto".equalsIgnoreCase(messagingService);
+        boolean useFCM = pushPermission && usesFcmPush(pushVersion, messagingService,
+                googleServicesJson.exists());
+        boolean useHMS = pushPermission && usesHuaweiPush(pushVersion, messagingService,
+                agconnectServicesJson.exists());
+        if (pushPermission && automaticPush && !useFCM && !useHMS) {
+            error("PushClient requires google-services.json, agconnect-services.json, "
+                    + "or both in native/android.", new RuntimeException());
+            return false;
+        }
+        if (useFCM) {
+            request.putArgument("android.fcm.minPlayServicesVersion", "12.0.1");
+        }
+        debug("Starting playServicesVersion "+playServicesVersion);
+
+        for (String arg : request.getArgs()) {
+            if (arg.endsWith(".minPlayServicesVersion")) {
+                if (compareVersions(request.getArg(arg, null), playServicesVersion) > 0) {
+                    playServicesVersion = request.getArg(arg, null);
+                    debug("playServicesVersion increased to "+playServicesVersion+" due to "+arg);
+                }
+            }
+        }
+        request.putArgument("android.playServicesVersion", playServicesVersion);
+        request.putArgument(
+                "android.firebaseCoreVersion",
+                request.getArg("android.firebaseCoreVersion",
+                        newFirebaseMessaging
+                                ? "21.1.1"
+                                : getDefaultPlayServiceVersion("firebase-core")
+                )
+        );
+        request.putArgument(
+                "android.firebaseMessagingVersion",
+                request.getArg(
+                        "android.firebaseMessagingVersion",
+                        newFirebaseMessaging
+                                ? "23.2.1"
+                                : getDefaultPlayServiceVersion("firebase-messaging")
+                )
+        );
+
+        debug("-----USING PLAY SERVICES VERSION "+playServicesVersion+"----");
+
+        String compile = "compile";
+        if (useAndroidX || useArrImplementation) {
+            compile = "implementation";
+        }
+        if (useFCM) {
+            if (!googleServicesJson.exists()) {
+                error("google-services.json not found.  When using FCM for push notifications (i.e. android.messagingService=fcm), you must include valid google-services.json file.  Use the Firebase console to add Firebase messaging to your app.  https://console.firebase.google.com/u/0/ Then download the google-services.json file and place it in the native/android directory of your project. If you still want to use GCM (which no longer works) define the build hint android.messagingService=gcm", new RuntimeException());
+                return false;
+            }
+            if (buildToolsVersionInt < 27) {
+                error("FCM push notifications require build tools version 27 or higher.  Please set the android.buildToolsVersion to 27.0.0 or higher or remove the android.messagingService=fcm build hint.", new RuntimeException());
+                return false;
+            }
+
+            if (!request.getArg("android.topDependency", "").contains("com.google.gms:google-services")) {
+                if (gradleVersionInt >= 8) {
+                    request.putArgument("android.topDependency", request.getArg("android.topDependency", "") + "\n    classpath 'com.google.gms:google-services:4.3.15'\n");
+                } else {
+                    request.putArgument("android.topDependency", request.getArg("android.topDependency", "") + "\n    classpath 'com.google.gms:google-services:4.0.1'\n");
+                }
+            }
+            if (!request.getArg("android.xgradle", "").contains("apply plugin: 'com.google.gms.google-services'")) {
+                request.putArgument("android.xgradle", request.getArg("android.xgradle", "") + "\napply plugin: 'com.google.gms.google-services'\n");
+            }
+
+            if (!request.getArg("gradleDependencies", "").contains("com.google.firebase:firebase-messaging")) {
+                request.putArgument(
+                        "gradleDependencies",
+                        request.getArg("gradleDependencies", "") +
+                                "\n"+compile+" \"com.google.firebase:firebase-messaging:" +
+                                request.getArg("android.firebaseMessagingVersion", playServicesVersion) + "\"\n"
+                );
+            }
+        }
+        if (useHMS) {
+            if (!agconnectServicesJson.exists()) {
+                error("agconnect-services.json not found. Huawei Push Kit builds require the AppGallery Connect configuration in native/android.", new RuntimeException());
+                return false;
+            }
+            if (!request.getArg("android.repositories", "").contains("developer.huawei.com/repo")) {
+                request.putArgument("android.repositories", request.getArg("android.repositories", "")
+                        + ";maven { url 'https://developer.huawei.com/repo/' }");
+            }
+            if (!request.getArg("android.topDependency", "").contains("com.huawei.agconnect:agcp")) {
+                request.putArgument("android.topDependency", request.getArg("android.topDependency", "")
+                        + "\n    classpath 'com.huawei.agconnect:agcp:1.6.0.300'\n");
+            }
+            if (!request.getArg("android.xgradle", "").contains("com.huawei.agconnect")) {
+                request.putArgument("android.xgradle", request.getArg("android.xgradle", "")
+                        + "\napply plugin: 'com.huawei.agconnect'\n");
+            }
+            if (!request.getArg("gradleDependencies", "").contains("com.huawei.hms:push")) {
+                request.putArgument("gradleDependencies", request.getArg("gradleDependencies", "")
+                        + "\n" + compile + " 'com.huawei.hms:push:"
+                        + request.getArg("android.hms.pushVersion", "6.3.0.302") + "'\n");
+            }
+            String preferFcm = useFCM
+                    ? "        if (com.google.android.gms.common.GoogleApiAvailability.getInstance()"
+                            + ".isGooglePlayServicesAvailable(activity) == "
+                            + "com.google.android.gms.common.ConnectionResult.SUCCESS) {"
+                            + " super.registerForPush(key); return; }\n"
+                    : "";
+            String stopFcm = useFCM
+                    ? "        if (com.google.android.gms.common.GoogleApiAvailability.getInstance()"
+                            + ".isGooglePlayServicesAvailable(activity) == "
+                            + "com.google.android.gms.common.ConnectionResult.SUCCESS) {"
+                            + " super.stopReceivingPush(); return; }\n"
+                    : "";
+            additionalMembers += "\n    @Override public void registerForPush(final String key) {\n"
+                    + "        final android.app.Activity activity = this;\n"
+                    + preferFcm
+                    + "        new Thread(new Runnable() { public void run() { try {\n"
+                    + "            // Push Kit derives the app id from native/android/agconnect-services.json.\n"
+                    + "            String appId = com.huawei.agconnect.config.AGConnectServicesConfig.fromContext(activity).getString(\"client/app_id\");\n"
+                    + "            final String token = com.huawei.hms.aaid.HmsInstanceId.getInstance(activity).getToken(appId, \"HCM\");\n"
+                    + "            if (token != null && token.length() > 0) { com.codename1.io.Preferences.set(\"push_key\", \"cn1-hms-\" + token);\n"
+                    + "                final com.codename1.push.PushCallback cb = com.codename1.impl.CodenameOneImplementation.getPushCallback();\n"
+                    + "                if (cb != null) com.codename1.ui.Display.getInstance().callSerially(new Runnable(){ public void run(){ cb.registeredForPush(\"cn1-hms-\" + token); }}); }\n"
+                    + "        } catch (final Exception ex) { final com.codename1.push.PushCallback cb = com.codename1.impl.CodenameOneImplementation.getPushCallback();\n"
+                    + "            if (cb != null) com.codename1.ui.Display.getInstance().callSerially(new Runnable(){ public void run(){ cb.pushRegistrationError(ex.getMessage(), 0); }}); } }}).start();\n"
+                    + "    }\n"
+                    + "    @Override public void stopReceivingPush() {\n"
+                    + "        final android.app.Activity activity = this;\n"
+                    + stopFcm
+                    + "        new Thread(new Runnable(){ public void run(){ try {\n"
+                    + "            String appId = com.huawei.agconnect.config.AGConnectServicesConfig.fromContext(activity).getString(\"client/app_id\");\n"
+                    + "            com.huawei.hms.aaid.HmsInstanceId.getInstance(activity).deleteToken(appId, \"HCM\");\n"
+                    + "        } catch (Exception ex) { ex.printStackTrace(); } }}).start();\n"
+                    + "    }\n";
+        }
+
+        // Firebase Analytics (com.codename1.analytics.FirebaseAnalyticsProvider
+        // delegates to a generated FirebaseAnalyticsProvider.Bridge). Enabled
+        // with the build hint android.firebaseAnalytics=true, which -- like FCM --
+        // requires a google-services.json in native/android. Reuses the
+        // google-services Gradle plugin + buildscript classpath if FCM already
+        // added them (the contains() guards keep the lines idempotent).
+        boolean useFirebaseAnalytics = "true".equals(request.getArg("android.firebaseAnalytics", "false"));
+        if (useFirebaseAnalytics) {
+            if (!googleServicesJson.exists()) {
+                error("google-services.json not found.  android.firebaseAnalytics=true requires a valid google-services.json in the native/android directory (download it from the Firebase console: https://console.firebase.google.com/).", new RuntimeException());
+                return false;
+            }
+            if (!request.getArg("android.topDependency", "").contains("com.google.gms:google-services")) {
+                if (gradleVersionInt >= 8) {
+                    request.putArgument("android.topDependency", request.getArg("android.topDependency", "") + "\n    classpath 'com.google.gms:google-services:4.3.15'\n");
+                } else {
+                    request.putArgument("android.topDependency", request.getArg("android.topDependency", "") + "\n    classpath 'com.google.gms:google-services:4.0.1'\n");
+                }
+            }
+            if (!request.getArg("android.xgradle", "").contains("apply plugin: 'com.google.gms.google-services'")) {
+                request.putArgument("android.xgradle", request.getArg("android.xgradle", "") + "\napply plugin: 'com.google.gms.google-services'\n");
+            }
+            if (!request.getArg("gradleDependencies", "").contains("com.google.firebase:firebase-analytics")) {
+                request.putArgument(
+                        "gradleDependencies",
+                        request.getArg("gradleDependencies", "") +
+                                "\n"+compile+" \"com.google.firebase:firebase-analytics:" +
+                                request.getArg("android.firebaseAnalyticsVersion", "21.5.0") + "\"\n"
+                );
+            }
+        }
+
+        // Foldable / dual-screen support. The com.codename1.ui.DevicePosture API reads the device
+        // fold posture through androidx.window using reflection, so the gradle dependency is added
+        // ONLY when the app opts in with the build hint android.foldableSupport=true. Apps that do
+        // not use the foldable APIs get zero added weight. The version can be overridden with
+        // android.windowVersion.
+        boolean useFoldableSupport = "true".equals(request.getArg("android.foldableSupport", "false"));
+        if (useFoldableSupport) {
+            if (!request.getArg("gradleDependencies", "").contains("androidx.window:window")) {
+                request.putArgument(
+                        "gradleDependencies",
+                        request.getArg("gradleDependencies", "") +
+                                "\n"+compile+" \"androidx.window:window:" +
+                                request.getArg("android.windowVersion", "1.3.0") + "\"\n"
+                );
+            }
+        }
+
+
+
+        // if a flag is declared we don't want the default play flag to be true
+        if(useGradle8 ||
+                request.getArg("android.playService.plus", null)  != null ||
+                request.getArg("android.playService.auth", (googleServicesJson.exists()) ? "true":null)  != null ||
+                request.getArg("android.playService.base", null)  != null ||
+                request.getArg("android.playService.identity", null)  != null ||
+                request.getArg("android.playService.indexing", null)  != null ||
+                request.getArg("android.playService.appInvite", null)  != null ||
+                request.getArg("android.playService.analytics", null)  != null ||
+                request.getArg("android.playService.cast", null)  != null ||
+                request.getArg("android.playService.gcm", null)  != null ||
+                request.getArg("android.playService.drive", null)  != null ||
+                request.getArg("android.playService.fitness", null)  != null ||
+                request.getArg("android.playService.location", null)  != null ||
+                request.getArg("android.playService.maps", null)  != null ||
+                request.getArg("android.playService.ads", null)  != null ||
+                request.getArg("android.playService.vision", null)  != null ||
+                request.getArg("android.playService.nearby", null)  != null ||
+                request.getArg("android.playService.panorama", null)  != null ||
+                request.getArg("android.playService.games", null)  != null ||
+                request.getArg("android.playService.safetynet", null)  != null ||
+                request.getArg("android.playService.wallet", null)  != null ||
+                request.getArg("android.playService.wearable", null)  != null ||
+                request.getArg("android.playService.ads", null)  != null) {
+            playFlag = "false";
+        }
+        initPlayServiceVersions(request);
+
+
+        boolean legacyGplayServicesMode = false;
+
+        if(playServicesValue != null) {
+            if(playServicesValue.equals("true")){
+                // compatibility mode...
+                legacyGplayServicesMode = true;
+                if(playFlag.equals("false")) {
+                    // legacy gplay can't be mixed with explicit gplay fail the build right now!
+                    if (googleServicesJson.exists()) {
+                        debug("The android.playService.auth flag was automatically enabled because the project includes the google-services.json file");
+                    }
+                    error("Error: you can't use the build hint android.includeGPlayServices together with android.playService.* build hints. They are exclusive of one another. Please remove the old android.includeGPlayServices hint from your code or from the cn1lib that might have injected it", new RuntimeException());
+                    return false;
+                }
+                playFlag = "true";
+            } else {
+                playFlag = "false";
+            }
+        }
+
+
+        // Nearby Connections needs the modular play-services-nearby artifact.
+        // Legacy mode adds ONLY the 6.5.87 monolith, which predates that API
+        // by years, while the nearby transport sources are retained for the
+        // same input -- so the generated project would compile
+        // AndroidNearbyTransport against a bundle with no
+        // com.google.android.gms.nearby.connection package in it and fail
+        // with a wall of unresolved imports. Checked here, after every route
+        // into legacy mode has been taken, and refused with a message that
+        // names the cause.
+        if (legacyGplayServicesMode && usesNearbyTransport) {
+            error("Error: com.codename1.nearby.transport needs the modular"
+                    + " play-services-nearby artifact, but this build selected"
+                    + " the legacy monolithic Play Services bundle, which"
+                    + " predates the Nearby Connections API. Remove"
+                    + " android.includeGPlayServices (and build against a"
+                    + " version newer than 3.3) -- the nearby dependency is"
+                    + " added for you.", new RuntimeException());
+            return false;
+        }
+
+        // And AndroidX, because the modular artifact's transitive closure is
+        // AndroidX the whole way down. The preflight that catches this for
+        // every other feature reads the CATALOG's gradle dependencies, and
+        // the transport has none -- its artifact is turned on through the
+        // Play-services flag above so it keeps the version this build's own
+        // table resolved. So the check that would have caught it cannot see
+        // it, and AGP rejected the generated project instead, well after the
+        // build had committed to it and with a message that names androidx
+        // rather than anything the developer wrote.
+        if (usesNearbyTransport && !useAndroidX) {
+            error("Error: com.codename1.nearby.transport needs"
+                    + " play-services-nearby, whose transitive dependencies"
+                    + " are AndroidX, and this build set"
+                    + " android.useAndroidX=false. Remove that hint or set"
+                    + " it to true.", new RuntimeException());
+            return false;
+        }
+        playServicesPlus = !request.getArg("android.playService.plus", "false" ).equals("false");
+        playServicesAuth = !request.getArg("android.playService.auth", (Boolean.valueOf(playFlag) || googleServicesJson.exists()) ? "true" : "false").equals("false");
+        playServicesBase = !request.getArg("android.playService.base", playFlag).equals("false");
+        playServicesIdentity = !request.getArg("android.playService.identity", "false").equals("false");
+        playServicesIndexing = !request.getArg("android.playService.indexing", "false").equals("false");
+        playServicesInvite = !request.getArg("android.playService.appInvite", "false").equals("false");
+        playServicesAnalytics = !request.getArg("android.playService.analytics", playFlag).equals("false");
+        playServicesCast = !request.getArg("android.playService.cast", "false").equals("false");
+        playServicesGcm = !request.getArg("android.playService.gcm", playFlag).equals("false") ||
+                request.getArg("gcm.sender_id", null) != null;
+        playServicesDrive = !request.getArg("android.playService.drive", "false").equals("false");
+        playServicesFit= !request.getArg("android.playService.fitness", "false").equals("false");
+        playServicesLocation = playServicesLocation || !request.getArg("android.playService.location", playFlag).equals("false");
+        playServicesMaps = !request.getArg("android.playService.maps", playFlag).equals("false");
+        playServicesAds = !request.getArg("android.playService.ads", "false").equals("false");
+        if(request.getArg("android.googleAdUnitId", request.getArg("google.adUnitId", null)) != null) {
+            playServicesAds = true;
+        }
+        playServicesVision = !request.getArg("android.playService.vision", "false").equals("false");
+        playServicesNearBy = !request.getArg("android.playService.nearby", "false").equals("false");
+        // The nearby transport IS Nearby Connections, so referencing
+        // com.codename1.nearby.transport turns the same Play service on.
+        // Routed through this flag rather than through a PlatformFeatureCatalog
+        // androidGradle entry so the artifact keeps the version the builder's
+        // own Play-services table decides, instead of one pinned in a table
+        // that has no idea which Play services this build resolved.
+        if (usesNearbyTransport) {
+            playServicesNearBy = true;
+        }
+        playServicesSafetyPanorama = !request.getArg("android.playService.panorama", "false").equals("false");
+        playServicesGames = !request.getArg("android.playService.games", "false").equals("false");
+        playServicesSafetyNet = !request.getArg("android.playService.safetynet", "false").equals("false");
+        playServicesWallet = !request.getArg("android.playService.wallet", "false").equals("false");
+        playServicesWear = !request.getArg("android.playService.wearable", "false").equals("false");
+
+
+
+
+        if (googleAdUnitId == null && playServicesAds) {
+            minSDK = maxInt("9", minSDK);
+            if (!userXapplication.contains("com.google.android.gms.version")) {
+                googlePlayAdsMetaData = "<meta-data android:name=\"com.google.android.gms.version\" android:value=\"@integer/google_play_services_version\"/>";
+            }
+        }
+        if (playServicesLocation) {
+            debug("Play Services Location Enabled");
+            googlePlayObfuscation += "-keep class com.codename1.location.AndroidLocationPlayServiceManager {\n"
+                    + "*;\n"
+                    + "}\n\n";
+            googlePlayObfuscation += "-keep class com.codename1.location.BackgroundLocationHandler {\n"
+                    + "*;\n"
+                    + "}\n\n";
+            googlePlayObfuscation += "-keep class com.codename1.location.BackgroundLocationBroadcastReceiver {\n"
+                    + "*;\n"
+                    + "}\n\n";
+            googlePlayObfuscation += "-keep class com.codename1.impl.android.BackgroundFetchHandler {\n"
+                    + "*;\n"
+                    + "}\n\n";
+            googlePlayObfuscation += "-keep class com.codename1.location.GeofenceHandler {\n"
+                    + "*;\n"
+                    + "}\n\n";
+            googlePlayObfuscation += "-keep class com.codename1.location.CodenameOneBackgroundLocationActivity {\n"
+                    + "*;\n"
+                    + "}\n\n";
+
+
+        } else {
+            debug("Play services location disabled");
+        }
+
+        shouldIncludeGoogleImpl = playServicesAuth;
+
+
+        if (shouldIncludeGoogleImpl) {
+            googlePlayObfuscation += "-keep class com.codename1.social.GoogleImpl {\n"
+                    + "*;\n"
+                    + "}\n\n";
+        }
+
+        File stubFileSourceDir = new File(srcDir, request.getPackageName().replace('.', File.separatorChar));
+        stubFileSourceDir.mkdirs();
+
+        String headphonesVars = "";
+        String headphonesOnResume = "";
+        // The generated glue calls headphonesConnected()/headphonesDisconnected() on the lifecycle
+        // instance, so it only compiles when that class declares them -- which the phone main class
+        // does because the developer added them to enable the hint. In a standalone watch build the
+        // lifecycle is the watch class instead, and there is no phone app whose author agreed to
+        // implement a headphone callback, so emitting the glue would simply fail to compile.
+        // ACTION_HEADSET_PLUG on a watch is not a meaningful event either.
+        boolean headphonesApplicable = appLifecycleClass(request).equals(request.getMainClass());
+        if (request.getArg("android.headphoneCallback", "false").equals("true")
+                && !headphonesApplicable) {
+            debug("Ignoring android.headphoneCallback: this is a standalone watch build, whose "
+                    + "lifecycle class is " + appLifecycleClass(request));
+        }
+        if (request.getArg("android.headphoneCallback", "false").equals("true")
+                && headphonesApplicable) {
+            headphonesVars = "    HeadSetReceiver myHeadphoneReceiver;\n\n"
+                    + "    public static void headphonesConnected() {\n"
+                    + "        i.headphonesConnected();"
+                    + "    }"
+                    + "    public static void headphonesDisconnected() {\n"
+                    + "        i.headphonesDisconnected();"
+                    + "    }";
+
+            headphonesOnResume
+                    = "        HeadSetReceiver myReceiver = new HeadSetReceiver();\n"
+                    + "        IntentFilter filter = new IntentFilter(Intent.ACTION_HEADSET_PLUG);\n"
+                    + "        registerReceiver(myReceiver, filter);\n";
+
+            File headphonesFile = new File(stubFileSourceDir, "HeadSetReceiver.java");
+            String stubSourceCode = "package " + request.getPackageName() + ";\n\n"
+                    + "import android.content.Context;\n"
+                    + "import android.content.Intent;\n"
+                    + "import android.content.IntentFilter;\n"
+                    + "import android.content.BroadcastReceiver;\n\n"
+                    + "public class HeadSetReceiver extends BroadcastReceiver {\n"
+                    + "    @Override public void onReceive(Context context, Intent intent) {\n"
+                    + "        if (intent.getAction().equals(Intent.ACTION_HEADSET_PLUG)) {\n"
+                    + "            int state = intent.getIntExtra(\"state\", -1);\n"
+                    + "            switch (state) {\n"
+                    + "            case 0:\n"
+                    + "                " + request.getMainClass() + "Stub.headphonesDisconnected();\n"
+                    + "                break;\n"
+                    + "            case 1:\n"
+                    + "                " + request.getMainClass() + "Stub.headphonesConnected();\n"
+                    + "                break;\n"
+                    + "            }\n"
+                    + "        }\n"
+                    + "    }\n"
+                    + "}";
+            try {
+                createFile(headphonesFile, stubSourceCode.getBytes(StandardCharsets.UTF_8));
+            } catch (IOException ex) {
+                throw new BuildException("Failed to create HeadSetReceiver class", ex);
+            }
+        }
+
+
+        //unzip(getResourceAsStream("/Android.jar"), dummyClassesDir, assetsDir, srcDir);
+
+        if (request.getArg("noExtraResources", "false").equals("true")) {
+            new File(assetsDir, "CN1Resource.res").delete();
+            new File(assetsDir, "androidTheme.res").delete();
+            new File(assetsDir, "android_holo_light.res").delete();
+        }
+        if (getAndroidPortSrcJar() == null) {
+            try {
+                setAndroidPortSrcJar(getResourceAsFile("/com/codename1/android/android_port_sources.jar", ".jar"));
+            } catch (IOException ex) {
+                throw new BuildException("Failed to find android_port_sources.jar");
+            }
+        }
+        if (!getAndroidPortSrcJar().exists()) {
+            throw new IllegalStateException("Configuration error.  Cannot find androidPortSrcJar at "+getAndroidPortSrcJar());
+        }
+        try {
+            unzip(androidPortSrcJar, srcDir, assetsDir, srcDir);
+        } catch (IOException ex) {
+            throw new BuildException("Failed to extract android port sources from "+androidPortSrcJar, ex);
+        }
+
+        // Health background-listener bindings: generated rather than
+        // resolved reflectively, so each listener is reached through a
+        // direct constructor call that shrinking and obfuscation follow.
+        for (String warning : healthScan.warnings()) {
+            log("WARNING: " + warning);
+        }
+        String healthBindingsSource =
+                HealthListenerBindings.generate(healthScan.resolve());
+        if (healthBindingsSource != null) {
+            File bindingsFile = new File(srcDir,
+                    HealthListenerBindings.sourcePath());
+            bindingsFile.getParentFile().mkdirs();
+            try {
+                createFile(bindingsFile, healthBindingsSource.getBytes(
+                        StandardCharsets.UTF_8));
+            } catch (Exception ex) {
+                throw new BuildException(
+                        "Failed to write the health listener bindings", ex);
+            }
+            log("Generated health background-listener bindings for "
+                    + healthScan.resolve().keySet());
+        }
+
+        // Health Connect bridge: Kotlin, because androidx.health.connect
+        // exposes only suspend functions and the Android port compiles
+        // against an old android.jar with no AndroidX or Kotlin. Same
+        // pattern as the Android Auto glue below -- a real source resource
+        // copied into the generated project, never reflection.
+        if (usesHealthStore) {
+            File healthDir = new File(srcDir, "com/codename1/health");
+            healthDir.mkdirs();
+            InputStream hin = getResourceAsStream(
+                    "/com/codename1/builders/health/CN1HealthConnectBridge.kt");
+            if (hin == null) {
+                throw new BuildException(
+                        "Missing Health Connect bridge resource");
+            }
+            try {
+                copy(hin, new FileOutputStream(new File(healthDir,
+                        "CN1HealthConnectBridge.kt")));
+            } catch (IOException ex) {
+                throw new BuildException(
+                        "Failed to write the Health Connect bridge", ex);
+            }
+            // connect-client needs Kotlin 1.9+; the builder's default of
+            // 1.7.22 will not compile it.
+            //
+            // The argument raised here is requireKotlinStdlib, because that
+            // is the one the Gradle generator actually reads. Setting
+            // android.kotlinVersion looks right and does nothing: the
+            // generator never consults it, so a non-Gradle-8 project would
+            // still be pinned to 1.7.22 and fail compiling the bridge.
+            String kotlinFloor = "1.9.22";
+            // Checked before, and independently of, whether this builder
+            // has to raise the version: a project that already sets
+            // requireKotlinStdlib=1.9.22 with useGradle8=false is just as
+            // broken, and the earlier nesting let it through.
+            //
+            // The version that will actually run, not the flag that
+            // usually selects it. android.gradleVersion overrides the
+            // choice, so useGradle8=true with gradleVersion=6.5 satisfied
+            // the flag and then failed compiling the bridge with the very
+            // requirement this message states.
+            if (!useGradle8 || gradleVersionInt < 7) {
+                throw new BuildException(
+                        "Health Connect requires Kotlin " + kotlinFloor
+                        + ", whose Gradle plugin needs Gradle 6.8.3 or"
+                        + " newer, but this build would use Gradle "
+                        + gradleVersion + " (android.useGradle8="
+                        + useGradle8 + "). Set android.useGradle8=true and"
+                        + " leave android.gradleVersion unset to build a"
+                        + " health-enabled app.");
+            }
+            // androidx.health.connect is an AndroidX artifact. Without
+            // AndroidX the generator writes neither android.useAndroidX
+            // nor Jetifier, and Gradle's own dependency check rejects the
+            // project rather than building it. Forcing it on would change
+            // how every other dependency in the app resolves, which is not
+            // this block's call to make.
+            if (!useAndroidX) {
+                throw new BuildException(
+                        "Health Connect ships as an AndroidX library, but"
+                        + " this build sets android.useAndroidX=false."
+                        + " Remove that hint to build a health-enabled"
+                        + " app.");
+            }
+            String declaredKotlin =
+                    request.getArg("requireKotlinStdlib", "").trim();
+            // Compared on the numeric prefix. A qualified version like
+            // 1.9.22-RC2 is perfectly acceptable, and feeding it to
+            // compareVersions -- which parses each segment as an int --
+            // threw and failed the build instead of accepting it.
+            String comparableKotlin = HealthManifestFragments
+                    .numericVersionPrefix(declaredKotlin);
+            if (comparableKotlin == null
+                    || compareVersions(comparableKotlin, kotlinFloor) < 0) {
+                request.putArgument("requireKotlinStdlib", kotlinFloor);
+                log("Health Connect requires Kotlin " + kotlinFloor
+                        + " or newer; raising requireKotlinStdlib from "
+                        + (declaredKotlin.length() == 0
+                                ? "the default" : declaredKotlin));
+            }
+            // A kotlin-gradle-plugin the app declares for itself wins:
+            // the Gradle generator skips adding its own line when it sees
+            // one, so raising requireKotlinStdlib above changed nothing
+            // and the bridge was compiled by whatever compiler was pinned.
+            // Overriding a version the app asked for would break whatever
+            // it wanted that compiler for, so say so instead.
+            String topDependency =
+                    request.getArg("android.topDependency", "");
+            String declaredPlugin =
+                    HealthManifestFragments.declaredKotlinPluginVersion(
+                            topDependency);
+            if (HealthManifestFragments.declaresKotlinPlugin(topDependency)
+                    && declaredPlugin == null) {
+                // A version this build cannot read -- a Gradle variable,
+                // typically. The generator suppresses its own plugin line
+                // on the bare substring, so the declaration takes effect
+                // while the floor check below sees nothing to check, and a
+                // variable resolving to 1.7.x compiled the bridge with an
+                // incompatible compiler. Nothing here can resolve it, so
+                // ask for a literal rather than guess.
+                error("This app declares kotlin-gradle-plugin in "
+                        + "android.topDependency with a version this build "
+                        + "cannot read, and that declaration replaces the "
+                        + "plugin the build would otherwise add. Health "
+                        + "Connect needs Kotlin " + kotlinFloor + " or "
+                        + "newer to compile the bridge, so state the "
+                        + "version literally -- "
+                        + "org.jetbrains.kotlin:kotlin-gradle-plugin:"
+                        + kotlinFloor + " -- or drop the declaration.",
+                        new RuntimeException("kotlin plugin version "
+                                + "unreadable"));
+            }
+            if (declaredPlugin != null
+                    && compareVersions(declaredPlugin, kotlinFloor) < 0) {
+                error("This app declares kotlin-gradle-plugin "
+                        + declaredPlugin + " in android.topDependency, but "
+                        + "Health Connect needs Kotlin " + kotlinFloor
+                        + " or newer to compile the bridge. A plugin "
+                        + "declared there replaces the one this build would "
+                        + "otherwise add, so raise it to " + kotlinFloor
+                        + " or drop the declaration.",
+                        new RuntimeException("kotlin plugin below the "
+                                + "Health Connect floor"));
+            }
+        }
+
+        // Android Auto glue: when the app references com.codename1.car, copy the injected
+        // CarAppService / Session / Screen + the CarBridge converter (typed against androidx.car.app)
+        // into the generated project and add the car-app gradle dependency. These ship as real .java
+        // resources in the plugin (not reflection blobs) and are only added for in-car apps, so apps
+        // that never touch the API pay nothing.
+        if (usesCar) {
+            // androidx.car.app requires minSdk 23 (app-projected requires 21). Any Android Auto app
+            // inherently needs API 23+, so raise the floor here -- otherwise the manifest merge fails
+            // with "uses-sdk:minSdkVersion N cannot be smaller than version 21/23 declared in library".
+            try {
+                if (Integer.parseInt(minSDK) < 23) {
+                    log("Android Auto (com.codename1.car) requires minSdk 23; raising android.min_sdk_version from " + minSDK + " to 23");
+                    minSDK = "23";
+                }
+            } catch (NumberFormatException ex) {
+                minSDK = "23";
+            }
+            File carImpl = new File(srcDir, "com/codename1/impl/android");
+            carImpl.mkdirs();
+            String[] glue = {"CN1CarAppService.java", "CN1CarSession.java",
+                    "CN1CarScreen.java", "CN1AndroidAutoBridge.java"};
+            for (String g : glue) {
+                InputStream gin = getResourceAsStream("/com/codename1/builders/car/" + g);
+                if (gin == null) {
+                    throw new BuildException("Missing Android Auto glue resource " + g);
+                }
+                try {
+                    copy(gin, new FileOutputStream(new File(carImpl, g)));
+                } catch (IOException ex) {
+                    throw new BuildException("Failed to write Android Auto glue " + g, ex);
+                }
+            }
+            if (!request.getArg("gradleDependencies", "").contains("androidx.car.app:app")) {
+                String carAppVersion = request.getArg("android.carAppVersion", "1.4.0");
+                // Exclude androidx.media: the Codename One Android port still uses the (jetified)
+                // support-media-compat MediaControllerCompat whose constructor throws RemoteException.
+                // androidx.car.app pulls a newer androidx.media:media where that constructor no longer
+                // throws, which turns the port's existing catch into an "exception never thrown"
+                // compile error. car-app's own media uses androidx.car.app.media, so excluding the
+                // transitive androidx.media is safe.
+                request.putArgument("gradleDependencies",
+                        request.getArg("gradleDependencies", "")
+                                + "\n" + compile + "(\"androidx.car.app:app:" + carAppVersion + "\") { exclude group: 'androidx.media' }\n"
+                                + compile + "(\"androidx.car.app:app-projected:" + carAppVersion + "\") { exclude group: 'androidx.media' }\n");
+            }
+        }
+
+        // Wearable Data Layer glue: when the app references com.codename1.wearable, copy the
+        // injected WearableBridge + WearableListenerService (typed against play-services-wearable)
+        // into the generated project and add the dependency. The Android port itself cannot
+        // reference play-services-wearable, which is why these ship as .java resources here and are
+        // only added for apps that talk to a watch.
+        // External surfaces (com.codename1.surfaces): parse the build-time kinds manifest,
+        // generate one thin widget provider subclass per kind, copy the pre-baked RemoteViews
+        // layout/drawable resources shipped with the plugin and emit the per-kind
+        // appwidget-provider metadata. The matching manifest receivers and the tap trampoline
+        // activity are assembled here and injected into the manifest further below. No gradle
+        // dependencies are involved -- the runtime lowering is plain RemoteViews in the port.
+        String intentsManifestEntries = usesIntents
+                ? buildIntentsManifestEntries(assetsDir, resDir, request.getPackageName())
+                : "";
+        // The launcher only reads a shortcut list through meta-data on the activity carrying the
+        // LAUNCHER intent filter, so this half is spliced into the main activity rather than
+        // sitting beside it at application level, where it would be silently ignored.
+        String intentsActivityMetaData = intentsShortcutsMetaData;
+        // Carried to the watch as well. The wear module compiles the same lifecycle, so
+        // AndroidIntentBridge.areIntentsSupported() answers true there and publishes shortcuts
+        // aimed at CN1IntentTrampolineActivity -- an activity that manifest never declared. The
+        // static list is read from meta-data on whichever activity carries LAUNCHER, so both
+        // halves have to travel: the meta-data into the watch launcher and the trampoline with
+        // it, or the shortcuts are advertised and then resolve to nothing.
+        watchIntentsActivityMetaData = intentsActivityMetaData;
+        watchIntentsManifestEntries = intentsManifestEntries;
+
+        // Document provider (com.codename1.documents): one ContentProvider, declared only when
+        // the app actually publishes documents. android:permission gates the CALLER, not this
+        // app -- MANAGE_DOCUMENTS is a system-signature permission that only the platform
+        // document UI holds, which is what keeps every other app from binding this.
+        String documentsProviderEntry = "";
+        // The explicit hint counts here too, so a project configured by the Certificate Wizard
+        // declares the same thing to both builders rather than only to the iOS one.
+        if (usesDocuments || "true".equals(request.getArg("android.documentProvider.enabled",
+                request.getArg("ios.documentProvider.enabled", "false")))) {
+            documentsProviderEntry =
+                    "        <provider\n"
+                    + "            android:name=\"" + xclass("com.codename1.impl.android.documents.CN1DocumentsProvider") + "\"\n"
+                    // ${applicationId}, not the request's package, and for the same reason the
+                    // FileProvider declaration above uses it: a build that changes the
+                    // application id -- an applicationIdSuffix for a variant, or an
+                    // xgradle_default_config that replaces it outright -- would otherwise
+                    // declare an authority belonging to the other variant. A provider authority
+                    // is globally unique on the device, so installing both variants side by side
+                    // fails on the second. It also keeps the manifest in step with the runtime,
+                    // which builds the authority from getPackageName().
+                    + "            android:authorities=\"${applicationId}.documents\"\n"
+                    + "            android:exported=\"true\"\n"
+                    + "            android:grantUriPermissions=\"true\"\n"
+                    + "            android:permission=\"android.permission.MANAGE_DOCUMENTS\">\n"
+                    + "            <intent-filter>\n"
+                    + "                <action android:name=\"android.content.action.DOCUMENTS_PROVIDER\" />\n"
+                    + "            </intent-filter>\n"
+                    + "        </provider>\n";
+            debug("Declaring the CN1Documents provider with authority "
+                    + "${applicationId}.documents (resolved by manifest merging; "
+                    + request.getPackageName() + ".documents unless a variant changes it)");
+        }
+
+        String surfacesManifestEntries = "";
+        String watchSurfacesManifestEntries = "";
+        if (usesSurfaces) {
+            File surfacesJsonFile = new File(assetsDir, "surfaces.json");
+            if (!surfacesJsonFile.exists()) {
+                throw new BuildException("This app uses com.codename1.surfaces but no "
+                        + "surfaces.json was found in the project resources. Widget kinds must be "
+                        + "known at build time (the platform widget gallery is compiled into the "
+                        + "app), so add a surfaces.json next to your other resources "
+                        + "(src/main/resources), e.g. {\"liveActivities\":true,\"kinds\":"
+                        + "[{\"id\":\"delivery_status\",\"name\":\"Delivery\","
+                        + "\"description\":\"Track your order\"}]}");
+            }
+            Map<String, Object> surfacesJson;
+            try {
+                JSONParser surfacesParser = new JSONParser();
+                surfacesJson = surfacesParser.parseJSON(new InputStreamReader(
+                        new FileInputStream(surfacesJsonFile), StandardCharsets.UTF_8));
+            } catch (IOException ex) {
+                throw new BuildException("Failed to parse surfaces.json", ex);
+            }
+            // the parser yields Boolean or String depending on its useBoolean setting
+            Object surfacesLiveActivitiesValue = surfacesJson.get("liveActivities");
+            boolean surfacesLiveActivities = Boolean.TRUE.equals(surfacesLiveActivitiesValue)
+                    || "true".equals(surfacesLiveActivitiesValue);
+            java.util.List<Object> surfaceKinds = (java.util.List<Object>) surfacesJson.get("kinds");
+            if (surfaceKinds == null) {
+                // legitimate for live-activity-only apps
+                surfaceKinds = new java.util.ArrayList<Object>();
+                log("surfaces.json declares no widget kinds; only live activities are available");
+            }
+            // Resolved once, from the whole declared set, BEFORE any name is used: which kind
+            // keeps the plain folded name and which takes the positional form is a property of
+            // the set, not of an id on its own.
+            surfaceKindClassNames.clear();
+            List<String> declaredKindIds = new ArrayList<String>();
+            for (Object surfaceKindEntry : surfaceKinds) {
+                if (surfaceKindEntry instanceof Map) {
+                    Object declaredId = ((Map<String, Object>) surfaceKindEntry).get("id");
+                    if (declaredId instanceof String && ((String) declaredId).length() > 0) {
+                        declaredKindIds.add((String) declaredId);
+                    }
+                }
+            }
+            surfaceKindClassNames.putAll(surfaceKindClassSuffixes(declaredKindIds));
+            writeSurfaceKindClassMap(resDir);
+            for (Map.Entry<String, String> named : surfaceKindClassNames.entrySet()) {
+                if (!named.getValue().equals(surfaceKindClassSuffix(named.getKey()))) {
+                    // Never silently: this kind's provider is not found under the name its id
+                    // suggests, and the developer is the only one who can rename the id.
+                    log("WARNING: widget kinds '" + named.getKey() + "' and another declared kind "
+                            + "produce the same class name '"
+                            + surfaceKindClassSuffix(named.getKey()) + "'. This one is generated "
+                            + "as CN1Widget_" + named.getValue() + " instead. Rename one of the "
+                            + "ids so they differ by more than where the underscores are.");
+                }
+            }
+
+            // the pre-baked layouts the generic renderer composes at runtime
+            String[] surfaceLayouts = {
+                    "cn1_surface_column.xml", "cn1_surface_row.xml", "cn1_surface_box.xml",
+                    "cn1_surface_text.xml", "cn1_surface_chronometer.xml",
+                    "cn1_surface_textclock.xml", "cn1_surface_image.xml",
+                    "cn1_surface_image_fill.xml", "cn1_surface_image_center.xml",
+                    "cn1_surface_progress.xml", "cn1_surface_progress_circular.xml",
+                    "cn1_surface_spacer.xml", "cn1_surface_cell_h.xml", "cn1_surface_cell_v.xml",
+                    "cn1_surface_cell_weight1_h.xml", "cn1_surface_cell_weight1_v.xml"
+            };
+            File surfacesLayoutDir = new File(resDir, "layout");
+            surfacesLayoutDir.mkdirs();
+            for (String surfaceLayout : surfaceLayouts) {
+                InputStream lin = getResourceAsStream(
+                        "/com/codename1/builders/surfaces/android/layout/" + surfaceLayout);
+                if (lin == null) {
+                    throw new BuildException("Missing surfaces layout resource " + surfaceLayout);
+                }
+                try {
+                    copy(lin, new FileOutputStream(new File(surfacesLayoutDir, surfaceLayout)));
+                } catch (IOException ex) {
+                    throw new BuildException("Failed to write surfaces layout " + surfaceLayout, ex);
+                }
+            }
+            File surfacesDrawableDir = new File(resDir, "drawable");
+            surfacesDrawableDir.mkdirs();
+            InputStream roundedIn = getResourceAsStream(
+                    "/com/codename1/builders/surfaces/android/drawable/cn1_surface_rounded.xml");
+            if (roundedIn == null) {
+                throw new BuildException("Missing surfaces drawable resource cn1_surface_rounded.xml");
+            }
+            try {
+                copy(roundedIn, new FileOutputStream(
+                        new File(surfacesDrawableDir, "cn1_surface_rounded.xml")));
+            } catch (IOException ex) {
+                throw new BuildException("Failed to write cn1_surface_rounded.xml", ex);
+            }
+
+            File surfacesImplDir = new File(srcDir, "com/codename1/impl/android");
+            surfacesImplDir.mkdirs();
+            StringBuilder surfaceReceivers = new StringBuilder();
+            for (Object surfaceKindObj : surfaceKinds) {
+                Map<String, Object> surfaceKind = (Map<String, Object>) surfaceKindObj;
+                String kindId = surfaceKind.get("id") instanceof String
+                        ? (String) surfaceKind.get("id") : null;
+                if (kindId == null || !kindId.matches("[a-z][a-z0-9_]*")) {
+                    throw new BuildException("Invalid widget kind id '" + kindId
+                            + "' in surfaces.json; ids must match [a-z][a-z0-9_]*");
+                }
+                java.util.List<String> kindFamilies =
+                        com.codename1.util.SurfaceKindFamilies.read(surfaceKind);
+                // A name this framework does not know is a typo, and it used to be a silent one:
+                // isWatch tested for a "watch" prefix, so "watchCircle" suppressed the kind's
+                // phone widget and turned on watch codegen while every mapping downstream
+                // recognised only the real four -- leaving the kind with no surface on any
+                // platform and a build that went green. isWatch is now exact, which turns the
+                // typo into a plain phone family instead; say so rather than quietly rendering
+                // a home-screen widget the author did not ask for.
+                for (String declared : kindFamilies) {
+                    if (!com.codename1.util.SurfaceKindFamilies.isKnown(declared)) {
+                        throw new BuildException("Widget kind '" + kindId
+                                + "' in surfaces.json declares the family '" + declared
+                                + "', which is not one this framework knows. The watch families "
+                                + "are watchCircular, watchRectangular, watchInline and "
+                                + "watchCorner; the phone families are small, medium, large and "
+                                + "lockscreen.");
+                    }
+                }
+                boolean watchBearing =
+                        com.codename1.util.SurfaceKindFamilies.hasWatchFamily(kindFamilies);
+                if (watchBearing) {
+                    watchSurfaceKinds.add(new String[] {kindId,
+                            surfaceKind.get("name") instanceof String
+                                    ? (String) surfaceKind.get("name") : kindId,
+                            joinFamilies(kindFamilies)});
+                }
+                if (!com.codename1.util.SurfaceKindFamilies.hasPhoneFamily(kindFamilies)) {
+                    // A complication is not a home-screen widget, and rendering one as though it
+                    // were puts a surface in front of the user that the manifest never asked for.
+                    // iOS already refuses the same thing, so this is the two platforms agreeing.
+                    continue;
+                }
+                String providerClass = "CN1Widget_" + surfaceKindClassName(kindId);
+                String providerSource = "package com.codename1.impl.android;\n\n"
+                        + "/** Generated by the Codename One build from surfaces.json. */\n"
+                        + "public class " + providerClass
+                        + " extends com.codename1.impl.android.surfaces.CN1WidgetProvider {\n"
+                        + "    @Override\n"
+                        + "    protected String getKindId() {\n"
+                        + "        return \"" + kindId + "\";\n"
+                        + "    }\n"
+                        + "}\n";
+                try {
+                    createFile(new File(surfacesImplDir, providerClass + ".java"),
+                            providerSource.getBytes(StandardCharsets.UTF_8));
+                } catch (IOException ex) {
+                    throw new BuildException("Failed to generate " + providerClass, ex);
+                }
+
+                String providerXml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<appwidget-provider xmlns:android=\"http://schemas.android.com/apk/res/android\"\n"
+                        + "    android:minWidth=\"" + surfaceDp(surfaceKind.get("androidMinWidthDp"), "110") + "dp\"\n"
+                        + "    android:minHeight=\"" + surfaceDp(surfaceKind.get("androidMinHeightDp"), "40") + "dp\"\n"
+                        + "    android:updatePeriodMillis=\"0\"\n"
+                        + "    android:resizeMode=\"" + (surfaceKind.get("androidResizeMode") instanceof String
+                                ? (String) surfaceKind.get("androidResizeMode") : "horizontal|vertical") + "\"\n"
+                        + "    android:widgetCategory=\"home_screen\"\n"
+                        + "    android:initialLayout=\"@layout/cn1_surface_column\" />\n";
+                try {
+                    createFile(new File(xmlDir, "cn1_widget_" + kindId + ".xml"),
+                            providerXml.getBytes(StandardCharsets.UTF_8));
+                } catch (IOException ex) {
+                    throw new BuildException("Failed to write cn1_widget_" + kindId + ".xml", ex);
+                }
+
+                String kindLabel = surfaceKind.get("name") instanceof String
+                        ? xmlize((String) surfaceKind.get("name")) : kindId;
+                surfaceReceivers.append("        <receiver android:name=\"com.codename1.impl.android.")
+                        .append(providerClass).append("\" android:exported=\"false\" android:label=\"")
+                        .append(kindLabel).append("\">\n")
+                        .append("            <intent-filter>\n")
+                        .append("                <action android:name=\"android.appwidget.action.APPWIDGET_UPDATE\" />\n")
+                        .append("            </intent-filter>\n")
+                        .append("            <meta-data android:name=\"android.appwidget.provider\" android:resource=\"@xml/cn1_widget_")
+                        .append(kindId).append("\" />\n")
+                        .append("        </receiver>\n");
+            }
+            // the invisible trampoline that turns a widget/live-activity tap into a
+            // Surfaces.dispatchAction call and brings the main activity forward
+            // Exported only for a Tile, and only when this module is the watch product; see
+            // anyWatchTile. A phone build keeps it private, which is what it has always been.
+            boolean tileTrampoline = "app".equals(watchModuleName(request)) && anyWatchTile();
+            surfaceReceivers.append("        <activity android:name=\"com.codename1.impl.android.surfaces.CN1SurfaceActionActivity\"\n")
+                    .append("                  android:theme=\"@android:style/Theme.NoDisplay\"\n")
+                    .append("                  android:exported=\"" + tileTrampoline + "\"\n")
+                    .append("                  android:excludeFromRecents=\"true\"\n")
+                    .append("                  android:noHistory=\"true\"\n")
+                    .append("                  android:taskAffinity=\"\" />\n");
+            if ("true".equals(request.getArg("android.surfaces.exactAlarms", "false"))) {
+                // opt-in exact timeline entry flips: declare the special-access permission
+                // and surface the choice to the runtime provider through application
+                // meta-data (read via PackageManager.getApplicationInfo). The provider
+                // still falls back to inexact setWindow when the user revokes the access.
+                surfaceReceivers.append("        <meta-data android:name=\"com.codename1.surfaces.EXACT_ALARMS\" android:value=\"true\" />\n");
+                permissions += permissionAdd(request, "\"android.permission.SCHEDULE_EXACT_ALARM\"",
+                        "    <uses-permission android:name=\"android.permission.SCHEDULE_EXACT_ALARM\" />\n");
+            }
+            surfacesManifestEntries = surfaceReceivers.toString();
+            if (surfacesLiveActivities) {
+                // live activities lower to ongoing notifications; Android 13+ needs the
+                // runtime permission declared (permissionAdd dedups against user overrides)
+                postNotificationsPermission = true;
+            }
+            reportWatchSurfaces(request);
+            watchSurfacesManifestEntries = generateWatchSurfaces(request, srcDir, resDir);
+            if (watchSurfacesManifestEntries.length() > 0 && "app".equals(watchModuleName(request))) {
+                // Standalone: this module is the watch product, so its own dependency list and
+                // its own floor are the right places for both.
+                request.putArgument("gradleDependencies",
+                        request.getArg("gradleDependencies", "") + "\n"
+                                + watchSurfaceDependencies);
+                // Wear OS 3 is the floor for the complication data source and Tile APIs, and in a
+                // STANDALONE build the app module IS the watch product, so its floor has to rise.
+                //
+                // Only then. In a companion build the phone module is a phone app that happens to
+                // ship a watch beside it, and raising this would have made a phone APK supporting
+                // API 21-25 uninstallable on the devices it already served. generateWearModule
+                // raises 26 on the wear module alone, which is where the libraries actually land.
+                minSDK = maxInt("26", minSDK);
+            }
+        }
+
+        // AFTER the surfaces manifest is parsed, because the decision below reads the kinds it
+        // produces. Run before it, watchSurfaceKinds was always empty -- so an app that publishes
+        // complications and never writes a line of com.codename1.wearable got no Data Layer glue,
+        // no dependency and an empty listener declaration, and the mirror it was meant to enable
+        // had no transport at either end.
+        // The mirror rides the Data Layer, and the app that publishes a complication need never
+        // have written a line of com.codename1.wearable -- so the class scan alone would leave the
+        // mirror with no transport in exactly the apps that want one. Skipped under the legacy
+        // Play services monolith, where adding the wearable artifact is a hard conflict.
+        if (!usesWearable && !watchSurfaceKinds.isEmpty() && watchModuleName(request) != null
+                && !legacyGplayServicesMode) {
+            log("[wearable] Enabling the Wearable Data Layer glue: watch-bearing surface kinds "
+                    + "are declared, so a phone-side Surfaces.publish() of one is mirrored to the "
+                    + "watch. This adds play-services-wearable to the app.");
+            usesWearable = true;
+        } else if (!usesWearable && !watchSurfaceKinds.isEmpty()
+                && watchModuleName(request) != null && legacyGplayServicesMode) {
+            // Said out loud rather than skipped in silence. The complication services still
+            // generate and a watch-side publish still works, but a phone-side one does not reach
+            // the watch, and nothing else in the build would tell the developer that -- they
+            // would be looking at a complication that never updates from the phone and no reason
+            // for it. Not a hard failure, because adding the wearable artifact under the legacy
+            // Play services monolith is a dependency conflict this build would lose.
+            log("[wearable] android.includeGPlayServices=true, so the Wearable Data Layer glue "
+                    + "cannot be added -- the wearable artifact conflicts with the legacy Play "
+                    + "services monolith. The complication and Tile services are still generated "
+                    + "and the watch app's own Surfaces.publish() still feeds them, but a "
+                    + "PHONE-side publish will NOT be mirrored to the watch. Drop "
+                    + "android.includeGPlayServices to get the mirror.");
+        }
+        if (usesWearable) {
+            File wearImpl = new File(srcDir, "com/codename1/impl/android");
+            wearImpl.mkdirs();
+            String[] glue = {"CN1WearableBridge.java", "CN1WearableListenerService.java"};
+            for (String g : glue) {
+                InputStream gin = getResourceAsStream("/com/codename1/builders/wearable/" + g);
+                if (gin == null) {
+                    throw new BuildException("Missing wearable glue resource " + g);
+                }
+                try {
+                    copy(gin, new FileOutputStream(new File(wearImpl, g)));
+                } catch (IOException ex) {
+                    throw new BuildException("Failed to write wearable glue " + g, ex);
+                }
+            }
+            playServicesWear = true;
+            // The capability the peer half advertises, so isCompanionAppInstalled() can tell a
+            // watch running this app from a watch that merely exists.
+            // resDir, NOT projectDir + "app/...". projectDir already IS the generated app module,
+            // so the extra segment put this at <app>/app/src/main/res/values -- a directory Gradle
+            // never packages. The failure is silent and total: the capability is never advertised,
+            // so after the first query isCompanionAppInstalled() and isReachable() answer false and
+            // message fan-out filters out every valid peer as "not running the app".
+            File wearValues = new File(resDir, "values");
+            wearValues.mkdirs();
+            try {
+                createFile(new File(wearValues, "cn1_wearable.xml"),
+                        ("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources>\n"
+                        + "    <string-array name=\"android_wear_capabilities\">\n"
+                        + "        <item>cn1_wearable</item>\n"
+                        + "    </string-array>\n"
+                        + "</resources>\n").getBytes("UTF-8"));
+            } catch (IOException ex) {
+                throw new BuildException("Failed to write the wearable capability declaration", ex);
+            }
+        }
+
+
+
+        // We need to choose the correct PlayServices class file for the version of play services
+        // we are building for.
+        File androidImpl = new File(srcDir, "com/codename1/impl/android");
+        File playServicesClassFile = getPlayServicesJavaSourceFile(srcDir, playServicesVersion);
+        String playServicesClassName = playServicesClassFile.getName().substring(0, playServicesClassFile.getName().indexOf("."));
+
+        // Delete all of the PlayServices_X_X_X files that we aren't going to use
+        for (File f : androidImpl.listFiles()) {
+            if (f.getName().startsWith("PlayServices_") && f.getName().endsWith(".java")) {
+                if (!f.equals(playServicesClassFile)) {
+                    f.delete();
+                }
+
+            }
+        }
+        if (!playServicesClassFile.getName().equals("PlayServices.java")) {
+            // We will change the instance of the PlayServices class used to the most recent one we selected
+            // The AndroidImplementation class has call to PlayServices.setInstance(...) in its init 
+            // method which we will update here.
+            File androidImplementation = new File(androidImpl, "AndroidImplementation.java");
+            try {
+                if (playServicesLocation) {
+                    replaceInFile(androidImplementation, "new PlayServices()", "new com.codename1.impl.android." + playServicesClassName + "()");
+                    replaceInFile(androidImplementation, "new com.codename1.impl.android.PlayServices()", "new com.codename1.impl.android." + playServicesClassName + "()");
+                } else {
+                    replaceInFile(androidImplementation, "PlayServices.setInstance(", "//PlayServices.setInstance(");
+                }
+            } catch (IOException ex) {
+                throw new BuildException("Failed to inject settings into PlayServices class.", ex);
+            }
+
+        }
+
+        if (targetSDKVersionInt >= 29) {
+            File androidLocationPlayServicesManager = new File(srcDir, "com/codename1/location/AndroidLocationPlayServicesManager.java");
+            if (androidLocationPlayServicesManager.exists()) {
+                try {
+                    replaceInFile(androidLocationPlayServicesManager, "//29+", "");
+                } catch (IOException ex) {
+                    throw new BuildException("Failed to activate lines in "+androidLocationPlayServicesManager+" for API 29+");
+                }
+            }
+        }
+        xQueries = "";
+        if (targetSDKVersionInt >= 30) {
+            xQueries = "<queries>\n"
+                    + request.getArg("android.manifest.queries", "")
+                    + healthQueriesFragment + smartHomeQueriesFragment
+                    + "</queries>\n";
+        }
+
+        //Delete the Facebook implemetation if this app does not use FB.
+        if (!facebookSupported) {
+            File fb = new File(srcDir, "com/codename1/social/FacebookImpl.java");
+            fb.delete();
+        } else {
+            // special case for pubnub that includes a cn1lib for json that masks the one defined in Android
+            File json = new File(dummyClassesDir, "org/json");
+            if (json.exists()) {
+                delTree(json);
+            }
+        }
+
+        if (extendAppCompatActivity) {
+            try {
+                replaceInFile(
+                        new File(srcDir, "com/codename1/impl/android/CodenameOneActivity.java"),
+                        "extends Activity",
+                        "extends AppCompatActivity"
+                );
+                replaceInFile(
+                        new File(srcDir, "com/codename1/impl/android/CodenameOneActivity.java"),
+                        "import android.app.Activity;",
+                        "import android.support.v7.app.AppCompatActivity;"
+                );
+            } catch (IOException ex) {
+                throw new BuildException("Failed to extend AppCompatActivity", ex);
+            }
+
+        }
+        if (!playServicesLocation) {
+            File fb = new File(srcDir, "com/codename1/location/AndroidLocationPlayServiceManager.java");
+            fb.delete();
+            fb = new File(srcDir, "com/codename1/location/BackgroundLocationHandler.java");
+            fb.delete();
+            fb = new File(srcDir, "com/codename1/location/BackgroundLocationBroadcastReceiver.java");
+            fb.delete();
+            fb = new File(srcDir, "com/codename1/location/GeofenceHandler.java");
+            fb.delete();
+            fb = new File(srcDir, "com/codename1/location/CodenameOneBackgroundLocationActivity.java");
+            fb.delete();
+
+            for (File f : androidImpl.listFiles()) {
+                if (f.getName().startsWith("PlayServices_") && f.getName().endsWith(".java")) {
+                    f.delete();
+                } else if (f.getName().equals("PlayServices.java")) {
+                    f.delete();
+                }
+            }
+
+        }
+
+        if (!shouldIncludeGoogleImpl) {
+            File fb = new File(srcDir, "com/codename1/social/GoogleImpl.java");
+            fb.delete();
+        }
+
+        // The nearby package compiles against a modern SDK plus, for two of
+        // its three files, gradle dependencies that only exist when the
+        // matching catalog entry matched. Each is deleted on its own rather
+        // than the package as a whole, so an app that uses one half keeps it
+        // and loses the other -- AndroidNearbyBackend reaches both
+        // reflectively and treats a missing one as unsupported.
+        File nearbyPackage = new File(srcDir,
+                "com/codename1/impl/android/nearby");
+        if (!usesNearbyRanging && !usesNearbyTransport
+                && !usesNearbyCompanion) {
+            File[] nearbyFiles = nearbyPackage.listFiles();
+            if (nearbyFiles != null) {
+                for (File f : nearbyFiles) {
+                    f.delete();
+                }
+            }
+            nearbyPackage.delete();
+        } else {
+            if (!usesNearbyRanging) {
+                new File(nearbyPackage, "AndroidUwbRanging.java").delete();
+            }
+            if (!usesNearbyTransport) {
+                new File(nearbyPackage, "AndroidNearbyTransport.java").delete();
+            }
+            if (!usesNearbyPresence) {
+                // Deletable now, and worth deleting: this is the one class
+                // in the package whose SUPERCLASS needs API 31, and an app
+                // that never observes presence has no use for it.
+                //
+                // It used to be kept because AndroidNearbyBackend called its
+                // register/unregister unconditionally, so removing it broke
+                // javac for every ranging-only or transport-only build. That
+                // coupling is gone -- the bookkeeping lives in
+                // NearbyPresenceStore, which touches nothing newer than
+                // SharedPreferences -- and the manifest names the service
+                // only when presence is used, so nothing binds it either.
+                new File(nearbyPackage,
+                        "CN1CompanionDeviceService.java").delete();
+            }
+        }
+
+        if (!arSupport) {
+            // The ARCore-backed impl package compiles against com.google.ar
+            // classes that only exist when the AR gradle dependency is added,
+            // so it must be removed for apps that never touch
+            // com.codename1.ar (AndroidImplementation reaches it through
+            // reflection only).
+            File arPackage = new File(srcDir, "com/codename1/impl/android/ar");
+            File[] arFiles = arPackage.listFiles();
+            if (arFiles != null) {
+                for (File f : arFiles) {
+                    f.delete();
+                }
+            }
+            arPackage.delete();
+        }
+
+        if (!dbCipherSupport) {
+            // The SQLCipher-backed database impl compiles against net.zetetic, which is only on
+            // the classpath when the catalog has added the dependency. AndroidImplementation
+            // reaches it through reflection only, so deleting it here costs nothing for apps that
+            // never open an encrypted database, and saves them the native library.
+            File cipherPackage = new File(srcDir, "com/codename1/impl/android/cipher");
+            File[] cipherFiles = cipherPackage.listFiles();
+            if (cipherFiles != null) {
+                for (File f : cipherFiles) {
+                    f.delete();
+                }
+            }
+            cipherPackage.delete();
+        }
+
+        if (!usesInvites) {
+            // The Play Install Referrer implementation compiles against
+            // com.android.installreferrer, which is only on the classpath when
+            // the catalog has added it. Deleting it here keeps an app that
+            // never invites anyone from carrying the dependency, and from
+            // declaring the BIND_GET_INSTALL_REFERRER_SERVICE permission the
+            // aar's own manifest contributes.
+            File referrerPackage = new File(srcDir, "com/codename1/impl/android/referrer");
+            File[] referrerFiles = referrerPackage.listFiles();
+            if (referrerFiles != null) {
+                for (File f : referrerFiles) {
+                    f.delete();
+                }
+            }
+            referrerPackage.delete();
+        }
+
+        pruneOptionalAiSources(srcDir);
+
+        pruneBiometricSourcesForCompileSdk(srcDir,
+                compileSdkInt(maxPlatformVersion, buildToolsVersion,
+                        targetNumber, usesNearbyRanging,
+                        usesNearbyRanging || usesNearbyTransport
+                                || usesNearbyCompanion, usesCallVoip,
+                        usesCustomTunnel));
+
+        final String moPubAdUnitId = request.getArg("android.mopubId", null);
+        if (moPubAdUnitId != null && moPubAdUnitId.length() > 0) {
+            integrateMoPub = true;
+        }
+
+
+
+        if (request.getArg("android.textureView", "false").equals("true")) {
+            File impl = new File(srcDir, "com" + File.separator + "codename1" + File.separator + "impl" + File.separator + "android" + File.separator + "AndroidImplementation.java");
+            try {
+                replaceInFile(impl, "public static boolean textureView = false;", "public static boolean textureView = true;");
+            } catch (IOException ex) {
+                throw new BuildException("Failed to process android.textureView build hint", ex);
+            }
+        }
+
+        if (request.getArg("android.hideStatusBar", "false").equals("true")) {
+            File impl = new File(srcDir, "com" + File.separator + "codename1" + File.separator + "impl" + File.separator + "android" + File.separator + "AndroidImplementation.java");
+            try {
+                replaceInFile(impl, "statusBarHidden;", "statusBarHidden = true;");
+            } catch (IOException ex) {
+                throw new BuildException("Failed to process android.hideStatusBar build hint", ex);
+            }
+        }
+
+        if (request.getArg("android.asyncPaint", "true").equals("true")) {
+            File impl = new File(srcDir, "com" + File.separator + "codename1" + File.separator + "impl" + File.separator + "android" + File.separator + "AndroidImplementation.java");
+            try {
+                replaceInFile(impl, "public static boolean asyncView = false;", "public static boolean asyncView = true;");
+            } catch (IOException ex) {
+                throw new BuildException("Failed to process android.asyncPaint build hint", ex);
+            }
+        }
+
+        if(request.getArg("android.keyboardOpen", "true").equals("true")) {
+            File impl = new File(srcDir, "com" + File.separator + "codename1" + File.separator + "impl" + File.separator + "android" + File.separator + "AndroidImplementation.java");
+            try {
+                replaceInFile(impl, "private boolean asyncEditMode = false;", "private boolean asyncEditMode = true;");
+            } catch (IOException ex) {
+                throw new BuildException("Failed to process android.keyboardOpen build hint", ex);
+            }
+        }
+
+        //String sdkVersion = request.getArg("android.targetSDKVersion", defaultVersion);
+        if (Integer.parseInt(targetNumber) >= 17) {
+            try {
+                File androidBrowserComponentCallback = new File(srcDir, "com" + File.separator + "codename1" + File.separator + "impl" + File.separator + "android" + File.separator + "AndroidBrowserComponentCallback.java");
+                replaceInFile(androidBrowserComponentCallback, "//import android.webkit.JavascriptInterface;", "import android.webkit.JavascriptInterface;");
+                replaceInFile(androidBrowserComponentCallback, "//@JavascriptInterface", "@JavascriptInterface");
+            } catch (Exception e) {
+                // Swallow this and continue.
+                log("Non-fatal exception encountered when processing AndroidBrowserComponentCallback.java: " + e);
+            }
+        }
+
+        File drawableDir = new File(resDir, "drawable");
+        drawableDir.mkdirs();
+        File drawableHdpiDir = new File(resDir, "drawable-hdpi");
+        drawableHdpiDir.mkdirs();
+        File drawableLdpiDir = new File(resDir, "drawable-ldpi");
+        drawableLdpiDir.mkdirs();
+        File drawableMdpiDir = new File(resDir, "drawable-mdpi");
+        drawableMdpiDir.mkdirs();
+        File drawableXhdpiDir = new File(resDir, "drawable-xhdpi");
+        drawableXhdpiDir.mkdirs();
+        File drawableXXhdpiDir = new File(resDir, "drawable-xxhdpi");
+        drawableXXhdpiDir.mkdirs();
+        File drawableXXXhdpiDir = new File(resDir, "drawable-xxxhdpi");
+        drawableXXXhdpiDir.mkdirs();
+        boolean enableAdaptiveIcons = request.getArg("android.enableAdaptiveIcons", "false").equals("true");
+        File mipmapMdpiDir = null;
+        File mipmapHdpiDir = null;
+        File mipmapXhdpiDir = null;
+        File mipmapXXhdpiDir = null;
+        File mipmapXXXhdpiDir = null;
+        File mipmapAnydpiV26Dir = null;
+        if (enableAdaptiveIcons) {
+            mipmapMdpiDir = new File(resDir, "mipmap-mdpi");
+            mipmapMdpiDir.mkdirs();
+            mipmapHdpiDir = new File(resDir, "mipmap-hdpi");
+            mipmapHdpiDir.mkdirs();
+            mipmapXhdpiDir = new File(resDir, "mipmap-xhdpi");
+            mipmapXhdpiDir.mkdirs();
+            mipmapXXhdpiDir = new File(resDir, "mipmap-xxhdpi");
+            mipmapXXhdpiDir.mkdirs();
+            mipmapXXXhdpiDir = new File(resDir, "mipmap-xxxhdpi");
+            mipmapXXXhdpiDir.mkdirs();
+            mipmapAnydpiV26Dir = new File(resDir, "mipmap-anydpi-v26");
+            mipmapAnydpiV26Dir.mkdirs();
+        }
+
+        try {
+            BufferedImage iconImage = ImageIO.read(new ByteArrayInputStream(request.getIcon()));
+            createIconFile(new File(drawableDir, "icon.png"), iconImage, 128, 128);
+            createIconFile(new File(drawableHdpiDir, "icon.png"), iconImage, 72, 72);
+            createIconFile(new File(drawableLdpiDir, "icon.png"), iconImage, 36, 36);
+            createIconFile(new File(drawableMdpiDir, "icon.png"), iconImage, 48, 48);
+            createIconFile(new File(drawableXhdpiDir, "icon.png"), iconImage, 96, 96);
+            createIconFile(new File(drawableXXhdpiDir, "icon.png"), iconImage, 144, 144);
+            createIconFile(new File(drawableXXXhdpiDir, "icon.png"), iconImage, 192, 192);
+
+            if ("true".equals(request.getArg("android.tv", "false"))) {
+                // Android TV / Google TV launcher banner (320x180, xhdpi). The
+                // app icon is centered (scaled, not stretched) on a solid dark
+                // background so it isn't distorted; the Leanback launcher needs
+                // a banner for the app to appear on the TV home screen.
+                BufferedImage banner = new BufferedImage(320, 180, BufferedImage.TYPE_INT_ARGB);
+                java.awt.Graphics2D bannerGraphics = banner.createGraphics();
+                bannerGraphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                        java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                bannerGraphics.setColor(new java.awt.Color(0x20, 0x20, 0x20));
+                bannerGraphics.fillRect(0, 0, 320, 180);
+                java.awt.Image scaledIcon = getScaledInstance(iconImage, 144, 144);
+                bannerGraphics.drawImage(scaledIcon, (320 - 144) / 2, (180 - 144) / 2, null);
+                bannerGraphics.dispose();
+                ImageIO.write(banner, "png", new File(drawableXhdpiDir, "tv_banner.png"));
+            }
+
+            if (enableAdaptiveIcons) {
+                createIconFile(new File(mipmapMdpiDir, "ic_launcher.png"), iconImage, 48, 48);
+                createIconFile(new File(mipmapHdpiDir, "ic_launcher.png"), iconImage, 72, 72);
+                createIconFile(new File(mipmapXhdpiDir, "ic_launcher.png"), iconImage, 96, 96);
+                createIconFile(new File(mipmapXXhdpiDir, "ic_launcher.png"), iconImage, 144, 144);
+                createIconFile(new File(mipmapXXXhdpiDir, "ic_launcher.png"), iconImage, 192, 192);
+
+                createIconFile(new File(mipmapMdpiDir, "ic_launcher_foreground.png"), iconImage, 108, 108);
+                createIconFile(new File(mipmapHdpiDir, "ic_launcher_foreground.png"), iconImage, 162, 162);
+                createIconFile(new File(mipmapXhdpiDir, "ic_launcher_foreground.png"), iconImage, 216, 216);
+                createIconFile(new File(mipmapXXhdpiDir, "ic_launcher_foreground.png"), iconImage, 324, 324);
+                createIconFile(new File(mipmapXXXhdpiDir, "ic_launcher_foreground.png"), iconImage, 432, 432);
+
+                String adaptiveIconBackgroundImage = request.getArg("android.adaptiveIconBackgroundImage", "").trim();
+                String adaptiveIconBackgroundRef;
+                if (adaptiveIconBackgroundImage.length() > 0) {
+                    File adaptiveBackgroundFile = new File(adaptiveIconBackgroundImage);
+                    if (!adaptiveBackgroundFile.isAbsolute()) {
+                        adaptiveBackgroundFile = new File(assetsDir, adaptiveIconBackgroundImage);
+                    }
+                    if (!adaptiveBackgroundFile.exists()) {
+                        throw new BuildException("android.adaptiveIconBackgroundImage must reference an existing image file. Tried: " + adaptiveBackgroundFile.getAbsolutePath());
+                    }
+                    BufferedImage adaptiveBackground = ImageIO.read(adaptiveBackgroundFile);
+                    if (adaptiveBackground == null) {
+                        throw new BuildException("android.adaptiveIconBackgroundImage is not a readable image file: " + adaptiveBackgroundFile.getAbsolutePath());
+                    }
+                    createIconFile(new File(mipmapMdpiDir, "ic_launcher_background.png"), adaptiveBackground, 108, 108);
+                    createIconFile(new File(mipmapHdpiDir, "ic_launcher_background.png"), adaptiveBackground, 162, 162);
+                    createIconFile(new File(mipmapXhdpiDir, "ic_launcher_background.png"), adaptiveBackground, 216, 216);
+                    createIconFile(new File(mipmapXXhdpiDir, "ic_launcher_background.png"), adaptiveBackground, 324, 324);
+                    createIconFile(new File(mipmapXXXhdpiDir, "ic_launcher_background.png"), adaptiveBackground, 432, 432);
+                    adaptiveIconBackgroundRef = "@mipmap/ic_launcher_background";
+                } else {
+                    writeAdaptiveIconBackgroundColor(valsDir,
+                            request.getArg("android.adaptiveIconBackground", "#ffffff"));
+                    adaptiveIconBackgroundRef = "@color/ic_launcher_background";
+                }
+
+                String adaptiveIconXml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<adaptive-icon xmlns:android=\"http://schemas.android.com/apk/res/android\">\n"
+                        + "    <background android:drawable=\"" + adaptiveIconBackgroundRef + "\" />\n"
+                        + "    <foreground android:drawable=\"@mipmap/ic_launcher_foreground\" />\n"
+                        + "</adaptive-icon>\n";
+
+                try (OutputStream output = Files.newOutputStream(new File(mipmapAnydpiV26Dir, "ic_launcher.xml").toPath())) {
+                    output.write(adaptiveIconXml.getBytes(StandardCharsets.UTF_8));
+                }
+                try (OutputStream output = Files.newOutputStream(new File(mipmapAnydpiV26Dir, "ic_launcher_round.xml").toPath())) {
+                    output.write(adaptiveIconXml.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+
+            File notifFile = new File(assetsDir, "ic_stat_notify.png");
+            if (notifFile.exists()) {
+                BufferedImage bi = ImageIO.read(notifFile);
+                createIconFile(new File(drawableDir, "ic_stat_notify.png"), bi, 24, 24);
+                notifFile.delete();
+            } else {
+                //try to remove the background for the icon, because android 5 will mask the nottification icon
+                //with white
+                //keep iconImage itself pristine: processLocalizedIcons below reuses it as the
+                //fallback launcher icon, which must not have the transparency keying applied
+                BufferedImage notifIconImage = iconImage;
+                if (Integer.parseInt(targetNumber) >= 21) {
+                    //notification small icon
+                    Image img = makeColorTransparent(iconImage, new Color(iconImage.getRGB(2, 2)));
+                    BufferedImage notifSmallIcon = new BufferedImage(img.getWidth(null), img.getHeight(null), BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D bGr = notifSmallIcon.createGraphics();
+                    bGr.drawImage(img, 0, 0, null);
+                    bGr.dispose();
+                    notifIconImage = notifSmallIcon;
+                }
+                createIconFile(new File(drawableDir, "ic_stat_notify.png"), notifIconImage, 24, 24);
+            }
+
+            processLocalizedIcons(assetsDir, resDir, enableAdaptiveIcons, iconImage);
+        } catch (IOException ex) {
+            throw new BuildException("Failed to generate icon files", ex);
+        }
+
+        // The Play Billing version, resolved here rather than beside the gradle
+        // dependency it feeds, because it also moves minSdk and the manifest that
+        // carries minSdkVersion is written further down this method. Resolving it
+        // late put the raised floor in build.gradle and left the manifest saying 19,
+        // which is the merge failure it was meant to prevent.
+        String billingClientVersion = null;
+        if (purchasePermissions) {
+            billingClientVersion = request.getArg("android.billingclient.version",
+                    PlayBillingVersions.DEFAULT_VERSION);
+            // The port's BillingSupport is written against the ProductDetails API, which
+            // the pre-8 releases do not have. Say so in a sentence rather than letting
+            // javac emit two dozen "cannot find symbol" errors against an injected file
+            // the developer never wrote.
+            String billingRefusal = PlayBillingVersions.refusalFor(billingClientVersion);
+            if (billingRefusal != null) {
+                log(billingRefusal);
+                return false;
+            }
+            // The billing AAR declares its own minSdkVersion and the manifest merge
+            // fails against a lower one, so raise the floor the way the Android Auto
+            // dependency already does.
+            String billingMinSdk = PlayBillingVersions.minimumSdk(billingClientVersion);
+            String billingRaisedMinSdk = maxInt(billingMinSdk, minSDK);
+            if (!billingRaisedMinSdk.equals(minSDK)) {
+                log("Play Billing " + billingClientVersion + " requires minSdk "
+                        + billingMinSdk + "; raising android.min_sdk_version from "
+                        + minSDK + " to " + billingRaisedMinSdk);
+            }
+            minSDK = billingRaisedMinSdk;
+        }
+
+        if (!purchasePermissions) {
+            File billingSupport = new File(srcDir, path("com", "codename1", "impl", "android", "BillingSupport.java"));
+            if (billingSupport.exists()) {
+                billingSupport.delete();
+            }
+        }
+
+        try {
+            zipDir(new File(libsDir, "userClasses.jar").getAbsolutePath(), dummyClassesDir.getAbsolutePath());
+        } catch (Exception ex) {
+            throw new BuildException("Failed to create userClasses.jar", ex);
+        }
+
+
+
+
+
+
+        File stringsFile = new File(valsDir, "strings.xml");
+
+        String stringsFileContent = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                + "<resources>\n"
+                + "    <string name=\"app_name\">" + xmlize(request.getDisplayName()).replace("'", "\\'") + "</string>\n"
+                + additionalKeyVals
+                + request.getArg("android.stringsXml", "")
+                + "</resources>";
+
+        try {
+            OutputStream stringsSourceStream = Files.newOutputStream(stringsFile.toPath());
+            stringsSourceStream.write(stringsFileContent.getBytes(StandardCharsets.UTF_8));
+            stringsSourceStream.close();
+
+            String locales = request.getArg("android.locales", null);
+            if (locales != null && locales.length() > 0) {
+                for (String loc : locales.split(";")) {
+                    File currentValuesDir = new File(valsDir.getParent(), "values-" + loc);
+                    currentValuesDir.mkdirs();
+                    File currentStringsFile = new File(currentValuesDir, "strings.xml");
+                    stringsSourceStream = Files.newOutputStream(currentStringsFile.toPath());
+                    stringsSourceStream.write(stringsFileContent.getBytes(StandardCharsets.UTF_8));
+                    stringsSourceStream.close();
+                }
+            }
+        } catch (IOException ex) {
+            error("Failed to generate strings file", ex);
+            throw new BuildException("Failed to generate strings file "+stringsFile, ex);
+        }
+
+        //declare the android native theme.
+        File stylesFile = new File(valsDir, "styles.xml");
+
+        File colors = new File(valsDir, "colors.xml");
+        String colorsStr = "";
+        try {
+            // The minimum is the compile SDK, not the target: gradle may
+            // select a platform newer than anything installed and let AGP
+            // download it, and an attribute introduced there would look
+            // unknown here and be dropped although aapt2 resolves it. Asking
+            // compileSdkInt rather than naming the floors keeps this correct
+            // when a new raise is added to it.
+            int effectiveCompileSdk = compileSdkInt(maxPlatformVersion, buildToolsVersion,
+                    targetNumber, usesNearbyRanging,
+                    usesNearbyRanging || usesNearbyTransport || usesNearbyCompanion, usesCallVoip,
+                    usesCustomTunnel);
+            Set<String> frameworkAttributes = frameworkThemeAttributes(androidSDKDir, effectiveCompileSdk);
+            if (frameworkAttributes == null && colors.exists()) {
+                log("No installed Android platform reaches the compile SDK (" + effectiveCompileSdk
+                        + "), so every color in colors.xml is passed to the theme unchecked");
+            }
+            ThemeColors themeColors = buildThemeColorItems(colors, frameworkAttributes);
+            colorsStr = themeColors.items;
+            for (String skipped : themeColors.skipped) {
+                log("colors.xml declares '" + skipped + "', which is not an Android theme attribute, so it "
+                        + "stays an ordinary @color/" + skipped + " resource and does not reach the generated "
+                        + "theme. Only theme attribute names (colorPrimary, statusBarColor, ...) are applied.");
+            }
+        } catch (Exception e) {
+            error("Failed to create DocumentBuilder", e);
+        }
+
+        String themeName = "android:Theme.Black";
+        String itemName = androidAppBundle ? "cn1Style" : "attr/cn1Style";
+
+        String stylesFileContent  = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                    + "<resources>\n" +
+                    "    <style name=\"CustomTheme\" parent=\"" + themeName + "\">\n" +
+                    "        <item name=\"" + itemName + "\">@style/CN1.EditText.Style</item>\n" +
+                    "    </style>\n" +
+                    "    <attr name=\"cn1Style\" format=\"reference\" />\n" +
+                    "    <style name=\"CN1.EditText.Style\" parent=\"@android:style/Widget.EditText\">\n" +
+                    "        <item name=\"android:textCursorDrawable\">@null</item>\n" +
+                    "    </style>\n" +
+                    request.getArg("android.style", "") +
+                    "</resources>";
+
+        try {
+            OutputStream stylesSourceStream = new FileOutputStream(stylesFile);
+            stylesSourceStream.write(stylesFileContent.getBytes(StandardCharsets.UTF_8));
+            stylesSourceStream.close();
+
+            String theme = request.getArg("android.theme", "Light");
+            if (theme.equalsIgnoreCase("Dark")) {
+                theme = "";
+            } else {
+                theme = "." + theme;
+            }
+
+            File styles11File = new File(vals11Dir, "styles.xml");
+            String styles11FileContent = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
+                        "<resources>\n" +
+                        "    <style name=\"CustomTheme\" parent=\"@android:style/Theme.Holo" + theme + "\">\n" +
+                        "        <item name=\"" + itemName + "\">@style/CN1.EditText.Style</item>\n" +
+                        "        <item name=\"android:windowActionBar\">false</item>\n" +
+                        "        <item name=\"android:windowTitleSize\">0dp</item>\n" +
+                        "    </style>\n" +
+                        "    <style name=\"CN1.EditText.Style\" parent=\"@android:style/Widget.EditText\">\n" +
+                        "        <item name=\"android:textCursorDrawable\">@null</item>\n" +
+                        "    </style>\n" +
+                        "</resources>\n";
+
+
+            OutputStream styles11SourceStream = new FileOutputStream(styles11File);
+            styles11SourceStream.write(styles11FileContent.getBytes(StandardCharsets.UTF_8));
+            styles11SourceStream.close();
+
+            File styles21File = new File(vals21Dir, "styles.xml");
+            String styles21FileContent = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
+                        "<resources>\n" +
+                        "    <style name=\"CustomTheme\" parent=\"@android:style/Theme.Material" + theme + "\">\n" +
+                        "        <item name=\"" + itemName + "\">@style/CN1.EditText.Style</item>\n" +
+                        "        <item name=\"android:windowActionBar\">false</item>\n" +
+                        "        <item name=\"android:windowTitleSize\">0dp</item>\n" +
+                        colorsStr +
+                        "   </style>\n" +
+                        "    <style name=\"CN1.EditText.Style\" parent=\"@android:style/Widget.EditText\">\n" +
+                        "        <item name=\"android:textCursorDrawable\">@null</item>\n" +
+                        "    </style>\n" +
+                        "</resources>\n";
+
+
+            OutputStream styles21SourceStream = new FileOutputStream(styles21File);
+            styles21SourceStream.write(styles21FileContent.getBytes(StandardCharsets.UTF_8));
+            styles21SourceStream.close();
+        } catch (IOException ex) {
+            error("Failed to generate style files", ex);
+            throw new BuildException("Failed to generate styles files", ex);
+        }
+
+        try {
+            File layoutFile = new File(layoutDir, "main.xml");
+            String layoutFileContent = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                    + "<RelativeLayout xmlns:android=\"http://schemas.android.com/apk/res/android\"\n"
+                    + "    android:layout_width=\"fill_parent\"\n"
+                    + "    android:layout_height=\"fill_parent\"\n"
+                    + request.getArg("android.xlayout_attr", "")
+                    + "    android:background=\"#ff000000\" >\n"
+                    + mopubBannerXML
+                    + "</RelativeLayout>\n";
+            OutputStream layoutSourceStream = new FileOutputStream(layoutFile);
+            layoutSourceStream.write(layoutFileContent.getBytes(StandardCharsets.UTF_8));
+            layoutSourceStream.close();
+
+            String customLayout = request.getArg("android.cusom_layout1", null);
+            int counter = 1;
+            while (customLayout != null) {
+                File customFile = new File(layoutDir, "cusom_layout" + counter + ".xml");
+                layoutSourceStream = new FileOutputStream(customFile);
+                layoutSourceStream.write(customLayout.getBytes(StandardCharsets.UTF_8));
+                layoutSourceStream.close();
+
+                counter++;
+                customLayout = request.getArg("android.cusom_layout" + counter, null);
+            }
+        } catch (IOException ex) {
+            throw new BuildException("Failed to generate layout XML file", ex);
+        }
+
+        String storeIds = request.getArg("android.store_ids", null);
+        if (storeIds != null) {
+            String[] sp = storeIds.split(";");
+            storeIds = "";
+            for (String s : sp) {
+                storeIds += "        Display.getInstance().setProperty(\"" + s + "\", \"\" + " + s + ");\n";
+            }
+        } else {
+            storeIds = "";
+        }
+
+        // Native modern theme hints - propagated to Display.getProperty so
+        // AndroidImplementation.installNativeTheme() can pick the
+        // material / hololight / legacy variant. and.themeMode is the
+        // current platform-specific knob (cn1.androidTheme is honored as a
+        // deprecated alias). nativeTheme is the cross-platform shortcut
+        // (cn1.nativeTheme is its deprecated alias).
+        String andThemeHint = request.getArg("and.themeMode", null);
+        String androidThemeHint = request.getArg("cn1.androidTheme", null);
+        String nativeThemeHintNew = request.getArg("nativeTheme", null);
+        String nativeThemeHint = request.getArg("cn1.nativeTheme", null);
+        StringBuilder nativeThemeProps = new StringBuilder();
+        if (andThemeHint != null) {
+            nativeThemeProps.append("        Display.getInstance().setProperty(\"and.themeMode\", \"")
+                    .append(andThemeHint).append("\");\n");
+        }
+        if (androidThemeHint != null) {
+            nativeThemeProps.append("        Display.getInstance().setProperty(\"cn1.androidTheme\", \"")
+                    .append(androidThemeHint).append("\");\n");
+        }
+        if (nativeThemeHintNew != null) {
+            nativeThemeProps.append("        Display.getInstance().setProperty(\"nativeTheme\", \"")
+                    .append(nativeThemeHintNew).append("\");\n");
+        }
+        if (nativeThemeHint != null) {
+            nativeThemeProps.append("        Display.getInstance().setProperty(\"cn1.nativeTheme\", \"")
+                    .append(nativeThemeHint).append("\");\n");
+        }
+        String nativeThemeStubProps = nativeThemeProps.toString();
+        if (useHMS) {
+            nativeThemeStubProps += "        Display.getInstance().setProperty(\"cn1.push.transport\", \"huawei\");\n";
+        }
+        nativeThemeStubProps += databaseLegacyStubProperty(request, usesDatabase);
+
+        String gcmSenderId = request.getArg("gcm.sender_id", null);
+        if (gcmSenderId != null) {
+            gcmSenderId = "        Display.getInstance().setProperty(\"gcm.sender_id\", \"" + gcmSenderId + "\");\n";
+        } else {
+            if (googleServicesJson != null && googleServicesJson.exists()) {
+                try {
+                    JSONParser parser = new JSONParser();
+
+                    Map<String, Object> parsedJson = parser.parseJSON(new InputStreamReader(new FileInputStream(googleServicesJson), StandardCharsets.UTF_8));
+
+                    Map projectInfo = (Map) parsedJson.get("project_info");
+                    gcmSenderId = (String) projectInfo.get("project_number");
+                    if (gcmSenderId != null) {
+                        gcmSenderId = "        Display.getInstance().setProperty(\"gcm.sender_id\", \"" + gcmSenderId + "\");\n";
+                    } else {
+                        gcmSenderId = "";
+                    }
+                } catch (IOException ex) {
+                    throw new BuildException("Failed to parse the google services JSON file "+googleServicesJson);
+                }
+            } else {
+                gcmSenderId = "";
+            }
+        }
+
+        File manifestFile = new File(projectDir + "/src/main", "AndroidManifest.xml");
+        float version = 1.0f;
+        int intVersion = 1;
+        try {
+            version = Float.parseFloat(request.getVersion());
+            String vcOverride = request.getArg("android.versionCode", null);
+            if (vcOverride != null && vcOverride.length() > 0) {
+                intVersion = Integer.parseInt(vcOverride);
+            } else {
+                intVersion = Math.round(100 * version);
+            }
+        } catch (Throwable thrown) {
+        }
+
+        String locationServices = "<activity android:name=\"com.codename1.location.CodenameOneBackgroundLocationActivity\" android:theme=\"@android:style/Theme.NoDisplay\" android:exported=\"true\"/>\n"
+                + "<service android:name=\"com.codename1.location.BackgroundLocationHandler\" android:exported=\"false\" />\n"
+                + "<service android:name=\"com.codename1.location.GeofenceHandler\" android:exported=\"false\" />\n";
+        String mediaService = "<service android:name=\"com.codename1.media.AudioService\" android:exported=\"false\" />";
+        String remoteControlService = "<service android:name=\"com.codename1.media.BackgroundAudioService\"  android:exported=\"true\">\n" +
+                "            <intent-filter>\n" +
+                "                <action android:name=\"android.intent.action.MEDIA_BUTTON\" />\n" +
+                "                <action android:name=\"android.media.AUDIO_BECOMING_NOISY\" />\n" +
+                "                <action android:name=\"android.media.browse.MediaBrowserService\" />\n" +
+                "            </intent-filter>\n" +
+                "        </service>";
+
+        String mediabuttonReceiver = "<receiver android:name=\""+xclass("android.support.v4.media.session.MediaButtonReceiver")+"\" android:exported=\"true\">\n" +
+                "            <intent-filter>\n" +
+                "                <action android:name=\"android.intent.action.MEDIA_BUTTON\" />\n" +
+                "                <action android:name=\"android.media.AUDIO_BECOMING_NOISY\" />\n" +
+                "            </intent-filter>\n" +
+                "        </receiver>";
+        if (!addRemoteControlService) {
+            remoteControlService = "";
+            mediabuttonReceiver = "";
+        }
+        // The Wear manifest needs these too. A watch lifecycle that plays audio reaches the same
+        // AudioService through the same shared implementation, and remote controls need the same
+        // service and media-button receiver -- all of which the wear module compiles either way,
+        // so the declarations are the only thing missing.
+        watchMediaComponents = mediaService + "\n" + remoteControlService + "\n"
+                + mediabuttonReceiver + "\n";
+        String alarmRecevier = "<receiver android:name=\"com.codename1.impl.android.LocalNotificationPublisher\" android:exported=\"false\"></receiver>\n";
+        watchAlarmReceiver = alarmRecevier;
+        String backgroundLocationReceiver = "<receiver android:name=\"com.codename1.location.BackgroundLocationBroadcastReceiver\" android:exported=\"true\"></receiver>\n";
+        if (!playServicesLocation) {
+            backgroundLocationReceiver = "";
+        }
+        String backgroundFetchService = "<service android:name=\"com.codename1.impl.android.BackgroundFetchHandler\" android:exported=\"false\" />\n"+
+                "<activity android:name=\"com.codename1.impl.android.CodenameOneBackgroundFetchActivity\" android:theme=\"@android:style/Theme.NoDisplay\" android:exported=\"true\"/>\n";
+
+        // The Wear manifest needs these too: a watch lifecycle that declares background fetch is
+        // woken through the same handler and the same trampoline activity, and the wear module
+        // compiles them either way -- so without the declarations the fetch the watch asked for
+        // simply never arrives.
+        watchBackgroundFetchService = backgroundFetchService;
+
+        // Constraint-aware background work always registers the JobScheduler service
+        // (harmless when unused). The foreground service entry is emitted only when the
+        // app references com.codename1.background.ForegroundService.
+        String backgroundWorkService = "<service android:name=\"com.codename1.impl.android.CodenameOneJobService\" android:permission=\"android.permission.BIND_JOB_SERVICE\" android:exported=\"false\" />\n";
+        // The Wear manifest needs it too: the watch lifecycle can call
+        // Display.scheduleBackgroundWork, which schedules this component through JobScheduler, and
+        // a component the manifest does not declare cannot be scheduled.
+        watchBackgroundWorkService = backgroundWorkService;
+        String foregroundServiceEntry = "";
+        if (usesForegroundService) {
+            foregroundServicePermission = true;
+            String foregroundServiceType = request.getArg("android.foregroundServiceType", "dataSync");
+            foregroundServiceEntry = "<service android:name=\"com.codename1.impl.android.CodenameOneForegroundService\" android:exported=\"false\" android:foregroundServiceType=\"" + foregroundServiceType + "\" />\n";
+        }
+
+        // The Wear manifest needs these too. A watch lifecycle using background location,
+        // geofencing or ForegroundService reaches the same components through the same shared
+        // implementation, and the wear module compiles them either way -- so the declarations
+        // are the only thing missing, and a component the manifest does not declare cannot be
+        // started at all.
+        watchFeatureComponents = locationServices + backgroundLocationReceiver
+                + foregroundServiceEntry;
+
+        // Receive-shared-content: register the share receiver activity with SEND /
+        // SEND_MULTIPLE intent filters for the mime types named by android.shareFilter
+        // (comma separated). When the app references SharedContent but sets no explicit
+        // filter, fall back to text and any stream. Empty when the app does not opt in.
+        String shareFilterArg = request.getArg("android.shareFilter", "");
+        if ((shareFilterArg == null || shareFilterArg.trim().length() == 0) && usesSharedContent) {
+            shareFilterArg = "text/plain,*/*";
+        }
+        String shareReceiverActivity = "";
+        if (shareFilterArg != null && shareFilterArg.trim().length() > 0) {
+            StringBuilder dataLines = new StringBuilder();
+            for (String mime : shareFilterArg.split(",")) {
+                String m = mime.trim();
+                if (m.length() > 0) {
+                    dataLines.append("        <data android:mimeType=\"").append(m).append("\" />\n");
+                }
+            }
+            shareReceiverActivity = "<activity android:name=\"com.codename1.impl.android.CodenameOneShareReceiverActivity\" android:exported=\"true\" android:theme=\"@android:style/Theme.NoDisplay\" android:launchMode=\"singleTop\">\n"
+                    + "    <intent-filter>\n"
+                    + "        <action android:name=\"android.intent.action.SEND\" />\n"
+                    + "        <category android:name=\"android.intent.category.DEFAULT\" />\n"
+                    + dataLines
+                    + "    </intent-filter>\n"
+                    + "    <intent-filter>\n"
+                    + "        <action android:name=\"android.intent.action.SEND_MULTIPLE\" />\n"
+                    + "        <category android:name=\"android.intent.category.DEFAULT\" />\n"
+                    + dataLines
+                    + "    </intent-filter>\n"
+                    + "</activity>\n";
+            // The watch too. Its manifest is selected outright rather than merged, so nothing
+            // else declares this -- yet the wear module compiles the SAME receiver and the same
+            // lifecycle that handles what it delivers. Without the declaration ACTION_SEND and
+            // ACTION_SEND_MULTIPLE cannot resolve to the watch app at all, so a companion whose
+            // watch half is meant to accept shared content silently never appears in the share
+            // sheet there.
+            watchFeatureComponents += shareReceiverActivity;
+        }
+
+        // Host card emulation service is generated only when the classpath
+        // scanner saw a HostCardEmulationService reference (or the developer
+        // set the android.hceAids build hint). The matching apduservice.xml
+        // resource is created below.
+        String hceService = "";
+        if (usesNfcHce) {
+            String hceCategory = request.getArg("android.hceCategory", "other");
+            hceService = "<service android:name=\"com.codename1.impl.android.CodenameOneHostApduService\"\n"
+                    + "            android:exported=\"true\"\n"
+                    + "            android:permission=\"android.permission.BIND_NFC_SERVICE\">\n"
+                    + "            <intent-filter>\n"
+                    + "                <action android:name=\"android.nfc.cardemulation.action.HOST_APDU_SERVICE\" />\n"
+                    + "                <category android:name=\"android.intent.category.DEFAULT\" />\n"
+                    + "            </intent-filter>\n"
+                    + "            <meta-data android:name=\"android.nfc.cardemulation.host_apdu_service\"\n"
+                    + "                       android:resource=\"@xml/apduservice\" />\n"
+                    + "        </service>\n";
+
+            // apduservice.xml is required by Android to declare the AID
+            // groups this HCE service answers. Generate it from the
+            // android.hceAids build hint (comma-separated). Default is a
+            // sensible placeholder that the developer should override.
+            String aids = request.getArg("android.hceAids", "F0010203040506");
+            String desc = request.getArg("android.hceDescription",
+                    request.getDisplayName());
+            StringBuilder apduXml = new StringBuilder();
+            apduXml.append("<host-apdu-service xmlns:android=\"http://schemas.android.com/apk/res/android\"\n");
+            apduXml.append("                   android:description=\"@string/app_name\"\n");
+            apduXml.append("                   android:requireDeviceUnlock=\"")
+                   .append(request.getArg("android.hceRequireUnlock", "false"))
+                   .append("\">\n");
+            apduXml.append("    <aid-group android:description=\"@string/app_name\"\n");
+            apduXml.append("               android:category=\"").append(hceCategory).append("\">\n");
+            for (String aid : aids.split("[,;]")) {
+                aid = aid.trim();
+                if (aid.length() == 0) {
+                    continue;
+                }
+                apduXml.append("        <aid-filter android:name=\"")
+                       .append(aid).append("\" />\n");
+            }
+            apduXml.append("    </aid-group>\n");
+            apduXml.append("</host-apdu-service>\n");
+            File hceXmlDir = new File(projectDir, "src/main/res/xml");
+            hceXmlDir.mkdirs();
+            try {
+                OutputStream apduStream = new FileOutputStream(
+                        new File(hceXmlDir, "apduservice.xml"));
+                apduStream.write(apduXml.toString().getBytes(StandardCharsets.UTF_8));
+                apduStream.close();
+            } catch (IOException ex) {
+                throw new BuildException("Failed to write apduservice.xml", ex);
+            }
+            debug("Generated apduservice.xml with AIDs: " + aids);
+            // Suppress the unused warning when desc is not consumed (the
+            // description string itself is taken from @string/app_name).
+            if (desc != null) {
+                debug("HCE description: " + desc);
+            }
+        }
+
+
+        // Google Android Auto: register the injected CarAppService with one intent-filter category
+        // per opted-in app category (android.androidAuto.navigation / .messaging / .poi; POI is the
+        // default). Emitted only when the app references com.codename1.car. The androidx.car.app
+        // dependency and the glue source files are added below in lockstep.
+        String carAppService = "";
+        String carAppPermissions = "";
+        if (usesCar) {
+            boolean navigation = "true".equals(request.getArg("android.androidAuto.navigation", "false"));
+            boolean messaging = "true".equals(request.getArg("android.androidAuto.messaging", "false"));
+            boolean poi = "true".equals(request.getArg("android.androidAuto.poi", "false"));
+            if (!navigation && !messaging && !poi) {
+                poi = true;
+            }
+            StringBuilder categories = new StringBuilder();
+            if (navigation) {
+                categories.append("                <category android:name=\"androidx.car.app.category.NAVIGATION\" />\n");
+            }
+            if (messaging) {
+                categories.append("                <category android:name=\"androidx.car.app.category.MESSAGING\" />\n");
+            }
+            if (poi) {
+                categories.append("                <category android:name=\"androidx.car.app.category.POI\" />\n");
+            }
+            carAppService = "        <service android:name=\"com.codename1.impl.android.CN1CarAppService\" android:exported=\"true\">\n"
+                    + "            <intent-filter>\n"
+                    + "                <action android:name=\"androidx.car.app.CarAppService\" />\n"
+                    + categories
+                    + "            </intent-filter>\n"
+                    + "        </service>\n"
+                    + "        <meta-data android:name=\"androidx.car.app.minCarApiLevel\" android:value=\"" + request.getArg("android.androidAuto.minCarApiLevel", "1") + "\" />\n";
+            if (navigation) {
+                carAppPermissions += permissionAdd(request, "\"androidx.car.app.MAP_TEMPLATES\"",
+                        "    <uses-permission android:name=\"androidx.car.app.MAP_TEMPLATES\" />\n");
+            }
+        }
+
+        // The Data Layer starts this service to deliver a message or a data change even when the
+        // app is not running -- which is the whole point, and why com.codename1.wearable queues
+        // callbacks across a cold start. Both the message and data-changed actions are needed: the
+        // system dispatches them separately.
+        String wearableListenerService = "";
+        if (usesWearable) {
+            wearableListenerService =
+                    // Exported because Play services binds it -- that is not optional for a
+                    // WearableListenerService, and no manifest permission narrows who may bind.
+                    // Binding is not delivery, though: WearableListenerService's binder checks
+                    // Binder.getCallingUid() against UidVerifier.isGooglePlayServicesUid before
+                    // every dispatch, so an app that binds this reaches no callback. The node
+                    // checks in CN1WearableListenerService are about which PEER an authentic
+                    // delivery names; its class javadoc has the whole argument.
+                    "        <service android:name=\"com.codename1.impl.android.CN1WearableListenerService\" android:exported=\"true\">\n"
+                    // BIND_LISTENER is how Play services binds the service, and its intent carries
+                    // no wear: URI -- so it needs a filter of its own. Putting it alongside the
+                    // event actions would apply the <data> constraint to it too and nothing would
+                    // ever bind.
+                    + "            <intent-filter>\n"
+                    + "                <action android:name=\"com.google.android.gms.wearable.BIND_LISTENER\" />\n"
+                    + "            </intent-filter>\n"
+                    + "            <intent-filter>\n"
+                    + "                <action android:name=\"com.google.android.gms.wearable.MESSAGE_RECEIVED\" />\n"
+                    + "                <action android:name=\"com.google.android.gms.wearable.DATA_CHANGED\" />\n"
+                    + "                <action android:name=\"com.google.android.gms.wearable.CAPABILITY_CHANGED\" />\n"
+                    + "                <data android:scheme=\"wear\" android:host=\"*\" android:pathPrefix=\"/cn1\" />\n"
+                    // The acknowledgement namespace is NOT under /cn1, and a filter that lists only
+                    // that one never woke the sender when a receiver confirmed a delivery. Nothing
+                    // else arms the sender's sweep either -- the bridge registers no DataClient
+                    // listener -- so an acknowledged transfer stayed replicated on both devices
+                    // until the seven-day hard cap, or until the app happened to send another file
+                    // or restart. For a large file that is days of storage nobody is using.
+                    + "                <data android:scheme=\"wear\" android:host=\"*\" android:pathPrefix=\"/cnxk\" />\n"
+                    + "            </intent-filter>\n"
+                    + "        </service>\n";
+        }
+
+        if (foregroundServicePermission) {
+            permissions += permissionAdd(request, "\"android.permission.FOREGROUND_SERVICE\"",
+                    "    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\" />\n");
+        }
+
+        // When the Codename One ForegroundService helper is used, Android 14 (API 34)
+        // additionally requires the per-type FOREGROUND_SERVICE_<TYPE> permission matching
+        // the service's foregroundServiceType (default dataSync). Inject it automatically;
+        // it is not a restricted permission.
+        if (usesForegroundService) {
+            String fgType = request.getArg("android.foregroundServiceType", "dataSync");
+            String fgPerm = "android.permission.FOREGROUND_SERVICE_" + fgType.toUpperCase();
+            permissions += permissionAdd(request, "\"" + fgPerm + "\"",
+                    "    <uses-permission android:name=\"" + fgPerm + "\" />\n");
+        }
+
+        // USE_FULL_SCREEN_INTENT (required on Android 14+ for LocalNotification.setFullScreenIntent)
+        // is a restricted permission Google only allows for calling/alarm apps, so it is
+        // opt-in via the android.fullScreenIntent build hint rather than auto-injected.
+        if ("true".equals(request.getArg("android.fullScreenIntent", "false"))) {
+            permissions += permissionAdd(request, "\"android.permission.USE_FULL_SCREEN_INTENT\"",
+                    "    <uses-permission android:name=\"android.permission.USE_FULL_SCREEN_INTENT\" />\n");
+        }
+
+        if (postNotificationsPermission) {
+            permissions += permissionAdd(request, "\"android.permission.POST_NOTIFICATIONS\"",
+                    "    <uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />\n");
+        }
+
+        // Window.setHideOverlayWindows (Android 12+) throws SecurityException without this
+        // permission, so declaring it is what makes DeviceIntegrity.setHideOverlayWindows do
+        // anything at all. It is a normal (install-time) permission -- no runtime prompt, no
+        // special access screen -- so it is declared only for projects that asked for the
+        // overlay mitigation rather than added to every build.
+        //
+        // android.hideOverlayWindows exists for apps that drive the runtime API directly
+        // without the launch-time guard; android.tapjackingGuard implies it unless the project
+        // opted out with .hideOverlays=false.
+        if ("true".equalsIgnoreCase(request.getArg("android.hideOverlayWindows", "false"))
+                || (tapjackingGuard && request.getArg(
+                        "android.tapjackingGuard.hideOverlays", "true").equalsIgnoreCase("true"))) {
+            permissions += permissionAdd(request, "\"android.permission.HIDE_OVERLAY_WINDOWS\"",
+                    "    <uses-permission android:name=\"android.permission.HIDE_OVERLAY_WINDOWS\" />\n");
+        }
+
+        if (capturePermission) {
+            String andc = request.getArg("android.captureRecord", "enabled");
+            if (request.getArg("and.captureRecord", andc).equals("enabled")) {
+                permissions += permissionAdd(request, "\"android.hardware.camera\"", "<uses-feature android:name=\"android.hardware.camera\" android:required=\"false\" />\n")
+                        + permissionAdd(request, "RECORD_AUDIO",  "    <uses-permission android:name=\"android.permission.RECORD_AUDIO\" android:required=\"false\" />\n");
+            } else {
+                permissions += permissionAdd(request, "\"android.hardware.camera\"", "<uses-feature android:name=\"android.hardware.camera\" android:required=\"false\" />\n");
+            }
+        }
+        if (vibratePermission) {
+            permissions += permissionAdd(request, "VIBRATE",
+                    "    <uses-permission android:name=\"android.permission.VIBRATE\" android:required=\"false\" />\n");
+        }
+        if (smsPermission) {
+            permissions += permissionAdd(request, "SEND_SMS",
+                    "<uses-permission android:name=\"android.permission.SEND_SMS\" android:required=\"false\" />\n");
+        }
+        if (gpsPermission) {
+            permissions += "    <uses-feature android:name=\"android.hardware.location\" android:required=\"false\" />\n"
+                    + "    <uses-feature android:name=\"android.hardware.location.gps\" android:required=\"false\" />\n"
+                    + permissionAdd(request, "ACCESS_FINE_LOCATION",
+                    fineLocationPermission(request,
+                            compileSdkInt(maxPlatformVersion, buildToolsVersion,
+                                    targetNumber, usesNearbyRanging,
+                                    usesNearbyRanging || usesNearbyTransport
+                                            || usesNearbyCompanion,
+                                    usesCallVoip, usesCustomTunnel)))
+                    + permissionAdd(request, "ACCESS_COARSE_LOCATION",
+                    "    <uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\"  android:required=\"false\" />\n");
+            if(request.getArg("android.mockLocation", "true").equals("true")) {
+                permissions += permissionAdd(request, "ACCESS_MOCK_LOCATION",
+                        "    <uses-permission android:name=\"android.permission.ACCESS_MOCK_LOCATION\"  android:required=\"false\" />\n");
+            }
+        }
+        // Review asked why a forced android.locationButton.exclusive=true does
+        // not reach fineLocationPermission() when gpsPermission is false, and
+        // called the outer gate a way to bypass the compile-SDK validation.
+        // It is not one. The restriction is a modifier on the declaration this
+        // method generates, so with no declaration there is nothing to modify:
+        // gpsPermission is false only when the scan saw no com/codename1/maps
+        // or com/codename1/location class at all, and LocationButton is
+        // com/codename1/location/LocationButton -- it sets gpsPermission by
+        // that very prefix, so the button's own use always enters the block
+        // above and always runs the validator. AndroidLocationButtonPermissionTest
+        // locks that coupling, which is the part a later refactor could break.
+        // The remaining case is the hint set on an application with no location
+        // usage, where emitting nothing is correct and refusing the build would
+        // fail it over a hint that cannot apply. It was silent, though, so it
+        // says so here.
+        if (!gpsPermission
+                && "true".equals(request.getArg("android.locationButton.exclusive", "auto"))) {
+            warn("android.locationButton.exclusive=true was set, but no location"
+                    + " usage was detected, so no ACCESS_FINE_LOCATION declaration"
+                    + " is generated and there is nothing to restrict. An application"
+                    + " that reaches location only from native Android code, which the"
+                    + " class scan cannot see, declares the permission itself through"
+                    + " android.xpermissions and puts the flag on that entry.");
+        }
+        if (locationButtonPermission) {
+            permissions += permissionAdd(request, "USE_LOCATION_BUTTON",
+                    LOCATION_BUTTON_PERMISSION);
+        }
+        if (pushPermission && !useFCM && !useHMS) {
+            permissions += "<permission android:name=\"" + request.getPackageName() + ".permission.C2D_MESSAGE\" android:protectionLevel=\"signature\" />\n"
+                    + "    <uses-permission android:name=\"" + request.getPackageName() + ".permission.C2D_MESSAGE\" />\n"
+                    + "    <uses-permission android:name=\"com.google.android.c2dm.permission.RECEIVE\" />\n";
+            //+ permissionAdd(request, "RECEIVE_BOOT_COMPLETED",
+            //        "    <uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\" android:required=\"false\" />\n");
+        }
+        if (contactsReadPermission) {
+            permissions += permissionAdd(request, "READ_CONTACTS",
+                    "    <uses-permission android:name=\"android.permission.READ_CONTACTS\" android:required=\"false\" />\n");
+        }
+        if (contactsWritePermission) {
+            permissions += permissionAdd(request, "WRITE_CONTACTS",
+                    "    <uses-permission android:name=\"android.permission.WRITE_CONTACTS\" android:required=\"false\" />\n");
+        }
+        if (calendarReadPermission) {
+            permissions += permissionAdd(request, "READ_CALENDAR",
+                    "    <uses-permission android:name=\"android.permission.READ_CALENDAR\" android:required=\"false\" />\n");
+        }
+        if (calendarWritePermission) {
+            permissions += permissionAdd(request, "WRITE_CALENDAR",
+                    "    <uses-permission android:name=\"android.permission.WRITE_CALENDAR\" android:required=\"false\" />\n");
+        }
+
+        if (accessWifiStatePermissions) {
+            permissions += permissionAdd(request, "ACCESS_WIFI_STATE",
+                    "<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\" android:required=\"false\" />\n");
+        }
+        if (browserBookmarksPermissions) {
+            permissions += "<uses-permission android:name=\"com.android.browser.permission.WRITE_HISTORY_BOOKMARKS\" android:required=\"false\"/>\n"
+                    + "<uses-permission android:name=\"com.android.browser.permission.READ_HISTORY_BOOKMARKS\" android:required=\"false\"/>\n";
+        }
+        if (launcherPermissions) {
+            permissions += "<uses-permission android:name=\"com.android.launcher.permission.INSTALL_SHORTCUT\"/>\n"
+                    + "<uses-permission android:name=\"com.android.launcher.permission.UNINSTALL_SHORTCUT\"/>\n"
+                    + "<uses-permission android:name=\"com.android.launcher.permission.READ_SETTINGS\"/>\n"
+                    + "<!--device specific permissions -->\n"
+                    + "<uses-permission android:name=\"com.htc.launcher.permission.READ_SETTINGS\"/>\n"
+                    + "<uses-permission android:name=\"com.motorola.launcher.permission.READ_SETTINGS\"/>\n"
+                    + "<uses-permission android:name=\"com.motorola.dlauncher.permission.READ_SETTINGS\"/>\n"
+                    + "<uses-permission android:name=\"com.fede.launcher.permission.READ_SETTINGS\"/>\n"
+                    + "<uses-permission android:name=\"com.lge.launcher.permission.READ_SETTINGS\"/>\n"
+                    + "<uses-permission android:name=\"org.adw.launcher.permission.READ_SETTINGS\"/>\n"
+                    + "<uses-permission android:name=\"com.motorola.launcher.permission.INSTALL_SHORTCUT\"/>\n"
+                    + "<uses-permission android:name=\"com.motorola.dlauncher.permission.INSTALL_SHORTCUT\"/>\n"
+                    + "<uses-permission android:name=\"com.lge.launcher.permission.INSTALL_SHORTCUT\"/>\n";
+        }
+
+        if (recordAudio) {
+            permissions += permissionAdd(request, "RECORD_AUDIO",
+                    "<uses-permission android:name=\"android.permission.RECORD_AUDIO\" android:required=\"false\" />\n");
+        }
+
+        if (wakeLock) {
+            permissions += permissionAdd(request, "WAKE_LOCK",
+                    "<uses-permission android:name=\"android.permission.WAKE_LOCK\" android:required=\"false\" />\n");
+        }
+
+        if (phonePermission) {
+            permissions += permissionAdd(request, "READ_PHONE_STATE",
+                    "<uses-permission android:name=\"android.permission.READ_PHONE_STATE\" android:required=\"false\" />\n");
+        }
+
+        if (accessNetworkStatePermission) {
+            permissions += permissionAdd(request, "ACCESS_NETWORK_STATE",
+                    "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" android:required=\"false\" />\n");
+        }
+
+        if (recieveBootCompletedPermission) {
+            permissions += permissionAdd(request, "RECEIVE_BOOT_COMPLETED",
+                    "<uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\" android:required=\"false\" />\n");
+        }
+
+        if (getAccountsPermission) {
+            permissions += permissionAdd(request, "GET_ACCOUNTS",
+                    "<uses-permission android:name=\"android.permission.GET_ACCOUNTS\" android:required=\"false\" />\n");
+        }
+        if (credentialsPermission) {
+            permissions += permissionAdd(request, "USE_CREDENTIALS",
+                    "<uses-permission android:name=\"android.permission.USE_CREDENTIALS\" />\n");
+        }
+        if (backgroundLocationPermission && !xPermissions.contains("android.permission.ACCESS_BACKGROUND_LOCATION")) {
+            permissions += "<uses-permission android:name=\"android.permission.ACCESS_BACKGROUND_LOCATION\"  android:required=\"false\" />\n";
+        }
+
+        String billingServiceData = "";
+        String activityBillingSource = "";
+        String consumable = "";
+        if (purchasePermissions) {
+            String k = request.getArg("android.licenseKey", null);
+            //if the android.licenseKey is not defined abort the build
+            if (k == null) {
+                throw new BuildException("android.licenseKey must be defined in the build hints, grab the key from the \"Monetization setup\" section in the android dev portal" +
+                        ", then paste the Base64-encoded RSA public key into the android.licenseKey build hint.\n\n");
+            }
+            String cons = request.getArg("android.nonconsumable", null);
+            if (cons != null) {
+                cons = cons.trim();
+                if (cons.contains(",")) {
+                    StringTokenizer token = new StringTokenizer(cons, ",");
+                    if (token.countTokens() > 0) {
+                        try {
+                            while (token.hasMoreElements()) {
+                                String t = (String) token.nextToken();
+                                t = t.trim();
+                                consumable += "\"" + t + "\",";
+                            }
+                            consumable = consumable.substring(0, consumable.length() - 1);
+                        } catch (Exception e) {
+                            //the pattern is not valid
+                        }
+
+                    }
+                } else {
+                    consumable = "\"" + cons + "\"";
+                }
+            }
+            permissions += "    <uses-permission android:name=\"com.android.vending.BILLING\" android:required=\"false\" />\n";
+            activityBillingSource
+                    = "    protected boolean isBillingEnabled() {\n"
+                    + "        return true;\n"
+                    + "    }\n\n"
+                    + "    protected com.codename1.impl.android.IBillingSupport createBillingSupport() {\n"
+                    + "        return new com.codename1.impl.android.BillingSupport(this);\n"
+                    + "    }\n\n";
+
+        }
+
+
+        String sharedUserId = request.getArg("android.sharedUserId", "");
+        if (sharedUserId.length() > 0) {
+            sharedUserId = "      android:sharedUserId=\"" + sharedUserId + "\"\n";
+        }
+        String sharedUserLabel = request.getArg("android.sharedUserLabel", "");
+        if (sharedUserLabel.length() > 0) {
+            sharedUserLabel = "      android:sharedUserLabel=\"" + sharedUserLabel + "\"\n";
+        }
+
+        String basePermissions = "    <uses-feature android:name=\"android.hardware.telephony\" android:required=\"" + telephonyRequired + "\" />\n"
+                + "    <uses-permission android:name=\"android.permission.INTERNET\" android:required=\"false\" />\n";
+        if (request.getArg("android.removeBasePermissions", "false").equals("true")) {
+            basePermissions = "";
+        }
+        boolean blockExternalStoragePermission = request.getArg("android.blockExternalStoragePermission", "false").equals("true");
+        String externalStoragePermission = "";
+        if (!blockExternalStoragePermission) {
+            externalStoragePermission = "    <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" android:required=\"false\" android:maxSdkVersion=\"32\" />\n";
+        }
+        boolean blockReadMediaPermissions = request.getArg("android.blockReadMediaPermissions", blockExternalStoragePermission ? "true" : "false").equals("true");
+        boolean requestReadMediaPermissions = request.getArg("android.requestReadMediaPermissions", "false").equals("true");
+        String readMediaPermissions = "";
+        for (String p : readMediaPermissionNames(blockReadMediaPermissions,
+                targetSDKVersionInt, mediaPlaybackPermission,
+                requestReadMediaPermissions)) {
+            readMediaPermissions += permissionAdd(request, "\"" + p + "\"",
+                    "    <uses-permission android:name=\"" + p
+                            + "\" android:required=\"false\" />\n");
+        }
+        // Held for the companion Wear manifest, which is generated independently and would
+        // otherwise never see these. A watchMain that reads media on Wear OS 4 needs the same
+        // READ_MEDIA_* declarations the phone half gets, or the runtime permission cannot be
+        // granted and every read fails on the watch alone -- and the same is true of external
+        // storage on API 26 to 29, where the watch would be refused an operation the phone
+        // artifact is permitted.
+        watchSharedPermissions = readMediaPermissions + externalStoragePermission;
+        String xmlizedDisplayName = xmlize(request.getDisplayName());
+
+        String applicationAttr = request.getArg("android.xapplication_attr", "");
+
+        String allowBackup = " android:allowBackup=\"" + request.getArg("android.allowBackup", "true")  +"\" ";
+        if(applicationAttr.contains("allowBackup")) {
+            allowBackup = "";
+        }
+
+        // On-device debugging needs the application to be marked debuggable so the
+        // runtime hands out a JDWP socket per-process. Idempotent: skip if the user
+        // already declared android:debuggable via android.xapplication_attr.
+        String debuggableAttr = "";
+        if (onDeviceDebug && !applicationAttr.contains("android:debuggable")) {
+            debuggableAttr = " android:debuggable=\"true\" ";
+        }
+
+        String applicationNode = "  <application ";
+        if (!applicationAttr.contains("android:label")) {
+            applicationNode += " android:label=\"" + xmlizedDisplayName + "\" ";
+        }
+        if (enableAdaptiveIcons && !applicationAttr.contains("android:icon")) {
+            applicationNode += " android:icon=\"@mipmap/ic_launcher\" ";
+        } else if (!applicationAttr.contains("android:icon")) {
+            applicationNode += " android:icon=\"@drawable/icon\" ";
+        }
+        if (enableAdaptiveIcons && !applicationAttr.contains("android:roundIcon")) {
+            applicationNode += " android:roundIcon=\"@mipmap/ic_launcher_round\" ";
+        }
+        if (request.getArg("android.multidex", "true").equals("true") && Integer.parseInt(minSDK) < 21) {
+            debug("Setting Application node to MultiDexApplication because minSDK="+minSDK+" < 21");
+            applicationNode += " android:name=\""+xclass("android.support.multidex.MultiDexApplication")+"\" ";
+        }
+
+        applicationNode += applicationAttr;
+        applicationNode += allowBackup;
+        applicationNode += debuggableAttr;
+        applicationNode += ">\n";
+
+
+        // Note: It is OK to reference android.support.FILE_PROVIDER_PATHS in android X still
+        // https://stackoverflow.com/a/57584508/2935174
+        String providerTag = "<provider\n" +
+                "          android:name=\""+xclass("android.support.v4.content.FileProvider")+"\"\n" +
+                "          android:authorities=\"${applicationId}.provider\"\n" +
+                "          android:exported=\"false\"\n" +
+                "          android:grantUriPermissions=\"true\">\n" +
+                "          <meta-data\n" +
+                "              android:name=\"android.support.FILE_PROVIDER_PATHS\"\n" +
+                "              android:resource=\"@xml/file_paths\">\n" +
+                "          </meta-data>\n" +
+                "      </provider>";
+        // Held for the companion Wear manifest, which is generated independently. The wear module
+        // compiles the same shared implementation and packages the same file_paths.xml, so a
+        // watch that shares or opens a local file on API 24+ needs the same provider -- and a
+        // watch that schedules a local notification needs the receiver that delivers it when the
+        // app is not running.
+        watchProviderTag = providerTag;
+
+        if (!providerTag.isEmpty()) {
+            File filePathsFile = new File(xmlDir, "file_paths.xml");
+
+            String filePathsContent = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
+                    "<paths xmlns:android=\"http://schemas.android.com/apk/res/android\">\n" +
+                    "    <cache-path name=\"intent_files\" path=\"intent_files/\" />\n" +
+                    // The roots a file has to be under for FileProvider to serve it. The
+                    // application's own directories, and its external ones -- a document or a
+                    // video picked by the user lives out there, FileSystemStorage lists those
+                    // roots, and getUriForFile throws for anything outside them, so sharing
+                    // such a file meant copying it first. Declaring a root exposes nothing by
+                    // itself: a URI is still minted per file, and only for files this
+                    // application deliberately shares.
+                    //
+                    // Only the default. An application that sets the hint still says exactly
+                    // what it wants and gets nothing it did not ask for.
+                    request.getArg("android.file_paths", "    <files-path name=\"app_files\" path=\".\" /><external-files-path name=\"app_external_files\" path=\".\" /><external-cache-path name=\"app_external_cache\" path=\".\" /><external-path name=\"external\" path=\".\" />") +
+                    "</paths>";
+
+            try {
+                OutputStream filePathsStream = new FileOutputStream(filePathsFile);
+
+                filePathsStream.write(filePathsContent.getBytes(StandardCharsets.UTF_8));
+                filePathsStream.close();
+            } catch (IOException ex) {
+                throw new BuildException("Failed to write file path providers file", ex);
+            }
+        }
+
+        String pushManifestEntries = "        <service android:name=\"PushNotificationService\" android:exported=\"true\">\n"
+                + "            <intent-filter>\n"
+                + "                <action android:name=\"" + request.getPackageName() + ".PushNotificationService\" />\n"
+                + "            </intent-filter>\n"
+                + "        </service>\n"
+                + "        <receiver android:name=\".PushReceiver\" android:permission=\"com.google.android.c2dm.permission.SEND\" android:exported=\"true\">\n"
+                + "            <intent-filter>\n"
+                + "                <action android:name=\"com.google.android.c2dm.intent.RECEIVE\" />\n"
+                + "                <category android:name=\"" + request.getPackageName() + "\" />\n"
+                + "            </intent-filter>\n"
+                + "            <intent-filter>\n"
+                + "                <action android:name=\"com.google.android.c2dm.intent.REGISTRATION\" />\n"
+                + "                <category android:name=\"" + request.getPackageName() + "\" />\n"
+                + "            </intent-filter>\n"
+
+                + "        </receiver>\n";
+        if (!pushPermission) {
+            pushManifestEntries = "";
+        } else {
+            pushManifestEntries = "";
+            if (useFCM) {
+                pushManifestEntries += "<service\n"
+                        + "          android:name=\"com.codename1.impl.android.CN1FirebaseMessagingService\" android:exported=\"true\">\n"
+                        + "          <intent-filter>\n"
+                        + "              <action android:name=\"com.google.firebase.MESSAGING_EVENT\" />\n"
+                        + "          </intent-filter>\n"
+                        + "      </service>\n";
+            }
+            if (useHMS) {
+                pushManifestEntries += "<service android:name=\".CN1HuaweiMessagingService\" android:exported=\"false\">\n"
+                        + "  <intent-filter><action android:name=\"com.huawei.push.action.MESSAGING_EVENT\" /></intent-filter>\n"
+                        + "</service>\n<meta-data android:name=\"push_kit_auto_init_enabled\" android:value=\"true\" />\n";
+            }
+        }
+
+        // Held for the companion Wear manifest, which is generated independently. The wear
+        // module compiles the same generated CN1FirebaseMessagingService, resolves the same
+        // Firebase dependencies and now carries the same google-services.json -- everything but
+        // the declaration that lets Play services bind it, so a push arriving on the watch had
+        // nothing to deliver to.
+        watchPushManifestEntries = pushManifestEntries;
+
+        String launchMode = request.getArg("android.activity.launchMode", "singleTop");
+        String xActivity = request.getArg("android.xactivity", "");
+        if (!xActivity.contains("android:exported")) {
+            xActivity += " android:exported=\"true\"";
+        }
+        String activityTheme = launcherTheme();
+        String manifestSource
+                = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                + "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"\n"
+                + "      package=\"" + request.getPackageName() + "\"\n"
+                + "      android:versionCode=\"" + intVersion + "\"\n"
+                + "      android:versionName=\"" + request.getVersion() + "\"\n"
+                + "      xmlns:tools=\"http://schemas.android.com/tools\"\n"
+                + sharedUserLabel
+                + sharedUserId
+                + "      android:minSdkVersion=\"" + minSDK + "\"\n"
+                + "      android:installLocation=\"" + request.getArg("android.installLocation", "auto") + "\">\n"
+                + "    <uses-sdk android:minSdkVersion=\"" + minSDK + "\""
+                + targetSDKVersion
+                + request.getArg("android.xmanifest", "")
+                + " />\n"
+                + "    <supports-screens android:smallScreens=\"" + request.getArg("android.smallScreens", "true") + "\"\n"
+                + "          android:normalScreens=\"" + request.getArg("android.normalScreens", "true") + "\"\n"
+                + "          android:largeScreens=\"" + request.getArg("android.largeScreens", "true") + "\"\n"
+                + "          android:xlargeScreens=\"" + request.getArg("android.xlargeScreens", "true") +"\"\n"
+                +            request.getArg("android.supportScreens", "")
+                + "          android:anyDensity=\"" + request.getArg("android.anyDensity", "true") + "\" />\n"
+                + applicationNode
+                + providerTag
+                + usesLibrary
+                + googlePlayAdsMetaData
+                + "        <activity android:name=\"" + request.getMainClass() + "Stub\"\n"
+                + xActivity
+                + "                  android:theme=\""+activityTheme+"\"\n"
+                + "                  android:configChanges=\"orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout\"\n"
+                + "                  android:launchMode=\""+launchMode+"\"\n"
+                + "                  android:label=\"" + xmlizedDisplayName + "\"\n"
+                + tvActivityBanner
+                + "                  >\n"
+                + "            <intent-filter>\n"
+                + "                <action android:name=\"android.intent.action.MAIN\" />\n"
+                + "                <category android:name=\"android.intent.category.LAUNCHER\" />\n"
+                + tvLeanbackCategory
+                + "            </intent-filter>\n"
+                + request.getArg("android.xintent_filter", "")
+                + intentsActivityMetaData
+                + "        </activity>\n"
+                + facebookActivityMetaData
+                + facebookActivity
+                + googlePlayAdsActivity
+                + pushManifestEntries
+                + billingServiceData
+                + wearApplicationMetaData
+                + aiApplicationMetaData
+                + "  " + request.getArg("android.xapplication", "")
+                + mopubActivities
+                + alarmRecevier
+                + backgroundLocationReceiver
+                + mediabuttonReceiver
+                + backgroundFetchService
+                + backgroundWorkService
+                + foregroundServiceEntry
+                + shareReceiverActivity
+                + locationServices
+                + healthApplicationFragment
+                + mediaService
+                + remoteControlService
+                + hceService
+                + carAppService
+                + wearableListenerService
+                + surfacesManifestEntries
+                + documentsProviderEntry
+                // Only in a STANDALONE build does this manifest belong to the watch. A companion
+                // build's watch services go in the wear module's own manifest, which
+                // generateWearModule writes; putting them here too would declare a complication
+                // data source on a phone, where nothing can bind it.
+                + ("app".equals(watchModuleName(request)) ? watchSurfacesManifestEntries : "")
+                + intentsManifestEntries
+                + "    </application>\n"
+                + "    <uses-feature android:name=\"android.hardware.touchscreen\" android:required=\"false\" />\n"
+                + basePermissions
+                + externalStoragePermission
+                + readMediaPermissions
+                + permissions
+                + carAppPermissions
+                + "  " + xPermissions
+                + "  " + xQueries
+                + "</manifest>\n";
+        try {
+            OutputStream manifestSourceStream = new FileOutputStream(manifestFile);
+            manifestSourceStream.write(manifestSource.getBytes(StandardCharsets.UTF_8));
+            manifestSourceStream.close();
+        } catch (IOException ex) {
+            throw new BuildException("Failed to write manifest file", ex);
+        }
+        debug("Generated manifest file: " + manifestSource);
+
+        String oncreate = request.getArg("android.onCreate", "");
+
+        String initStackSize = "";
+        String stackSize = request.getArg("android.stack_size", null);
+        if (stackSize != null) {
+            initStackSize = "        com.codename1.impl.CodenameOneThread.STACK_FRAME_SIZE = " + stackSize + ";\n";
+        }
+
+        String licenseKey = request.getArg("android.licenseKey", null);
+        String androidLicenseKey = licenseKey;
+        if (androidLicenseKey != null) {
+            androidLicenseKey = "Display.getInstance().setProperty(\"android.licenseKey\", \"" + androidLicenseKey + "\");\n";
+        } else {
+            androidLicenseKey = "";
+        }
+        String useBackgroundPermissionSnippet = "";
+        if (backgroundLocationPermission) {
+            useBackgroundPermissionSnippet = "Display.getInstance().setProperty(\"android.requiresBackgroundLocationPermissionForAPI29\", \"true\");\n";
+        }
+
+        String streamMode = request.getArg("android.streamMode", null);
+        if (streamMode != null) {
+            if (streamMode.equals("music")) {
+                streamMode = "        setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);\n";
+            } else {
+                streamMode = "";
+            }
+        } else {
+            streamMode = "";
+        }
+
+
+        String localNotificationCode = "";
+
+        localNotificationCode = ""
+                + "        if(((Object)i) instanceof com.codename1.notifications.LocalNotificationCallback){\n"
+                + "            Intent intent = getIntent();\n"
+                + "            if(intent != null && intent.getExtras() != null && intent.getExtras().containsKey(\"LocalNotificationID\")){\n"
+                + "                String id = intent.getExtras().getString(\"LocalNotificationID\");\n"
+                + "                intent.removeExtra(\"LocalNotificationID\");\n"
+                + "                if(intent.getExtras() != null && intent.getExtras().containsKey(\"LocalNotificationActionId\")){\n"
+                + "                    com.codename1.push.PushContent.reset();\n"
+                + "                    String actionId = intent.getExtras().getString(\"LocalNotificationActionId\");\n"
+                + "                    com.codename1.push.PushContent.setActionId(actionId);\n"
+                + "                    com.codename1.push.PushContent.setActionTitle(intent.getExtras().getString(\"LocalNotificationActionTitle\"));\n"
+                + "                    intent.removeExtra(\"LocalNotificationActionId\");\n"
+                + "                    intent.removeExtra(\"LocalNotificationActionTitle\");\n"
+                + "                    if(com.codename1.impl.android.compat.app.RemoteInputWrapper.isSupported()){\n"
+                + "                        android.os.Bundle textExtras = com.codename1.impl.android.compat.app.RemoteInputWrapper.getResultsFromIntent(intent);\n"
+                + "                        if(textExtras != null){\n"
+                + "                            CharSequence cs = textExtras.getCharSequence(actionId + \"$Result\");\n"
+                + "                            if(cs != null){ com.codename1.push.PushContent.setTextResponse(cs.toString()); }\n"
+                + "                        }\n"
+                + "                    }\n"
+                + "                }\n"
+                + "                ((com.codename1.notifications.LocalNotificationCallback)(Object)i).localNotificationReceived(id);\n"
+                + "            }\n"
+                + "        }\n"
+                + "        com.codename1.impl.android.AndroidImplementation.setCurrentApplicationInstance(i);\n"
+                + "        com.codename1.impl.android.AndroidImplementation.deliverPendingSharedContent();\n";
+
+        if (usesSurfaces) {
+            // flush surface actions (widget/live-activity taps) that arrived through the
+            // CN1SurfaceActionActivity trampoline before the app instance existed; conditional
+            // so apps that never touch com.codename1.surfaces keep it strippable
+            localNotificationCode
+                    += "        com.codename1.impl.android.AndroidImplementation.deliverPendingSurfaceActions();\n";
+        }
+
+        if (usesIntents) {
+            // Same shape, different trampoline: a non-headless intent tapped in the launcher is
+            // parked rather than dispatched, because its handler may touch a Form and there is
+            // no window at the moment of the tap. This is the point where there is one.
+            localNotificationCode
+                    += "        com.codename1.impl.android.AndroidImplementation.deliverPendingIntentRequests();\n";
+        }
+
+
+        // Install the build-time-generated @Route dispatcher before the
+        // first Display init. The reinit branch doesn't repeat the call
+        // because Navigation#setDispatcher writes a static field that
+        // survives a Display reinit. See Executor#routeDispatcher
+        // InstallSource for the conditional emission and obfuscation
+        // reasoning.
+        String installRoutes = routeDispatcherInstallSource(sourceZip, "        ");
+        String installFrameworks = annotationFrameworksInstallSource(sourceZip, "        ");
+
+        String reinitCode0 = installRoutes + installFrameworks
+                + "        AndroidImplementation.startContext(this);\n";
+
+        String reinitCode = "Display.init(this);\n";
+
+        // We need to explicitly call initImpl() to setup the activity in case the
+        // last used context is a service, since Display.init() won't actually do
+        // a reinitialize in this case.
+        // We don't want to actually call deinitialize here because this is too heavy-handed,
+        // (if the service is running, this will create a new implementation and edt thread
+        // which will cause problems for existing background procresses.
+        // Doing it this way ensures that the EDT and implemenation objects will remain unchanged,
+        // but other things will be set up properly.
+        reinitCode = "AndroidImplementation.startContext(this);\n";
+
+        String waitingForPermissionsRequestOnStop = "        if (isWaitingForPermissionResult()) {\n" +
+                        "            return;\n" +
+                        "        }\n";
+
+        String onStopCode = "protected void onStop() {\n"
+                + "        super.onStop();\n"
+                + waitingForPermissionsRequestOnStop
+                + "        if(isWaitingForResult()){\n"
+                + "             return;\n"
+                + "        }\n"
+                + "        synchronized(LOCK) {\n"
+                + "             currentForm = null;\n"
+                + "        }\n"
+                + "        Display.getInstance().callSerially(new Runnable() { public void run() {i.stop();} });\n"
+                + "        running = false;\n"
+                + "    }\n\n";
+
+
+            // Added a bit of blocking to onStop() to prevent onDestroy() from being
+            // run before stop() is completed.  This probably only shows up if the 
+            // device is very low on RAM or is set to not keep activity due 
+            // to developer options... but it is still better to finish onStop()
+            // before onDestroy() is run.
+            onStopCode = "protected void onStop() {\n";
+
+                onStopCode += "        com.codename1.impl.android.AndroidImplementation.writeServiceProperties(this);\n";
+
+            onStopCode +=
+                    "        super.onStop();\n" +
+                            "        if(isWaitingForResult()){\n" +
+                            "             return;\n" +
+                            "        }\n" +
+                            "        synchronized(LOCK) {\n" +
+                            "             currentForm = null;\n" +
+                            "        }\n" +
+                            "        final boolean[] complete = new boolean[1];\n" +
+                            "\n" +
+                            "        Display.getInstance().callSerially(new Runnable() {\n" +
+                            "            public void run() {\n" +
+                            "                i.stop();\n" +
+                            "                synchronized(complete) {\n" +
+                            "                    try {\n" +
+                            "                        complete[0] = true;\n" +
+                            "                        complete.notify();\n" +
+                            "                    } catch (Exception ex) {\n" +
+                            "                    }\n" +
+                            "                }\n" +
+                            "            }\n" +
+                            "        });\n" +
+                            "        while (!complete[0]) {\n" +
+                            "            synchronized(complete) {\n" +
+                            "                try {\n" +
+                            "                    complete.wait(500);\n" +
+                            "                } catch (Exception ex){}\n" +
+                            "            }\n" +
+                            "        }\n" +
+                            "        running = false;\n" +
+                            "    }\n\n";
+
+
+        String onDestroyCode = "    protected void onDestroy() {\n"
+                + createOnDestroyCode(request)
+                + "        super.onDestroy();\n"
+                + "        Display.getInstance().callSerially(new Runnable() { public void run() {i.destroy(); Display.deinitialize();} });\n"
+                + "        running = false;\n"
+                + "    }\n";
+
+            onDestroyCode = "protected void onDestroy() {\n" +
+                    createOnDestroyCode(request) +
+                    "        super.onDestroy();\n" +
+                    "\n" +
+                    "        Display.getInstance().callSerially(new Runnable() { public void run() {i.destroy();} });\n" +
+                    "        AndroidImplementation.stopContext(this);\n" +
+                    "        running = false;\n" +
+                    "    }";
+
+
+        File stubFileSourceFile = new File(stubFileSourceDir, request.getMainClass() + "Stub.java");
+
+        // If the build-time SVG transcoder produced a registry class, weave
+        // its installGlobal() call into the Stub right before the first
+        // i.init(this) so theme.getImage("foo.svg") returns the transcoded
+        // SVG immediately. Skipped silently for apps without any SVGs.
+        String svgRegistryInstall = "";
+        File svgRegistryClassFile = new File(dummyClassesDir,
+                "com/codename1/generated/svg/SVGRegistry.class");
+        if (svgRegistryClassFile.isFile()) {
+            svgRegistryInstall = "            com.codename1.generated.svg.SVGRegistry.installGlobal();\n";
+        }
+
+        // Firebase Analytics bridge: when android.firebaseAnalytics=true the
+        // app has the firebase-analytics Gradle dependency, so we generate a
+        // FirebaseAnalyticsProvider.Bridge that calls the SDK directly (no
+        // reflection, no NativeInterface) and register it in the Stub before
+        // i.init(this). Without the hint no bridge is generated and
+        // FirebaseAnalyticsProvider stays a no-op.
+        String firebaseRegisterInstall = "";
+        if (useFirebaseAnalytics) {
+            String fbPkg = request.getPackageName();
+            String fbSrc = "package " + fbPkg + ";\n\n"
+                    + "import android.content.Context;\n"
+                    + "import android.os.Bundle;\n"
+                    + "import com.codename1.impl.android.AndroidNativeUtil;\n"
+                    + "import com.codename1.analytics.FirebaseAnalyticsProvider;\n"
+                    + "import com.google.firebase.analytics.FirebaseAnalytics;\n"
+                    + "import java.util.Iterator;\n"
+                    + "import org.json.JSONObject;\n\n"
+                    + "/** Generated by the Codename One build (android.firebaseAnalytics=true). */\n"
+                    + "public class FirebaseAnalyticsBridgeImpl implements FirebaseAnalyticsProvider.Bridge {\n"
+                    + "    private FirebaseAnalytics fa;\n"
+                    + "    private boolean resolved;\n"
+                    + "    private FirebaseAnalytics fa() {\n"
+                    + "        if (!resolved) {\n"
+                    + "            resolved = true;\n"
+                    + "            try {\n"
+                    + "                Context c = AndroidNativeUtil.getContext();\n"
+                    + "                if (c != null) { fa = FirebaseAnalytics.getInstance(c); }\n"
+                    + "            } catch (Throwable t) { fa = null; }\n"
+                    + "        }\n"
+                    + "        return fa;\n"
+                    + "    }\n"
+                    + "    public boolean isSupported() { return fa() != null; }\n"
+                    + "    public void logEvent(String name, String paramsJson) {\n"
+                    + "        FirebaseAnalytics f = fa();\n"
+                    + "        if (f != null) { f.logEvent(sanitize(name), toBundle(paramsJson)); }\n"
+                    + "    }\n"
+                    + "    public void logScreen(String screenName) {\n"
+                    + "        FirebaseAnalytics f = fa();\n"
+                    + "        if (f != null) { Bundle b = new Bundle(); b.putString(\"screen_name\", screenName); f.logEvent(\"screen_view\", b); }\n"
+                    + "    }\n"
+                    + "    public void setUserId(String id) { FirebaseAnalytics f = fa(); if (f != null) { f.setUserId(id); } }\n"
+                    + "    public void setUserProperty(String key, String value) { FirebaseAnalytics f = fa(); if (f != null) { f.setUserProperty(key, value); } }\n"
+                    + "    private static Bundle toBundle(String json) {\n"
+                    + "        Bundle b = new Bundle();\n"
+                    + "        if (json == null || json.length() == 0) { return b; }\n"
+                    + "        try {\n"
+                    + "            JSONObject o = new JSONObject(json);\n"
+                    + "            Iterator<String> keys = o.keys();\n"
+                    + "            while (keys.hasNext()) {\n"
+                    + "                String k = keys.next();\n"
+                    + "                Object v = o.get(k);\n"
+                    + "                if (v instanceof Number) { b.putDouble(k, ((Number) v).doubleValue()); }\n"
+                    + "                else if (v instanceof Boolean) { b.putString(k, v.toString()); }\n"
+                    + "                else { b.putString(k, String.valueOf(v)); }\n"
+                    + "            }\n"
+                    + "        } catch (Throwable t) { /* send the event without malformed params */ }\n"
+                    + "        return b;\n"
+                    + "    }\n"
+                    + "    private static String sanitize(String name) {\n"
+                    + "        if (name == null || name.length() == 0) { return \"event\"; }\n"
+                    + "        StringBuilder sb = new StringBuilder(name.length());\n"
+                    + "        for (int i = 0; i < name.length(); i++) {\n"
+                    + "            char c = name.charAt(i);\n"
+                    + "            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') { sb.append(c); }\n"
+                    + "            else { sb.append('_'); }\n"
+                    + "        }\n"
+                    + "        return sb.toString();\n"
+                    + "    }\n"
+                    + "}\n";
+            File fbBridgeFile = new File(stubFileSourceDir, "FirebaseAnalyticsBridgeImpl.java");
+            try {
+                createFile(fbBridgeFile, fbSrc.getBytes(StandardCharsets.UTF_8));
+            } catch (IOException ex) {
+                throw new BuildException("Failed to create FirebaseAnalyticsBridgeImpl class", ex);
+            }
+            firebaseRegisterInstall = "            com.codename1.analytics.FirebaseAnalyticsProvider.registerBridge(new "
+                    + fbPkg + ".FirebaseAnalyticsBridgeImpl());\n";
+        }
+
+        // Registers the Play Install Referrer reader with the invite API.
+        //
+        // A direct symbol reference in generated code rather than a
+        // Class.forName lookup: the reference exists exactly when the class
+        // does, R8 renames the call site and the target together, and there is
+        // no keep rule to forget. The class itself is a port source, not a
+        // generated string literal -- it owns a connection lifecycle, a
+        // reconnect path and a bounded retry, and as a literal it would be
+        // invisible to review and to the SpotBugs gate.
+        // The host the app-links filter was generated for, handed to the client
+        // so Invites.getLinkBase() cannot disagree with it. Without this an app
+        // that set invite.domain minted links for the default host while its
+        // intent filter named a custom one, and the installed app never opened
+        // its own links.
+        String inviteDomainProperty = "";
+        if (usesInvites) {
+            inviteDomainProperty = "        Display.getInstance().setProperty(\"invite.domain\", \""
+                    + InviteBuildHints.domain(request) + "\");\n";
+            // The slug goes with it, and for the same reason. This build claims
+            // /i/<slug>/ and nothing else, so a client that mints a bare
+            // /i/<code> link produces a url its own build cannot open -- and it
+            // would, because the client only learns the slug from the link
+            // service, which the first invite is minted before ever reaching.
+            String inviteSlug = InviteBuildHints.slug(request);
+            if (inviteSlug != null && inviteSlug.trim().length() > 0) {
+                inviteDomainProperty += "        Display.getInstance().setProperty(\"invite.slug\", \""
+                        + inviteSlug.trim() + "\");\n";
+            }
+        }
+
+        // An App Link that arrives while the activity is already resumed never
+        // reaches the application's start(). The lifecycle generated below
+        // returns early when wasStopped is false -- it just re-shows the
+        // current form -- so the documented checkForInvite() call in start()
+        // does not run, and the app arg the port stored a moment ago is cleared
+        // again by the next onStop(). The invite is silently lost: no claim, no
+        // invite_opened, for a delivery that worked perfectly.
+        //
+        // Generated rather than done in the port, because AndroidImplementation
+        // referencing the invite package would make PlatformFeatureCatalog
+        // match it for EVERY application -- a Play Install Referrer dependency
+        // and an API 21 floor on apps that never heard of invites. This splice
+        // lands only in an app whose classes actually use them, which is the
+        // same condition the registration above rides on.
+        String inviteNewIntent = "";
+        if (usesInvites) {
+            inviteNewIntent = "    protected void onNewIntent(android.content.Intent intent) {\n"
+                    + "        super.onNewIntent(intent);\n"
+                    + "        if(!Display.isInitialized()) {\n"
+                    + "            return;\n"
+                    + "        }\n"
+                    + "        Display.getInstance().callSerially(new Runnable() {\n"
+                    + "            public void run() {\n"
+                    + "                com.codename1.analytics.invite.Invites.checkForInvite();\n"
+                    + "            }\n"
+                    + "        });\n"
+                    + "    }\n\n";
+        }
+        String inviteRegisterInstall = "";
+        if (usesInvites) {
+            inviteRegisterInstall = "            com.codename1.analytics.invite.Invites"
+                    + ".registerInstallReferrerSource(new "
+                    + "com.codename1.impl.android.referrer.AndroidInstallReferrer());\n";
+        }
+
+        String consumableCode;
+        consumableCode = "public boolean isConsumable(String sku) {\n"
+                + "  boolean retVal = super.isConsumable(sku);\n"
+                + "  java.util.List l = new java.util.ArrayList();\n"
+                + "  java.util.Collections.addAll(l, consumable);\n"
+                + "  return retVal || l.contains(sku);\n"
+                + "}\n";
+
+        String firstTimeStatic = "";
+
+            firstTimeStatic = " static";
+
+
+        String notificationChannelId = request.getArg("android.NotificationChannel.id", "cn1-channel");
+        String notificationChannelName = request.getArg("android.NotificationChannel.name", "Notifications");
+        String notificationChannelDescription = request.getArg("android.NotificationChannel.description", "Remote notifications");
+
+        // https://developer.android.com/reference/android/app/NotificationManager#IMPORTANCE_LOW
+        String notificationChannelImportance = request.getArg("android.NotificationChannel.importance", "2");
+
+        String notificationChannelEnableLights = request.getArg("android.NotificationChannel.enableLights", "true");
+        String notificationChannelLightColor = request.getArg("android.NotificationChannel.lightColor", ""+0xffff0000);
+        String notificationChannelEnableVibration = request.getArg("android.NotificationChannel.enableVibration", "false");
+        String notificationChannelVibrationPattern = request.getArg("android.NotificationChannel.vibrationPattern", request.getArg("android.pushVibratePattern", null));
+        if (notificationChannelVibrationPattern != null) {
+            notificationChannelVibrationPattern = "\""+notificationChannelVibrationPattern+"\"";
+        }
+        String pushInitDisplayProperties = "";
+        if (buildToolsVersionInt >= 26 && Integer.parseInt(targetNumber) >= 26) {
+
+            pushInitDisplayProperties = "        Display.getInstance().setProperty(\"android.NotificationChannel.id\", \""+notificationChannelId+"\");\n"
+                    + "        Display.getInstance().setProperty(\"android.NotificationChannel.name\", \""+notificationChannelName+"\");\n"
+                    + "        Display.getInstance().setProperty(\"android.NotificationChannel.description\", \""+notificationChannelDescription+"\");\n"
+                    + "        Display.getInstance().setProperty(\"android.NotificationChannel.importance\", \""+notificationChannelImportance+"\");\n"
+                    + "        Display.getInstance().setProperty(\"android.NotificationChannel.enableLights\", \""+notificationChannelEnableLights+"\");\n"
+                    + "        Display.getInstance().setProperty(\"android.NotificationChannel.lightColor\", \""+notificationChannelLightColor+"\");\n"
+                    + "        Display.getInstance().setProperty(\"android.NotificationChannel.enableVibration\", \""+notificationChannelEnableVibration+"\");\n"
+                    + "        Display.getInstance().setProperty(\"android.NotificationChannel.vibrationPattern\", "+notificationChannelVibrationPattern+");\n"
+                    + "        try {\n"
+                    + "            Display.getInstance().setProperty(\"android.NotificationChannel.soundUri\", android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION).toString());\n"
+                    + "        } catch (Exception ex){}\n";
+            ;
+            if (request.getArg("android.pushSound", null) != null) {
+                pushInitDisplayProperties += "        try {\n"
+                        + "            Display.getInstance().setProperty(\"android.NotificationChannel.soundUri\", \"android.resource://" + request.getPackageName() + "/raw/" + request.getArg("android.pushSound", null)+"\");\n"
+                        + "        } catch (Exception ex){}\n";
+            }
+
+        }
+
+        String rootCheckCall = "";
+        if (rootCheck) {
+            if (!request.getArg("gradleDependencies", "").contains("com.scottyab:rootbeer-lib")) {
+                String rootbeerVersion = request.getArg("android.rootbeerVersion", "0.1.0");
+                request.putArgument(
+                        "gradleDependencies",
+                        request.getArg("gradleDependencies", "") +
+                                "\n"+compile+" \"com.scottyab:rootbeer-lib:" + rootbeerVersion + "\"\n"
+                );
+            }
+
+            rootCheckCall = "        com.scottyab.rootbeer.RootBeer rootBeer = new com.scottyab.rootbeer.RootBeer(this);\n"
+                    + "        if (rootBeer.isRooted()) {\n"
+                    + "            android.util.Log.e(\"Codename One\", \"Device is rooted. Exiting app.\");\n"
+                    + "            System.exit(0);\n"
+                    + "        }\n";
+        }
+
+        String fridaDetectionCall = "";
+        if (fridaDetection) {
+            fridaDetectionCall = "        com.codename1.impl.android.FridaDetectionUtil.runFridaDetection(this);\n";
+        }
+
+        // android.playIntegrity bundles the Google Play Integrity SDK so the
+        // DeviceIntegrity.requestIntegrityToken() runtime API works. When
+        // android.playIntegrity.verifyUrl is set we also attest at launch on a
+        // background thread and exit if the backend rejects the token (the verdict
+        // MUST be verified server-side - an on-device decision is untrustworthy).
+        String playIntegrityCall = "";
+        if (playIntegrity) {
+            if (!request.getArg("gradleDependencies", "").contains("com.google.android.play:integrity")) {
+                String integrityVersion = request.getArg("android.playIntegrityVersion", "1.4.0");
+                request.putArgument(
+                        "gradleDependencies",
+                        request.getArg("gradleDependencies", "") +
+                                "\n"+compile+" \"com.google.android.play:integrity:"+integrityVersion+"\"\n"
+                );
+            }
+            String verifyUrl = request.getArg("android.playIntegrity.verifyUrl", null);
+            if (verifyUrl != null && verifyUrl.length() > 0) {
+                String escapedUrl = verifyUrl.replace("\\", "\\\\").replace("\"", "\\\"");
+                playIntegrityCall = "        try {\n"
+                        + "            final String __cn1IntegrityUrl = \"" + escapedUrl + "\";\n"
+                        + "            final android.content.Context __cn1Ctx = getApplicationContext();\n"
+                        + "            new Thread(new Runnable() { public void run() {\n"
+                        + "                try {\n"
+                        + "                    String __cn1Nonce = java.util.UUID.randomUUID().toString();\n"
+                        + "                    com.google.android.play.core.integrity.IntegrityManager __cn1IM = com.google.android.play.core.integrity.IntegrityManagerFactory.create(__cn1Ctx);\n"
+                        + "                    com.google.android.gms.tasks.Task __cn1Task = __cn1IM.requestIntegrityToken(com.google.android.play.core.integrity.IntegrityTokenRequest.builder().setNonce(__cn1Nonce).build());\n"
+                        + "                    com.google.android.play.core.integrity.IntegrityTokenResponse __cn1Resp = (com.google.android.play.core.integrity.IntegrityTokenResponse) com.google.android.gms.tasks.Tasks.await(__cn1Task);\n"
+                        + "                    String __cn1Token = __cn1Resp.token();\n"
+                        + "                    java.net.HttpURLConnection __cn1Conn = (java.net.HttpURLConnection) new java.net.URL(__cn1IntegrityUrl).openConnection();\n"
+                        + "                    __cn1Conn.setRequestMethod(\"POST\");\n"
+                        + "                    __cn1Conn.setDoOutput(true);\n"
+                        + "                    __cn1Conn.setRequestProperty(\"Content-Type\", \"application/json\");\n"
+                        + "                    byte[] __cn1Body = (\"{\\\"nonce\\\":\\\"\" + __cn1Nonce + \"\\\",\\\"token\\\":\\\"\" + __cn1Token + \"\\\"}\").getBytes(\"UTF-8\");\n"
+                        + "                    __cn1Conn.getOutputStream().write(__cn1Body);\n"
+                        + "                    int __cn1Code = __cn1Conn.getResponseCode();\n"
+                        + "                    if (__cn1Code < 200 || __cn1Code >= 300) {\n"
+                        + "                        android.util.Log.e(\"Codename One\", \"Play Integrity verification failed: \" + __cn1Code + \". Exiting app.\");\n"
+                        + "                        System.exit(0);\n"
+                        + "                    }\n"
+                        + "                } catch(Throwable __cn1Ex) {\n"
+                        + "                    android.util.Log.e(\"Codename One\", \"Play Integrity check error\", __cn1Ex);\n"
+                        + "                }\n"
+                        + "            }}).start();\n"
+                        + "        } catch(Throwable t) {}\n";
+            }
+        }
+
+        // android.accessibilityGuard detects malware abusing Android accessibility
+        // services. Any enabled service whose package is not in
+        // android.accessibilityGuard.allow trips the guard; android.accessibilityGuard.mode
+        // (exit|warn, default exit) decides whether to terminate or just log.
+        String accessibilityGuardCall = "";
+        if (accessibilityGuard) {
+            String allow = request.getArg("android.accessibilityGuard.allow", "");
+            String mode = request.getArg("android.accessibilityGuard.mode", "exit");
+            StringBuilder allowArr = new StringBuilder();
+            String[] allowParts = allow.split(",");
+            for (int i = 0; i < allowParts.length; i++) {
+                String p = allowParts[i].trim();
+                if (p.length() > 0) {
+                    if (allowArr.length() > 0) {
+                        allowArr.append(", ");
+                    }
+                    allowArr.append("\"").append(p.replace("\\", "\\\\").replace("\"", "\\\"")).append("\"");
+                }
+            }
+            accessibilityGuardCall = "        try {\n"
+                    + "            String[] __cn1Allow = new String[] {" + allowArr.toString() + "};\n"
+                    + "            android.view.accessibility.AccessibilityManager __cn1AM = (android.view.accessibility.AccessibilityManager) getSystemService(android.content.Context.ACCESSIBILITY_SERVICE);\n"
+                    + "            java.util.List __cn1Svcs = __cn1AM == null ? null : __cn1AM.getEnabledAccessibilityServiceList(android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK);\n"
+                    + "            if (__cn1Svcs != null) {\n"
+                    + "                for (int __cn1i = 0; __cn1i < __cn1Svcs.size(); __cn1i++) {\n"
+                    + "                    android.accessibilityservice.AccessibilityServiceInfo __cn1Info = (android.accessibilityservice.AccessibilityServiceInfo) __cn1Svcs.get(__cn1i);\n"
+                    + "                    String __cn1Id = __cn1Info.getId();\n"
+                    + "                    if (__cn1Id == null) { continue; }\n"
+                    + "                    String __cn1Pkg = __cn1Id;\n"
+                    + "                    int __cn1Slash = __cn1Pkg.indexOf('/');\n"
+                    + "                    if (__cn1Slash >= 0) { __cn1Pkg = __cn1Pkg.substring(0, __cn1Slash); }\n"
+                    + "                    boolean __cn1Ok = false;\n"
+                    + "                    for (int __cn1j = 0; __cn1j < __cn1Allow.length; __cn1j++) { if (__cn1Allow[__cn1j].equals(__cn1Pkg)) { __cn1Ok = true; break; } }\n"
+                    + "                    if (!__cn1Ok) {\n"
+                    + "                        android.util.Log.e(\"Codename One\", \"Untrusted accessibility service enabled: \" + __cn1Id);\n"
+                    + (mode.equals("warn") ? "" : "                        System.exit(0);\n")
+                    + "                    }\n"
+                    + "                }\n"
+                    + "            }\n"
+                    + "        } catch(Throwable t) { android.util.Log.e(\"Codename One\", \"Accessibility guard error\", t); }\n";
+        }
+
+
+        String waitingForPermissionsRequest=
+                "        if (isWaitingForPermissionResult()) {\n" +
+                        "            setWaitingForPermissionResult(false);\n" +
+                        "            return;\n" +
+                        "        }\n";
+
+
+        String stubSourceCode;
+        try {
+            stubSourceCode = "package " + request.getPackageName() + ";\n\n"
+                    + "import com.codename1.ui.*;\n"
+                    + "import android.os.Bundle;\n"
+                    + "import android.content.Intent;\n"
+                    + "import android.view.KeyEvent;\n"
+                    + "import com.codename1.system.*;\n"
+                    + "import com.codename1.impl.android.CodenameOneActivity;\n"
+                    + "import com.codename1.impl.android.AndroidImplementation;\n"
+                    + "import com.codename1.system.NativeLookup;\n"
+                    + "import com.codename1.push.*;\n"
+                    + "import com.codename1.ui.*;\n"
+                    + "import android.content.IntentFilter;\n"
+                    + additionalImports
+                    + "\n\n"
+                    + "public class " + request.getMainClass() + "Stub extends " + request.getArg("android.customActivity", "CodenameOneActivity") + "{\n";
+            stubSourceCode += decodeFunction();
+            stubSourceCode += "    public static final String BUILD_KEY = \"" + buildKeyEncoded(request) + "\";\n"
+                    + "    public static final String CN1_MAPPING_ID = \"" + resolveMappingId(request) + "\";\n"
+                    + "    public static final String CN1_HARDENED = \"" + request.getArg("cn1.hardened", "false") + "\";\n"
+                    + "    public static final String CN1_HARDEN_LEVEL = \"" + request.getArg("cn1.hardenLevel", "off") + "\";\n"
+                    + "    public static final String PACKAGE_NAME = \"" + request.getPackageName() + "\";\n"
+                    + "    public static final String BUILT_BY_USER = \"" + xorEncode(request.getUserName()) + "\";\n"
+                    + "    public static final String LICENSE_KEY = \"" + xorEncode(licenseKey) + "\";\n"
+                    + "    String [] consumable = new String[]{" + consumable + "};\n"
+                    + "    private static " + request.getMainClass() + "Stub stubInstance;\n"
+                    + "    private static " + appLifecycleClass(request) + " i;\n"
+                    + "    private boolean running;\n"
+                    + "    private" + firstTimeStatic + " boolean firstTime = true;\n"
+                    + "    private Form currentForm;\n"
+                    + "    private static final Object LOCK = new Object();\n"
+                    + additionalMembers
+                    + headphonesVars
+                    + "    public static " + appLifecycleClass(request) + " getAppInstance() {\n"
+                    + "        return i;\n"
+                    + "    }\n\n"
+                    + activityBillingSource
+                    + "    protected Object getApp() {\n"
+                    + "        return i;\n"
+                    + "    }\n\n"
+                    + "    public static " + request.getMainClass() + "Stub getInstance() {\n"
+                    + "        return stubInstance;\n"
+                    + "    }\n\n"
+                    + "    public " + request.getMainClass() + "Stub() {\n"
+                    + "        stubInstance = this;\n"
+                    + "    }\n\n"
+                    + "    public static boolean isRunning() {\n"
+                    + "        return stubInstance != null && stubInstance.running;\n"
+                    + "    }\n\n"
+                    + "    public void onCreate(Bundle savedInstanceState) {\n"
+                    + "        super.onCreate(savedInstanceState);\n"
+                    + fridaDetectionCall
+                    + rootCheckCall
+                    + accessibilityGuardCall
+                    + playIntegrityCall
+                    + facebookHashCode
+                    + facebookSupport
+                    + mapsProviderSupport
+                    + smartHomeSupport
+                    + streamMode
+                    + registerNativeImplementationsAndCreateStubs(
+                            new URLClassLoader(
+                                    new URL[]{
+                                            dummyClassesDir.toURI().toURL(),
+                                            codenameOneJar.toURI().toURL()
+                                    }), srcDir, dummyClassesDir)
+                    + oncreate + "\n"
+                    + createOnCreateCode(request)
+                    + "    }\n"
+                    + "    protected void onResume() {\n"
+                    + "        running = true;\n"
+                    + "        super.onResume();\n"
+                    + waitingForPermissionsRequest
+                    + "        if(!Display.isInitialized()) {\n"
+                    + initStackSize
+                    + headphonesOnResume
+                    + googlePlayAdViewCode
+                    + reinitCode0
+                    + storeIds
+                    + gcmSenderId
+                    + nativeThemeStubProps
+                    + "        Display.getInstance().setProperty(\"build_key\", d(BUILD_KEY));\n"
+                    + "        Display.getInstance().setProperty(\"cn1.mappingId\", CN1_MAPPING_ID);\n"
+                    + "        Display.getInstance().setProperty(\"cn1.hardened\", CN1_HARDENED);\n"
+                    + "        Display.getInstance().setProperty(\"cn1.hardenLevel\", CN1_HARDEN_LEVEL);\n"
+                    + "        Display.getInstance().setProperty(\"package_name\", PACKAGE_NAME);\n"
+                    + "        Display.getInstance().setProperty(\"built_by_user\", d(BUILT_BY_USER));\n"
+                    + useBackgroundPermissionSnippet
+                    + pushInitDisplayProperties
+                    //+ corporateServer
+                    + androidLicenseKey
+                    //+ "        " + registerNativeImplementationsAndCreateStubs(srcDir, dummyClassesDir)
+                    + "        " + createPostInitCode(request)
+                    + "        }else{\n"
+                    + reinitCode
+                    + "        }\n"
+                    + "        if (i == null) {\n"
+                    + "          i = new " + appLifecycleClass(request) + "();\n"
+                    + "          if(((Object)i) instanceof PushCallback) {\n"
+                    + "                com.codename1.impl.CodenameOneImplementation.setPushCallback((PushCallback)(Object)i);\n"
+                    + "          }\n";
+
+            stubSourceCode +=
+                    "           if (((Object)i) instanceof com.codename1.push.PushActionsProvider) {\n"
+                            + "                try{AndroidImplementation.installNotificationActionCategories((com.codename1.push.PushActionsProvider)(Object)i);}catch(java.io.IOException ex){ex.printStackTrace();}\n"
+                            + "           }\n";
+
+        } catch (Exception ex) {
+            throw new BuildException("Failed to generate stub source code", ex);
+        }
+
+        String fcmRegisterPushCode = "";
+        if (useFCM) {
+            if (newFirebaseMessaging) {
+                // The old FirebaseInstanceId class was deprecated in version 20.1.0,
+                // and can no longer be used so we need to update our callback to use newer APIs.
+                fcmRegisterPushCode = "com.google.firebase.messaging.FirebaseMessaging.getInstance().getToken()\n" +
+                        "                    .addOnCompleteListener(new com.google.android.gms.tasks.OnCompleteListener<String>() {\n" +
+                        "                        @Override\n" +
+                        "                        public void onComplete(com.google.android.gms.tasks.Task<String> task) {\n" +
+                        "                            if (!task.isSuccessful()) {\n" +
+                        "                                if (com.codename1.impl.CodenameOneImplementation.getPushCallback() != null) {\n" +
+                        "                                    com.codename1.impl.CodenameOneImplementation.getPushCallback().pushRegistrationError(\"Failed to register push: \"+task.getException().getMessage(), 0);\n" +
+                        "                                }\n" +
+                        "                                return;\n" +
+                        "                            }\n" +
+                        "                            // Get the token\n" +
+                        "                            String token = task.getResult();\n" +
+                        "                            try {\n" +
+                        "                                com.codename1.io.Preferences.set(\"push_key\", \"cn1-fcm-\"+token);\n" +
+                        "                                if (com.codename1.impl.CodenameOneImplementation.getPushCallback() != null) {\n" +
+                        "                                    com.codename1.impl.CodenameOneImplementation.getPushCallback().registeredForPush(\"cn1-fcm-\"+token);\n" +
+                        "                                }\n" +
+                        "\n" +
+                        "                            } catch (Exception ex) {\n" +
+                        "                                if (com.codename1.impl.CodenameOneImplementation.getPushCallback() != null) {\n" +
+                        "                                    com.codename1.impl.CodenameOneImplementation.getPushCallback().pushRegistrationError(\"Failed to register push: \"+ex.getMessage(), 0);\n" +
+                        "                                }\n" +
+                        "                                System.out.println(\"Failed to get fcm token.\");\n" +
+                        "                                ex.printStackTrace();\n" +
+                        "                            }\n" +
+                        "                        }\n" +
+                        "                    });";
+            } else {
+                fcmRegisterPushCode = "try {\n" +
+                        "\n" +
+                        "                String token = com.google.firebase.iid.FirebaseInstanceId.getInstance().getToken();\n" +
+                        "                if (token != null) {\n" +
+                        "                    com.codename1.io.Preferences.set(\"push_key\", \"cn1-fcm-\"+token);\n" +
+                        "                    if (com.codename1.impl.CodenameOneImplementation.getPushCallback() != null) {\n" +
+                        "                        com.codename1.impl.CodenameOneImplementation.getPushCallback().registeredForPush(\"cn1-fcm-\"+token);\n" +
+                        "                    }\n" +
+                        "                } else {\n" +
+                        "                    java.util.Timer timer = new java.util.Timer();\n" +
+                        "                    timer.schedule(new java.util.TimerTask() {\n" +
+                        "                        public void run() {\n" +
+                        "                            runOnUiThread(new Runnable() {\n" +
+                        "                                public void run() {\n" +
+                        "                                    String token = com.google.firebase.iid.FirebaseInstanceId.getInstance().getToken();\n" +
+                        "                                    if (token != null) {\n" +
+                        "                                        com.codename1.io.Preferences.set(\"push_key\", \"cn1-fcm-\" + token);\n" +
+                        "                                        if (com.codename1.impl.CodenameOneImplementation.getPushCallback() != null) {\n" +
+                        "                                            com.codename1.impl.CodenameOneImplementation.getPushCallback().registeredForPush(\"cn1-fcm-\" + token);\n" +
+                        "                                        }\n" +
+                        "                                    }\n" +
+                        "                                }\n" +
+                        "                            });\n" +
+                        "                        }\n" +
+                        "                    }, 2000);\n" +
+                        "                }\n" +
+                        "            } catch (Exception ex) {\n" +
+                        "                if (com.codename1.impl.CodenameOneImplementation.getPushCallback() != null) {\n" +
+                        "                    com.codename1.impl.CodenameOneImplementation.getPushCallback().pushRegistrationError(\"Failed to register push: \"+ex.getMessage(), 0);\n" +
+                        "                }\n" +
+                        "                System.out.println(\"Failed to get fcm token.\");\n" +
+                        "                ex.printStackTrace();\n" +
+                        "            }";
+            }
+        }
+        try {
+            stubSourceCode +=
+                    "        }\n"
+                            + pendingPushReplayCode(pushVersion)
+                            + localNotificationCode
+                            + "        Display.getInstance().callSerially(new Runnable(){\n"
+                            + "            boolean wasStopped = (currentForm == null);\n"
+                            + "            Form currForm = currentForm;\n"
+                            + "            public void run() {\n"
+                            + "                Form displayForm = Display.getInstance().getCurrent();\n"
+                            + "                " + request.getMainClass() + "Stub.this.run(displayForm == null ? currForm : displayForm, wasStopped);\n"
+                            + "            }\n"
+                            + "        });\n"
+                            + "        synchronized(LOCK) {\n"
+                            + "            currentForm = null;\n"
+                            + "        }\n"
+                            + "    }\n\n"
+                            + inviteNewIntent
+                            + "    protected void onPause() {\n"
+                            + "        super.onPause();\n"
+                            + "        synchronized(LOCK) {\n"
+                            + "            currentForm = Display.getInstance().getCurrent();\n"
+                            + "        }\n"
+                            + "        running = false;\n"
+                            + "    }\n\n"
+                            + "    public void run(Form currentForm, boolean wasStopped) {\n"
+                            + "        if(firstTime) {\n"
+                            + "            firstTime = false;\n"
+                            + firebaseRegisterInstall
+                            + inviteDomainProperty
+                            + inviteRegisterInstall
+                            + svgRegistryInstall
+                            + "            i.init(this);\n"
+                            + fcmRegisterPushCode
+                            + "         } else {\n"
+                            + "             synchronized(LOCK) {\n"
+                            + "                 if(!wasStopped) {\n"
+                            + "                     if(currentForm instanceof Dialog) {\n"
+                            + "                         ((Dialog)currentForm).showModeless();\n"
+                            + "                     }else{\n"
+                            + "                         currentForm.show();\n"
+                            + "                     }\n"
+                            + "                     fireIntentResult();\n"
+                            + "                     setWaitingForResult(false);\n"
+                            + "                     return;\n"
+                            + "                 }\n"
+                            + "             }\n"
+                            + "         }\n"
+                            + createStartInvocation(request, "i")
+                            + "    }\n"
+                            + onStopCode
+                            + onDestroyCode
+                            + " public boolean onKeyDown(int keyCode, KeyEvent event){\n"
+                            + " return super.onKeyDown(keyCode, event);\n"
+                            + " }\n"
+                            + " public String getBase64EncodedPublicKey() {\n"
+                            + "     return d(LICENSE_KEY);\n"
+                            + " }\n"
+                            + consumableCode
+                            + "}\n";
+        } catch (Exception ex) {
+            throw new BuildException("Failure while generating stub source code", ex);
+        }
+
+        File androidImplDir = new File(srcDir, "com" + File.separator + "codename1" + File.separator + "impl" + File.separator + "android");
+        File stubUtilFile = new File(androidImplDir, "StubUtil.java");
+        if (stubUtilFile.exists()) {
+            try {
+                replaceInFile(stubUtilFile, "//!", "");
+                replaceInFile(stubUtilFile, "{{Stub}}", request.getPackageName() + "." + request.getMainClass() + "Stub");
+
+            } catch (IOException ex) {
+                throw new BuildException("Failed to update stub Util file", ex);
+            }
+        }
+        if (useHMS) {
+            File huaweiService = new File(stubFileSourceDir, "CN1HuaweiMessagingService.java");
+            String huaweiSource = "package " + request.getPackageName() + ";\n\n"
+                    + "public class CN1HuaweiMessagingService extends com.huawei.hms.push.HmsMessageService {\n"
+                    + "  @Override public void onNewToken(final String token) { super.onNewToken(token);\n"
+                    + "    com.codename1.io.Preferences.set(\"push_key\", \"cn1-hms-\" + token);\n"
+                    + "    final com.codename1.push.PushCallback cb = com.codename1.impl.CodenameOneImplementation.getPushCallback();\n"
+                    + "    if (cb != null) com.codename1.ui.Display.getInstance().callSerially(new Runnable(){ public void run(){ cb.registeredForPush(\"cn1-hms-\" + token); }});\n"
+                    + "  }\n"
+                    + "  @Override public void onMessageReceived(com.huawei.hms.push.RemoteMessage message) {\n"
+                    + "    String data = message.getData();\n"
+                    + "    if (data != null && data.length() > 0) {\n"
+                    + "      try {\n"
+                    + "        Object wrapped = new org.json.JSONObject(data).opt(\"cn1Envelope\");\n"
+                    + "        if (wrapped instanceof String && ((String)wrapped).length() > 0) data = (String)wrapped;\n"
+                    + "      } catch (org.json.JSONException ignored) {}\n"
+                    + "    }\n"
+                    + "    if (data != null && data.length() > 0) com.codename1.impl.android.AndroidImplementation.handleV3Push(\n"
+                    + "        data, this, com.codename1.impl.android.StubUtil.appIsRunning(), com.codename1.impl.android.StubUtil.getAppStubClass());\n"
+                    + "  }\n"
+                    + "}\n";
+            try (FileOutputStream out = new FileOutputStream(huaweiService)) {
+                out.write(huaweiSource.getBytes(StandardCharsets.UTF_8));
+            } catch (IOException ex) {
+                throw new BuildException("Failed to generate Huawei Push Kit service", ex);
+            }
+        }
+        boolean backgroundPushHandling = "true".equals(request.getArg("android.background_push_handling", "false"));
+        if (!useFCM && !useHMS) {
+            File pushServiceFileSourceFile = new File(stubFileSourceDir, "PushNotificationService.java");
+
+            String pushServiceOnCreate = "";
+            if (buildToolsVersionInt >= 26 && Integer.parseInt(targetNumber) >= 26) {
+                pushServiceOnCreate = "\n    @Override\n" +
+                        "    public void onCreate() {\n"
+                        + "        super.onCreate();\n"
+                        + "        setProperty(\"android.NotificationChannel.id\", \""+notificationChannelId+"\");\n"
+                        + "        setProperty(\"android.NotificationChannel.name\", \""+notificationChannelName+"\");\n"
+                        + "        setProperty(\"android.NotificationChannel.description\", \""+notificationChannelDescription+"\");\n"
+                        + "        setProperty(\"android.NotificationChannel.importance\", \""+notificationChannelImportance+"\");\n"
+                        + "        setProperty(\"android.NotificationChannel.enableLights\", \""+notificationChannelEnableLights+"\");\n"
+                        + "        setProperty(\"android.NotificationChannel.lightColor\", \""+notificationChannelLightColor+"\");\n"
+                        + "        setProperty(\"android.NotificationChannel.enableVibration\", \""+notificationChannelEnableVibration+"\");\n"
+                        + "        setProperty(\"android.NotificationChannel.vibrationPattern\", "+notificationChannelVibrationPattern+");\n"
+
+                        + "    }\n\n";
+
+            }
+
+            // The runtime test to use to determine if we should call the push() method immediately
+            // upon receiving the notification.  By default, we only send *immediately* if the app is
+            // in the foreground.  You can use the android.background_push_handling to allow
+            // immediate handling in the background as well.
+
+            String handlePushImmediatelyCheck = request.getMainClass() + "Stub.isRunning()";
+            String stubIsRunningCheck = handlePushImmediatelyCheck;
+            if (backgroundPushHandling) {
+                handlePushImmediatelyCheck += " || Display.isInitialized()";
+            }
+
+
+            String pushServiceSourceCode = "package " + request.getPackageName() + ";\n\n"
+                    + "import com.codename1.ui.*;\n"
+                    + "import com.codename1.push.PushCallback;\n\n"
+                    + "public class PushNotificationService extends com.codename1.impl.android.PushNotificationService {\n"
+                    + "    public PushCallback getPushCallbackInstance() {\n"
+                    + "         if(" + handlePushImmediatelyCheck + ") {\n"
+                    + "             " + request.getMainClass() + "Stub stub = " + request.getMainClass() + "Stub.getInstance();\n"
+                    + "             final " + appLifecycleClass(request) + " main = stub.getAppInstance();\n"
+                            + "             if(main instanceof PushCallback) {\n"
+                            + "                 return (PushCallback)main;\n"
+                            + "             }\n"
+                            + "             return com.codename1.impl.CodenameOneImplementation.getPushCallback();\n"
+                            + "         }\n"
+                    + "         return null;\n"
+                    + "    }\n\n"
+                    + "    public Class getStubClass() {\n"
+                    + "        return " + request.getMainClass() + "Stub.class;\n"
+                    + "    }\n"
+                    + pushServiceOnCreate
+
+                    + "}\n";
+
+            File pushFileSourceFile = new File(stubFileSourceDir, "PushReceiver.java");
+
+            String vibrateCode = "";
+            if (request.getArg("android.pushVibratePattern", null) != null) {
+                String pattern = request.getArg("android.pushVibratePattern", null);
+                pattern = pattern.trim();
+                StringTokenizer token = new StringTokenizer(pattern, ",");
+                if (token.countTokens() > 0) {
+                    try {
+                        while (token.hasMoreElements()) {
+                            String t = (String) token.nextToken();
+                            t = t.trim();
+                            Long.parseLong(t);
+                        }
+                        vibrateCode = "mNotifyBuilder.setVibrate(new long[]{" + pattern + "});";
+                    } catch (Exception e) {
+                        //the pattern is not valid
+                    }
+
+                }
+            }
+
+            String pushSound = "";
+            if (request.getArg("android.pushSound", null) != null) {
+                String soundPath = request.getArg("android.pushSound", null).toLowerCase();
+                pushSound = "mNotifyBuilder.setSound(android.net.Uri.parse(\"android.resource://" + request.getPackageName() + "/raw/" + soundPath + "\"));";
+            }
+
+            String pushReceiverSourceCode = "package " + request.getPackageName() + ";\n\n"
+                    + "import com.codename1.ui.*;\n\n"
+                    + "import android.os.Bundle;\n\n"
+                    + "import com.codename1.system.*;\n"
+                    + "import com.codename1.impl.android.CodenameOneActivity;\n\n"
+                    + "import com.codename1.impl.android.AndroidImplementation;\n\n"
+                    + "import com.codename1.system.NativeLookup;\n\n"
+                    + "import com.codename1.io.ConnectionRequest;\n\n"
+                    + "import com.codename1.io.Preferences;\n\n"
+                    + "import com.codename1.io.NetworkManager;\n\n"
+                    + "import com.codename1.push.PushCallback;\n\n"
+                    + "import java.io.InputStream;\n"
+                    + "import java.io.DataInputStream;\n"
+                    + "import java.io.IOException;\n"
+                    + "import android.app.Notification;\n"
+                    + "import android.app.NotificationManager;\n"
+                    + "import android.app.PendingIntent;\n"
+                    + "import android.content.BroadcastReceiver;\n"
+                    + "import android.content.Context;\n"
+                    + "import android.content.Intent;\n"
+                    + "import android.telephony.TelephonyManager;\n"
+                    + "import android.content.SharedPreferences.Editor;\n"
+                    + "import android.app.NotificationManager\n;"
+                    + "import android.app.Activity;\n"
+                    + "import com.codename1.impl.android.PushNotificationService;\n"
+                    + "import com.codename1.ui.*;\n"
+                    + "import android.graphics.Bitmap;\n"
+                    + "import android.graphics.drawable.BitmapDrawable;\n"
+                    + "import android.graphics.drawable.Drawable;\n"
+                    + "import "+xclass("android.support.v4.app.NotificationCompat")+".Builder;\n"
+                    + "import "+xclass("android.support.v4.app.NotificationCompat")+";\n"
+                    + "import android.media.RingtoneManager;\n"
+                    + "import android.net.Uri;\n\n"
+                    + "public class PushReceiver extends BroadcastReceiver {\n"
+                    + "     public static final String C2DM_MESSAGE_TYPE_EXTRA = \"messageType\";\n"
+                    + "     public static final String C2DM_MESSAGE_EXTRA = \"message\";\n"
+                    + "     public static final String C2DM_MESSAGE_IMAGE = \"image\";\n"
+                    + "     public static final String C2DM_MESSAGE_CATEGORY = \"category\";\n"
+                    + "     public static final String BUILD_KEY = \"" + buildKeyEncoded(request) + "\"\n;"
+                    + "     public static final String PACKAGE_NAME = \"" + request.getPackageName() + "\"\n;"
+                    + "     public static final String BUILT_BY_USER = \"" + xorEncode(request.getUserName()) + "\"\n;"
+                    + "	private static String KEY = \"c2dmPref\";\n"
+                    + "     private static String REGISTRATION_KEY = \"registrationKey\";"
+                    + "     private Context context;\n\n";
+
+            pushReceiverSourceCode += decodeFunction();
+
+            boolean includePushContent = true;
+
+
+
+            pushReceiverSourceCode += "     @Override\n"
+                    + "     public void onReceive(Context context, Intent intent) {\n"
+                    + "         this.context = context;\n"
+                    + "         if (intent.getAction().equals(\"com.google.android.c2dm.intent.REGISTRATION\")) {\n"
+                    + "             handleRegistration(context, intent);\n"
+                    + "             return;\n"
+                    + "         }\n"
+                    + "         if (intent.getAction().equals(\"com.google.android.c2dm.intent.RECEIVE\")) {\n"
+                    + "             handleMessage(context, intent);\n"
+                    + "             return;\n"
+                    + "         }\n"
+                    + "         if (intent.getAction().equals(Intent.ACTION_BOOT_COMPLETED)) {\n"
+                    + "             if(!com.codename1.impl.android.AndroidImplementation.hasAndroidMarket(context)) {\n"
+                    + "                 PushNotificationService.startServiceIfRequired(" + request.getPackageName() + ".PushNotificationService.class, context);\n"
+                    + "             }\n"
+                    + "             return;\n"
+                    + "         }\n"
+                    + "     }\n\n"
+                    + "     private void handleRegistration(Context context, Intent intent) {\n"
+                    + "         final String registration = intent.getStringExtra(\"registration_id\");\n"
+                    + "         System.out.println(\"Push handleRegistration() received: \" + registration);\n"
+                    + "         " + request.getMainClass() + "Stub stub = " + request.getMainClass() + "Stub.getInstance();\n"
+                    + "         if (intent.getStringExtra(\"error\") != null) {\n"
+                    + "             final String error = intent.getStringExtra(\"error\");\n"
+                    + "             System.out.println(\"Push handleRegistration() error: \" + error);\n"
+                    + "             final " + appLifecycleClass(request) + " main = stub.getAppInstance();\n"
+                    + "             if(main instanceof PushCallback) {\n"
+                    + "                 Display.getInstance().callSerially(new Runnable() {\n"
+                    + "                     public void run() {\n"
+                    + "                         ((PushCallback)main).pushRegistrationError(error, 0);\n"
+                    + "                     }\n"
+                    + "                 });\n"
+                    + "             }\n"
+                    + "         } else if (intent.getStringExtra(\"unregistered\") != null) {\n // do something??? \n"
+                    + "             System.out.println(\"Push deregistered!\");\n"
+                    + "         } else if (registration != null) {\n"
+                    + "             System.out.println(\"Push handleRegistration() Sending registration to server!\");\n"
+                    + "             Editor editor = context.getSharedPreferences(KEY, Context.MODE_PRIVATE).edit();\n"
+                    + "             editor.putString(REGISTRATION_KEY, registration);\n"
+                    + "             Preferences.set(\"push_key\", registration);\n"
+                    + "             editor.commit();\n"
+                    + "             com.codename1.impl.android.AndroidImplementation.registerPushOnServer(registration, d(BUILT_BY_USER) + '/' + PACKAGE_NAME, (byte)1, \"\", \"" + request.getPackageName() + "\");\n"
+                    + "             final " + appLifecycleClass(request) + " main = stub.getAppInstance();\n"
+                    + "             if(main instanceof PushCallback) {\n"
+                    + "                 Display.getInstance().callSerially(new Runnable() {\n"
+                    + "                     public void run() {\n"
+                    + "                         ((PushCallback)main).registeredForPush(registration);\n"
+                    + "                     }\n"
+                    + "                 });\n"
+                    + "             }\n"
+                    + "         }\n"
+                    + "     }\n\n"
+                    + "     private android.graphics.Bitmap getBitmapfromUrl(String imageUrl) {\n" +
+                    "        try {\n" +
+                    "            java.net.URL url = new java.net.URL(imageUrl);\n" +
+                    "            java.net.HttpURLConnection connection = (java.net.HttpURLConnection) url.openConnection();\n" +
+                    "            connection.setDoInput(true);\n" +
+                    "            connection.connect();\n" +
+                    "            InputStream input = connection.getInputStream();\n" +
+                    "            Bitmap bitmap = android.graphics.BitmapFactory.decodeStream(input);\n" +
+                    "            return bitmap;\n" +
+                    "\n" +
+                    "        } catch (Exception e) {\n" +
+                    "            // TODO Auto-generated catch block\n" +
+                    "            e.printStackTrace();\n" +
+                    "            return null;\n" +
+                    "\n" +
+                    "        }\n" +
+                    "    }\n\n"
+                    + "     private void handleMessage(final Context context, Intent intent) {\n"
+                    + "         final String messageType = intent.getExtras().getString(C2DM_MESSAGE_TYPE_EXTRA);\n"
+                    + "         final String message = intent.getExtras().getString(C2DM_MESSAGE_EXTRA);\n"
+                    + "         final String image = intent.getExtras().getString(C2DM_MESSAGE_IMAGE);\n"
+                    + "         final String category = intent.getExtras().getString(C2DM_MESSAGE_CATEGORY);\n"
+                    + "         System.out.println(\"Push message received: \" + message);\n"
+                    + "         System.out.println(\"Push type: \" + messageType);\n"
+                    + "         System.out.println(\"Is running: \" + " + request.getMainClass() + "Stub.isRunning());\n"
+                    + "         if(" + handlePushImmediatelyCheck +") {\n"
+                    + "             " + request.getMainClass() + "Stub stub = " + request.getMainClass() + "Stub.getInstance();\n"
+                    + "             final " + appLifecycleClass(request) + " main = stub.getAppInstance();\n"
+                    + "             if(main instanceof PushCallback) {\n"
+                    + "                 Display.getInstance().setProperty(\"pushType\", messageType);\n";
+
+
+
+            pushReceiverSourceCode +=
+                    "                 Display.getInstance().callSerially(new Runnable() {\n"
+                            + "                     public void run() {\n";
+
+            if (includePushContent) {
+                pushReceiverSourceCode +=
+                        "                         com.codename1.impl.android.AndroidImplementation.initPushContent(message, image, messageType, category, context);\n";
+            }
+
+            pushReceiverSourceCode +=
+
+                    "                         if(messageType != null && (Integer.parseInt(messageType) == 3 || Integer.parseInt(messageType) == 6) ) {\n"
+                            + "                             String[] a = message.split(\";\");\n";
+
+
+            pushReceiverSourceCode
+                    += "                             ((PushCallback)main).push(a[0]);\n"
+                    + "                             ((PushCallback)main).push(a[1]);\n"
+                    + "                             return;\n"
+                    + "                         } else if (\"101\".equals(messageType)) {\n" +
+                    "                            ((PushCallback) main).push(message.substring(message.indexOf(\" \")+1));\n" +
+                    "                            return;\n" +
+                    "                        }\n";
+
+            pushReceiverSourceCode +=
+                    "                         ((PushCallback)main).push(message);\n"
+                            + "                     }\n"
+                            + "                 });\n"
+                            + "             }\n"
+                            + "         }"
+                            + "         if (!"+stubIsRunningCheck+") {\n"
+                            + "             ";
+
+            pushReceiverSourceCode +=
+                    "             com.codename1.impl.android.AndroidImplementation.appendNotification(messageType, message, image, category, context);\n";
+
+            pushReceiverSourceCode +=
+                    "             int badgeNumber = -1;\n" +
+                            "             if (\"101\".equals(messageType)) {\n" +
+                            "                 badgeNumber = Integer.parseInt(message.substring(0, message.indexOf(\" \")));\n" +
+                            "\n" +
+                            "             }"
+                            + "if(messageType == null || messageType.length() == 0 || Integer.parseInt(messageType) < 2 || messageType.equals(\"3\") || messageType.equals(\"4\") || messageType.equals(\"5\") || messageType.equals(\"6\") || messageType.equals(\"101\")) {\n"
+                            + "                 String actualMessage = message;\n"
+                            + "             if (\"101\".equals(messageType)) {\n" +
+                            "                     actualMessage = message.substring(message.indexOf(\" \")+1);\n" +
+                            "                 }"
+                            + "                 String title = \"" + request.getDisplayName() + "\";\n"
+                            + "                 if(messageType != null && (Integer.parseInt(messageType) == 3 || Integer.parseInt(messageType) == 6)) {\n"
+                            + "                     String[] a = message.split(\";\");\n"
+                            + "                     actualMessage = a[0];\n"
+                            + "                 }\n"
+                            + "                if (messageType != null && Integer.parseInt(messageType) == 4) {\n"
+                            + "                    String[] a = message.split(\";\");\n"
+                            + "                    title = a[0];\n"
+                            + "                    actualMessage = a[1];\n"
+                            + "                }\n"
+                            + "                 NotificationManager nm = (NotificationManager)context.getSystemService(Activity.NOTIFICATION_SERVICE);\n"
+                            + "                 Intent newIntent = new Intent(context, " + request.getMainClass() + "Stub.class);\n"
+                            + "                 PendingIntent contentIntent = PendingIntent.getActivity(context, 0, newIntent, PendingIntent.FLAG_CANCEL_CURRENT);\n"
+                            + "                 Drawable myIcon = context.getResources().getDrawable(R.drawable.icon);\n"
+                            + "                 Bitmap icon = ((BitmapDrawable) myIcon).getBitmap();\n"
+                            + "                 int notifyID = 1;\n"
+                            + "                 Builder mNotifyBuilder = new NotificationCompat.Builder(context)\n"
+                            + "                         .setContentTitle(title)\n"
+                            + "                         .setSmallIcon(R.drawable.ic_stat_notify)\n"
+                            + "                         .setLargeIcon(icon)\n"
+                            + "                         .setContentIntent(contentIntent)\n"
+                            + "                         .setAutoCancel(true)\n"
+                            + "                         .setWhen(System.currentTimeMillis())\n"
+                            + "                         .setTicker(actualMessage);\n"
+                            + vibrateCode
+                            + "                 if (messageType == null || (Integer.parseInt(messageType) != 5 && Integer.parseInt(messageType) != 6)) {\n"
+                            + "                     Uri alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);\n"
+                            + "                     mNotifyBuilder.setSound(alarmSound);\n"
+                            + pushSound
+                            + "                 }\n"
+                            + "                 if(android.os.Build.VERSION.SDK_INT >= 21){\n" +
+                            "                     mNotifyBuilder.setCategory(\"Notification\");\n" +
+                            "                 }\n";
+            if (buildToolsVersionInt >= 26 && Integer.parseInt(targetNumber) >= 26) {
+                pushReceiverSourceCode += "                com.codename1.impl.android.AndroidImplementation.setNotificationChannel(nm, mNotifyBuilder, context);\n";
+            }
+            pushReceiverSourceCode +=
+                    "                 String[] messages = com.codename1.impl.android.AndroidImplementation.getPendingPush(messageType, context);\n"
+                            + "                 int numMessages = messages.length;\n"
+                            + "                 if (numMessages == 1) {\n"
+                            + "                     mNotifyBuilder.setContentText(messages[0]);\n"
+                            + "                 } else {\n"
+                            + "                         NotificationCompat.InboxStyle inboxStyle = new NotificationCompat.InboxStyle();\n"
+                            + "                         for (int i = 0; i < messages.length; i++) {\n"
+                            + "                             inboxStyle.addLine(messages[i]);\n"
+                            + "                         }\n"
+                            + "                         mNotifyBuilder.setStyle(inboxStyle);\n"
+                            + "                 }\n"
+                            + "     if(android.os.Build.VERSION.SDK_INT >= 22) {\n"
+                            + "         if (badgeNumber >= 0) {\n"
+                            + "             mNotifyBuilder.setNumber(badgeNumber);\n"
+                            + "         } else {\n"
+                            + "                 mNotifyBuilder.setNumber(numMessages);\n"
+                            + "         }\n"
+                            + "     }\n";
+
+
+
+            pushReceiverSourceCode +=
+                    "                 if (category != null && numMessages == 1) {\n" +
+                            "                     try {\n" +
+                            "                         AndroidImplementation.addActionsToNotification(null, category, mNotifyBuilder, newIntent, context);\n" +
+                            "                     } catch (java.io.IOException ex) {\n" +
+                            "                         ex.printStackTrace();\n" +
+                            "                     }\n" +
+                            "                 }"
+                            + "                 if (image != null && numMessages == 1) {\n" +
+                            "                     final Builder fNotifyBuilder = mNotifyBuilder;\n" +
+                            "                     final int fNotifyID = notifyID;\n" +
+                            "                     final NotificationManager fnm = nm;\n" +
+                            "                     android.os.AsyncTask.execute(new Runnable() {\n" +
+                            "                         public void run() {\n" +
+                            "                             fNotifyBuilder.setStyle(new NotificationCompat.BigPictureStyle()\n" +
+                            "                                     .bigPicture(getBitmapfromUrl(image)));/*Notification with Image*/\n" +
+                            "                             fnm.notify(fNotifyID, fNotifyBuilder.build());\n" +
+                            "                         }\n" +
+                            "                     });\n" +
+                            "\n" +
+                            "               } else {\n" +
+                            "                     nm.notify(notifyID, mNotifyBuilder.build());\n" +
+                            "               }\n";
+
+            pushReceiverSourceCode +=
+                    "             }\n"
+                            + "         }\n"
+                            + "    }\n"
+                            + "}\n";
+
+
+            if (pushPermission) {
+                try {
+                    OutputStream pushSourceStream = new FileOutputStream(pushFileSourceFile);
+                    pushSourceStream.write(pushReceiverSourceCode.getBytes(StandardCharsets.UTF_8));
+                    pushSourceStream.close();
+
+                    OutputStream pushServiceSourceStream = new FileOutputStream(pushServiceFileSourceFile);
+                    pushServiceSourceStream.write(pushServiceSourceCode.getBytes(StandardCharsets.UTF_8));
+                    pushServiceSourceStream.close();
+                } catch (IOException ex) {
+                    throw new BuildException("Failed to generate push file", ex);
+                }
+            }
+        } else {
+            InputStream is = null;
+            OutputStream os = null;
+            debug("Generating FirebaseMessagingService...");
+            File fcmMessagingServiceFile = new File(androidImplDir, "CN1FirebaseMessagingService.java");
+
+            try {
+                String fireBaseMessagingServiceSourcePath = "CN1FirebaseMessagingService.javas";
+
+                fireBaseMessagingServiceSourcePath = "CN1FirebaseMessagingService7.javas";
+
+                is = getClass().getResourceAsStream(fireBaseMessagingServiceSourcePath);
+                os = new FileOutputStream(fcmMessagingServiceFile);
+                copy(is, os);
+            } catch (IOException ex) {
+                error("Failed to generate FirebaseMessagingService", ex);
+                throw new BuildException("Failed to generate FirebaseMessagingService", ex);
+            } finally {
+                if (is != null) {
+                    try {
+                        is.close();
+                    } catch (Throwable t){}
+                }
+                if (os != null) {
+                    try {
+                        os.close();
+                    } catch (Throwable t){}
+                }
+            }
+            try {
+                replaceInFile(fcmMessagingServiceFile, "{{DISPLAY_NAME}}", request.getDisplayName());
+                if (backgroundPushHandling) {
+                    replaceInFile(fcmMessagingServiceFile, "allowBackgroundPush = false;", "allowBackgroundPush = true;");
+                }
+            } catch (IOException ex) {
+                throw new BuildException("Failed to update FCM messaging service with app details", ex);
+            }
+        }
+        try {
+            OutputStream stubSourceStream = new FileOutputStream(stubFileSourceFile);
+            stubSourceStream.write(stubSourceCode.getBytes(StandardCharsets.UTF_8));
+            stubSourceStream.close();
+        } catch (IOException ex) {
+            throw new BuildException("Failed to write stub source file", ex);
+        }
+        // Kept so the companion Wear module can derive its own stub from it. The stub is typed
+        // throughout to the lifecycle class it starts, so a subclass cannot re-root it -- the
+        // watch one is the same generated source with a different entry point substituted.
+        generatedStubSource = stubSourceCode;
+
+        try {
+            File projectPropertiesFile = new File(projectDir, "project.properties");
+            Properties projectPropertiesObject = new Properties();
+            if (projectPropertiesFile.exists()) {
+                FileInputStream fi = new FileInputStream(projectPropertiesFile);
+                projectPropertiesObject.load(fi);
+                fi.close();
+            }
+            projectPropertiesObject.setProperty("proguard.config", "proguard.cfg");
+            if (request.getArg("android.enableProguard", "true").equals("false")) {
+                projectPropertiesObject.remove("proguard.config");
+            }
+            projectPropertiesObject.setProperty("dex.force.jumbo", "true");
+
+            FileOutputStream projectPropertiesOutputStream = new FileOutputStream(projectPropertiesFile);
+            projectPropertiesObject.store(projectPropertiesOutputStream, "Project properties for android build generated by Codename One");
+            projectPropertiesOutputStream.close();
+        } catch (IOException ex) {
+            throw new BuildException("Failed to write project properties", ex);
+        }
+
+        String dontObfuscate = "";
+        if (request.getArg("android.enableProguard", "true").equals("false")) {
+            dontObfuscate = "-dontobfuscate\n";
+        }
+
+        String keepOverride = request.getArg("android.proguardKeepOverride", "Exceptions, InnerClasses, Signature, Deprecated, SourceFile, LineNumberTable, *Annotation*, EnclosingMethod");
+        // On a build the engine actually hardened, strip SourceFile from R8's kept attributes for
+        // DexGuard parity (the retrace reconstructs the file name from the retraced class;
+        // LineNumberTable is kept so lines still retrace). Gate on the VERIFIED cn1.hardened output
+        // (set only after a successful, entitled engine run), so an opt-out build (harden.and.enabled
+        // =off/0, or a level whose transforms are all disabled -> engine declines) keeps its
+        // metadata. Only when the developer didn't supply their own attribute list.
+        if ("true".equals(request.getArg("cn1.hardened", "false"))
+                && request.getArg("android.proguardKeepOverride", null) == null) {
+            keepOverride = keepOverride.replace("SourceFile, ", "").replace(", SourceFile", "").replace("SourceFile,", "");
+        }
+
+        String keepFirebase = "-keep class com.google.android.gms.** { *; }\n\n" +
+                "-keep class com.google.firebase.** { *; }\n\n";
+        String keepAi = visionSupport || languageSupport || inferenceSupport
+                ? "-keep class com.codename1.impl.android.ai.** { *; }\n\n"
+                : "";
+        String keepInferenceRuntime =
+                androidInferenceProguardRules(inferenceSupport);
+        // workaround broken optimizer in proguard
+        String proguardConfigOverride = "-dontusemixedcaseclassnames\n"
+                + "-dontskipnonpubliclibraryclasses\n"
+                + "-dontpreverify\n"
+                + "-verbose\n"
+                + "-dontoptimize\n"
+                + dontObfuscate
+                + "\n"
+                + "-dontwarn com.google.android.gms.**\n"
+                + keepFirebase
+                + keepAi
+                + keepInferenceRuntime
+                + "-keep class com.codename1.impl.android.AndroidBrowserComponentCallback {\n"
+                + "*;\n"
+                + "}\n\n"
+                + "-keep class com.codename1.impl.android.AndroidNativeUtil {\n"
+                + "*;\n"
+                + "}\n\n"
+                + "-keepclassmembers class **.R$* {\n"
+                + " public static <fields>;\n"
+                + "}\n\n"
+                + "-keep class **.R$*\n"
+                + "-keep public class * extends android.app.Activity\n"
+                + "-keep public class * extends android.app.Application\n"
+                + "-keep public class * extends android.app.Service\n"
+                + "-keep public class * extends android.content.BroadcastReceiver\n"
+                + "-keep public class * extends android.content.ContentProvider\n"
+                + "-keep public class * extends android.app.backup.BackupAgentHelper\n"
+                + "-keep public class * extends android.preference.Preference\n"
+                + "-keep public class com.android.vending.licensing.ILicensingService\n\n"
+                + "-keep public class "+xclass("android.support.v4.app.RemoteInput")+" {*;}\n"
+                + "-keep public class "+xclass("android.support.v4.app.RemoteInput")+"$Builder {*;}\n"
+                + "-keep public class "+xclass("android.support.v4.app.NotificationCompat")+"$Builder {*;}\n"
+                + "-keep public class "+xclass("android.support.v4.app.NotificationCompat")+"$Action {*;}\n"
+                + "-keep public class "+xclass("android.support.v4.app.NotificationCompat")+"$Action$Builder {*;}\n"
+                + "-keepclasseswithmembernames class * {\n"
+                + "    native <methods>;\n"
+                + "}\n\n"
+                + "-keepclasseswithmembers class * {\n"
+                + "    public <init>(android.content.Context, android.util.AttributeSet);\n"
+                + "}\n\n"
+                + "-keepclasseswithmembers class * {\n"
+                + "    public <init>(android.content.Context, android.util.AttributeSet, int);\n"
+                + "}\n\n"
+                + "-keepclassmembers class * extends android.app.Activity {\n"
+                + "    public void *(android.view.View);\n"
+                + "}\n\n"
+                + "-keepclassmembers enum * {\n"
+                + "    public static **[] values();\n"
+                + "    public static ** valueOf(java.lang.String);\n"
+                + "}\n\n"
+                + "-keep class * implements android.os.Parcelable {\n"
+                + "    public static final android.os.Parcelable$Creator *;\n"
+                + "}\n"
+                + "-keep class com.apperhand.common.** {\n"
+                + "*;\n"
+                + "}\n\n"
+                + "-keep class com.apperhand.device.android.EULAActivity$EulaJsInterface {\n"
+                + "*;\n"
+                + "}\n\n"
+                + "-keepclassmembers public class "+xclass("android.support.v4.app.NotificationCompat")+"$Builder {\n"
+                + "    public "+xclass("android.support.v4.app.NotificationCompat")+"$Builder setChannelId(java.lang.String);\n"
+                + "}\n\n"
+                + "-keep class **Stub { *; }\n\n" // Because there have been cases where release builds were stripping out native interfaces
+                // Surfaces: the generated widget providers are resolved by name from the
+                // manifest and from the class-name convention in AndroidSurfaceBridge, and the
+                // runtime package is reached from generated code; neither may be renamed.
+                + (usesSurfaces
+                        ? "-keep class com.codename1.impl.android.CN1Widget_* { *; }\n\n"
+                        + "-keep class com.codename1.impl.android.surfaces.** { *; }\n\n"
+                        : "")
+                // Intents: a headless shortcut can start CN1IntentService into a dead process,
+                // where the main Activity -- which is where the generated bootstrap is spliced
+                // -- never runs. The service loads it by name instead, so the name has to
+                // survive R8.
+                + (usesIntents ? "-keep class cn1app.IntentBootstrap { *; }\n\n" : "")
+                // Biometrics: AndroidBiometrics picks its backend by name at
+                // class-init, because no single compileSdk can compile both
+                // packages (see pruneBiometricSourcesForCompileSdk). The name
+                // is a constant string at the Class.forName call so R8 keeps
+                // the class on its own, and this states it outright rather
+                // than resting on that inference.
+                + (usesBiometrics
+                        ? "-keep class com.codename1.impl.android.biometrics.** { *; }\n\n"
+                        + "-keep class com.codename1.impl.android.fingerprint.** { *; }\n\n"
+                        : "")
+                + facebookProguard
+                + " " + request.getArg("android.proguardKeep", "") + "\n"
+                // App-hardening keep rules for R8. On Android the engine does not rename (R8 is the
+                // sole renamer), so the user's harden.keep and the name-bound property-object rule
+                // must reach R8 here or a dynamically-resolved class can still be renamed and fail
+                // only in the hardened release.
+                + hardeningR8Keep(request)
+                + (usesHealthStore
+                        ? HealthManifestFragments.proguardKeepRules(
+                                new java.util.ArrayList<String>(
+                                        healthScan.resolve().keySet()))
+                        : "")
+                + googlePlayObfuscation
+                + "-keep class com.google.mygson.**{\n"
+                + "*;\n"
+                + "}\n\n"
+                + "-dontwarn android.support.**\n"
+                + "-dontwarn androidx.**\n"
+                + "-dontwarn com.google.ads.**\n"
+                + "-keepattributes " + keepOverride;
+
+        String gradleObfuscate = "";
+        File proguardConfigOverrideFile = new File(projectDir, "proguard.cfg");
+        proguardConfigOverrideFile.delete();
+        if (request.getArg("android.enableProguard", "true").equals("true")) {
+            try {
+                createFile(proguardConfigOverrideFile, proguardConfigOverride.getBytes(StandardCharsets.UTF_8));
+            } catch (IOException ex) {
+                throw new BuildException("Failed to create proguard config file", ex);
+            }
+
+            gradleObfuscate = "            minifyEnabled true\n"
+                    + (request.getArg("android.shrinkResources", "false").equals("true") ? "            shrinkResources true\n" : "")
+                    + "            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard.cfg'\n";
+        }
+
+        HashMap<String, String> env = new HashMap<String, String>();
+        env.put("ANDROID_HOME", androidSDKDir.getAbsolutePath());
+        env.put("SLAVE_AAPT_TIMEOUT", "20");
+        env.put("JAVA_HOME", getGradleJavaHome());
+
+        request.putArgument("var.android.playServicesVersion", playServicesVersion);
+        String additionalDependencies = request.getArg("gradleDependencies", "");
+        additionalDependencies += healthGradleDependency;
+        if (smartHomeGradleArtifact.length() > 0) {
+            // Built here rather than where the artifact is chosen: `compile`
+            // is decided a few hundred lines below that, and a legacy project
+            // -- android.useGradle8=false without AndroidX -- fails
+            // evaluating a build.gradle that says implementation.
+            additionalDependencies += "    " + compile + " '"
+                    + smartHomeGradleArtifact + "'\n";
+        }
+        if (facebookSupported) {
+            minSDK = maxInt("15", minSDK);
+
+            if(request.getArg("android.excludeBolts", "false").equals("true")) {
+                additionalDependencies +=
+                        " "+compile+" ('com.facebook.android:facebook-android-sdk:" +
+                                facebookSdkVersion + "'){ exclude module: 'bolts-android' }\n";
+            } else {
+                additionalDependencies +=
+                        " "+compile+" 'com.facebook.android:facebook-android-sdk:" +
+                                facebookSdkVersion + "'\n";
+            }
+        }
+
+        if (legacyGplayServicesMode) {
+            additionalDependencies += " "+compile+" 'com.google.android.gms:play-services:6.5.87'\n";
+            if (playServicesWear) {
+                // The 6.5.87 monolith predates the Wearable Data Layer split, so it carries no
+                // MessageClient/DataClient -- but it DOES carry older copies of the shared wearable
+                // classes, so adding the modern artifact beside it produces duplicate classes at
+                // dex time rather than a working build. There is no combination of the two that
+                // works, so say which setting to drop instead of failing later and obscurely.
+                throw new BuildException("android.includeGPlayServices=true pins the legacy "
+                        + "play-services 6.5.87 bundle, which predates the Wearable Data Layer and "
+                        + "conflicts with the modern play-services-wearable that "
+                        + "com.codename1.wearable needs. Remove android.includeGPlayServices to "
+                        + "build the wearable API, or remove the com.codename1.wearable usage.");
+            }
+        } else {
+            if(playServicesPlus){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-plus:"+getDefaultPlayServiceVersion("plus")+"'\n";
+            }
+            if(playServicesAuth){
+                String playServiceAuthVersion = newFirebaseMessaging
+                        ? "20.6.0"
+                        : getDefaultPlayServiceVersion("auth");
+
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-auth:"+playServiceAuthVersion+"'\n";
+            }
+            if(playServicesBase){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-base:"+getDefaultPlayServiceVersion("base")+"'\n";
+            }
+            if(playServicesIdentity){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-identity:"+getDefaultPlayServiceVersion("identity")+"'\n";
+            }
+            if(playServicesIndexing){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-appindexing:"+getDefaultPlayServiceVersion("appindexing")+"'\n";
+            }
+            if(playServicesInvite){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-appinvite:"+getDefaultPlayServiceVersion("appinvite")+"'\n";
+            }
+            if(playServicesAnalytics){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-analytics:"+getDefaultPlayServiceVersion("analytics")+"'\n";
+            }
+            if(playServicesCast){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-cast:"+getDefaultPlayServiceVersion("cast")+"'\n";
+            }
+            if(playServicesGcm){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-gcm:"+getDefaultPlayServiceVersion("gcm")+"'\n";
+            }
+            if(playServicesDrive){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-drive:"+getDefaultPlayServiceVersion("drive")+"'\n";
+            }
+            if(playServicesFit){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-fitness:"+getDefaultPlayServiceVersion("fit")+"'\n";
+            }
+            if(playServicesLocation){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-location:"+getDefaultPlayServiceVersion("location")+"'\n";
+            }
+            if(playServicesMaps){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-maps:"+getDefaultPlayServiceVersion("maps")+"'\n";
+            }
+            if(playServicesAds){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-ads:"+getDefaultPlayServiceVersion("ads")+"'\n";
+            }
+            if(playServicesVision){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-vision:"+getDefaultPlayServiceVersion("vision")+"'\n";
+            }
+            if(playServicesNearBy){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-nearby:"+getDefaultPlayServiceVersion("nearby")+"'\n";
+            }
+            if(playServicesSafetyPanorama){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-panaroma:"+getDefaultPlayServiceVersion("panorama")+"'\n";
+            }
+            if(playServicesGames){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-games:"+getDefaultPlayServiceVersion("games")+"'\n";
+            }
+            if(playServicesSafetyNet){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-safenet:"+getDefaultPlayServiceVersion("safenet")+"'\n";
+            }
+            if(playServicesWallet){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-wallet:"+getDefaultPlayServiceVersion("wallet")+"'\n";
+            }
+            if(playServicesWear){
+                additionalDependencies += " "+compile+" 'com.google.android.gms:play-services-wearable:"+getDefaultPlayServiceVersion("wearable")+"'\n";
+            }
+        }
+
+        if (purchasePermissions) {
+
+            // Resolved earlier, with the minSdk raise, because the manifest that carries
+            // minSdkVersion is written before this point.
+            additionalDependencies += " implementation 'com.android.billingclient:billing:"+billingClientVersion+"'\n";
+        }
+
+        // Play In-App Review library, added only when the app references the
+        // app-review API (detected during the class scan above).
+        if (usesAppReview) {
+            String reviewVersion = request.getArg("android.appReview.version", "2.0.1");
+            additionalDependencies += " implementation 'com.google.android.play:review:"+reviewVersion+"'\n";
+        }
+
+        // OidcClient routes sign-in through androidx.browser Custom Tabs.
+        // Pull the browser dep in automatically when the app references
+        // anything in com.codename1.io.oidc -- otherwise apps that don't
+        // touch the API pay nothing.
+        if (usesOidc && useAndroidX) {
+            String customTabsVersion = request.getArg("android.customTabsVersion", "1.8.0");
+            if (!additionalDependencies.contains("androidx.browser:browser")
+                    && !request.getArg("android.gradleDep", "").contains("androidx.browser:browser")) {
+                additionalDependencies +=
+                        " implementation 'androidx.browser:browser:" + customTabsVersion + "'\n";
+            }
+        }
+
+        // WebAuthn / passkeys drive androidx.credentials.CredentialManager.
+        // Passkey support on devices without a system-level provider also
+        // requires credentials-play-services-auth, so we inject both here.
+        // The versions can be overridden by the user via build hints.
+        if (usesWebauthn && useAndroidX) {
+            String credentialsVersion = request.getArg(
+                    "android.credentialsVersion", "1.3.0");
+            String credentialsPlayVersion = request.getArg(
+                    "android.credentialsPlayServicesVersion", credentialsVersion);
+            if (!additionalDependencies.contains("androidx.credentials:credentials")
+                    && !request.getArg("android.gradleDep", "")
+                            .contains("androidx.credentials:credentials")) {
+                additionalDependencies +=
+                        " implementation 'androidx.credentials:credentials:"
+                                + credentialsVersion + "'\n";
+                additionalDependencies +=
+                        " implementation 'androidx.credentials:credentials-play-services-auth:"
+                                + credentialsPlayVersion + "'\n";
+            }
+        }
+
+        String useLegacyApache = "";
+        if (request.getArg("android.apacheLegacy", "false").equals("true")) {
+            useLegacyApache = " useLibrary 'org.apache.http.legacy'\n";
+        }
+
+        String multidex = "";
+        if (request.getArg("android.multidex", "true").equals("true")) {
+            multidex = "        multiDexEnabled true\n";
+            String multidexVersion = newFirebaseMessaging || useGradle8 ? "2.0.1" : "1.0.3";
+            if (Integer.parseInt(minSDK) < 21) {
+                if (useAndroidX) {
+                    if (!additionalDependencies.contains("androidx.multidex:multidex") && !request.getArg("android.gradleDep", "").contains("androidx.multidex:multidex")) {
+                        additionalDependencies += " implementation 'androidx.multidex:multidex:" + multidexVersion + "'\n";
+                    }
+                } else {
+                    if (!additionalDependencies.contains("com.android.support:multidex") && !request.getArg("android.gradleDep", "").contains("com.android.support:multidex")) {
+                        additionalDependencies += " implementation 'com.android.support:multidex:" + multidexVersion + "'\n";
+                    }
+                }
+            }
+        }
+
+        String gradleDependency = "classpath 'com.android.tools.build:gradle:1.3.1'\n";
+        if(gradleVersionInt < 3){
+            gradleDependency = "classpath 'com.android.tools.build:gradle:2.1.2'\n";
+        } else {
+            if(gradleVersionInt < 6){
+                if (useAndroidX) {
+                    gradleDependency = "classpath 'com.android.tools.build:gradle:3.2.0'\n";
+                } else {
+                    gradleDependency = "classpath 'com.android.tools.build:gradle:3.0.1'\n";
+                }
+            }else if (gradleVersionInt < 8) {
+                gradleDependency = "classpath 'com.android.tools.build:gradle:4.1.1'\n";
+            } else {
+                gradleDependency = "classpath 'com.android.tools.build:gradle:" +
+                        ANDROID_GRADLE_PLUGIN_8_VERSION + "'\n";
+            }
+        }
+        boolean hasKotlinSources = hasSourceFileWithExtension(new File(projectDir, "src/main/java"), ".kt");
+        String kotlinVersion = request.getArg("requireKotlinStdlib", "").trim();
+        if (hasKotlinSources && kotlinVersion.length() == 0) {
+            kotlinVersion = useGradle8 ? "1.9.22" : "1.7.22";
+        }
+        String kotlinPluginApply = "";
+        String kotlinRuntimeDependency = "";
+        if (hasKotlinSources) {
+            if (!request.getArg("android.topDependency", "").contains("kotlin-gradle-plugin")) {
+                gradleDependency += "classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:" + kotlinVersion + "'\n";
+            }
+            kotlinPluginApply = "apply plugin: 'kotlin-android'\n";
+            String gradleDeps = request.getArg("android.gradleDep", "");
+            if (!additionalDependencies.contains("org.jetbrains.kotlin:kotlin-stdlib")
+                    && !gradleDeps.contains("org.jetbrains.kotlin:kotlin-stdlib")) {
+                kotlinRuntimeDependency = "    implementation 'org.jetbrains.kotlin:kotlin-stdlib:" + kotlinVersion + "'\n";
+            }
+        }
+        gradleDependency += request.getArg("android.topDependency", "");
+
+        String compileSdkVersion = "'android-21'";
+
+        int projectJavaVersion = parseVersionStringAsInt(request.getArg("java.version", "8"));
+        String coreLibraryDesugaringOption = useGradle8
+                ? "        coreLibraryDesugaringEnabled true\n"
+                : "";
+        String javaCompileOptions = "";
+        if (projectJavaVersion >= 17 && useGradle8) {
+            javaCompileOptions = "    compileOptions {\n" +
+                    coreLibraryDesugaringOption +
+                    "        sourceCompatibility JavaVersion.toVersion(17)\n" +
+                    "        targetCompatibility JavaVersion.toVersion(17)\n" +
+                    "    }\n";
+        } else {
+            javaCompileOptions = "    compileOptions {\n" +
+                    coreLibraryDesugaringOption +
+                    "        sourceCompatibility JavaVersion.VERSION_1_8\n" +
+                    "        targetCompatibility JavaVersion.VERSION_1_8\n" +
+                    "    }\n";
+        }
+
+        String coreLibraryDesugaringDependency = "";
+        if (useGradle8
+                && !additionalDependencies.contains("com.android.tools:desugar_jdk_libs")
+                && !request.getArg("android.gradleDep", "").contains("com.android.tools:desugar_jdk_libs")) {
+            coreLibraryDesugaringDependency =
+                    "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:" +
+                            DESUGAR_JDK_LIBS_VERSION + "'\n";
+        }
+
+        String mavenCentral = "";
+        if(request.getArg("android.includeMavenCentral", "false").equals("true")) {
+            mavenCentral = "    mavenCentral()\n";
+        }
+
+        String jcenter = "        jcenter()\n";
+
+        String injectRepo = request.getArg("android.repositories", "");
+        if(injectRepo.length() > 0) {
+            String[] repos = injectRepo.split(";");
+            injectRepo = "";
+            for(String s : repos) {
+                injectRepo += "    " + s + "\n";
+            }
+        }
+
+
+
+        Properties gradlePropertiesObject = new Properties();
+        File gradlePropertiesFile = new File(projectDir.getParentFile(), "gradle.properties");
+        if (gradlePropertiesFile.exists()) {
+            try {
+                FileInputStream fi = new FileInputStream(gradlePropertiesFile);
+                gradlePropertiesObject.load(fi);
+                fi.close();
+            } catch (IOException ex) {
+                throw new BuildException("Failed to load gradle properties from properties file "+gradlePropertiesFile, ex);
+            }
+        }
+
+        Properties gradleWrapperPropertiesObject = new Properties();
+        File gradleWrapperPropertiesFile = new File(projectDir.getParentFile(), "gradle/wrapper/gradle-wrapper.properties");
+        if (gradleWrapperPropertiesFile.exists()) {
+            try {
+                FileInputStream fi = new FileInputStream(gradleWrapperPropertiesFile);
+                gradleWrapperPropertiesObject.load(fi);
+                fi.close();
+            } catch (IOException ex) {
+                throw new BuildException("Failed to load gradle properties from properties file "+gradleWrapperPropertiesFile, ex);
+            }
+        }
+
+
+
+        String supportV4Default;
+
+        // Through the shared helper, so the manifest fragments generated
+        // thousands of lines earlier cannot disagree with what this actually
+        // compiles against -- a fragment naming an attribute value newer than
+        // the compile SDK is an AAPT failure, not a runtime one. The
+        // support-lib ladder is NOT the same mapping and stays as it is.
+        compileSdkVersion = String.valueOf(compileSdkInt(maxPlatformVersion,
+                buildToolsVersion, targetNumber, usesNearbyRanging,
+                usesNearbyRanging || usesNearbyTransport
+                        || usesNearbyCompanion, usesCallVoip,
+                usesCustomTunnel));
+        String supportLibVersion = maxPlatformVersion;
+        String[] supportLadder = {"28", "29", "30", "31", "32", "33", "34",
+            "35", "36", "37"};
+        for (int i = 0; i < supportLadder.length; i++) {
+            if (buildToolsVersion.startsWith(supportLadder[i])) {
+                supportLibVersion = "28";
+            }
+        }
+        if (usesNearbyRanging) {
+            // androidx.core.uwb declares minCompileSdk=36 in its AAR metadata,
+            // and Gradle rejects the project outright rather than compiling
+            // it -- so a ranging build whose compile SDK came from an older
+            // build-tools or target never got as far as javac. Raised
+            // independently of targetSdkVersion, which is the whole point:
+            // ranging is supported on a target-30 app and that app still has
+            // to COMPILE against 36. (The AAR also wants AGP 8.9.1 or newer;
+            // ANDROID_GRADLE_PLUGIN_8_VERSION is well past that.)
+            // compileSdkInt applies this too; a no-op wherever it wrote.
+            compileSdkVersion = ensureCompileSdkAtLeastTarget(
+                    compileSdkVersion, String.valueOf(RANGING_MIN_COMPILE_SDK));
+        }
+        if (usesNearbyRanging || usesNearbyTransport || usesNearbyCompanion) {
+            // 33, and for ANY of the three clusters, not just the one whose
+            // own API level says 33.
+            //
+            // AndroidNearbyBackend and CN1CompanionDeviceService survive for
+            // every nearby build -- the deletion pass above removes only the
+            // two files that carry an optional gradle dependency -- and both
+            // compile against android.companion.AssociationInfo, which is API
+            // 33. So a transport-only or ranging-only app built against 32
+            // failed javac on a class it never asked for.
+            //
+            // This also covers android:usesPermissionFlags, an API 31
+            // manifest attribute the transport's permissions carry whatever
+            // the app targets; AAPT rejects an attribute the compile SDK has
+            // never heard of, which failed the build even earlier.
+            //
+            // 33 is enough for every companion PROFILE too, including
+            // glasses, which is an API 34 constant. AndroidNearbyBackend
+            // never names AssociationRequest.DEVICE_PROFILE_GLASSES: it
+            // writes the role name that constant inlines to, guarded by a
+            // runtime SDK_INT check, exactly so this floor does not have to
+            // move for a hint that costs the app nothing at compile time.
+            // Raising it to 34 would raise it for every companion build.
+            // compileSdkInt applies this too; a no-op wherever it wrote.
+            compileSdkVersion = ensureCompileSdkAtLeastTarget(
+                    compileSdkVersion, String.valueOf(NEARBY_MIN_COMPILE_SDK));
+        }
+        jcenter =
+                "      google()\n" +
+                        "     jcenter()\n" +
+                        "     mavenLocal()\n" +
+                        "      mavenCentral()\n";
+
+        injectRepo += "      google()\n" +
+                "     mavenLocal()\n" +
+                "      mavenCentral()\n";
+        if(!androidAppBundle && gradleVersionInt < 6 && buildToolsVersionInt < 30){
+            gradlePropertiesObject.put("android.enableAapt2", "false");
+        }
+        if (!useAndroidX) {
+            supportV4Default = "    " + compile + " 'com.android.support:support-v4:"+supportLibVersion+".+'\n     implementation 'com.android.support:appcompat-v7:"+supportLibVersion+".+'\n";
+        } else {
+            String appCompatVersionDefault = "1.0.0";
+            if (useGradle8) {
+                appCompatVersionDefault = "1.6.1";
+            }
+            supportV4Default = "    implementation 'androidx.legacy:legacy-support-v4:1.0.0'\n     implementation 'androidx.appcompat:appcompat:" + request.getArg("androidx.appcompat.version", appCompatVersionDefault)+"'\n";
+
+        }
+
+        String buildFeatures = "";
+        if (useGradle8) {
+            buildFeatures = "buildFeatures {\n" +
+                    "        aidl true\n" +
+                    "    }\n";
+        }
+
+        String namespace = "";
+        if (useGradle8) {
+            namespace = "namespace '"+request.getPackageName()+"'\n";
+        }
+
+        // Kotlin stdlib alignment, emitted for every AndroidX build rather than
+        // for Kotlin-shaped apps: the duplicate class it prevents is produced by
+        // ordinary AndroidX and Play dependencies, not by anything the app wrote.
+        // See KotlinStdlibAlignment for the mechanism and for why Gradle cannot
+        // work it out for itself on the kotlin-stdlib 1.8.x line. A constraint
+        // adds nothing to a graph that has no Kotlin in it, so an app that could
+        // never hit the clash resolves exactly as it did before.
+        //
+        // Gated on AndroidX because that is what decides the configuration name a few
+        // lines below: `compile` is only "implementation" when useAndroidX or the aar
+        // implementation flag is set, so a useAndroidX=false build would take this
+        // block on the legacy `compile` configuration. Reviewed as an unrelated flag
+        // to gate on -- it is not, and the failing case it is meant to protect needs
+        // a modern AndroidX dependency in a project that has AndroidX turned off,
+        // which AGP refuses for its own reasons before this could matter. That
+        // whole line of reasoning turned out not to matter either: see the
+        // useAndroidX note on the gate below.
+        //
+        // On Gradle 6 rather than on 4.6 where the constraints
+        // DSL first appeared. That is deliberate, and it has been questioned in
+        // review, so: 4.6 selects AGP 3.2.0, which cannot compile against a
+        // compileSdk the current AndroidX releases require, and the builder gives
+        // that path appcompat 1.0.0, whose graph contains no Kotlin at all. A graph
+        // that reaches a merged kotlin-stdlib cannot occur there. Widening the gate
+        // would put an untested constraints block into AGP 3.x builds that work
+        // today, to fix a clash they cannot have -- and the two failure directions
+        // are not symmetrical: too narrow leaves an ancient build with a failure it
+        // already had, too wide breaks a build that currently succeeds. Raise this
+        // gate only with a reproduction on that path.
+        // No inputs. This used to collect every Gradle fragment the app
+        // controls and search it for signs that the app was holding a stdlib
+        // version down, because the alignment RAISED one and could then break a
+        // build that resolved. It declares a capability now, which raises
+        // nothing, so there is nothing to search for -- see KotlinStdlibAlignment.
+        //
+        // Not gated on useAndroidX any more. It was, on the reasoning above that
+        // a non-AndroidX graph cannot reach a merged kotlin-stdlib -- and that
+        // reasoning is wrong, because the duplicate has nothing to do with
+        // AndroidX. Reproduced with android.useAndroidX=false explicitly set,
+        // AGP 8.1.4, kotlin-stdlib 1.8.10 beside kotlin-stdlib-jdk8 1.6.21:
+        // checkDebugDuplicateClasses fails exactly as it does with AndroidX on,
+        // and passes with this script. The old gate left those builds broken.
+        //
+        // The Gradle 6 floor stays, and for a reason that did survive
+        // measurement: capabilitiesResolution is the mechanism here, and AGP 3.x
+        // on Gradle 4.6 is a different world. Turning it off is the hint.
+        String kotlinStdlibAlignment = "";
+        if (gradleVersionInt >= 6
+                && request.getArg("android.kotlinStdlibAlignment", "true").equals("true")) {
+            kotlinStdlibAlignment = KotlinStdlibAlignment.alignmentScript();
+        }
+
+        String gradleProps = "apply plugin: 'com.android.application'\n"
+                + kotlinPluginApply
+                + request.getArg("android.gradlePlugin", "")
+                + "\n"
+                + "buildscript {\n"
+                + "    repositories {\n"
+                + jcenter
+                + injectRepo
+                + "    }\n"
+                + "    dependencies {\n"
+                + gradleDependency
+                + "    }\n"
+                + "}\n"
+                + "\n"
+                + "android {\n"
+                + request.getArg("android.gradle.androidx", "") + "\n"
+                + "    compileSdkVersion "
+                + compileSdkGradleValue(compileSdkVersion,
+                        installedPlatformNames) + "\n"
+                // For maven builder explicitly specifying buildtools version caused some problems
+                // leave it out and just let Android studio choose the version installed.
+                //+ "    buildToolsVersion " + quotedBuildToolsVersion + "\n"
+                + useLegacyApache
+                + "\n"
+                + "    dexOptions {\n"
+                + "        preDexLibraries = false\n"
+                + "        incremental false\n"
+                + "        jumboMode = true\n"
+                + "        javaMaxHeapSize \"3g\"\n"
+                + "    }\n"
+                + "    defaultConfig {\n"
+                + "        applicationId \"" + request.getPackageName() + "\"\n"
+                + "        minSdkVersion " + minSDK + "\n"
+                + "        targetSdkVersion " + targetNumber + "\n"
+                + "        versionCode " + intVersion + "\n"
+                + "        versionName \"" + version + "\"\n"
+                + multidex
+                + request.getArg("android.xgradle_default_config", "")
+                + "    }\n"
+                + javaCompileOptions
+                + "    sourceSets {\n"
+                + "        main {\n"
+                + "            aidl.srcDirs = ['src/main/java']\n"
+                + "        }\n"
+                + "    }\n"
+                + "\n"
+                + "    lintOptions {\n"
+                + "        lintOptions {\n"
+                + "        checkReleaseBuilds false\n"
+                + "        abortOnError false\n"
+                + "        }\n"
+                + "    }\n"
+                + "    signingConfigs {\n"
+                + "        release {\n"
+                + "            storeFile file(\"keyStore\")\n"
+                + "            storePassword \"" + escape(request.getCertificatePassword(), "$\"") + "\"\n"
+                + "            keyAlias \"" + escape(request.getKeystoreAlias(), "$\"") + "\"\n"
+                + "            keyPassword \"" + escape(request.getCertificatePassword(), "$\"") + "\"\n"
+                + "        }\n"
+                + "    }\n"
+                + "    buildTypes {\n"
+                + "        release {\n"
+                + gradleObfuscate
+                + "            signingConfig signingConfigs.release\n"
+                + "        }\n"
+                + ((request.getCertificate() != null) ? (
+                "        debug {\n"
+                        + "            signingConfig signingConfigs.release\n"
+                        + "        }\n"):"")
+                + "    }\n"
+                + buildFeatures
+                + namespace
+                + "}\n"
+                + "\n"
+                + "repositories {\n"
+                + "    google()\n"
+                + "    jcenter()\n"
+                + injectRepo
+                + "    flatDir{\n"
+                + "              dirs 'libs'\n"
+                + "       }\n"
+                + mavenCentral
+                + "}\n"
+                + "\n"
+                + "dependencies {\n"
+                + coreLibraryDesugaringDependency
+                + "    "+compile+" fileTree(dir: 'libs', include: ['*.jar'])\n"
+                + request.getArg("android.supportv4Dep",supportV4Default) + "\n"
+                + kotlinRuntimeDependency
+                + addNewlineIfMissing(additionalDependencies)
+                + addNewlineIfMissing(aiExtraGradleDependencies.toString())
+                + addNewlineIfMissing(request.getArg("android.gradleDep", ""))
+                + addNewlineIfMissing(aarDependencies)
+                + "}\n"
+                // After the dependencies block, not inside it: the alignment
+                // needs a component metadata rule (which lives in dependencies)
+                // AND a resolution strategy (which does not), so it brings its
+                // own dependencies block rather than being spliced into two
+                // places.
+                + kotlinStdlibAlignment
+                + request.getArg("android.xgradle", "");
+
+        debug("Gradle File start\n-------\n");
+        debug(gradleProps);
+        debug("-------\nGradle File end \n");
+
+        // Two dependency statements run together are valid Groovy -- a method call on the
+        // dependency the first one returned -- so Gradle reports them as "Could not find method
+        // implementation()" against a generated build.gradle line the developer never wrote, and
+        // names neither the hint nor the library that produced it. Say it plainly instead. This
+        // is not only about hand written values: a cn1lib's codenameone_library_appended.properties
+        // used to be concatenated onto the project's own value with no separator, so a project
+        // built by an older Maven plugin still arrives here corrupted.
+        String unseparated = findUnseparatedGradleStatement(request.getArg("android.gradleDep", ""));
+        if (unseparated != null) {
+            log("The android.gradleDep build hint runs two Gradle statements together with no "
+                    + "separator between them, near: " + unseparated + " -- separate them with ';' "
+                    + "or a newline. If you did not write this value by hand, a cn1lib appended a "
+                    + "dependency to it: check your libraries for a "
+                    + "codenameone_library_appended.properties that sets android.gradleDep, and "
+                    + "make sure your own value ends with ';'.");
+            return false;
+        }
+
+        File gradleFile = new File(projectDir, "build.gradle");
+
+        try {
+            OutputStream gradleStream = new FileOutputStream(gradleFile);
+            gradleStream.write(gradleProps.getBytes(StandardCharsets.UTF_8));
+            gradleStream.close();
+        } catch (IOException ex) {
+            throw new BuildException("Failed to write gradle properties to "+gradleFile, ex);
+        }
+
+        generateWearModule(request, studioProjectDir, gradleProps, watchSurfacesManifestEntries,
+                basePermissions + permissions + xPermissions + watchSharedPermissions,
+                intVersion, wearableListenerService);
+
+        String rootGradleProps = "// Top-level build file where you can add configuration options common to all sub-projects/modules.\n" +
+                "buildscript {\n" +
+                "    repositories {\n" +
+                "        google()\n" +
+                "        jcenter()\n" +
+                "    }\n" +
+                "    dependencies {\n" +
+                "        "+gradleDependency+
+                "\n" +
+                "        // NOTE: Do not place your application dependencies here; they belong\n" +
+                "        // in the individual module build.gradle files\n" +
+                "    }\n" +
+                "}\n" +
+                "\n" +
+                "allprojects {\n" +
+                "    repositories {\n" +
+                "        google()\n" +
+                "        jcenter()\n" +
+                "    }\n" +
+                "}\n" +
+                "\n" +
+                "task clean(type: Delete) {\n" +
+                "    delete rootProject.buildDir\n" +
+                "}";
+
+        File rootGradleFile = new File(studioProjectDir, "build.gradle");
+        try {
+            OutputStream gradleStream = new FileOutputStream(rootGradleFile);
+            gradleStream.write(rootGradleProps.getBytes(StandardCharsets.UTF_8));
+            gradleStream.close();
+        } catch (IOException ex) {
+            throw new BuildException("Failed to write root gradle properties to "+rootGradleFile, ex);
+        }
+
+        File settingsGradle = new File(studioProjectDir, "settings.gradle");
+        try {
+            replaceInFile(settingsGradle, "My Application2", request.getDisplayName());
+        } catch (Exception ex) {
+            throw new BuildException("Failed to update settingsGradle with display name", ex);
+        }
+
+        gradlePropertiesObject.setProperty("org.gradle.daemon", "true");
+        if(useGradle8 || request.getArg("android.forceJava8Builder", "false").equals("true")) {
+            gradlePropertiesObject.setProperty("org.gradle.java.home", getGradleJavaHome());
+        }
+        // 4096m rather than 2048m. Packaging runs the zipflinger splitter inside a
+        // Gradle worker that inherits these args, and it holds each entry's bytes in
+        // memory -- an app carrying the larger native libraries (ARCore, barhopper,
+        // the face and image detectors) exhausted 2048m and failed :app:packageDebug
+        // with a bare "A failure occurred while executing
+        // PackageAndroidArtifact$IncrementalSplitterRunnable". The underlying
+        // "java.lang.OutOfMemoryError: Java heap space" only appears with
+        // --stacktrace, which is why this read as an unexplained intermittent build
+        // failure. -Xmx is a ceiling, not a reservation, so raising it costs nothing
+        // on builds that never needed the headroom.
+        String heapArgs = "-Xmx4096m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8";
+        if (useGradle8) {
+            gradlePropertiesObject.setProperty("org.gradle.jvmargs", heapArgs);
+            gradleWrapperPropertiesObject.setProperty("distributionUrl", gradle8DistributionUrl);
+        } else {
+            gradlePropertiesObject.setProperty("org.gradle.jvmargs",
+                    "-Xmx4096m -XX:MaxPermSize=512m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8");
+            gradleWrapperPropertiesObject.setProperty("distributionUrl", gradleDistributionUrl);
+        }
+        if (useAndroidX) {
+            gradlePropertiesObject.setProperty("android.useAndroidX", "true");
+            gradlePropertiesObject.setProperty("android.enableJetifier", "true");
+        }
+        Integer compileSdkInt = parseSdkInt(compileSdkVersion);
+        if (compileSdkInt != null && compileSdkInt >= 35) {
+            gradlePropertiesObject.setProperty("android.suppressUnsupportedCompileSdk",
+                    suppressUnsupportedCompileSdkValue(compileSdkInt,
+                            compileSdkPlatformName(compileSdkInt,
+                                    installedPlatformNames)));
+        }
+
+        // Configure R8 optimization mode to prevent reflection issues
+        if (disableR8) {
+            gradlePropertiesObject.setProperty("android.enableR8", "false");
+            gradlePropertiesObject.setProperty("android.enableR8.libraries", "false");
+        } else if (disableR8FullMode) {
+            gradlePropertiesObject.setProperty("android.enableR8.fullMode", "false");
+        }
+
+        try {
+            FileOutputStream antPropertiesOutputStream = new FileOutputStream(gradlePropertiesFile);
+            gradlePropertiesObject.store(antPropertiesOutputStream, "Gradle properties for android build generated by Codename One");
+            antPropertiesOutputStream.close();
+        } catch (IOException ex) {
+            throw new BuildException("Failed to output gradle properties file "+gradlePropertiesFile);
+        }
+        try {
+            FileOutputStream fos = new FileOutputStream(gradleWrapperPropertiesFile);
+            gradleWrapperPropertiesObject.store(fos, "Gradle Wrapper properties for android build generated by Codename One");
+            fos.close();
+        } catch (IOException ex) {
+            throw new BuildException("Failed to output gradle-wrapper properties file "+gradlePropertiesFile);
+        }
+
+
+        try {
+            migrateSourcesToAndroidX(projectDir);
+        } catch (Exception ex) {
+            throw new BuildException("Failed to migrate sources to AndroidX", ex);
+        }
+
+        if (request.getCertificate() != null) {
+            try {
+                createFile(new File(projectDir, "keyStore"), request.getCertificate());
+            } catch (IOException ex) {
+                throw new BuildException("Failed to create keyStore file", ex);
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Removes the BiometricPrompt-backed biometric package when the platform
+     * this build compiles against is too old for it.
+     *
+     * <p>The port has two biometric backends, one per Android biometric API,
+     * and {@code AndroidBiometrics} loads whichever one is present by name.
+     * The legacy one goes through {@code FingerprintManagerCompat} and so
+     * compiles against every platform, API 37 included -- which is the point,
+     * because an application compiled against 37 still runs on the API 23-28
+     * devices where the platform {@code FingerprintManager} it wraps is the
+     * only biometric API there is. Only the modern one has a floor, and this
+     * enforces it.</p>
+     *
+     * <p>The floor is 28, which is also the lowest the ladder in
+     * {@link #compileSdkInt} produces, so in practice this deletes nothing.
+     * That is deliberate rather than lucky: the modern backend reaches
+     * everything newer than 28 by name so that a project pinned low keeps it.
+     * An APK compiled at 28 or 29 runs on API 37 devices too, where the legacy
+     * backend's platform API is gone, so losing the modern one there would
+     * have left those users with no biometrics at all.</p>
+     *
+     * <p>Note the limit of what this can see. {@code android.xgradle} is
+     * appended to the generated {@code build.gradle} verbatim, so a fragment
+     * re-opening {@code android { }} can set a different compile SDK after the
+     * fact, and this decision -- like every other one the builder keys on the
+     * compile SDK, from the nearby and ranging floors to the manifest's
+     * foreground-service enums -- is made from the computed value. Reading the
+     * effective one would mean parsing arbitrary Groovy. Keeping the floor at
+     * the bottom of the ladder is what makes that gap harmless here: an
+     * override would have to drop below 28 to break this package, and nothing
+     * the builder generates goes there.</p>
+     *
+     * <p>Naming the removed platform class from a file every application
+     * compiles is what issue #5701 reported: an unmodified Hello World
+     * generated against an API 37 platform failed
+     * {@code compileDebugJavaWithJavac} in port sources the developer never
+     * wrote.</p>
+     *
+     * @param srcDir       the generated application's java source root
+     * @param compileSdk   the API level this build compiles against, or 0 when
+     *                     it could not be determined -- in which case nothing
+     *                     is deleted, because the compile is the thing that
+     *                     would then decide
+     */
+    static void pruneBiometricSourcesForCompileSdk(File srcDir, int compileSdk) {
+        if (compileSdk <= 0) {
+            return;
+        }
+        if (compileSdk < BIOMETRIC_PROMPT_BACKEND_MIN_SDK) {
+            deletePackage(new File(srcDir,
+                    "com/codename1/impl/android/biometrics"));
+        }
+    }
+
+    /**
+     * The API level the BiometricPrompt-backed package compiles against.
+     *
+     * <p>28, where {@code BiometricPrompt} itself arrives. {@code
+     * BiometricManager} (29), {@code canAuthenticate(int)} and {@code
+     * Authenticators} (30) are all reached by name in that package rather than
+     * compiled against, precisely so this number can sit at the bottom of the
+     * ladder instead of above it.</p>
+     */
+    static final int BIOMETRIC_PROMPT_BACKEND_MIN_SDK = 28;
+
+    /** Deletes a flat source package, if it is there at all. */
+    private static void deletePackage(File pkg) {
+        File[] files = pkg.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                f.delete();
+            }
+        }
+        pkg.delete();
+    }
+
+    private void pruneOptionalAiSources(File srcDir) {
+        File aiDir = new File(srcDir,
+                "com/codename1/impl/android/ai");
+        String[] vision = {
+            "AndroidTextRecognitionAdapter.java",
+            "AndroidTextRecognitionChineseAdapter.java",
+            "AndroidTextRecognitionDevanagariAdapter.java",
+            "AndroidTextRecognitionJapaneseAdapter.java",
+            "AndroidTextRecognitionKoreanAdapter.java",
+            "AndroidBarcodeScanningAdapter.java",
+            "AndroidFaceDetectionAdapter.java",
+            "AndroidImageLabelingAdapter.java",
+            "AndroidPoseDetectionAdapter.java",
+            "AndroidSelfieSegmentationAdapter.java"
+        };
+        String[] language = {
+            "AndroidLanguageIdAdapter.java",
+            "AndroidTranslationAdapter.java",
+            "AndroidSmartReplyAdapter.java"
+        };
+        pruneAiGroup(aiDir, visionSupport,
+                new String[] {"AndroidVisionImpl.java",
+                    "AndroidVisionAdapter.java"}, vision);
+        pruneAiGroup(aiDir, languageSupport,
+                new String[] {"AndroidLanguageImpl.java",
+                    "AndroidLanguageAdapter.java"}, language);
+        if (!inferenceSupport) {
+            new File(aiDir, "AndroidInferenceImpl.java").delete();
+        }
+    }
+
+    private void pruneAiGroup(File aiDir, boolean groupIncluded,
+                              String[] sharedSources, String[] adapters) {
+        if (!groupIncluded) {
+            for (int i = 0; i < sharedSources.length; i++) {
+                new File(aiDir, sharedSources[i]).delete();
+            }
+        }
+        for (int i = 0; i < adapters.length; i++) {
+            if (!groupIncluded
+                    || !includedAiAdapterSources.contains(adapters[i])) {
+                new File(aiDir, adapters[i]).delete();
+            }
+        }
+    }
+
+    static String androidAiAdapterSource(String cls) {
+        if ("com/codename1/ai/vision/TextRecognizer".equals(cls)) {
+            return "AndroidTextRecognitionAdapter.java";
+        }
+        if ("com/codename1/ai/vision/BarcodeScanner".equals(cls)
+                || "com/codename1/ai/vision/CodeScanner".equals(cls)) {
+            // CodeScanner is the ready-made scanner screen built on top of
+            // BarcodeScanner. An app that only references the high-level class
+            // never names BarcodeScanner itself, so it has to select the same
+            // adapter or the feature ships inert.
+            return "AndroidBarcodeScanningAdapter.java";
+        }
+        if ("com/codename1/ai/vision/FaceDetector".equals(cls)) {
+            return "AndroidFaceDetectionAdapter.java";
+        }
+        if ("com/codename1/ai/vision/ImageLabeler".equals(cls)) {
+            return "AndroidImageLabelingAdapter.java";
+        }
+        if ("com/codename1/ai/vision/PoseDetector".equals(cls)) {
+            return "AndroidPoseDetectionAdapter.java";
+        }
+        if ("com/codename1/ai/vision/SelfieSegmenter".equals(cls)) {
+            return "AndroidSelfieSegmentationAdapter.java";
+        }
+        if ("com/codename1/ai/language/LanguageIdentifier".equals(cls)) {
+            return "AndroidLanguageIdAdapter.java";
+        }
+        if ("com/codename1/ai/language/Translator".equals(cls)) {
+            return "AndroidTranslationAdapter.java";
+        }
+        if ("com/codename1/ai/language/SmartReply".equals(cls)) {
+            return "AndroidSmartReplyAdapter.java";
+        }
+        // DocumentScanner is Apple-only. Returning null intentionally prunes
+        // the Android vision backend for an app that references only it; the
+        // public API then reports UNSUPPORTED without a native dependency.
+        return null;
+    }
+
+    /**
+     * Maps a {@code TextScript} selector call to the adapter source that owns
+     * that ML Kit script model. ML Kit ships one artifact per script, so unlike
+     * the feature adapters these are keyed on the selector method rather than a
+     * class: {@code TextRecognizer} alone says nothing about which scripts the
+     * application reads. Latin is the built-in default and has no separate
+     * source.
+     *
+     * @param cls internal-form owner of the referenced method
+     * @param method referenced method name
+     * @return the adapter source file to retain, or {@code null}
+     */
+    static String androidTextScriptAdapterSource(String cls, String method) {
+        if (!"com/codename1/ai/vision/TextScript".equals(cls)) {
+            return null;
+        }
+        if ("chinese".equals(method)) {
+            return "AndroidTextRecognitionChineseAdapter.java";
+        }
+        if ("devanagari".equals(method)) {
+            return "AndroidTextRecognitionDevanagariAdapter.java";
+        }
+        if ("japanese".equals(method)) {
+            return "AndroidTextRecognitionJapaneseAdapter.java";
+        }
+        if ("korean".equals(method)) {
+            return "AndroidTextRecognitionKoreanAdapter.java";
+        }
+        return null;
+    }
+
+    static String androidInferenceProguardRules(boolean inferenceIncluded) {
+        return inferenceIncluded
+                ? "-keepclassmembers class org.tensorflow.lite.TensorImpl {\n"
+                + "    void refreshShape();\n"
+                + "}\n\n"
+                : "";
+    }
+
+    /**
+     * {@link #xmlize} plus the quote escape an ATTRIBUTE value needs.
+     *
+     * <p>xmlize handles the three characters that matter in element content and leaves the double
+     * quote alone, which is right there and wrong inside {@code android:label="..."} -- a display
+     * name containing one closed the attribute early and the manifest stopped parsing, failing
+     * the build on a name the developer was entitled to choose. Single quotes go too, so the
+     * result is safe in either delimiter.</p>
+     *
+     * @param s the value to place inside an XML attribute
+     * @return the escaped value
+     */
+    static String xmlizeAttribute(String s) {
+        return xmlize(s).replace("\"", "&quot;").replace("'", "&apos;");
+    }
+
+    static String xmlize(String s) {
+        s = s.replace("&", "&amp;");
+        s = s.replace("<", "&lt;");
+        s = s.replace(">", "&gt;");
+        int charCount = s.length();
+        for (int iter = 0; iter < charCount; iter++) {
+            char c = s.charAt(iter);
+            if (c > 127) {
+                // we need to localize the string...
+                StringBuilder b = new StringBuilder();
+                // By CODE POINT, not by char. A supplementary character -- an emoji in a display
+                // name is the ordinary way to get one -- is two chars in UTF-16, and escaping the
+                // halves separately emits a pair of surrogate code points such as
+                // &#xd83d;&#xde00;. Those are not legal XML character references, so a manifest
+                // carrying one failed to parse at all rather than showing the wrong glyph. Every
+                // BMP character still escapes exactly as before, so nothing that was already
+                // valid changes.
+                for (int counter = 0; counter < charCount; ) {
+                    int point = s.codePointAt(counter);
+                    if (point > 127) {
+                        b.append("&#x");
+                        b.append(Integer.toHexString(point));
+                        b.append(";");
+                    } else {
+                        b.append((char) point);
+                    }
+                    counter += Character.charCount(point);
+                }
+                return b.toString();
+            }
+        }
+        return s;
+    }
+
+    /**
+     * Maps a widget kind id to the simple name suffix of its generated provider class:
+     * underscore-separated words become CamelCase ({@code delivery_status} -&gt;
+     * {@code DeliveryStatus}).
+     *
+     * <p>This is the name shipped builds already use, and it has to keep being it. Android
+     * remembers a pinned widget by its provider {@code ComponentName}, so renaming the receiver
+     * of an existing kind does not merely regenerate a class -- the widget the user pinned then
+     * names a receiver that no longer exists, and the home screen drops it. That is the price of
+     * "just" making the fold injective, and users pay it silently on update.</p>
+     *
+     * <p>So the fold stays as it shipped, and the ambiguity it does have is resolved elsewhere:
+     * {@link #surfaceKindClassSuffixes} hands the positional form only to a kind that would
+     * otherwise collide with one already holding the plain name.</p>
+     */
+    static String surfaceKindClassSuffix(String kindId) {
+        StringBuilder sb = new StringBuilder(kindId.length());
+        boolean upper = true;
+        for (int i = 0; i < kindId.length(); i++) {
+            char c = kindId.charAt(i);
+            if (c == '_') {
+                upper = true;
+                continue;
+            }
+            if (upper) {
+                sb.append(Character.toUpperCase(c));
+                upper = false;
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * The disambiguated form, used only when the plain fold is already taken.
+     *
+     * <p>Records where the underscores were, which is the only thing the fold discards -- so it
+     * separates exactly the ids the fold cannot, and changes nothing else. The positions and not
+     * a count: a count separates {@code status} from {@code status_} but not {@code a__b} from
+     * {@code a_b_}, which both discard two.</p>
+     *
+     * @param kindId the declared kind id
+     * @return the folded name with the underscore positions appended
+     */
+    static String surfaceKindClassSuffixDisambiguated(String kindId) {
+        StringBuilder positions = new StringBuilder();
+        for (int i = 0; i < kindId.length(); i++) {
+            if (kindId.charAt(i) == '_') {
+                positions.append('_').append(i);
+            }
+        }
+        return surfaceKindClassSuffix(kindId) + positions;
+    }
+
+    /**
+     * Names every declared kind's generated class, keeping the names shipped builds use.
+     *
+     * <p>The fold is not injective -- {@code status} and {@code status_} both read as
+     * {@code Status} -- so two kinds could be handed one class: the second overwrites the first
+     * and both manifest entries point at it, and one kind serves the other kind's data. Both ids
+     * are legal, so they have to be kept apart rather than one refused.</p>
+     *
+     * <p>The first kind claiming a folded name keeps it, in declaration order; a later kind that
+     * would collide takes the positional form instead. Every project that builds today gets
+     * byte-identical names, because a collision would already have been a bug there.</p>
+     *
+     * @param kindIds the declared kind ids, in declaration order
+     * @return kind id to class-name suffix, for every id given
+     */
+    /**
+     * The names resolved for this build, from every declared kind id in declaration order.
+     *
+     * <p>Empty until the surfaces block has read surfaces.json. A kind absent from it -- which
+     * cannot happen for a declared one -- falls back to the plain fold, the same answer the
+     * runtime reaches without the generated map.</p>
+     */
+    private final Map<String, String> surfaceKindClassNames =
+            new LinkedHashMap<String, String>();
+
+    /**
+     * Writes the kind-to-class map the runtime reads.
+     *
+     * <p>Which kind holds the plain folded name is a property of the whole declared set, so a
+     * runtime holding one kind id cannot work it out. Probing for a class that exists is not the
+     * answer either -- {@code CN1Widget_Status} exists for {@code status}, so {@code status_}
+     * probing the plain name first finds the OTHER kind's provider and publishes into it.</p>
+     *
+     * <p>So the build states it. This is data rather than a second copy of the algorithm: it is
+     * written from the very map that named the classes, so there is nothing for the two sides to
+     * disagree about. A build that writes no map -- an older APK -- leaves the runtime on the
+     * plain fold, which is exactly what that APK was built with.</p>
+     *
+     * @param resDir the module's resource root
+     */
+    private void writeSurfaceKindClassMap(File resDir) throws BuildException {
+        if (surfaceKindClassNames.isEmpty()) {
+            return;
+        }
+        StringBuilder items = new StringBuilder();
+        for (Map.Entry<String, String> named : surfaceKindClassNames.entrySet()) {
+            // "id=Suffix". A kind id is [a-z][a-z0-9_]* so it can never contain the separator.
+            items.append("        <item>").append(xmlize(named.getKey())).append('=')
+                    .append(xmlize(named.getValue())).append("</item>\n");
+        }
+        File values = new File(resDir, "values");
+        values.mkdirs();
+        try {
+            createFile(new File(values, "cn1_surfaces_kinds.xml"),
+                    ("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                    + "<resources>\n"
+                    + "    <string-array name=\"cn1_surface_kind_classes\">\n"
+                    + items
+                    + "    </string-array>\n"
+                    + "</resources>\n").getBytes(StandardCharsets.UTF_8));
+        } catch (IOException ex) {
+            throw new BuildException("Failed to write the surface kind class map", ex);
+        }
+    }
+
+    /** The generated class-name suffix for a kind, as resolved for this build. */
+    private String surfaceKindClassName(String kindId) {
+        String resolved = surfaceKindClassNames.get(kindId);
+        return resolved != null ? resolved : surfaceKindClassSuffix(kindId);
+    }
+
+    static Map<String, String> surfaceKindClassSuffixes(List<String> kindIds) {
+        Map<String, String> out = new LinkedHashMap<String, String>();
+        Set<String> taken = new HashSet<String>();
+        for (String kindId : kindIds) {
+            if (kindId == null || out.containsKey(kindId)) {
+                continue;
+            }
+            String plain = surfaceKindClassSuffix(kindId);
+            String chosen = plain;
+            if (!taken.add(plain)) {
+                // The positional form, which separates ids differing only in where the
+                // underscores are. It is NOT guaranteed free on its own: an id with no underscore
+                // has no positions to add, so its disambiguated form is the plain name it just
+                // lost -- declare "status_" before "status" and both wanted Status. So the answer
+                // is whatever is actually free, and the loop is what makes that true rather than
+                // hoped for.
+                chosen = surfaceKindClassSuffixDisambiguated(kindId);
+                for (int n = 2; !taken.add(chosen); n++) {
+                    chosen = surfaceKindClassSuffixDisambiguated(kindId) + "_" + n;
+                }
+            }
+            out.put(kindId, chosen);
+        }
+        return out;
+    }
+
+    /**
+     * Says what happens to the declared watch complication families, loudly and every time.
+     *
+     * <p>The failure this exists to prevent is silence. A developer declares a complication,
+     * hears nothing, and gets no surface: on a build with no watch product there is nothing to
+     * host it, and a watch-only kind no longer produces a home-screen widget either -- which is
+     * correct, and would otherwise look like the declaration was ignored.</p>
+     *
+     * @param request the build being generated
+     */
+    private void reportWatchSurfaces(BuildRequest request) {
+        if (watchSurfaceKinds.isEmpty()) {
+            return;
+        }
+        StringBuilder ids = new StringBuilder();
+        for (String[] kind : watchSurfaceKinds) {
+            if (ids.length() > 0) {
+                ids.append(", ");
+            }
+            ids.append(kind[0]);
+        }
+        if (watchModuleName(request) == null) {
+            log("[surfaces] NOTE: these kinds declare watch complication families and will NOT "
+                    + "appear on any device in this build: " + ids + ". They are hosted by a Wear "
+                    + "OS product, and this build produces none -- declare codename1.watchMain "
+                    + "(with codename1.watchStandalone for a watch-only APK), or declare a phone "
+                    + "family alongside them.");
+            return;
+        }
+        log("[surfaces] Generating Wear OS complication data sources for: " + ids);
+        for (String[] kind : watchSurfaceKinds) {
+            String families = kind[2];
+            if (families.contains("watchCorner")) {
+                log("[surfaces] Kind \"" + kind[0] + "\" declares watchCorner. Wear OS has no "
+                        + "corner slot, so it renders as the circular family.");
+            }
+            if (declaresTile(families)) {
+                log("[surfaces] Kind \"" + kind[0] + "\" declares watchRectangular: generating a "
+                        + "LONG_TEXT complication data source and a Tile.");
+            }
+        }
+    }
+
+    /**
+     * Generates the Wear OS complication data sources and Tile services, and returns their
+     * manifest entries.
+     *
+     * <p>The generated classes carry nothing but their kind id: every decision lives in the
+     * injected {@code CN1ComplicationDataSource} / {@code CN1SurfaceTileService}, which ship as
+     * build-time resources because they compile against {@code androidx.wear} libraries the
+     * Android port must not depend on -- an app publishing no complication should not carry
+     * them.</p>
+     *
+     * <p>Everything goes into the WATCH module, which is the phone module itself in a standalone
+     * build and a separate one in a companion build. One code path, one destination variable.</p>
+     *
+     * @param request the build being generated
+     * @param srcDir the watch module's java source root
+     * @param resDir the watch module's resource root
+     * @return the manifest service entries, or an empty string when there is nothing to declare
+     */
+    private String generateWatchSurfaces(BuildRequest request, File srcDir, File resDir)
+            throws BuildException {
+        String module = watchModuleName(request);
+        if (watchSurfaceKinds.isEmpty() || module == null) {
+            return "";
+        }
+        // The WATCH module's own roots, which in a companion build are NOT the phone's.
+        //
+        // The wear module shares the phone's source directory, so anything written to srcDir is
+        // compiled by both -- and these import androidx.wear, whose dependencies belong to the
+        // wear module alone. A companion build therefore failed compiling the PHONE module
+        // against imports it has no libraries for. Writing them into the wear module's own root
+        // keeps them on the one side that can compile them; the shared source set still carries
+        // everything else.
+        File watchSrcDir = watchSourceRoot(module, srcDir);
+        File implDir = new File(watchSrcDir, "com/codename1/impl/android");
+        implDir.mkdirs();
+        File surfacesDir = new File(watchSrcDir, "com/codename1/impl/android/surfaces");
+        surfacesDir.mkdirs();
+        // The Tile service only when a Tile is actually declared. Gradle compiles every source in
+        // the tree whether or not a subclass names it, and its androidx.wear.tiles and
+        // protolayout dependencies are added only for a rectangular family -- so copying it
+        // unconditionally failed a complication-only build on unresolved imports.
+        for (String resource : watchSurfaceSources(watchSurfaceKinds)) {
+            InputStream in = getResourceAsStream(
+                    "/com/codename1/builders/surfaces/wear/" + resource);
+            if (in == null) {
+                throw new BuildException("Missing Wear surfaces resource " + resource);
+            }
+            try {
+                copy(in, new FileOutputStream(new File(surfacesDir, resource)));
+            } catch (IOException ex) {
+                throw new BuildException("Failed to write Wear surfaces glue " + resource, ex);
+            }
+        }
+        StringBuilder entries = new StringBuilder();
+        StringBuilder kindIds = new StringBuilder();
+        for (String[] kind : watchSurfaceKinds) {
+            String kindId = kind[0];
+            // RAW here: complicationServiceEntry and tileServiceEntry put it in an attribute and
+            // escape it themselves. Escaping first turned "A & B" into "A &amp;amp; B", which the
+            // watch face then shows as "A &amp; B".
+            String label = kind[1];
+            String families = kind[2];
+            String suffix = surfaceKindClassName(kindId);
+            writeWatchService(surfacesDir, implDir, "CN1Complication_" + suffix,
+                    "CN1ComplicationDataSource", kindId);
+            entries.append(complicationServiceEntry(request, "CN1Complication_" + suffix, label,
+                    complicationTypes(families)));
+            if (declaresTile(families)) {
+                writeWatchService(surfacesDir, implDir, "CN1Tile_" + suffix,
+                        "CN1SurfaceTileService", kindId);
+                entries.append(tileServiceEntry("CN1Tile_" + suffix, label));
+            }
+            if (kindIds.length() > 0) {
+                kindIds.append("</item>\n        <item>");
+            }
+            kindIds.append(kindId);
+        }
+        // Read by CN1WatchSurface.isWatchKind and by the mirror, so it has to land in the watch
+        // module's OWN res dir -- the same trap the wearable capability declaration documents
+        // just above, where an extra "app/" segment made the resource silently unpackaged.
+        // The PHONE's res dir, deliberately, even in a companion build. CN1SurfaceMirror reads
+        // this list on the PHONE to decide which kinds are worth sending, so putting it only in
+        // the wear module would leave the sender unable to see it and nothing would ever mirror.
+        // The same kind-to-class map the phone module gets. In a companion build this resDir is
+        // the WATCH module's own, and the complication and Tile services look their class names
+        // up exactly as the widget path does -- so the map has to be here too or the watch half
+        // falls back to the plain fold and misses a disambiguated kind.
+        writeSurfaceKindClassMap(resDir);
+        // The wear module shares the phone's res directory, so writing it here gives it to both.
+        File values = new File(resDir, "values");
+        values.mkdirs();
+        try {
+            createFile(new File(values, "cn1_surfaces_watch.xml"),
+                    ("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                    + "<resources>\n"
+                    + "    <string-array name=\"cn1_surface_watch_kinds\">\n"
+                    + "        <item>" + kindIds + "</item>\n"
+                    + "    </string-array>\n"
+                    + "</resources>\n").getBytes("UTF-8"));
+        } catch (IOException ex) {
+            throw new BuildException("Failed to write the watch surface kind declaration", ex);
+        }
+        addWatchSurfaceDependencies(request);
+        return entries.toString();
+    }
+
+    /** Writes one generated service subclass, which carries only its kind id. */
+    private void writeWatchService(File surfacesDir, File implDir, String className,
+            String baseClass, String kindId) throws BuildException {
+        String source = "package com.codename1.impl.android;\n\n"
+                + "/** Generated by the Codename One build from surfaces.json. */\n"
+                + "public class " + className
+                + " extends com.codename1.impl.android.surfaces." + baseClass + " {\n"
+                + "    @Override\n"
+                + "    protected String getKindId() {\n"
+                + "        return \"" + kindId + "\";\n"
+                + "    }\n"
+                + "}\n";
+        try {
+            createFile(new File(implDir, className + ".java"),
+                    source.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException ex) {
+            throw new BuildException("Failed to generate " + className, ex);
+        }
+    }
+
+    /**
+     * The manifest entry for a complication data source.
+     *
+     * <p>{@code UPDATE_PERIOD_SECONDS} defaults to 0 on purpose: the timeline model here is
+     * push-driven exactly like the widget path, so a system poll would spend watch battery
+     * asking a question the app has already answered.</p>
+     */
+    private String complicationServiceEntry(BuildRequest request, String className, String label,
+            String supportedTypes) {
+        return "        <service android:name=\"com.codename1.impl.android." + className + "\"\n"
+                + "                 android:exported=\"true\"\n"
+                + "                 android:label=\"" + xmlizeAttribute(label) + "\"\n"
+                + "                 android:permission=\"com.google.android.wearable.permission."
+                + "BIND_COMPLICATION_PROVIDER\">\n"
+                + "            <intent-filter>\n"
+                + "                <action android:name=\"android.support.wearable.complications."
+                + "ACTION_COMPLICATION_UPDATE_REQUEST\" />\n"
+                + "            </intent-filter>\n"
+                + "            <meta-data android:name=\"android.support.wearable.complications."
+                + "SUPPORTED_TYPES\" android:value=\"" + supportedTypes + "\" />\n"
+                + "            <meta-data android:name=\"android.support.wearable.complications."
+                + "UPDATE_PERIOD_SECONDS\" android:value=\""
+                + request.getArg("android.surfaces.complicationUpdateSeconds", "0") + "\" />\n"
+                + "        </service>\n";
+    }
+
+    private String tileServiceEntry(String className, String label) {
+        return "        <service android:name=\"com.codename1.impl.android." + className + "\"\n"
+                + "                 android:exported=\"true\"\n"
+                + "                 android:label=\"" + xmlizeAttribute(label) + "\"\n"
+                + "                 android:permission=\"com.google.android.wearable.permission."
+                + "BIND_TILE_PROVIDER\">\n"
+                + "            <intent-filter>\n"
+                + "                <action android:name=\"androidx.wear.tiles.action."
+                + "BIND_TILE_PROVIDER\" />\n"
+                + "            </intent-filter>\n"
+                + "            <meta-data android:name=\"androidx.wear.tiles.PREVIEW\" "
+                + "android:resource=\"@drawable/icon\" />\n"
+                + "        </service>\n";
+    }
+
+    /**
+     * Adds the androidx.wear dependencies the generated services need.
+     *
+     * <p>Only when a complication is actually declared, and only the Tile half when a Tile is.
+     * concurrent-futures is not decoration: {@code TileService.onTileRequest} returns a
+     * {@code ListenableFuture} and the stub artifact tiles pulls in has no
+     * {@code Futures.immediateFuture}, so {@code CallbackToFutureAdapter} is the reliable
+     * Java-only route.</p>
+     */
+    /**
+     * The theme the app's launcher activity declares.
+     *
+     * <p>One resolution, because the companion Wear manifest is written independently of the
+     * phone's and needs the same answer: the generated stub extends {@code AppCompatActivity}
+     * when {@code android.extendAppCompatActivity} is set, and AppCompat refuses to start under
+     * a theme that is not a {@code Theme.AppCompat} descendant. A Wear launcher left on the
+     * platform default crashed on the first frame.</p>
+     *
+     * <p>The AppCompat value used to be written as {@code @@style/...}. In an Android resource
+     * attribute a leading {@code @@} is the escape for a literal {@code @}, so that was the
+     * eight-character string "@style/Theme.AppCompat.NoActionBar" and not a reference to
+     * anything -- the theme was never applied. Corrected here rather than copied into a second
+     * manifest, since the branch only runs when a project has asked for AppCompat and the
+     * intent is not in doubt.</p>
+     *
+     * @return the theme reference for the launcher activity
+     */
+    private String launcherTheme() {
+        return extendAppCompatActivity
+                ? "@style/Theme.AppCompat.NoActionBar" : "@style/CustomTheme";
+    }
+
+    /**
+     * The Wear module's {@code <uses-sdk>}, or nothing when the project set no
+     * {@code android.xmanifest}.
+     *
+     * <p>The ATTRIBUTES only -- no {@code minSdkVersion} or {@code targetSdkVersion}. The wear
+     * module declares its own in build.gradle and the Gradle values win over the manifest, so
+     * repeating the phone's floors here would say something false about a module whose floor is
+     * deliberately higher.</p>
+     *
+     * <p>Emitted only when the hint is set, so an unmodified project's Wear manifest is
+     * byte-identical to what it was.</p>
+     *
+     * @param request the build being generated
+     * @return the element, or an empty string
+     */
+    static String wearUsesSdk(BuildRequest request) {
+        String attributes = request.getArg("android.xmanifest", "");
+        if (attributes == null || attributes.trim().length() == 0) {
+            return "";
+        }
+        return "    <uses-sdk " + attributes.trim() + " />\n";
+    }
+
+    /**
+     * The Wear manifest's {@code <application>} opening tag.
+     *
+     * <p>Written the way the phone manifest writes its own: a default is emitted only when
+     * {@code android.xapplication_attr} has not already said it. Emitting both produced the same
+     * attribute twice, and a duplicate attribute is not a merge conflict but an XML document that
+     * does not parse -- so a companion project that customised its label or icon failed before
+     * packaging, which is the whole build rather than the watch half of it.</p>
+     *
+     * @param request the build being generated
+     * @return the opening tag, ending with the closing angle bracket and a newline
+     */
+
+    private String wearApplicationTag(BuildRequest request) {
+        String attrs = request.getArg("android.xapplication_attr", "");
+        StringBuilder sb = new StringBuilder("    <application");
+        // android.blockLabel honoured, as the phone tag honours it, and escaped for an ATTRIBUTE:
+        // xmlize leaves the double quote alone, so a display name like Acme "Watch" closed the
+        // attribute early and the manifest stopped parsing.
+        if (!attrs.contains("android:label")
+                && !"true".equalsIgnoreCase(request.getArg("android.blockLabel", "false"))) {
+            sb.append(" android:label=\"")
+              .append(xmlizeAttribute(request.getDisplayName())).append("\"");
+        }
+        if (!attrs.contains("android:icon")) {
+            sb.append(" android:icon=\"@drawable/icon\"");
+        }
+        if (attrs.length() > 0) {
+            sb.append(" ").append(attrs);
+        }
+        return sb.append(">\n").toString();
+    }
+
+    /**
+     * How far above the phone's the Wear artifact's version code sits by default.
+     *
+     * <p>Large enough to partition the space rather than merely satisfy the ordering rule. Play
+     * refuses a version code it has already seen for an applicationId, and the two artifacts
+     * share one -- so an offset of 1 makes the Wear artifact consume the code the next phone
+     * release needs. A hundred million is beyond any hand-maintained sequence and still leaves
+     * room under Play's ceiling for a project numbering in the millions.</p>
+     */
+    static final int DEFAULT_WATCH_VERSION_CODE_OFFSET = 100000000;
+
+    /** Play's ceiling for a version code. */
+    static final int MAX_PLAY_VERSION_CODE = 2100000000;
+
+    /**
+     * Whether any declared kind earns a Tile, and so whether the tap trampoline has to be
+     * reachable from outside this app.
+     *
+     * <p>A complication's tap is a {@code PendingIntent} the app itself created, which the
+     * system can fire into a private activity. A Tile's is not: ProtoLayout's
+     * {@code LaunchAction} names a component and the TILE HOST starts it, from its own process,
+     * so a non-exported trampoline fails the permission check and the tap does nothing at all.
+     * Nothing in the build warns about it, because the manifest is valid.</p>
+     *
+     * <p>Exporting an activity is not free -- any installed app can then start it with extras of
+     * its choosing, and this one dispatches an action id to the app's listeners -- so it is asked
+     * per build rather than granted once: a project with complications and no Tile keeps the
+     * trampoline private.</p>
+     *
+     * @return true when at least one kind declares a Tile
+     */
+    private boolean anyWatchTile() {
+        for (String[] kind : watchSurfaceKinds) {
+            if (declaresTile(kind[2])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The androidx.wear dependency block for the Wear module.
+     *
+     * <p>Pure so it can be pinned directly. What has to stay true is a pairing rather than a
+     * list: the Tile half is optional, and every line it adds has to arrive together.</p>
+     *
+     * @param compile the dependency keyword this build uses -- implementation, or compile on a
+     *        legacy support-library build
+     * @param anyTile whether any declared kind earns a Tile
+     * @param complicationsVersion the watchface-complications-data-source version
+     * @param tilesVersion the tiles version
+     * @param protoLayoutVersion the protolayout version, used for both protolayout artifacts
+     * @param guavaVersion the Guava version floor; see the comment on the Guava line
+     * @return the dependency lines, each already indented for the block they are inserted into
+     */
+    static String watchSurfaceDependencyBlock(String compile, boolean anyTile,
+            String complicationsVersion, String tilesVersion, String protoLayoutVersion,
+            String guavaVersion) {
+        StringBuilder deps = new StringBuilder();
+        deps.append("    ").append(compile)
+                .append(" 'androidx.wear.watchface:watchface-complications-data-source:")
+                .append(complicationsVersion).append("'\n");
+        if (anyTile) {
+            deps.append("    ").append(compile).append(" 'androidx.wear.tiles:tiles:")
+                    .append(tilesVersion).append("'\n");
+            deps.append("    ").append(compile)
+                    .append(" 'androidx.wear.protolayout:protolayout:")
+                    .append(protoLayoutVersion).append("'\n");
+            deps.append("    ").append(compile)
+                    .append(" 'androidx.wear.protolayout:protolayout-material:")
+                    .append(protoLayoutVersion).append("'\n");
+            // TileService.onTileRequest returns a ListenableFuture, and the stub artifact tiles
+            // pulls in has no Futures.immediateFuture, so CallbackToFutureAdapter is the reliable
+            // Java-only route.
+            deps.append("    ").append(compile)
+                    .append(" 'androidx.concurrent:concurrent-futures:1.1.0'\n");
+            // Guava, for one class. concurrent-futures and tiles both ask for
+            // com.google.guava:listenablefuture:1.0, a jar holding only ListenableFuture -- the
+            // type onTileRequest returns. Guava publishes the SAME coordinate at
+            // 9999.0-empty-to-avoid-conflict-with-guava containing no classes at all, so that a
+            // build carrying full Guava does not get the class twice; anything pulling the marker
+            // wins the version comparison and the real jar drops out. CameraX's graph does that
+            // to a Codename One app, and the import then fails in a generated Tile service the
+            // developer never wrote.
+            //
+            // So supply what the marker assumes is already there rather than fighting it. Forcing
+            // 1.0 back instead looks lighter and is wrong: an app whose graph ALREADY carries
+            // full Guava -- androidx.car.app brings 31.1-android -- then has ListenableFuture in
+            // two jars and fails checkDuplicateClasses instead, which is how this was found. The
+            // floor is deliberately low so a project already on a newer Guava keeps it; R8 takes
+            // the unused bulk back out of a release build.
+            deps.append("    ").append(compile).append(" 'com.google.guava:guava:")
+                    .append(guavaVersion).append("'\n");
+        }
+        return deps.toString();
+    }
+
+    private void addWatchSurfaceDependencies(BuildRequest request) throws BuildException {
+        // The same keyword the rest of the dependency block uses; AndroidX builds are
+        // "implementation" and the legacy ones "compile".
+        String compile = useAndroidX ? "implementation" : "compile";
+        boolean anyTile = false;
+        for (String[] kind : watchSurfaceKinds) {
+            if (declaresTile(kind[2])) {
+                anyTile = true;
+                break;
+            }
+        }
+        String deps = watchSurfaceDependencyBlock(compile, anyTile,
+                request.getArg("android.wear.complicationsVersion", "1.2.1"),
+                request.getArg("android.wear.tilesVersion", "1.4.1"),
+                request.getArg("android.wear.protoLayoutVersion", "1.2.1"),
+                request.getArg("android.wear.guavaVersion", "31.1-android"));
+        // Held rather than pushed into the shared gradleDependencies hint, because in a
+        // COMPANION build that hint feeds the phone module too -- and these libraries declare
+        // minSdk 26. A phone app supporting API 24 then failed its manifest merge against a
+        // library it has no use for. Where they actually land is decided by the caller, which
+        // knows which module is the watch.
+        watchSurfaceDependencies = deps;
+        // These libraries are AndroidX-only, so a legacy support-library build cannot carry them.
+        // Said here, naming the setting, rather than failing later inside Gradle with a manifest
+        // merge error that names none of this.
+        if (!useAndroidX) {
+            throw new BuildException("Wear OS complications need AndroidX: the "
+                    + "androidx.wear complication and Tile libraries have no support-library "
+                    + "equivalent. Set android.useAndroidX=true (and android.useJetifier=true if "
+                    + "you depend on older libraries), or remove the watch families from "
+                    + "surfaces.json.");
+        }
+    }
+
+    /**
+     * Generates the companion Wear OS module, so a companion build hands back a Wear artifact
+     * beside the phone one instead of only the phone app.
+     *
+     * <p>The module SHARES the app module's source, resource and asset directories rather than
+     * copying them. A copy would roughly double disk and dex time on a cloud builder for a tree
+     * that is identical apart from one class. What differs is declared here: its own generated
+     * stub rooted at {@code codename1.watchMain}, its own manifest, and the complication and Tile
+     * services.</p>
+     *
+     * <p><b>Both modules declare the same namespace</b>, which AGP permits and which is required
+     * rather than merely convenient: the shared sources sit in the app's own package and refer to
+     * {@code R} unqualified, so a second namespace would give the wear module an {@code R} class
+     * the shared code cannot see. The same {@code applicationId} is what makes Play treat the two
+     * artifacts as one app.</p>
+     *
+     * <p>Nothing here runs for a project that declared no watch, or for a standalone build where
+     * the single APK already is the watch app.</p>
+     *
+     * @param request the build being generated
+     * @param studioProjectDir the generated project root, which holds settings.gradle
+     * @param appGradle the app module's build.gradle, which this one is derived from
+     * @param watchServices the complication and Tile manifest entries
+     * @param sharedPermissions the permissions the phone manifest declares, base ones
+     *     included -- the watch compiles the same Codename One sources, so a watchMain making an
+     *     ordinary network request needs INTERNET as much as the phone does, and this manifest is
+     *     selected outright rather than merged with the phone's
+     * @param intVersion the phone's version code, which the watch's must exceed
+     * @param wearableListenerService the Data Layer listener declaration, which the watch needs
+     *     as much as the phone does -- it is the half that RECEIVES a mirrored complication
+     */
+    private void generateWearModule(BuildRequest request, File studioProjectDir, String appGradle,
+            String watchServices, String sharedPermissions, int intVersion,
+            String wearableListenerService) throws BuildException {
+        if (!"wear".equals(watchModuleName(request))) {
+            return;
+        }
+        File wearDir = new File(studioProjectDir, "wear");
+        File wearSrc = new File(wearDir, "src/main/java");
+        File wearRes = new File(wearDir, "src/main/res");
+        wearSrc.mkdirs();
+        wearRes.mkdirs();
+
+        String watchMain = watchMainClass(request);
+        String phoneStub = request.getMainClass() + "Stub";
+        String stubName = request.getMainClass() + "WatchStub";
+        if (generatedStubSource == null) {
+            throw new BuildException("The Wear module needs the generated stub, which has not "
+                    + "been produced yet");
+        }
+        // Derived from the phone stub rather than subclassing it: the stub is typed throughout to
+        // the lifecycle class it starts, so re-rooting it means substituting that type. The
+        // phone stub itself stays in the app module and is compiled into both harmlessly, because
+        // each manifest names its own -- which is what lets the source set be shared at all.
+        String phoneMain = appLifecycleClass(request);
+        String watchSimpleName = watchMain.substring(watchMain.lastIndexOf('.') + 1);
+        String stub = generatedStubSource
+                .replace("class " + phoneStub, "class " + stubName)
+                .replace(phoneStub + "()", stubName + "()")
+                .replace(phoneStub + " stubInstance", stubName + " stubInstance")
+                .replace(phoneStub + " getInstance", stubName + " getInstance")
+                // The qualified-this the run() hand-off uses. Renaming the class without this
+                // leaves "<PhoneStub>.this" naming a class that is no longer an enclosing one,
+                // and javac says exactly that.
+                .replace(phoneStub + ".this", stubName + ".this")
+                .replace(phoneStub + ".headphones", stubName + ".headphones")
+                .replace("new " + phoneMain + "(", "new " + watchSimpleName + "(")
+                .replace(" " + phoneMain + " i;", " " + watchSimpleName + " i;")
+                .replace(" " + phoneMain + " getAppInstance", " " + watchSimpleName
+                        + " getAppInstance");
+        if (watchMain.indexOf('.') > 0) {
+            stub = stub.replace("import com.codename1.ui.*;",
+                    "import com.codename1.ui.*;\nimport " + watchMain + ";");
+        }
+        // Re-rooting the phone stub is a set of textual substitutions over generated code, and
+        // the failure mode when one is missing is not subtle but it IS remote: the watch module
+        // fails to compile, minutes later, naming a file the developer never wrote. Anything the
+        // list above did not catch still says the phone stub's name, so say so here instead --
+        // at generation time, naming the construct, in the build that produced it.
+        int leftover = stub.indexOf(phoneStub);
+        if (leftover >= 0) {
+            int from = Math.max(0, leftover - 60);
+            int to = Math.min(stub.length(), leftover + 60);
+            throw new BuildException("The Wear stub still refers to the phone stub "
+                    + phoneStub + ", so re-rooting it missed a construct and the wear module "
+                    + "would not compile. Near: ..." + stub.substring(from, to).replace('\n', ' ')
+                    + "... Add a substitution for it in generateWearModule.");
+        }
+        File stubDir = new File(wearSrc, request.getPackageName().replace('.', '/'));
+        stubDir.mkdirs();
+        try {
+            createFile(new File(stubDir, stubName + ".java"),
+                    stub.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException ex) {
+            throw new BuildException("Failed to generate the Wear OS stub", ex);
+        }
+        writeWatchStubUtil(request, wearSrc, stubName);
+
+        int wearVersion = wearVersionCode(request, intVersion);
+        log("[wearable] Wear module version code " + wearVersion + " (phone " + intVersion + ")");
+
+        String wearGradle = deriveWearGradle(appGradle, intVersion, wearVersion,
+                watchSurfaceDependencies);
+        try {
+            createFile(new File(wearDir, "build.gradle"),
+                    wearGradle.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException ex) {
+            throw new BuildException("Failed to write the Wear module build.gradle", ex);
+        }
+        copyMobileServiceConfig(studioProjectDir, wearDir);
+
+        String wearManifest = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                + "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"\n"
+                // The tools namespace, because the application hints copied below routinely use
+                // it: tools:replace and tools:node are how a project resolves a manifest-merger
+                // conflict, and a root that declares only xmlns:android makes the copy a document
+                // that will not parse at all.
+                + "          xmlns:tools=\"http://schemas.android.com/tools\"\n"
+                + "          package=\"" + request.getPackageName() + "\">\n"
+                + "    <uses-feature android:name=\"android.hardware.type.watch\" "
+                + "android:required=\"true\" />\n"
+                // The uses-sdk attributes the project set with android.xmanifest -- in practice
+                // tools:overrideLibrary, which is how a project accepts a dependency whose own
+                // manifest demands a higher minSdk than the app declares. deriveWearGradle keeps
+                // the phone module's dependency graph, so that same library manifest is merged
+                // into :wear as well, and without the override carried across the wear merge
+                // fails on exactly the conflict the phone build was told to allow.
+                + wearUsesSdk(request)
+                + sharedPermissions
+                // The package-visibility queries, for the same reason the permissions above are
+                // here: this manifest is selected outright rather than merged with the phone's,
+                // so nothing else supplies them. The watch module compiles the SAME sources, and
+                // on API 30+ an undeclared query means resolveActivity and queryIntentActivities
+                // return filtered results -- so code that finds a package on the phone silently
+                // finds nothing on the watch, which reads as a broken feature rather than a
+                // missing declaration.
+                + "  " + xQueries
+                // android.xapplication_attr and android.xapplication carried across. This
+                // manifest is selected outright by the module's sourceSets rather than merged
+                // with the phone's, so a project that names a custom android:name Application --
+                // the usual way to initialise a native SDK -- or declares application-level
+                // meta-data got the stock Application and no meta-data on the watch, while the
+                // watch module compiles the very sources that expect them. The two hints are the
+                // ones that describe the application ITSELF; phone-only components stay behind
+                // deliberately, and a project that needs a watch-only difference can still say so
+                // by keeping the phone-only parts out of these hints.
+                + wearApplicationTag(request)
+                + "  " + request.getArg("android.xapplication", "") + "\n"
+                // Says the watch app needs its phone half, which is what a companion IS. A
+                // standalone build says the opposite, in the phone manifest.
+                + "        <meta-data android:name=\"com.google.android.wearable.standalone\" "
+                + "android:value=\"false\" />\n"
+                // Same theme the phone launcher gets. The shared stub extends AppCompatActivity
+                // when the project asks for it, and AppCompat refuses to start under a theme that
+                // is not one of its own -- so a Wear launcher on the platform default crashed on
+                // the first frame.
+                + "        <activity android:name=\"." + stubName + "\" "
+                + "android:theme=\"" + launcherTheme() + "\" "
+                // The project's resolved launch mode, as the phone launcher gets. It defaults to
+                // singleTop, and the difference matters now that the custom intent filter is
+                // carried across: an app link arriving while the watch app is already running
+                // would otherwise start a SECOND stub and lifecycle under the default standard
+                // mode, where the same configuration delivers it to the running one through
+                // onNewIntent on the phone.
+                + "android:launchMode=\"" + request.getArg("android.activity.launchMode",
+                        "singleTop") + "\" "
+                + "android:exported=\"true\">\n"
+                + "            <intent-filter>\n"
+                + "                <action android:name=\"android.intent.action.MAIN\" />\n"
+                + "                <category android:name=\"android.intent.category.LAUNCHER\" />\n"
+                + "            </intent-filter>\n"
+                // Whatever else the project registered on its launcher -- an app link, a custom
+                // URI scheme, a share target. The phone activity gets this same fragment, and
+                // the two halves are ONE app to the system: they share an applicationId, so an
+                // intent the phone resolves is an intent the watch has to be able to resolve
+                // too. Without it a link opened on the watch has nowhere to go, and the watch
+                // half of a companion cannot be reached by anything but its launcher icon.
+                + request.getArg("android.xintent_filter", "")
+                + watchIntentsActivityMetaData
+                + "        </activity>\n"
+                // The Data Layer listener. This manifest is selected outright by the module's
+                // sourceSets rather than merged with the phone's, so anything the watch needs has
+                // to be declared here -- and the watch needs this one MORE than the phone does:
+                // it is the half that RECEIVES a mirrored complication. Without it Play services
+                // has nothing to bind in the watch APK, and every mirrored descriptor is dropped.
+                + wearableListenerService
+                // Push, when the project uses it. See watchPushManifestEntries.
+                + watchPushManifestEntries
+                // The FileProvider and the local-notification receiver, for the same reason: the
+                // wear module compiles the same sources and packages the same file_paths.xml, and
+                // a scheduled notification is delivered by a manifest-declared receiver or not at
+                // all.
+                + "  " + watchProviderTag + "\n"
+                + "  " + watchAlarmReceiver
+                + "  " + watchBackgroundWorkService
+                + "  " + watchBackgroundFetchService
+                + "  " + watchIntentsManifestEntries
+                + "  " + watchFeatureComponents
+                + "  " + watchMediaComponents
+                // A complication or Tile tap still needs the trampoline, and a TILE tap needs it
+                // reachable from the tile host's process -- see anyWatchTile.
+                + "        <activity android:name=\"com.codename1.impl.android.surfaces."
+                + "CN1SurfaceActionActivity\"\n"
+                + "                  android:theme=\"@android:style/Theme.NoDisplay\"\n"
+                + "                  android:exported=\"" + anyWatchTile() + "\"\n"
+                + "                  android:excludeFromRecents=\"true\"\n"
+                + "                  android:noHistory=\"true\"\n"
+                + "                  android:taskAffinity=\"\" />\n"
+                + watchServices
+                + "    </application>\n"
+                + "</manifest>\n";
+        try {
+            createFile(new File(wearDir, "src/main/AndroidManifest.xml"),
+                    wearManifest.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException ex) {
+            throw new BuildException("Failed to write the Wear module manifest", ex);
+        }
+
+        // Only now, so a project without a watch produces a byte-identical settings.gradle.
+        File settings = new File(studioProjectDir, "settings.gradle");
+        try {
+            String existing = new String(java.nio.file.Files.readAllBytes(settings.toPath()),
+                    StandardCharsets.UTF_8);
+            if (existing.indexOf("':wear'") < 0) {
+                createFile(settings, (existing + "\ninclude ':wear'\n")
+                        .getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (IOException ex) {
+            throw new BuildException("Failed to add the Wear module to settings.gradle", ex);
+        }
+
+        // The Gradle tasks are invoked unqualified from the project root, so "assembleRelease"
+        // runs in every subproject that has it -- this module included. Nothing extra is needed
+        // to build it; what was needed was collecting its output, which the daemon now does.
+        log("[wearable] Generated the companion Wear OS module; the build produces a Wear "
+                + "artifact beside the phone one.");
+    }
+
+
+    /**
+     * The Wear artifact's version code, which must outrank the phone's.
+     *
+     * <p>On a watch Play picks among the APKs the device supports by version code, so the wear
+     * one has to be higher to be chosen. On a phone the required watch feature filters it out
+     * entirely, so the phone APK still wins there whatever this says.</p>
+     *
+     * @param request the build being generated
+     * @param intVersion the phone's version code
+     * @return the wear module's version code
+     */
+    static int wearVersionCode(BuildRequest request, int intVersion) throws BuildException {
+        String explicit = request.getArg("android.watchVersionCode", "");
+        int resolved;
+        String setting;
+        if (explicit.length() > 0) {
+            // Refused rather than substituted. Falling back to intVersion + 1 hid the typo AND
+            // recreated the collision this method exists to prevent: the Wear artifact would
+            // consume the next phone release's code, and the developer would be looking at a
+            // hint that says something else entirely.
+            try {
+                resolved = Integer.parseInt(explicit.trim());
+            } catch (NumberFormatException malformed) {
+                throw new BuildException("android.watchVersionCode is '" + explicit
+                        + "', which is not a version code. It must be a whole number greater "
+                        + "than the phone's " + intVersion + " and no more than "
+                        + MAX_PLAY_VERSION_CODE + ".");
+            }
+            setting = "android.watchVersionCode=" + explicit;
+        } else {
+            String offset = request.getArg("android.watchVersionCodeOffset",
+                    String.valueOf(DEFAULT_WATCH_VERSION_CODE_OFFSET));
+            resolved = intVersion + parseIntSafe(offset, DEFAULT_WATCH_VERSION_CODE_OFFSET);
+            setting = "android.watchVersionCodeOffset=" + offset;
+        }
+        // Play never accepts a version code twice for one application, and the two artifacts share
+        // an applicationId. An offset of 1 satisfies the ordering rule and then collides with the
+        // NEXT release: ship phone 100 with Wear 101, and the release after it cannot upload phone
+        // 101 at all. A project on sequential codes hits that on its second release, which is
+        // where this would have been found. The default offset partitions the space instead, so a
+        // Wear code can only collide with a phone code the project will never reach.
+        if (resolved > MAX_PLAY_VERSION_CODE) {
+            throw new BuildException("The Wear version code " + resolved
+                    + " exceeds the " + MAX_PLAY_VERSION_CODE + " Play allows. " + setting
+                    + " is added to the phone's " + intVersion + "; a project whose own codes are "
+                    + "already this large -- a date-derived code, usually -- needs a smaller "
+                    + "android.watchVersionCodeOffset, chosen so it cannot collide with a code "
+                    + "the project will use later.");
+        }
+        // The whole multi-APK arrangement rests on this ordering. A watch picks among the APKs it
+        // supports by version code, so a Wear artifact that does not outrank the phone one loses
+        // to a phone APK the watch also happens to support -- and the failure is not a build
+        // error but a watch quietly running the phone build, which nobody would trace back to a
+        // hint. Refuse it here, naming the setting, rather than shipping an arrangement that
+        // cannot work.
+        if (resolved <= intVersion) {
+            throw new BuildException("The Wear version code must be higher than the phone's. "
+                    + setting + " resolves to " + resolved + ", and the phone build is "
+                    + intVersion + ". Play picks among the APKs a device supports by version "
+                    + "code, so a watch would install the phone build instead of the Wear one.");
+        }
+        return resolved;
+    }
+
+    private static int parseIntSafe(String value, int fallback) {
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
+    }
+
+    /**
+     * The source root the generated Wear services belong in.
+     *
+     * <p>In a companion build that is the wear module's own, NOT the phone's. The wear module
+     * shares the phone's source directory, so anything written to the phone's root is compiled by
+     * both -- and these import {@code androidx.wear}, whose dependencies belong to the wear module
+     * alone. A companion build therefore failed compiling the PHONE module against imports it has
+     * no libraries for.</p>
+     *
+     * @param module the watch module name, from {@link #watchModuleName(BuildRequest)}
+     * @param appSrcDir the phone module's java source root
+     * @return where to generate the services
+     */
+    static File watchSourceRoot(String module, File appSrcDir) {
+        if (!"wear".equals(module)) {
+            return appSrcDir;
+        }
+        // appSrcDir is <studio>/app/src/main/java, so four levels up is the project root.
+        File wearModule = new File(appSrcDir.getParentFile().getParentFile()
+                .getParentFile().getParentFile(), "wear");
+        return new File(wearModule, "src/main/java");
+    }
+
+    /**
+     * Which injected Wear sources to copy for a set of kinds.
+     *
+     * <p>The Tile service only when a Tile is actually declared. Gradle compiles every source in
+     * the tree whether or not a generated subclass names it, and the tiles/protolayout
+     * dependencies are added only for a rectangular family -- so copying it unconditionally
+     * failed a complication-only build on unresolved imports.</p>
+     *
+     * @param kinds the watch-bearing kinds, as {id, label, families}
+     * @return the resource names to copy
+     */
+    static List<String> watchSurfaceSources(List<String[]> kinds) {
+        List<String> out = new ArrayList<String>();
+        out.add("CN1ComplicationDataSource.java");
+        for (String[] kind : kinds) {
+            if (declaresTile(kind[2])) {
+                out.add("CN1SurfaceTileService.java");
+                break;
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Gives the Wear module the mobile-services config the phone module already has.
+     *
+     * <p>The Wear build.gradle is derived from the phone's, so an app using FCM or Firebase
+     * Analytics carries {@code apply plugin: 'com.google.gms.google-services'} into it, and that
+     * plugin fails the whole multi-module build when it cannot find its config file -- which is
+     * written only under {@code app}. The phone artifact goes down with the watch one, which is
+     * the worst shape this failure could take.</p>
+     *
+     * <p>Copying rather than dropping the plugin, because the derived dependency block already
+     * carries the Firebase libraries: with the plugin gone they would be present and
+     * unconfigured, and FirebaseApp initialization fails at runtime on the watch instead of at
+     * build time on the desk. The two modules share an applicationId, so the same file is the
+     * right one.</p>
+     *
+     * @param studioProjectDir the generated project root
+     * @param wearDir the Wear module directory
+     */
+    private void copyMobileServiceConfig(File studioProjectDir, File wearDir)
+            throws BuildException {
+        String[] configs = {"google-services.json", "agconnect-services.json"};
+        for (String config : configs) {
+            File from = new File(new File(studioProjectDir, "app"), config);
+            if (!from.exists()) {
+                continue;
+            }
+            try {
+                copy(new FileInputStream(from), new FileOutputStream(new File(wearDir, config)));
+                log("[wearable] Copied " + config + " into the Wear module; the derived "
+                        + "build.gradle applies the same plugin the phone module does.");
+            } catch (IOException ex) {
+                throw new BuildException("Failed to copy " + config
+                        + " into the Wear module, which the google-services plugin needs", ex);
+            }
+        }
+    }
+
+    /**
+     * Derives the Wear module's build.gradle from the phone module's.
+     *
+     * <p>Textual substitution, which is cheap and total -- and every one of these has been wrong
+     * at least once in a way no compiler could see. A generated Gradle file only fails when
+     * Gradle evaluates it, which on CI is twenty minutes after the mistake, so this is separated
+     * from writing it and pinned by WearModuleGradleTest.</p>
+     *
+     * @param appGradle the phone module's build.gradle
+     * @param intVersion the phone's version code
+     * @param wearVersion the watch's version code, which must outrank it
+     * @param wearDependencies the androidx.wear block, which belongs to this module alone
+     * @return the wear module's build.gradle
+     */
+    /**
+     * Writes the wear module's own StubUtil, naming the WATCH stub.
+     *
+     * <p>StubUtil answers "which stub is this app's" and the push glue believes it: a push
+     * callback asks whether the app is running through it, and a notification tap targets the
+     * class it returns. The phone's copy is generated with {@code <Main>Stub} substituted in, and
+     * that activity is not declared in the Wear manifest -- so a companion build with FCM or HMS
+     * sent both to the phone lifecycle from inside the watch app, and the tap resolved to
+     * nothing.</p>
+     *
+     * <p>Written here rather than patched into the shared copy because both modules compile the
+     * same tree: the wear source set excludes the shared StubUtil (see deriveWearGradle) and this
+     * takes its place, which is also why the two cannot both be present.</p>
+     *
+     * @param request the build being generated
+     * @param wearSrc the wear module's java source root
+     * @param stubName the simple name of the generated watch stub
+     */
+    private void writeWatchStubUtil(BuildRequest request, File wearSrc, String stubName)
+            throws BuildException {
+        String watchStub = request.getPackageName() + "." + stubName;
+        String source = "package com.codename1.impl.android;\n\n"
+                + "/** Generated by the Codename One build for the Wear module. The phone's copy\n"
+                + " * of this class names the phone stub, which this manifest does not declare. */\n"
+                + "public class StubUtil {\n"
+                + "    public static boolean appIsRunning() {\n"
+                + "        return " + watchStub + ".isRunning();\n"
+                + "    }\n\n"
+                + "    public static Class getAppStubClass() {\n"
+                + "        return " + watchStub + ".class;\n"
+                + "    }\n\n"
+                // getMain too: every bundled CN1FirebaseMessagingService template calls it, so a
+                // replacement without it fails the wear build on a class the developer never
+                // wrote. Package-private and returning Object, exactly as the phone's copy is.
+                + "    static Object getMain() {\n"
+                + "        return " + watchStub + ".getAppInstance();\n"
+                + "    }\n"
+                + "}\n";
+        File dir = new File(wearSrc, "com/codename1/impl/android");
+        dir.mkdirs();
+        try {
+            createFile(new File(dir, "StubUtil.java"), source.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException ex) {
+            throw new BuildException("Failed to generate the Wear module's StubUtil", ex);
+        }
+    }
+
+    static String deriveWearGradle(String appGradle, int intVersion, int wearVersion,
+            String wearDependencies) {
+        String gradle = appGradle
+                // Libraries are shared from the app module rather than copied.
+                .replace("fileTree(dir: 'libs'", "fileTree(dir: '../app/libs'")
+                .replace("dirs 'libs'", "dirs '../app/libs'")
+                // The signing key lives in the app module and nowhere else, and Gradle resolves
+                // file("keyStore") relative to the project it appears in -- so a verbatim copy
+                // sent the wear module looking for a keystore beside itself. A release build then
+                // failed to CONFIGURE, taking the phone artifact down with it: this is not the
+                // watch half degrading, it is the whole multi-module build not starting.
+                .replace("storeFile file(\"keyStore\")", "storeFile file(\"../app/keyStore\")")
+                // Same trap as the keystore, one line further on. The generated proguard.cfg is
+                // written into the app module and nowhere else, and Gradle resolves a bare
+                // proguardFiles path against the project it appears in -- so the default
+                // release build had the Wear R8 task looking for a file beside itself and
+                // failing, which takes the phone artifact down with it.
+                .replace("'proguard.cfg'", "'../app/proguard.cfg'");
+        // Share the app module's tree instead of duplicating it, and add this module's own
+        // generated sources on top. insertAfterFirst and not replace: an "android {" block can
+        // appear more than once -- a coverage harness appends a second one to add a build type --
+        // and only the module's own block wants a source set.
+        gradle = insertAfterFirst(gradle, "android {\n",
+                "    sourceSets.main {\n"
+                + "        java.srcDirs = ['../app/src/main/java', 'src/main/java']\n"
+                // StubUtil comes from THIS module, not from the phone's tree. It is generated
+                // with the app stub's name substituted in, and the phone's copy names
+                // <Main>Stub -- a class this manifest does not declare as an activity. Push
+                // callbacks ask StubUtil which stub to reach and notification taps target what it
+                // answers, so the shared copy sent both to the phone lifecycle from inside the
+                // watch app. Excluded here and replaced by the watch-specific one written beside
+                // the watch stub; two copies of one class would not compile.
+                // Scoped to the PHONE root by absolute path, not a bare pattern. An exclude
+                // applies to the whole source set, and both roots hold the same relative path --
+                // so '**/StubUtil.java' removed the watch-specific replacement as well as the
+                // phone's, leaving the shared messaging service referencing a class that was no
+                // longer compiled at all.
+                + "        java.exclude { \n"
+                + "            it.file.absolutePath.replace('\\\\', '/')\n"
+                + "                    .endsWith('/app/src/main/java/com/codename1/impl/android/StubUtil.java')\n"
+                + "        }\n"
+                + "        res.srcDirs = ['../app/src/main/res', 'src/main/res']\n"
+                + "        assets.srcDirs = ['../app/src/main/assets']\n"
+                // ../app/src/main/JAVA, matching what the phone module declares. The generated
+                // in-app billing interface for a pre-v8 port is written next to the Java it
+                // serves, which is why the phone gradle names src/main/java as an AIDL root --
+                // and pointing this at a src/main/aidl that no build creates left the wear module
+                // compiling the billing sources with no IInAppBillingService to compile against.
+                + "        aidl.srcDirs = ['../app/src/main/java']\n"
+                + "        manifest.srcFile 'src/main/AndroidManifest.xml'\n"
+                + "    }\n");
+        // The androidx.wear libraries, HERE and not in the shared dependency hint. They declare
+        // minSdk 26, and this is the only module raised to it -- putting them in the hint failed
+        // the phone module's manifest merge against libraries it never uses.
+        //
+        // "\ndependencies {" and not "dependencies {": the buildscript block is indented and
+        // comes FIRST, and a plain replace put an implementation() call inside buildscript's
+        // dependency handler, where the method does not exist and the whole :wear project failed
+        // to evaluate. insertAfterFirst for the same reason one level up -- the generated file
+        // also carries an androidTest dependency block, which has no use for these.
+        gradle = insertAfterFirst(gradle, "\ndependencies {\n", wearDependencies);
+        // Appended, and not substituted into the generated declarations. android.xgradle_default_config
+        // lets a project add its OWN minSdkVersion and versionCode inside defaultConfig, and those
+        // come after the builder's -- so rewriting the builder's left the project's value
+        // effective and this module quietly kept the phone's version code, or a floor below the
+        // one the Wear libraries need. A trailing block is evaluated last, whatever the file
+        // above it says, which is the only form that cannot be overridden by a hint.
+        //
+        // The floor rises only for the libraries that demand it. Wear OS 3 is where the
+        // complication and Tile APIs start, so a module carrying them cannot support less -- but
+        // a companion watch app that only uses the lifecycle or the Data Layer has always run on
+        // the Wear OS 2 baseline, and raising it for every watchMain build took API 23 to 25
+        // watches away from projects that declared no surface at all.
+        StringBuilder wins = new StringBuilder();
+        wins.append("\n// Last word on the two values the Wear artifact cannot get wrong. See\n")
+                .append("// deriveWearGradle: a defaultConfig fragment from android.xgradle_default_config\n")
+                .append("// appears after the generated declarations and would otherwise win.\n")
+                .append("android {\n")
+                .append("    defaultConfig {\n")
+                .append("        versionCode ").append(wearVersion).append("\n");
+        if (wearDependencies != null && wearDependencies.length() > 0) {
+            wins.append("        minSdkVersion 26\n");
+        }
+        wins.append("    }\n")
+                .append("}\n");
+        return gradle + wins;
+    }
+
+    /**
+     * Inserts text directly after the FIRST occurrence of an anchor, or returns the input when
+     * the anchor is absent.
+     *
+     * <p>{@code String.replace} rewrites every occurrence, which in a generated build.gradle is
+     * almost never what is wanted: the anchors here name block openings that legitimately repeat.
+     * Two separate CI failures came from that, so the intent is spelled out rather than encoded
+     * in a longer anchor string.</p>
+     *
+     * @param text the text to insert into
+     * @param anchor the opening to insert after
+     * @param insertion the text to insert
+     * @return the text with the insertion applied at most once
+     */
+    private static String insertAfterFirst(String text, String anchor, String insertion) {
+        int at = text.indexOf(anchor);
+        if (at < 0) {
+            return text;
+        }
+        int after = at + anchor.length();
+        return text.substring(0, after) + insertion + text.substring(after);
+    }
+
+    /** Joins declared families for the codegen tables, normalized to the portable spelling. */
+    static String joinFamilies(List<String> families) {
+        StringBuilder sb = new StringBuilder();
+        for (String family : families) {
+            if (sb.length() > 0) {
+                sb.append(",");
+            }
+            sb.append(com.codename1.util.SurfaceKindFamilies.normalize(family));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * The Wear complication types a kind's declared families map onto, as the comma-separated
+     * SUPPORTED_TYPES value the manifest meta-data carries.
+     *
+     * <p>A watch face asks a data source for one specific type and gets nothing if the source
+     * does not offer it, so this is what decides whether a complication can be placed in a given
+     * slot at all. The mapping is the one {@code WidgetSize} documents: circular is a gauge or a
+     * glyph, inline is one short string, rectangular is the roomy one. SHORT_TEXT is offered
+     * everywhere because every family can degrade to a number or a word, and a slot that would
+     * otherwise refuse the source entirely is better filled than empty.</p>
+     *
+     * @param familiesCsv the kind's declared families, comma separated
+     * @return the SUPPORTED_TYPES value, never empty when any watch family was declared
+     */
+    ///
+    /// Advertised from the DECLARED FAMILY, which is all this build can see. Whether a given
+    /// layout will contain a progress node or an image is a property of what the app publishes at
+    /// runtime, and it can differ between one publish and the next -- so narrowing the advertised
+    /// set here would be guessing about a document that does not exist yet, and guessing low
+    /// makes the kind unselectable in a slot it will later be able to fill. When a face asks for
+    /// a type the current layout cannot produce, the data source answers with no data, which is
+    /// the defined way to say so; the slot then falls back to another type or shows its empty
+    /// state, and the next publish can change the answer.
+    static String complicationTypes(String familiesCsv) {
+        LinkedHashSet<String> types = new LinkedHashSet<String>();
+        for (String family : familiesCsv.split(",")) {
+            String f = family.trim();
+            if ("watchCircular".equals(f) || "watchCorner".equals(f)) {
+                // Wear OS has no corner slot; a corner complication is round, so it renders as
+                // the circular family here exactly as WidgetSize says it does.
+                types.add("RANGED_VALUE");
+                types.add("MONOCHROMATIC_IMAGE");
+                types.add("SHORT_TEXT");
+            } else if ("watchRectangular".equals(f)) {
+                types.add("LONG_TEXT");
+                types.add("SHORT_TEXT");
+            } else if ("watchInline".equals(f)) {
+                types.add("SHORT_TEXT");
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String type : types) {
+            if (sb.length() > 0) {
+                sb.append(",");
+            }
+            sb.append(type);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Whether a kind also earns a Tile: the rectangular family is the only one roomy enough for
+     * a layout rather than a readout.
+     *
+     * @param familiesCsv the kind's declared families, comma separated
+     * @return true if a TileService should be generated
+     */
+    static boolean declaresTile(String familiesCsv) {
+        for (String family : familiesCsv.split(",")) {
+            if ("watchRectangular".equals(family.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Formats a numeric surfaces.json value (the JSON parser produces Doubles) as a dp integer
+     * string, falling back to the supplied default when absent or malformed.
+     */
+    static String surfaceDp(Object value, String defaultValue) {
+        if (value instanceof Number) {
+            return String.valueOf(((Number) value).intValue());
+        }
+        return defaultValue;
+    }
+
+    @Override
+    protected String registerNativeImplementationsAndCreateStubs(ClassLoader parentClassLoader, File stubDir, File... classesDirectory) throws MalformedURLException, IOException {
+        Class[] discoveredNativeInterfaces = findNativeInterfaces(parentClassLoader, classesDirectory);
+        String registerNativeFunctions = "";
+        if (discoveredNativeInterfaces != null && discoveredNativeInterfaces.length > 0) {
+            for (Class n : discoveredNativeInterfaces) {
+                registerNativeFunctions += "        NativeLookup.register(" + n.getName() + ".class, "
+                        + n.getName() + "Stub.class" + ");\n";
+            }
+        }
+
+        if (discoveredNativeInterfaces != null && discoveredNativeInterfaces.length > 0) {
+            for (Class currentNative : discoveredNativeInterfaces) {
+                File folder = new File(stubDir, currentNative.getPackage().getName().replace('.', File.separatorChar));
+                folder.mkdirs();
+                File javaFile = new File(folder, currentNative.getSimpleName() + "Stub.java");
+
+                String javaImplSourceFile = "package " + currentNative.getPackage().getName() + ";\n\n"
+                        + "import com.codename1.ui.PeerComponent;\n\n"
+                        + "public class " + currentNative.getSimpleName() + "Stub implements " + currentNative.getSimpleName() + "{\n"
+                        + "    private " + currentNative.getSimpleName() + getImplSuffix() + " impl = new " + currentNative.getSimpleName() + getImplSuffix() + "();\n\n";
+
+                for (Method m : currentNative.getMethods()) {
+                    String name = m.getName();
+                    if (name.equals("hashCode") || name.equals("equals") || name.equals("toString")) {
+                        continue;
+                    }
+
+                    Class returnType = m.getReturnType();
+
+                    javaImplSourceFile += "    public " + returnType.getSimpleName() + " " + name + "(";
+                    Class[] params = m.getParameterTypes();
+                    String args = "";
+                    if (params != null && params.length > 0) {
+                        for (int iter = 0; iter < params.length; iter++) {
+                            if (iter > 0) {
+                                javaImplSourceFile += ", ";
+                                args += ", ";
+                            }
+                            javaImplSourceFile += params[iter].getSimpleName() + " param" + iter;
+                            if (params[iter].getName().equals("com.codename1.ui.PeerComponent")) {
+                                args += convertPeerComponentToNative("param" + iter);
+                            } else {
+                                args += "param" + iter;
+                            }
+                        }
+                    }
+                    javaImplSourceFile += ") {\n";
+                    if (Void.class == returnType || Void.TYPE == returnType) {
+                        javaImplSourceFile += "        impl." + name + "(" + args + ");\n    }\n\n";
+                    } else {
+                        if (returnType.getName().equals("com.codename1.ui.PeerComponent")) {
+                            javaImplSourceFile += "        return " + generatePeerComponentCreationCode("impl." + name + "(" + args + ")") + ";\n    }\n\n";
+                        } else {
+                            javaImplSourceFile += "        return impl." + name + "(" + args + ");\n    }\n\n";
+                        }
+                    }
+                }
+
+                javaImplSourceFile += "}\n";
+
+                try (FileOutputStream out = new FileOutputStream(javaFile)) {
+                    out.write(javaImplSourceFile.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+        }
+
+        return registerNativeFunctions;
+    }
+
+    @Override
+    protected String generatePeerComponentCreationCode(String methodCallString) {
+        return "PeerComponent.create(" + methodCallString + ")";
+    }
+
+    @Override
+    protected String convertPeerComponentToNative(String param) {
+        return "(android.view.View)" + param + ".getNativePeer()";
+    }
+
+    private String createOnDestroyCode(BuildRequest request) {
+        String retVal = "";
+        if (integrateMoPub) {
+            retVal += "moPubView.destroy();\n";
+        }
+        if(playServicesLocation){
+            retVal += "    com.codename1.impl.android.AndroidNativeUtil.removeLifecycleListener(com.codename1.location.AndroidLocationPlayServiceManager.getInstance());\n";
+        }
+        if(shouldIncludeGoogleImpl){
+
+                retVal += "    com.codename1.impl.android.AndroidNativeUtil.removeLifecycleListener((com.codename1.impl.android.LifecycleListener) com.codename1.social.GoogleConnect.getInstance());\n";
+
+        }
+        return retVal;
+    }
+
+    private String createPostInitCode(BuildRequest request) {
+        String retVal = "";
+        if (request.getArg("android.delayPushCompletion", "false").equals("true") ||
+                request.getArg("delayPushCompletion", "false").equals("true")) {
+            retVal += "Display.getInstance().setProperty(\"android.delayPushCompletion\", \"true\");\n";
+        }
+        return retVal;
+    }
+
+    private String createOnCreateCode(BuildRequest request) {
+        String retVal = "";
+
+        // Install the generated health background-listener bindings. These
+        // construct each listener with a direct `new`, so nothing is
+        // resolved reflectively after the OS relaunches the app in the
+        // background -- see HealthListenerBindings for why that matters on
+        // shrunk and obfuscated builds.
+        String healthBindings = HealthListenerBindings.installStatement(
+                healthScan.resolve());
+        if (healthBindings != null) {
+            retVal += healthBindings;
+        }
+        if (usesHealthStore) {
+            // Publish the Kotlin bridge so AndroidHealth can reach Health
+            // Connect. Without this the health API degrades to reporting
+            // itself unsupported, exactly as com.codename1.car does when
+            // Android Auto is not bundled.
+            retVal += "com.codename1.impl.android.AndroidHealthSupport"
+                    + ".setDelegate(new com.codename1.health"
+                    + ".CN1HealthConnectBridge(com.codename1.impl.android"
+                    + ".AndroidNativeUtil.getContext()));\n";
+        }
+
+        if (request.getArg("android.includeGPlayServices", "true").equals("true") || playServicesLocation) {
+            retVal += "Display.getInstance().setProperty(\"IncludeGPlayServices\", \"true\");\n";
+        }
+        if(playServicesLocation){
+            retVal += "com.codename1.impl.android.AndroidNativeUtil.addLifecycleListener(com.codename1.location.AndroidLocationPlayServiceManager.getInstance());\n";
+        }
+        if(shouldIncludeGoogleImpl){
+
+                retVal += "com.codename1.social.GoogleImpl.init();\n";
+                retVal += "com.codename1.impl.android.AndroidNativeUtil.addLifecycleListener((com.codename1.impl.android.LifecycleListener) com.codename1.social.GoogleConnect.getInstance());\n";
+
+        }
+
+        // OidcClient / SystemBrowser bootstrap on Android: register the
+        // Custom-Tabs-backed provider so the core SystemBrowser can route
+        // through it without falling back to BrowserWindow.
+        if (usesOidc) {
+            retVal += "com.codename1.io.oidc.OidcBrowserNativeImpl.init();\n";
+        }
+        // AppleSignIn bootstrap. Android's impl is a no-op stub that reports
+        // isSupported() = false, which makes AppleSignIn fall through to its
+        // OidcClient-backed web flow. We still register so the lookup is
+        // deterministic rather than relying on Class.forName.
+        if (usesAppleSignIn) {
+            retVal += "com.codename1.social.AppleSignInNativeImpl.init();\n";
+        }
+        // WebAuthn / passkeys bootstrap. Wires the CredentialManager-backed
+        // native impl so WebAuthnClient.isSupported() works without any
+        // user-side setup.
+        if (usesWebauthn) {
+            retVal += "com.codename1.io.webauthn.WebAuthnNativeImpl.init();\n";
+        }
+
+        if (request.getArg("android.web_loading_hidden", "false").equalsIgnoreCase("true")) {
+            retVal += "Display.getInstance().setProperty(\"WebLoadingHidden\", \"true\");\n";
+        }
+
+        if (request.getArg("android.statusbar_hidden", "false").equalsIgnoreCase("true")) {
+            retVal += "Display.getInstance().setProperty(\"StatusbarHidden\", \"true\");\n";
+        }
+
+        if (request.getArg("KeepScreenOn", "false").equalsIgnoreCase("true")) {
+            retVal += "Display.getInstance().setProperty(\"KeepScreenOn\", \"true\");\n";
+        }
+
+        if (request.getArg("android.disableScreenshots", "false").equalsIgnoreCase("true")) {
+            retVal += "Display.getInstance().setProperty(\"DisableScreenshots\", \"true\");\n";
+        }
+
+        // android.tapjackingGuard turns on overlay/tapjacking protection with no app code.
+        // Unlike rootCheck/accessibilityGuard this is not a launch-time exit gate, it is a
+        // standing runtime policy, so it is delivered as a Display property that
+        // AndroidImplementation applies rather than as generated code in onCreate.
+        //
+        // This class builds locally. The cloud builder is a separate codebase
+        // (com.codename1.build.daemon.AndroidGradleBuilder in the BuildDaemon repo) and needs
+        // the identical block, or the hint is a silent no-op on cloud builds while the
+        // documentation promises launch-time protection -- worse than not offering it, because
+        // the app ships believing it is guarded. The mirror is BuildDaemon#181 and the two are
+        // meant to land together; keep them in step when either side changes.
+        //
+        // On ordering, since this looks late and is not: createOnCreateCode's output is the
+        // tail of the generated onCreate. The application's start() is emitted separately, by
+        // createStartInvocation, into the generated run() method that onResume reaches -- so
+        // Android has already returned from onCreate before any of it runs. Display is usually
+        // not initialized this early, which is fine and deliberate: Display.setProperty parks
+        // both values and Display.init() applies them, and that init happens in onResume ahead
+        // of the start call. The policy and the overlay request are therefore both in force
+        // before application code can show its first form. Moving these emissions later, into
+        // the start path, would be the change that actually opened a window.
+        if (tapjackingGuard) {
+            // Locale.ENGLISH, not the default locale: in a Turkish locale "STRICT".toLowerCase()
+            // yields "strıct" (dotless i), which would silently miss the match below.
+            String mode = request.getArg("android.tapjackingGuard.mode", "block")
+                    .trim().toLowerCase(java.util.Locale.ENGLISH);
+            if (!"block".equals(mode) && !"strict".equals(mode) && !"report".equals(mode)
+                    && !"off".equals(mode)) {
+                // A typo here would silently ship an unprotected app, so say so and use the
+                // documented default rather than passing the bad value through.
+                log("WARNING: unrecognized android.tapjackingGuard.mode '" + mode
+                        + "', using 'block'. Valid values are block, strict, report, off.");
+                mode = "block";
+            }
+            retVal += "Display.getInstance().setProperty(\"TapjackingProtection\", \"" + mode + "\");\n";
+            if (request.getArg("android.tapjackingGuard.hideOverlays", "true").equalsIgnoreCase("true")) {
+                retVal += "Display.getInstance().setProperty(\"HideOverlayWindows\", \"true\");\n";
+            }
+        }
+
+
+        return retVal;
+    }
+
+    @Override
+    protected String createStartInvocation(BuildRequest request, String mainObject) {
+        String retVal = super.createStartInvocation(request, mainObject);
+        if (integrateMoPub) {
+            retVal += "moPubView = (MoPubView) findViewById(R.id.adview);\n"
+                    + "moPubView.setAdUnitId(\"" + request.getArg("android.mopubId", null) + "\");\n"
+                    + "moPubView.loadAd();\n";
+        }
+        return retVal;
+    }
+
+    public void extract(InputStream source, File dir, String sdkPath) throws IOException {
+        try {
+            BufferedOutputStream dest = null;
+            ZipInputStream zis = new ZipInputStream(source);
+            ZipEntry entry;
+            boolean addedSDKDir = false;
+            while ((entry = zis.getNextEntry()) != null) {
+                debug("Extracting: " + entry);
+                if (entry.isDirectory()) {
+                    File d = resolveArchiveEntry(dir, entry.getName());
+                    d.mkdirs();
+                    if (!addedSDKDir && sdkPath != null) {
+                        if (is_windows) {
+                            sdkPath = sdkPath.replace("" + File.separatorChar, "\\\\");
+                        }
+                        String sdkPathProperties = "sdk.dir=" + sdkPath;
+                        // write the files to the disk
+                        File destFile;
+                        destFile = new File(d, "local.properties");
+                        destFile.getParentFile().mkdirs();
+                        FileOutputStream fos = new FileOutputStream(destFile);
+                        fos.write(sdkPathProperties.getBytes(StandardCharsets.UTF_8));
+                        fos.close();
+                        addedSDKDir = true;
+                    }
+                    continue;
+                }
+                if (entry.getName().contains("local.properties") && sdkPath != null) {
+                    if (is_windows) {
+                        sdkPath = sdkPath.replace("" + File.separatorChar, "\\\\");
+                    }
+                    String sdkPathProperties = "sdk.dir=" + sdkPath + "\n";
+                    // write the files to the disk
+                    File destFile;
+                    destFile = resolveArchiveEntry(dir, entry.getName());
+                    destFile.getParentFile().mkdirs();
+                    FileOutputStream fos = new FileOutputStream(destFile);
+                    fos.write(sdkPathProperties.getBytes(StandardCharsets.UTF_8));
+                    fos.close();
+                    continue;
+                }
+
+                int count;
+                byte[] data = new byte[8192];
+                // write the files to the disk
+                File destFile;
+                destFile = resolveArchiveEntry(dir, entry.getName());
+                destFile.getParentFile().mkdirs();
+                FileOutputStream fos = new FileOutputStream(destFile);
+                dest = new BufferedOutputStream(fos, data.length);
+                while ((count = zis.read(data, 0, data.length)) != -1) {
+                    dest.write(data, 0, count);
+                }
+                dest.flush();
+                dest.close();
+            }
+            zis.close();
+            source.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void downloadGradleDistribution(File gradleZip) throws BuildException {
+        File partialGradleZip = new File(gradleZip.getAbsolutePath() + ".part");
+        Exception lastFailure = null;
+        long retryDelayMs = GRADLE_DOWNLOAD_RETRY_DELAY_MS;
+        for (int attempt = 1; attempt <= GRADLE_DOWNLOAD_ATTEMPTS; attempt++) {
+            if (partialGradleZip.exists() && !partialGradleZip.delete()) {
+                throw new BuildException("Failed to remove partial gradle distribution at " + partialGradleZip);
+            }
+            if (gradleZip.exists() && !gradleZip.delete()) {
+                throw new BuildException("Failed to remove existing gradle distribution at " + gradleZip);
+            }
+            try {
+                log("Downloading gradle distribution from " + gradleDistributionUrl
+                        + " (attempt " + attempt + " of " + GRADLE_DOWNLOAD_ATTEMPTS + ")");
+                FileUtils.copyURLToFile(new URL(gradleDistributionUrl), partialGradleZip,
+                        GRADLE_DOWNLOAD_CONNECT_TIMEOUT_MS, GRADLE_DOWNLOAD_READ_TIMEOUT_MS);
+                FileUtils.moveFile(partialGradleZip, gradleZip);
+                return;
+            } catch (Exception ex) {
+                lastFailure = ex;
+                if (partialGradleZip.exists() && !partialGradleZip.delete()) {
+                    partialGradleZip.deleteOnExit();
+                }
+                if (gradleZip.exists() && !gradleZip.delete()) {
+                    gradleZip.deleteOnExit();
+                }
+                if (attempt < GRADLE_DOWNLOAD_ATTEMPTS) {
+                    log("Gradle distribution download failed: " + ex.getMessage()
+                            + ". Retrying in " + (retryDelayMs / 1000L) + "s...");
+                    try {
+                        Thread.sleep(retryDelayMs);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw new BuildException("Interrupted while retrying gradle distribution download", interrupted);
+                    }
+                    retryDelayMs = Math.min(retryDelayMs * GRADLE_DOWNLOAD_RETRY_DELAY_FACTOR,
+                            GRADLE_DOWNLOAD_MAX_RETRY_DELAY_MS);
+                }
+            }
+        }
+        throw new BuildException("Failed to download gradle distribution from URL "
+                + gradleDistributionUrl + " after " + GRADLE_DOWNLOAD_ATTEMPTS + " attempts", lastFailure);
+    }
+
+    public void extractAAR(InputStream source, File dir, String sdkPath) throws IOException {
+        File libs = new File(dir, "libs");
+        libs.mkdirs();
+        File srcLib = new File(dir, "src");
+        srcLib.mkdirs();
+        extract(source, dir, null);
+        File classes1 = null;
+        FileChannel src = null;
+        FileChannel dest = null;
+        try {
+            classes1 = new File(dir, "classes.jar");
+            File classes2 = new File(libs, "classes.jar");
+            classes2.createNewFile();
+            copyFile(classes1, classes2);
+
+            //if a jni folder exosts in the aar copy it's content to the libs folder
+            File jni = new File(dir, "jni");
+            if (jni.exists()) {
+                copyDirectory(jni, libs);
+                delete(jni);
+            }
+
+            FileOutputStream projectProps = new FileOutputStream(new File(dir, "project.properties"));
+            String props = "android.library=true\n"
+                    + "target=android-14";
+            projectProps.write(props.getBytes(StandardCharsets.UTF_8));
+            projectProps.close();
+
+        } catch (Exception e) {
+
+        } finally {
+            if (src != null) {
+                src.close();
+            }
+            if (dest != null) {
+                dest.close();
+            }
+            if (classes1 != null) {
+                classes1.delete();
+            }
+        }
+
+    }
+
+    protected File placeXMLFile(ZipEntry entry, File xmlDir, File resDir) throws IOException {
+        String name = entry.getName();
+        if (name.endsWith("colors.xml")) {
+            File parent = resDir.getParentFile();
+            resDir = new File(parent, "res");
+            File valsDir = new File(resDir, "values");
+            return resolveArchiveEntry(valsDir, entry.getName());
+        } else if (name.endsWith("layout.xml")) {
+            File parent = resDir.getParentFile();
+            resDir = new File(parent, "res");
+            File layDir = new File(resDir, "layout");
+            return resolveArchiveEntry(layDir, entry.getName());
+        } else {
+            return super.placeXMLFile(entry, xmlDir, resDir);
+        }
+    }
+
+    public Image makeColorTransparent(final BufferedImage im, final Color color) {
+
+        final ImageFilter filter = new RGBImageFilter() {
+            // the color we are looking for (white)... Alpha bits are set to opaque
+            public int markerRGB = color.getRGB() & 0xFFFFFF;
+
+            public final int filterRGB(final int x, final int y, final int rgb) {
+                int tmp = rgb & 0xFFFFFF;
+                if (tmp == markerRGB) {
+                    // Mark the alpha bits as zero - transparent
+                    return 0x00FFFFFF & rgb;
+                } else {
+                    // nothing to do
+                    return rgb;
+                }
+            }
+        };
+
+        final ImageProducer ip = new FilteredImageSource(im.getSource(), filter);
+        return Toolkit.getDefaultToolkit().createImage(ip);
+    }
+
+    protected boolean useXMLDir() {
+        return true;
+    }
+
+    public static final void copy(File source, File destination) throws IOException {
+        if (source.isDirectory()) {
+            copyDirectory(source, destination);
+        } else {
+            copyFile(source, destination);
+        }
+    }
+
+    public static final void copyDirectory(File source, File destination) throws IOException {
+
+        destination.mkdirs();
+        File[] files = source.listFiles();
+
+        for (File file : files) {
+            if (file.isDirectory()) {
+                copyDirectory(file, new File(destination, file.getName()));
+            } else {
+                copyFile(file, new File(destination, file.getName()));
+            }
+        }
+    }
+
+    public static final void copyFile(File source, File destination) throws IOException {
+        FileChannel sourceChannel = new FileInputStream(source).getChannel();
+        FileChannel targetChannel = new FileOutputStream(destination).getChannel();
+        sourceChannel.transferTo(0, sourceChannel.size(), targetChannel);
+        sourceChannel.close();
+        targetChannel.close();
+    }
+
+    void delete(File f) throws IOException {
+        if (f.isDirectory()) {
+            for (File c : f.listFiles()) {
+                delete(c);
+            }
+        }
+        f.delete();
+    }
+
+    public void unzip(InputStream source, File classesDir, File resDir, File sourceDir, File libsDir, File xmlDir) throws IOException {
+
+        try {
+            File appDir = /*buildToolsVersionInt >= 27*/false ?
+                    new File(sourceDir.getParentFile(), "app") :
+                    new File(libsDir.getParentFile(), "app");
+            if (!appDir.exists()) {
+                appDir.mkdir();
+            }
+            BufferedOutputStream dest = null;
+            ZipInputStream zis = new ZipInputStream(source);
+            ZipEntry entry;
+            TarOutputStream tos = null;
+            while ((entry = zis.getNextEntry()) != null) {
+                String entryName = entry.getName();
+                if (entryName.startsWith("html") || entryName.startsWith("/html")) {
+                    if (entry.isDirectory()) {
+                        continue;
+                    }
+
+                    if (tos == null) {
+                        tos = new TarOutputStream(new FileOutputStream(new File(resDir, "html.tar")));
+                    }
+                    entryName = entryName.substring(5);
+                    TarEntry tEntry = new TarEntry(new File(entryName), entryName);
+                    tEntry.setSize(entry.getSize());
+                    debug("Packaging entry " + entryName + " size: " + entry.getSize());
+                    tos.putNextEntry(tEntry);
+                    int count;
+                    byte[] data = new byte[8192];
+                    while ((count = zis.read(data, 0, data.length)) != -1) {
+                        tos.write(data, 0, count);
+                    }
+                    continue;
+                }
+
+                if (entry.isDirectory()) {
+                    if (!entryName.startsWith("raw")) {
+                        File dir = resolveArchiveEntry(classesDir, entryName);
+                        dir.mkdirs();
+                        dir = resolveArchiveEntry(resDir, entryName);
+                        dir.mkdirs();
+                        dir = resolveArchiveEntry(sourceDir, entryName);
+                        dir.mkdirs();
+                    }
+                    continue;
+                }
+
+                int count;
+                byte[] data = new byte[8192];
+
+                // write the files to the disk
+                File destFile;
+                if (entryName.endsWith(".class")) {
+                    destFile = resolveArchiveEntry(classesDir, entryName);
+                } else {
+                    if (entryName.endsWith(".java") || entryName.endsWith(".kt") || entryName.endsWith(".swift") || entryName.endsWith(".m") || entryName.endsWith(".h")) {
+                        destFile = resolveArchiveEntry(sourceDir, entryName);
+                    } else {
+                        if (entryName.endsWith(".jar") || entryName.endsWith(".a") || entryName.endsWith(".dylib") || entryName.endsWith(".andlib") || entryName.endsWith(".aar")) {
+                            destFile = resolveArchiveEntry(libsDir, entryName);
+                        } else {
+                            if (useXMLDir() && entryName.endsWith(".xml")) {
+                                destFile = placeXMLFile(entry, xmlDir, resDir);
+                            } else if (entryName.startsWith("raw")) {
+                                destFile = resolveArchiveEntry(xmlDir.getParentFile(),
+                                        entryName.toLowerCase());
+                            } else if (entryName.contains("notification_sound")) {
+                                destFile = resolveArchiveEntry(xmlDir.getParentFile(),
+                                        "raw/" + entryName.toLowerCase());
+                            } else if ("google-services.json".equals(entryName)) {
+                                destFile = resolveArchiveEntry(libsDir.getParentFile(), entryName);
+                            } else {
+                                destFile = resolveArchiveEntry(resDir, entryName);
+                            }
+                        }
+                    }
+                }
+                destFile.getParentFile().mkdirs();
+                FileOutputStream fos = new FileOutputStream(destFile);
+                dest = new BufferedOutputStream(fos, data.length);
+                while ((count = zis.read(data, 0, data.length)) != -1) {
+                    dest.write(data, 0, count);
+                }
+                dest.flush();
+                dest.close();
+            }
+            if (tos != null) {
+                tos.close();
+            }
+            zis.close();
+            source.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Writes the adaptive launcher icon background color into its own values
+     * file rather than into the shared {@code res/values/colors.xml}.
+     *
+     * <p>That separation is the whole point of this method. Every
+     * {@code <color>} declared in {@code colors.xml} is promoted by
+     * {@link #buildThemeColorItems(File)} into an {@code android:<name>} item
+     * of the generated theme, which means aapt2 resolves the name as
+     * {@code android:attr/<name>}. {@code ic_launcher_background} is not an
+     * Android theme attribute, so putting it in {@code colors.xml} fails
+     * resource linking with "style attribute
+     * 'android:attr/ic_launcher_background' not found" before an APK is ever
+     * produced -- the whole build dies over a launcher icon color (issue
+     * #5837). A separate file carries the same {@code @color/} reference and
+     * is never promoted.</p>
+     *
+     * <p>If the developer's own {@code colors.xml} already declares the name
+     * -- an Android Studio project template does exactly that -- theirs is
+     * left alone, because two files declaring one color name is a duplicate
+     * resource error.</p>
+     *
+     * @param valsDir the generated {@code res/values} directory
+     * @param color the color value for {@code android.adaptiveIconBackground}
+     */
+    static void writeAdaptiveIconBackgroundColor(File valsDir, String color) throws IOException {
+        if (declaresColor(new File(valsDir, "colors.xml"), ADAPTIVE_ICON_BACKGROUND_COLOR)) {
+            return;
+        }
+        String iconBackgroundColors = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                + "<resources>\n"
+                + "    <color name=\"ic_launcher_background\">" + color + "</color>\n"
+                + "</resources>\n";
+        try (OutputStream output = Files.newOutputStream(
+                new File(valsDir, "ic_launcher_background.xml").toPath())) {
+            output.write(iconBackgroundColors.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    /**
+     * Answers whether the given values file already declares a color of that
+     * name. A missing or unparsable file declares nothing.
+     */
+    static boolean declaresColor(File valuesFile, String name) {
+        if (!valuesFile.exists()) {
+            return false;
+        }
+        try {
+            Document dom = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(valuesFile);
+            return declares(dom.getElementsByTagName("color"), name, null)
+                    || declares(dom.getElementsByTagName("item"), name, "color");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Whether one of these elements declares {@code name}, optionally only
+     * when its {@code type} attribute says so. The second form is what makes
+     * {@code <item type="color" name="x">} count: it is an equally valid way
+     * to declare a color resource, and missing it would have us write a second
+     * declaration of the same name into another file, which aapt2 rejects as a
+     * duplicate.
+     */
+    private static boolean declares(NodeList elements, String name, String requiredType) {
+        for (int i = 0; i < elements.getLength(); i++) {
+            NamedNodeMap attributes = elements.item(i).getAttributes();
+            if (attributes == null) {
+                continue;
+            }
+            Node key = attributes.getNamedItem("name");
+            if (key == null || !name.equals(key.getNodeValue())) {
+                continue;
+            }
+            if (requiredType == null) {
+                return true;
+            }
+            Node type = attributes.getNamedItem("type");
+            if (type != null && requiredType.equals(type.getNodeValue())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The color resource the generated adaptive launcher icon names as its
+     * background. It is an icon resource by construction -- this builder emits
+     * the {@code @color/} reference to it from
+     * {@code mipmap-anydpi-v26/ic_launcher.xml} -- so it is never a theme
+     * attribute, whoever declared it.
+     */
+    static final String ADAPTIVE_ICON_BACKGROUND_COLOR = "ic_launcher_background";
+
+    /**
+     * What {@code res/values/colors.xml} contributed to the generated theme:
+     * the rendered {@code <item>} entries, and the color names that were left
+     * out because they are not Android theme attributes.
+     */
+    static final class ThemeColors {
+        final String items;
+        final List<String> skipped;
+
+        ThemeColors(String items, List<String> skipped) {
+            this.items = items;
+            this.skipped = Collections.unmodifiableList(new ArrayList<String>(skipped));
+        }
+    }
+
+    /**
+     * Renders the developer's {@code res/values/colors.xml} as {@code <item>}
+     * entries for the generated theme.
+     *
+     * <p>A color becomes an {@code android:<name>} item, which aapt2 resolves
+     * as {@code android:attr/<name>} -- so the name has to be an Android theme
+     * attribute, and one that is not fails resource linking with "style
+     * attribute 'android:attr/<name>' not found", killing the whole build over
+     * a color (issue #5837). Since {@code colors.xml} is also where Android
+     * itself expects ordinary app colors to live -- an Android Studio project
+     * template puts {@code ic_launcher_background} there -- a name that is not
+     * an attribute is left out of the theme and reported, rather than passed
+     * through to fail the link. It remains an ordinary {@code @color/} resource
+     * either way.</p>
+     *
+     * <p>A boolean theme attribute cannot arrive this way and is not handled:
+     * a {@code <color>} element holding {@code true} fails to compile at all
+     * ("error: invalid color"), so the file never reaches the theme
+     * generation. {@code android.windowLightStatusBar} is the build hint for
+     * the one such attribute this builder supports.</p>
+     *
+     * @param colorsFile the developer's colors.xml; a file that does not exist
+     *                   contributes nothing
+     * @param frameworkAttributes the framework attribute names to accept, or
+     *                            {@code null} to accept every name unchecked
+     *                            when the platform could not be read
+     */
+    static ThemeColors buildThemeColorItems(File colorsFile, Set<String> frameworkAttributes) throws Exception {
+        List<String> skipped = new ArrayList<String>();
+        if (!colorsFile.exists()) {
+            return new ThemeColors("", skipped);
+        }
+        StringBuilder colorsStr = new StringBuilder();
+        DocumentBuilder db = DocumentBuilderFactory.newInstance().newDocumentBuilder();
+        Document dom = db.parse(colorsFile);
+        NodeList nl = dom.getElementsByTagName("color");
+        for (int i = 0; i < nl.getLength(); i++) {
+            Node color = nl.item(i);
+            NamedNodeMap attr = color.getAttributes();
+            Node key = attr.getNamedItem("name");
+            if (key == null) {
+                continue;
+            }
+            String k = key.getNodeValue();
+            // Unconditional, and before the framework check, because this one
+            // does not depend on being able to read a platform: the adaptive
+            // icon this builder generates references the color, which is what
+            // makes it an icon resource rather than a theme attribute. Leaving
+            // it to the framework check would put it back in the theme on
+            // every build whose compile platform is unreadable from here --
+            // which is the build server -- and that is issue #5837 again.
+            if (ADAPTIVE_ICON_BACKGROUND_COLOR.equals(k)
+                    || (frameworkAttributes != null && !frameworkAttributes.contains(k))) {
+                skipped.add(k);
+                continue;
+            }
+            colorsStr.append("<item name=\"android:").append(k).append("\">@color/").append(k)
+                    .append("</item>\n");
+        }
+        return new ThemeColors(colorsStr.toString(), skipped);
+    }
+
+    /**
+     * Every {@code android.R.attr} name the readable platforms declare, which
+     * is the set aapt2 can resolve an {@code android:<name>} theme item
+     * against.
+     *
+     * <p>Answers {@code null} unless a platform at least as new as
+     * {@code minimumPlatformLevel} was read, and for a {@code null} SDK root.
+     * Both cases mean this process cannot see what will link the resources,
+     * and a caller that cannot see it must pass names through unchecked:
+     * dropping an attribute that a newer platform does define would quietly
+     * lose a developer's theming, which is worse than the link error the check
+     * exists to prevent.</p>
+     *
+     * <p>The union across platforms is deliberate: framework attributes are
+     * added and effectively never removed, so the union is the most permissive
+     * answer that is still derived from the platform rather than from a
+     * hand-maintained list.</p>
+     */
+    static Set<String> frameworkThemeAttributes(File androidSDKDir, int minimumPlatformLevel) {
+        if (androidSDKDir == null) {
+            return null;
+        }
+        File[] platforms = new File(androidSDKDir, "platforms").listFiles();
+        if (platforms == null) {
+            return null;
+        }
+        Set<String> names = new HashSet<String>();
+        int newestRead = -1;
+        for (File platform : platforms) {
+            File jar = new File(platform, "android.jar");
+            if (!jar.isFile()) {
+                continue;
+            }
+            Set<String> declared = attributeNames(jar);
+            if (declared.isEmpty()) {
+                continue;
+            }
+            names.addAll(declared);
+            newestRead = Math.max(newestRead, platformApiLevel(platform.getName()));
+        }
+        if (names.isEmpty() || newestRead < minimumPlatformLevel) {
+            return null;
+        }
+        return names;
+    }
+
+    /**
+     * The API level a platform directory name carries, or -1 when it carries
+     * none. A minor-versioned platform reduces to its major: {@code
+     * android-37.2} is API 37, and gathering its digits instead would answer
+     * 372 and compare greater than every level there is.
+     */
+    static int platformApiLevel(String platformDirName) {
+        if (platformDirName == null || !platformDirName.startsWith("android-")) {
+            return -1;
+        }
+        String version = platformDirName.substring("android-".length());
+        int dot = version.indexOf('.');
+        if (dot >= 0) {
+            version = version.substring(0, dot);
+        }
+        try {
+            return Integer.parseInt(version);
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /**
+     * The {@code android.R.attr} field names declared by one platform jar.
+     * Loaded with the bootstrap loader as parent so nothing on our own
+     * classpath can answer instead, and without initializing the class -- only
+     * the field names are wanted. A jar that cannot be read contributes
+     * nothing.
+     */
+    static Set<String> attributeNames(File androidJar) {
+        Set<String> names = new HashSet<String>();
+        try (URLClassLoader loader = new URLClassLoader(new URL[]{androidJar.toURI().toURL()}, null)) {
+            Class<?> attrs = Class.forName("android.R$attr", false, loader);
+            for (Field field : attrs.getFields()) {
+                names.add(field.getName());
+            }
+        } catch (Exception | LinkageError e) {
+            return names;
+        }
+        return names;
+    }
+
+    /**
+     * Scans the assets directory for cn1_icon_LANG[_COUNTRY].png files and
+     * copies a sized variant into each locale-qualified drawable (and, when
+     * adaptive icons are enabled, mipmap) directory so Android automatically
+     * picks up the correct launcher icon at runtime based on the device
+     * locale. Source files are removed from assetsDir so they are not shipped
+     * as stray assets.
+     *
+     * <p>When a region-qualified icon (e.g. cn1_icon_ar_AE.png) is supplied
+     * without a matching language-only counterpart (cn1_icon_ar.png), the
+     * default app icon is also written to drawable-&lt;lang&gt;/ (and the
+     * matching mipmap-*-&lt;lang&gt;/ directories). This is required to
+     * suppress Android's sibling-locale fallback: starting with API 24 the
+     * resource resolver, when it can't find an exact (ar-rPK) or parent (ar)
+     * match, walks every child of the parent locale and would otherwise pick
+     * ar-rAE for an ar-PK user. Inserting the default icon at the parent
+     * level short-circuits that lookup so only devices whose region matches
+     * the supplied variant receive it.</p>
+     */
+    private void processLocalizedIcons(File assetsDir, File resDir, boolean enableAdaptiveIcons,
+            BufferedImage defaultIcon) throws IOException, BuildException {
+        File[] candidates = assetsDir.listFiles(new FilenameFilter() {
+            @Override
+            public boolean accept(File dir, String name) {
+                String lower = name.toLowerCase();
+                return lower.startsWith("cn1_icon_") && lower.endsWith(".png");
+            }
+        });
+        if (candidates == null || candidates.length == 0) {
+            return;
+        }
+        // Icons smaller than the largest launcher density would have to be upscaled and would
+        // render blurry. Collect any such offenders and fail the build at the end so a soft icon
+        // never reaches production. The threshold matches the largest size writeLocalizedIconSet
+        // emits: 192px normally, 432px for the adaptive foreground.
+        int largestTarget = enableAdaptiveIcons ? 432 : 192;
+        List<String> undersizedIcons = new ArrayList<String>();
+        Set<String> languagesWithRegion = new HashSet<String>();
+        Set<String> languagesWithLanguageOnly = new HashSet<String>();
+        for (File candidate : candidates) {
+            String name = candidate.getName();
+            String core = name.substring("cn1_icon_".length(), name.length() - ".png".length());
+            String[] parts = core.split("_");
+            if (parts.length < 1 || parts[0].length() != 2) {
+                continue;
+            }
+            String lang = parts[0].toLowerCase();
+            if (parts.length >= 2 && parts[1].length() == 2) {
+                languagesWithRegion.add(lang);
+            } else {
+                languagesWithLanguageOnly.add(lang);
+            }
+        }
+        for (File candidate : candidates) {
+            String name = candidate.getName();
+            String core = name.substring("cn1_icon_".length(), name.length() - ".png".length());
+            String[] parts = core.split("_");
+            if (parts.length < 1 || parts[0].length() != 2) {
+                log("Ignoring localized icon with unsupported name: " + name
+                        + ". Expected cn1_icon_<lang>[_<country>].png");
+                continue;
+            }
+            String lang = parts[0].toLowerCase();
+            String country = parts.length >= 2 && parts[1].length() == 2 ? parts[1].toUpperCase() : null;
+            String qualifier = country != null ? "-" + lang + "-r" + country : "-" + lang;
+
+            BufferedImage img = ImageIO.read(candidate);
+            if (img == null) {
+                log("Localized icon " + name + " is not a valid PNG image. Skipping.");
+                candidate.delete();
+                continue;
+            }
+
+            // Anything smaller than the largest launcher density would be upscaled and render
+            // blurry on high-density devices. Record it and fail the build after the loop rather
+            // than silently shipping a soft icon to production.
+            if (img.getWidth() < largestTarget || img.getHeight() < largestTarget) {
+                undersizedIcons.add(name + " (" + img.getWidth() + "x" + img.getHeight() + "px)");
+            }
+
+            writeLocalizedIconSet(resDir, qualifier, img, enableAdaptiveIcons);
+
+            candidate.delete();
+            log("Registered localized launcher icon for qualifier " + qualifier + " (" + name + ")");
+        }
+
+        if (!undersizedIcons.isEmpty()) {
+            throw new BuildException("The following localized launcher icon(s) are smaller than "
+                    + largestTarget + "x" + largestTarget + "px and would be upscaled to a blurry icon: "
+                    + undersizedIcons + ". Supply each localized icon at no less than " + largestTarget + "x"
+                    + largestTarget + "px (1024x1024 is recommended, matching the main app icon).");
+        }
+
+        for (String lang : languagesWithRegion) {
+            if (languagesWithLanguageOnly.contains(lang)) {
+                continue;
+            }
+            String qualifier = "-" + lang;
+            writeLocalizedIconSet(resDir, qualifier, defaultIcon, enableAdaptiveIcons);
+            log("Registered default-icon barrier for qualifier " + qualifier
+                    + " to suppress Android sibling-locale fallback");
+        }
+    }
+
+    private void writeLocalizedIconSet(File resDir, String qualifier, BufferedImage img,
+            boolean enableAdaptiveIcons) throws IOException {
+        createIconFile(makeLocalizedDir(resDir, "drawable", qualifier, "icon.png"), img, 128, 128);
+        createIconFile(makeLocalizedDir(resDir, "drawable-hdpi", qualifier, "icon.png"), img, 72, 72);
+        createIconFile(makeLocalizedDir(resDir, "drawable-ldpi", qualifier, "icon.png"), img, 36, 36);
+        createIconFile(makeLocalizedDir(resDir, "drawable-mdpi", qualifier, "icon.png"), img, 48, 48);
+        createIconFile(makeLocalizedDir(resDir, "drawable-xhdpi", qualifier, "icon.png"), img, 96, 96);
+        createIconFile(makeLocalizedDir(resDir, "drawable-xxhdpi", qualifier, "icon.png"), img, 144, 144);
+        createIconFile(makeLocalizedDir(resDir, "drawable-xxxhdpi", qualifier, "icon.png"), img, 192, 192);
+
+        if (enableAdaptiveIcons) {
+            createIconFile(makeLocalizedDir(resDir, "mipmap-mdpi", qualifier, "ic_launcher.png"), img, 48, 48);
+            createIconFile(makeLocalizedDir(resDir, "mipmap-hdpi", qualifier, "ic_launcher.png"), img, 72, 72);
+            createIconFile(makeLocalizedDir(resDir, "mipmap-xhdpi", qualifier, "ic_launcher.png"), img, 96, 96);
+            createIconFile(makeLocalizedDir(resDir, "mipmap-xxhdpi", qualifier, "ic_launcher.png"), img, 144, 144);
+            createIconFile(makeLocalizedDir(resDir, "mipmap-xxxhdpi", qualifier, "ic_launcher.png"), img, 192, 192);
+
+            createIconFile(makeLocalizedDir(resDir, "mipmap-mdpi", qualifier, "ic_launcher_foreground.png"), img, 108, 108);
+            createIconFile(makeLocalizedDir(resDir, "mipmap-hdpi", qualifier, "ic_launcher_foreground.png"), img, 162, 162);
+            createIconFile(makeLocalizedDir(resDir, "mipmap-xhdpi", qualifier, "ic_launcher_foreground.png"), img, 216, 216);
+            createIconFile(makeLocalizedDir(resDir, "mipmap-xxhdpi", qualifier, "ic_launcher_foreground.png"), img, 324, 324);
+            createIconFile(makeLocalizedDir(resDir, "mipmap-xxxhdpi", qualifier, "ic_launcher_foreground.png"), img, 432, 432);
+        }
+    }
+
+    private File makeLocalizedDir(File resDir, String baseDirName, String qualifier, String childFileName) {
+        // Android requires resource qualifiers in a fixed order: locale must come
+        // before density. Insert the locale qualifier right after the base name so
+        // "drawable-xhdpi" becomes "drawable-<locale>-xhdpi" rather than the
+        // invalid "drawable-xhdpi-<locale>".
+        int dash = baseDirName.indexOf('-');
+        String dirName = dash < 0
+                ? baseDirName + qualifier
+                : baseDirName.substring(0, dash) + qualifier + baseDirName.substring(dash);
+        File dir = new File(resDir, dirName);
+        dir.mkdirs();
+        return new File(dir, childFileName);
+    }
+
+
+    /// Writes the static shortcut resource and returns the manifest fragment for app intents.
+    ///
+    /// Android's half of this feature is launcher shortcuts, not an assistant: there is no
+    /// contract by which Google Assistant invokes an app capability and receives a typed result,
+    /// so nothing here claims one. What it does produce is real -- a static shortcut per
+    /// discoverable intent, the invisible trampoline that routes a tap, and the service that
+    /// runs a headless intent with no Activity.
+    ///
+    /// A missing manifest is not an error, mirroring iOS: an app may reference the package purely
+    /// to index content or donate shortcuts at runtime, in which case the processor emitted
+    /// nothing to compile in.
+    /// Builds the intents manifest fragments and the shortcuts resource.
+    ///
+    /// `packageName` is passed rather than read from a placeholder because res/xml is not
+    /// processed for manifest placeholders: `${applicationId}` written there reaches the
+    /// launcher literally, so the explicit component cannot resolve and every generated static
+    /// shortcut silently fails to launch anything.
+    private String buildIntentsManifestEntries(File assetsDir, File resDir, String packageName)
+            throws BuildException {
+        StringBuilder entries = new StringBuilder();
+
+        // The trampoline is the only exported door. Everything else -- notably the service that
+        // can run an application capability -- stays internal, so no other installed app can ask
+        // this one to perform an action.
+        entries.append("        <activity android:name=\"com.codename1.impl.android.intents.CN1IntentTrampolineActivity\"\n")
+                .append("                  android:theme=\"@android:style/Theme.NoDisplay\"\n")
+                .append("                  android:exported=\"true\"\n")
+                .append("                  android:excludeFromRecents=\"true\"\n")
+                .append("                  android:noHistory=\"true\"\n")
+                .append("                  android:taskAffinity=\"\">\n")
+                .append("            <intent-filter>\n")
+                .append("                <action android:name=\"android.intent.action.VIEW\" />\n")
+                .append("                <category android:name=\"android.intent.category.DEFAULT\" />\n")
+                .append("                <data android:scheme=\"cn1intent\" />\n")
+                .append("            </intent-filter>\n")
+                .append("        </activity>\n");
+        entries.append("        <service android:name=\"com.codename1.impl.android.intents.CN1IntentService\"\n")
+                .append("                 android:exported=\"false\" />\n");
+
+        // Namespaced, and only this path: the assets root is the application's, so reading
+        // intents.json from it would treat an app's own asset as framework metadata. See
+        // MANIFEST_RESOURCE in AppIntentAnnotationProcessor.
+        File manifest = new File(assetsDir, "META-INF/codenameone/intents.json");
+        if (!manifest.exists()) {
+            return entries.toString();
+        }
+        Map<String, Object> parsed;
+        try {
+            parsed = new JSONParser().parseJSON(new InputStreamReader(
+                    new FileInputStream(manifest), StandardCharsets.UTF_8));
+        } catch (IOException ex) {
+            throw new BuildException("Failed to parse intents.json", ex);
+        }
+        java.util.List<Object> declared = (java.util.List<Object>) parsed.get("intents");
+        if (declared == null || declared.isEmpty()) {
+            return entries.toString();
+        }
+
+        StringBuilder xml = new StringBuilder();
+        xml.append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
+        xml.append("<shortcuts xmlns:android=\"http://schemas.android.com/apk/res/android\">\n");
+        // shortcutShortLabel is defined as a resource reference, so a literal string is rejected
+        // by AAPT during resource linking rather than merely looking wrong.
+        StringBuilder strings = new StringBuilder();
+        strings.append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n");
+        int count = 0;
+        for (Object o : stableOrder(declared)) {
+            if (!(o instanceof Map)) {
+                continue;
+            }
+            Map<String, Object> intent = (Map<String, Object>) o;
+            Object id = intent.get("id");
+            Object discoverable = intent.get("discoverable");
+            boolean offered = discoverable == null || Boolean.TRUE.equals(discoverable)
+                    || "true".equals(discoverable);
+            if (!(id instanceof String) || !offered) {
+                continue;
+            }
+            // exposure says which consumers an intent opted into. One that only offered itself
+            // to a language model must not appear on the launcher.
+            if (!isExposedToAssistant(intent)) {
+                continue;
+            }
+            if (count == MAX_STATIC_SHORTCUTS) {
+                // Deliberately below the platform's own cap. getMaxShortcutCountPerActivity()
+                // returns 5 on plenty of devices, and that is the *combined* static and dynamic
+                // quota for the launcher activity -- so filling it here left index() and
+                // donate() nothing to publish into, and both went silently inert on exactly the
+                // apps that declare the most intents. pushDynamicShortcut cannot rescue them
+                // either: it evicts a dynamic shortcut to make room, and cannot evict a
+                // manifest one. Reserving is the only thing the build can do about it.
+                log("Only the first " + MAX_STATIC_SHORTCUTS + " intents become static launcher "
+                        + "shortcuts. The rest remain invocable and can be donated, and the "
+                        + "reserved slots are what lets Intents.index() and Intents.donate() "
+                        + "publish at all on a device whose shortcut quota is 5.");
+                break;
+            }
+            // Destructive is judged first, because it is the stronger restriction and the one
+            // whose message has to be the one the developer reads. An intent that is both
+            // destructive and parameterized would otherwise be told to donate it below.
+            //
+            // A static shortcut is minted at build time, so it carries no runtime nonce and the
+            // trampoline treats it as unauthenticated -- and that policy refuses anything
+            // destructive, deliberately. Emitting one anyway produces a launcher entry that on
+            // every tap opens the app and logs a refusal, which reads to the user as the action
+            // being broken rather than protected.
+            Object destructive = intent.get("destructive");
+            if (Boolean.TRUE.equals(destructive) || "true".equals(destructive)) {
+                // And it is not donatable either: Intents.donate refuses a destructive
+                // declaration for the same reason this does, since a donated shortcut also runs
+                // on one tap with nothing between the tap and the action. Telling the developer
+                // to donate it described a path that ends in a runtime diagnostic and no
+                // shortcut. The guide already says this; the build now says the same thing.
+                log("Not offering \"" + id + "\" as a launcher shortcut: it is destructive, and "
+                        + "a static shortcut cannot be confirmed the way the platform confirms "
+                        + "a Shortcuts or assistant invocation. It is not donatable either, for "
+                        + "the same reason. It stays available through the assistant and the "
+                        + "Shortcuts app, which confirm first.");
+                continue;
+            }
+            // A static shortcut carries no parameters and Android has no picker on this path,
+            // so an intent with a required parameter would be invoked with a null or zero and
+            // quietly do the wrong thing. Only intents that can run as declared are offered;
+            // the rest stay invocable and donatable, they simply are not launcher shortcuts.
+            if (!isLaunchableWithoutParameters(intent)) {
+                log("Not offering \"" + id + "\" as a launcher shortcut: it has a required "
+                        + "parameter and a static shortcut cannot supply one. It remains "
+                        + "invocable and can be donated with its values bound.");
+                continue;
+            }
+            String label = intent.get("title") instanceof String
+                    ? (String) intent.get("title") : (String) id;
+            // The raw id is a legal Android resource-name suffix already, so it is not
+            // sanitized here: @AppIntent ids are validated against [a-z][a-z0-9_]{2,63} by
+            // AppIntentAnnotationProcessor before intents.json is written, which is exactly
+            // the character set AAPT accepts. Lower-casing or rewriting it here would be
+            // worse than a no-op -- the id is also the dispatch key in the cn1intent:// URI
+            // and in the declaration table, so a rewritten resource key that no longer
+            // matched would have to be carried as a second name for the life of the build.
+            // A hand-edited intents.json can still carry an out-of-grammar id; that fails
+            // loudly at AAPT rather than silently, which is the right outcome for a manifest
+            // nothing generated.
+            String labelRes = "cn1_shortcut_" + ((String) id);
+            // formatted="false" because a title is displayed verbatim and never formatted.
+            // Without it AAPT parses the label as a format string and rejects any title
+            // carrying more than one non-positional token -- "Move %s to %s" fails the whole
+            // build, and the developer is told to use positional arguments for a string that
+            // is never an argument to anything.
+            strings.append("    <string formatted=\"false\" name=\"").append(labelRes)
+                    .append("\">")
+                    .append(androidStringValue(label)).append("</string>\n");
+            // The headless flag rides in the URI so the trampoline can route a cold-start tap
+            // without the declaration table, which is not installed yet at that point.
+            Object headlessValue = intent.get("headless");
+            // An intent naming a route is never headless on this path, however it was declared:
+            // the route has to open somewhere the user can see, and the trampoline applies the
+            // same rule when a declaration is available. iOS decides it statically too.
+            Object routeValue = intent.get("opensRoute");
+            boolean opensRoute = routeValue instanceof String
+                    && ((String) routeValue).length() > 0;
+            String headlessFlag = !opensRoute
+                    && (Boolean.TRUE.equals(headlessValue) || "true".equals(headlessValue))
+                    ? "&amp;h=1" : "";
+            xml.append("    <shortcut android:shortcutId=\"").append(xmlEscape((String) id))
+                    .append("\"\n")
+                    .append("              android:enabled=\"true\"\n")
+                    .append("              android:shortcutShortLabel=\"@string/")
+                    .append(labelRes).append("\">\n")
+                    .append("        <intent android:action=\"android.intent.action.VIEW\"\n")
+                    .append("                android:targetPackage=\"")
+                    .append(xmlEscape(packageName == null ? "" : packageName)).append("\"\n")
+                    .append("                android:targetClass=\"com.codename1.impl.android.intents.CN1IntentTrampolineActivity\"\n")
+                    .append("                android:data=\"cn1intent://run?id=")
+                    .append(xmlEscape((String) id)).append(headlessFlag).append("\" />\n")
+                    .append("    </shortcut>\n");
+            count++;
+        }
+        xml.append("</shortcuts>\n");
+        strings.append("</resources>\n");
+
+        if (count > 0) {
+            File xmlValues = new File(resDir, "xml");
+            xmlValues.mkdirs();
+            File values = new File(resDir, "values");
+            values.mkdirs();
+            try {
+                createFile(new File(values, "cn1_shortcuts_strings.xml"),
+                        strings.toString().getBytes("UTF-8"));
+                createFile(new File(xmlValues, "cn1_shortcuts.xml"),
+                        xml.toString().getBytes("UTF-8"));
+            } catch (IOException ex) {
+                throw new BuildException("Failed to write the app intent shortcuts", ex);
+            }
+            // Recorded rather than appended here: this one fragment has to land inside the
+            // launcher activity, and putting it at application level would be accepted by the
+            // manifest merger and then quietly do nothing.
+            intentsShortcutsMetaData =
+                    "            <meta-data android:name=\"android.app.shortcuts\"\n"
+                    + "                       android:resource=\"@xml/cn1_shortcuts\" />\n";
+        }
+        return entries.toString();
+    }
+
+    /// True when the intent offered itself to the platform. An absent list means the default,
+    /// which is platform exposure.
+    @SuppressWarnings("unchecked")
+    /// The declarations in an order that does not depend on the machine that built them.
+    ///
+    /// The quota below keeps the first few and drops the rest, and the order it was keeping them
+    /// in came from ClassScanner walking File.listFiles(), which the filesystem orders however
+    /// it likes. Two clean builds of unchanged source on different runners could therefore
+    /// publish different launcher shortcuts -- an action a user had could vanish on a rebuild
+    /// that changed nothing, and nothing in the build would say why. Sorted by intent id, which
+    /// the build already requires to be unique and well formed.
+    private static java.util.List<Object> stableOrder(java.util.List<Object> declared) {
+        java.util.List<Object> sorted = new java.util.ArrayList<Object>(declared);
+        java.util.Collections.sort(sorted, new java.util.Comparator<Object>() {
+            @Override
+            public int compare(Object a, Object b) {
+                return idOf(a).compareTo(idOf(b));
+            }
+        });
+        return sorted;
+    }
+
+    /// An entry's id, or the empty string when it has none -- those are skipped by the caller,
+    /// and sorting must not throw on one.
+    private static String idOf(Object entry) {
+        if (!(entry instanceof Map)) {
+            return "";
+        }
+        Object id = ((Map<String, Object>) entry).get("id");
+        return id instanceof String ? (String) id : "";
+    }
+
+    private static boolean isExposedToAssistant(Map<String, Object> intent) {
+        Object exposure = intent.get("exposure");
+        if (!(exposure instanceof java.util.List)) {
+            // No exposure key at all: an older manifest, or a declaration that never said. The
+            // default is what an omitted element means.
+            return true;
+        }
+        // An empty list is not the same as no list. A declaration that wrote exposure = {} chose
+        // no platform consumer, and the processor preserves that -- so treating it as the
+        // default here published a launcher shortcut that this app's own trampoline then
+        // refuses, which reads to the user as the action being broken.
+        java.util.List<Object> list = (java.util.List<Object>) exposure;
+        for (Object o : list) {
+            if ("ASSISTANT".equals(o)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// True when every declared parameter can be satisfied without asking the user: either the
+    /// intent takes none, or each required one carries a default.
+    @SuppressWarnings("unchecked")
+    private static boolean isLaunchableWithoutParameters(Map<String, Object> intent) {
+        Object params = intent.get("params");
+        if (!(params instanceof java.util.List)) {
+            return true;
+        }
+        for (Object o : (java.util.List<Object>) params) {
+            if (!(o instanceof Map)) {
+                continue;
+            }
+            Map<String, Object> p = (Map<String, Object>) o;
+            Object required = p.get("required");
+            boolean isRequired = required == null || Boolean.TRUE.equals(required)
+                    || "true".equals(required);
+            if (!isRequired) {
+                continue;
+            }
+            Object def = p.get("default");
+            if (!(def instanceof String) || ((String) def).length() == 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// A string-resource *value*, which is not the same thing as XML-escaped text.
+    ///
+    /// AAPT applies its own escaping layer inside the XML, and an intent title is application
+    /// text that will eventually contain an apostrophe -- "Today's workout" is the obvious one.
+    /// XML has nothing to say about an apostrophe, so it arrived at AAPT bare and AAPT rejected
+    /// the resource, failing the Android build on a title the developer was entitled to write.
+    /// The app_name resource in this same builder has escaped apostrophes for exactly this
+    /// reason for years; nothing else here had learned it.
+    ///
+    /// Applied before xmlEscape rather than after, which is the part that is easy to get wrong:
+    /// xmlEscape turns a double quote into `&quot;`, so escaping afterwards would never see one
+    /// and the bare quote would reach AAPT, where a lone quote is a string-trimming directive
+    /// rather than a character. Backslash goes first for the same reason within this method.
+    /// How many static launcher shortcuts the build will emit.
+    ///
+    /// Three rather than five: five is the whole quota on a device where
+    /// getMaxShortcutCountPerActivity() returns it, and that quota covers dynamic shortcuts
+    /// too. Two slots are left for the runtime to publish indexed content and donations into.
+    private static final int MAX_STATIC_SHORTCUTS = 3;
+
+    private static String androidStringValue(String s) {
+        if (s == null) {
+            return "";
+        }
+        String escaped = s.replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\"", "\\\"");
+        if (escaped.startsWith("@") || escaped.startsWith("?")) {
+            // Leading @ is a resource reference and leading ? a theme attribute; a title may
+            // legitimately begin with either.
+            escaped = "\\" + escaped;
+        }
+        return xmlEscape(escaped);
+    }
+
+    private static String xmlEscape(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replace("\"", "&quot;");
+    }
+
+    private String permissionAdd(BuildRequest request, String permission, String text) {
+        if(xPermissions.contains(permission)) {
+            return "";
+        }
+        return text;
+    }
+
+
+    private static String maxInt(String a, String b) {
+        return String.valueOf(Math.max(Integer.parseInt(a), Integer.parseInt(b)));
+    }
+
+    /// Whether `cls` is a health value type rather than the store.
+    ///
+    /// These travel through the BLE sensor layer, which needs no Health
+    /// Connect permission at all: a sensor callback is handed a
+    /// HealthSample, and reading a number off it names QuantitySample and
+    /// HealthQuantity. Counting those as store access made every
+    /// documented sensor-only app fail the health-hint gate.
+    /**
+     * Whether {@code cls} is the Matter setup-payload parser, which needs
+     * nothing from the platform.
+     *
+     * <p>Pure Java: it parses an {@code MT:} QR string or a manual pairing
+     * code and checksums it, and it never reaches a bridge, a native or an
+     * ecosystem SDK. It lives in {@code com.codename1.home.commissioning}
+     * because that is where a reader looks for it, so the package prefix
+     * alone would give an app that merely validates a scanned code the
+     * play-services-home AAR, the Bluetooth and local-network permissions and
+     * the commissioning intent filter. Kept in step with the iOS scanner --
+     * see SmartHomeScannerParityTest.</p>
+     */
+    private static boolean isSmartHomeSetupPayload(String cls) {
+        return "com/codename1/home/commissioning/SetupPayload".equals(cls)
+                || cls.indexOf(
+                        "com/codename1/home/commissioning/SetupPayload$") == 0;
+    }
+
+    private static boolean isSharedHealthModel(String cls) {
+        return "com/codename1/health/HealthSample".equals(cls)
+                || "com/codename1/health/QuantitySample".equals(cls)
+                || "com/codename1/health/SeriesSample".equals(cls)
+                || "com/codename1/health/CategorySample".equals(cls)
+                || "com/codename1/health/HealthQuantity".equals(cls)
+                || "com/codename1/health/HealthUnit".equals(cls)
+                || "com/codename1/health/HealthDataType".equals(cls)
+                || "com/codename1/health/HealthSource".equals(cls)
+                || "com/codename1/health/RecordingMethod".equals(cls)
+                || "com/codename1/health/BloodPressureSample".equals(cls)
+                // The error types travel the same way. A sensor callback
+                // is handed a HealthException, and asking it what went
+                // wrong names HealthError -- so a sensor-only app that
+                // handled its errors was read as touching the store, and
+                // got the Health Connect bridge bundled and its
+                // minSdkVersion raised to 26, cutting off the API 21-25
+                // devices the BLE-only flow is documented to support.
+                || "com/codename1/health/HealthException".equals(cls)
+                || "com/codename1/health/HealthError".equals(cls)
+                // And the enums a sensor callback reads off the sample it
+                // was just handed. Branching on getType().getKind(), or
+                // asking a unit for its dimension before converting, is
+                // ordinary BLE-only code -- and a direct enum reference is
+                // exactly what the scanner records, so those apps were read
+                // as touching the store too. Same cost as above: Health
+                // Connect bundled for an app that never opens it, and
+                // minSdkVersion raised to 26 away from the API 21-25 range
+                // the BLE-only flow is documented to support.
+                || "com/codename1/health/HealthDataKind".equals(cls)
+                || "com/codename1/health/HealthUnitDimension".equals(cls);
+    }
+
+    static int compareVersions(String v1, String v2) {
+        String v1p1 = v1.indexOf(".") == -1 ? v1 : v1.substring(0, v1.indexOf("."));
+        String v2p1 = v2.indexOf(".") == -1 ? v2 : v2.substring(0, v2.indexOf("."));
+        int i1 = Integer.parseInt(v1p1);
+        int i2 = Integer.parseInt(v2p1);
+        if (i1 < i2) return -1;
+        if (i1 > i2) return 1;
+
+        v1 = v1.indexOf(".") == -1 ? "" : v1.substring(v1.indexOf(".")+1);
+        v2 = v2.indexOf(".") == -1 ? "" : v2.substring(v2.indexOf(".")+1);
+        if (v2.length() == 0 && v1.length() == 0) return 0;
+        if (v2.length() == 0) return 1;
+        if (v1.length() == 0) return -1;
+        return compareVersions(v1, v2);
+
+    }
+
+    protected String getDebugCertificateFile() {
+        return "android.ks";
+    }
+
+    protected String getReleaseCertificateFile() {
+        return "android.ks";
+    }
+
+    /**
+     * A Gradle configuration keyword opening a dependency declaration directly after the closing
+     * quote of the previous one, with no ';' or newline between the two.
+     */
+    private static final java.util.regex.Pattern UNSEPARATED_GRADLE_STATEMENT =
+            java.util.regex.Pattern.compile(
+                "['\"][ \\t]*(implementation|api|compile|compileOnly|runtimeOnly"
+                + "|annotationProcessor|kapt|testImplementation|androidTestImplementation"
+                + "|debugImplementation|releaseImplementation)[ \\t]*['\"(]");
+
+    /**
+     * Finds two Gradle dependency statements run together with no separator between them.
+     *
+     * @param gradleDep the android.gradleDep hint value
+     * @return the offending excerpt, or null when the value is well formed
+     */
+    static String findUnseparatedGradleStatement(String gradleDep) {
+        if (gradleDep == null || gradleDep.length() == 0) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = UNSEPARATED_GRADLE_STATEMENT.matcher(gradleDep);
+        if (!matcher.find()) {
+            return null;
+        }
+        int from = Math.max(0, matcher.start() - 40);
+        int to = Math.min(gradleDep.length(), matcher.end() + 40);
+        return (from > 0 ? "..." : "") + gradleDep.substring(from, to)
+                + (to < gradleDep.length() ? "..." : "");
+    }
+
+    private String addNewlineIfMissing(String s) {
+        if(s != null && s.length() > 0 && !s.endsWith("\n")) {
+            return s + "\n";
+        }
+        return s;
+    }
+
+    /**
+     * Finds the PlayServices_X_X_X.java file that will be used for the PlayServices
+     * class given the desired target playServicesVersion.  This will pick the newest
+     * version up to the target playServicesVersion.
+     *
+     * The PlayServices class is used to factor out version sensitive play services
+     * code (e.g. location code that requires classes that aren't found in earlier
+     * versions of play services.  We still want to be able to build for older versions
+     * of play services, so we delete all PlayServices_X_X_X classes that we aren't using
+     * at build time.  We use the highest version available.
+     * @param srcDir The src dir
+     * @param playServicesVersion The target play services version .  E.g. 12.0.1
+     * @return The Source file for the class with maximum version less than or equal to playServicesVersion.  Never null
+     */
+    private File getPlayServicesJavaSourceFile(File srcDir, String playServicesVersion) {
+        File androidImpl = new File(srcDir, "com/codename1/impl/android");
+        String currentMaxVersion = "8.3.0";
+        File currentMaxVersionFile = new File(androidImpl, "PlayServices.java");
+        for (File f : androidImpl.listFiles()) {
+            if (f.getName().startsWith("PlayServices_") && f.getName().endsWith(".java")) {
+                String versionStr = f.getName().substring("PlayServices_".length()).replace(".java", "").replace('_', '.');
+                if (compareVersions(playServicesVersion, versionStr) < 0) {
+                    //  This class uses a newer version of PlayServices than we are building for
+                    // so we can't select it
+                    continue;
+
+                }
+                if (compareVersions(currentMaxVersion, versionStr) < 0) {
+                    currentMaxVersion = versionStr;
+                    currentMaxVersionFile = f;
+                }
+
+            }
+        }
+        return currentMaxVersionFile;
+    }
+
+    /**
+     * Extracts the version for a PlayServices class source file.  There may be one or more classes 
+     * com/codename1/impl/android/PlayServices_X_X_X.java which correspond to a play services
+     * version that we are building for.  For such a .java file, this will return "X.X.X", a version 
+     * string.
+     * @param playServicesSourceFile
+     * @return The version string for the play services file.   
+     */
+    private String getPlayServicesVersion(File playServicesSourceFile) {
+        String fname = playServicesSourceFile.getName();
+        if (!fname.startsWith("PlayServices")) {
+            throw new IllegalArgumentException("Only PlayServices class files can be checked for play services versions.");
+        }
+        if (!fname.startsWith("PlayServices_")) {
+            // The minimum default.
+            return "8.3.0";
+        }
+        return fname.substring("PlayServices_".length()).replace(".java", "").replace('_', '.');
+    }
+
+    // AndroidX stuff
+
+    private String xartifact(String artifact) {
+        if (!useAndroidX) return artifact;
+        try {
+            Map<String,String> map = loadAndroidXArtifactMapping();
+            if (map.containsKey(artifact)) {
+                return map.get(artifact);
+            } else {
+                return artifact;
+            }
+        } catch (IOException ex) {
+            return artifact;
+        }
+    }
+
+    private String xclass(String cls) {
+        if (!useAndroidX) {
+            return cls;
+        }
+        try {
+            Map<String,String> map = loadAndroidXClassMapping();
+            if (map.containsKey(cls)) {
+                return map.get(cls);
+            } else {
+                return cls;
+            }
+        } catch (IOException ex) {
+            return cls;
+        }
+    }
+
+    private void migrateSourcesToAndroidX(File root) throws IOException {
+        if (!migrateToAndroidX) {
+            return;
+        }
+
+        replaceAndroidXArtifactsInTree(root);
+        replaceAndroidXClassesInTree(root);
+    }
+
+    private void replaceAndroidXArtifactsInTree(File root) throws IOException {
+        replaceInTree(root, loadAndroidXArtifactMapping(), new FilenameFilter() {
+            @Override
+            public boolean accept(File parent, String dir) {
+                return dir.endsWith(".gradle");
+            }
+        });
+    }
+
+    private void replaceAndroidXClassesInTree(File root) throws IOException {
+        debug("Replacing Android Support classes with AndroidX classes in "+root);
+        replaceInTree(root, loadAndroidXClassMapping(), new FilenameFilter() {
+            @Override
+            public boolean accept(File parent, String dir) {
+                return dir.endsWith(".xml") || dir.endsWith(".kt") || dir.endsWith(".java");
+            }
+        });
+    }
+
+    private static String replace(String content, Map<String,String> replacements) {
+        for (Map.Entry<String,String> e : replacements.entrySet()) {
+            content = content.replace(e.getKey(), e.getValue());
+        }
+        return content;
+    }
+
+    private void replaceInTree(File root, Map<String,String> replacements, FilenameFilter filter) throws IOException {
+        if (root.isDirectory()) {
+            for (File child : root.listFiles()) {
+                replaceInTree(child, replacements, filter);
+            }
+        } else {
+            if (filter.accept(root.getParentFile(), root.getName())) {
+                replaceInFile(root, replacements);
+            }
+        }
+    }
+
+    private void replaceInFile(File file, Map<String,String> replacements) throws IOException {
+        String contents = readFileToString(file);
+        contents = replace(contents, replacements);
+        Writer fios = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8);
+        fios.write(contents);
+        fios.close();
+    }
+    private  Map<String,String> androidXArtifactMapping;
+    private  Map<String,String> loadAndroidXArtifactMapping() throws IOException {
+        if (androidXArtifactMapping == null) {
+            androidXArtifactMapping = loadCSVMapping(androidXArtifactMapping,"androidx-artifact-mapping.csv");
+        }
+        return androidXArtifactMapping;
+    }
+    private Map<String,String> androidXClassMapping;
+    private Map<String,String> loadAndroidXClassMapping() throws IOException {
+        if (androidXClassMapping == null) {
+            androidXClassMapping = loadCSVMapping(androidXClassMapping,"androidx-class-mapping.csv");
+            Map<String,String> packages = new LinkedHashMap<String,String>();
+            for (String supportClass : androidXClassMapping.keySet()) {
+                String xClass = androidXClassMapping.get(supportClass);
+                supportClass = supportClass.substring(0, supportClass.lastIndexOf(".")+1);
+                xClass = xClass.substring(0, xClass.lastIndexOf(".")+1);
+                packages.put(supportClass, xClass);
+            }
+            //androidXClassMapping.putAll(packages);
+        }
+        return androidXClassMapping;
+    }
+
+    private Map<String,String> loadCSVMapping(Map<String,String> out, String csvResourcePath) throws IOException {
+        if (out == null) {
+            out = new LinkedHashMap<String,String>();
+        }
+        debug("Loading CSV mapping for android X from "+csvResourcePath);
+        InputStream csvMappingStream = AndroidGradleBuilder.class.getResourceAsStream(csvResourcePath);
+        if (csvMappingStream == null) {
+            throw new IOException("Cannot find android X CSV mapping at "+csvResourcePath);
+        }
+        Scanner scanner = new Scanner(csvMappingStream, "UTF-8");
+        boolean firstLine = true;
+        while (scanner.hasNextLine()) {
+            String line = scanner.nextLine().trim();
+            if (firstLine) {
+                firstLine = false;
+                continue;
+            }
+            int pos = line.indexOf(",");
+            if (pos == -1) {
+                continue;
+            }
+
+            out.put(line.substring(0, pos).trim(), line.substring(pos+1).trim());
+        }
+        return out;
+
+    }
+
+    private void createAndroidStudioProject(File dest) throws IOException {
+        if (dest.exists()) {
+            throw new IOException("Cannot create AndroidStudio project at "+dest+" because it already exists");
+        }
+        File destZip = new File(dest.getAbsolutePath()+".zip");
+        if (destZip.exists()) {
+            throw new IOException("Cannot extract AndroidStudioTemplate at "+destZip+" because it already exists");
+        }
+        FileUtils.copyInputStreamToFile(getClass().getResourceAsStream("AndroidStudioProjectTemplate.zip"), destZip);
+        ZipFile zipFile = new ZipFile(destZip);
+        File destZipExtracted = new File(destZip.getAbsolutePath()+"-extracted");
+        destZipExtracted.mkdir();
+        zipFile.extractAll(destZipExtracted.getAbsolutePath());
+
+        for (File child : destZipExtracted.listFiles()) {
+            if (child.isDirectory() && "AndroidStudioProjectTemplate".equals(child.getName())) {
+                child.renameTo(dest);
+                break;
+            }
+        }
+        delTree(destZipExtracted);
+        delete(destZip);
+        if (!dest.exists()) {
+            throw new IOException("Failed to create Android Studio Project at "+dest+".  Not sure what went wrong.  Did all the steps, but just wasn't there when we were done");
+        }
+
+    }
+
+
+    private String getDefaultPlayServiceVersion(String playService) {
+        if (playServiceVersions.containsKey(playService)) {
+            return playServiceVersions.get(playService);
+        }
+        if (decouplePlayServiceVersions) {
+            if (defaultPlayServiceVersions.containsKey(playService)) {
+                return defaultPlayServiceVersions.get(playService);
+            }
+        }
+
+        return playServicesVersion;
+    }
+
+    private void initPlayServiceVersions(BuildRequest request) {
+        for (String arg : request.getArgs()) {
+            if (arg.startsWith("android.playService.")) {
+                String playServiceKey = arg.substring("android.playService.".length());
+                if (playServiceKey.equals("appInvite")) {
+                    playServiceKey = "app-invite";
+                } else if (playServiceKey.equals("firebaseCore")) {
+                    playServiceKey = "firebase-core";
+                } else if (playServiceKey.equals("firebaseMessaging")) {
+                    playServiceKey = "firebase-messaging";
+                }
+                String playServiceValue = request.getArg(arg, null);
+                if (playServiceValue == null || "true".equals(playServiceValue) || "false".equals(playServiceValue)) {
+                    continue;
+                }
+                playServiceVersions.put(playServiceKey, playServiceValue);
+            }
+        }
+    }
+
+    /**
+     * Whether the legacy {@code android.wear} hints put this build in Wear mode.
+     *
+     * <p>Package-private for direct unit testing; not part of the builder API. Extracted because
+     * the relationship between the two hints is directional and easy to invert:
+     * {@code android.wear} implied standalone, but {@code android.wear.standalone} is a SUB-hint
+     * that only ever applied inside {@code android.wear=true} and never implied Wear on its own.
+     * Getting that backwards gives a legacy phone project the API 23 floor and a required
+     * {@code android.hardware.type.watch} feature, and Play filters the APK off every phone.</p>
+     */
+    static boolean legacyWearMode(String androidWear) {
+        return "true".equals(androidWear);
+    }
+
+    /**
+     * Whether the legacy hints ask for a standalone (phone-less) Wear app.
+     *
+     * <p>Only meaningful in Wear mode. {@code android.wear=true} implied standalone, so the
+     * sub-hint reads as an explicit opt-OUT: an empty or absent value keeps the historical
+     * standalone behaviour, and only {@code false} turns it off, which is what lets a project that
+     * deliberately configured a companion app stay a companion.</p>
+     */
+    static boolean legacyWearStandalone(String androidWear, String androidWearStandalone) {
+        if (!legacyWearMode(androidWear)) {
+            return false;
+        }
+        String optOut = androidWearStandalone == null ? "" : androidWearStandalone.trim();
+        return !"false".equals(optOut);
+    }
+
+    // Package-private for direct unit testing; this is not part of the builder API.
+    static String ensureCompileSdkAtLeastTarget(String compileSdkVersion, String targetSdkVersion) {
+        Integer compileSdkInt = parseSdkInt(compileSdkVersion);
+        Integer targetSdkInt = parseSdkInt(targetSdkVersion);
+        if (targetSdkInt == null) {
+            return compileSdkVersion;
+        }
+        if (compileSdkVersion == null || compileSdkVersion.trim().isEmpty()) {
+            return String.valueOf(targetSdkInt);
+        }
+        if (compileSdkInt != null && targetSdkInt > compileSdkInt) {
+            return String.valueOf(targetSdkInt);
+        }
+        return compileSdkVersion;
+    }
+
+    /**
+     * The installed platform this build should compile against, by name.
+     *
+     * <p>{@code compileSdkVersion 37} is a request for the platform whose hash
+     * string is {@code android-37}, and AGP does not fall back to another
+     * revision of the level: with only android-37.2 installed it fails with
+     * "Failed to find target with hash string 'android-37'" rather than using
+     * it. Measured against AGP 8.13.2. Since API 37 ships only as
+     * android-37.0, -37.1 and -37.2, and {@code sdkmanager
+     * "platforms;android-37.2"} is an ordinary thing to have run, the bare
+     * number can name a platform nobody has.</p>
+     *
+     * @param compileSdk the API level this build compiles against
+     * @param installed  the platform names the SDK reports, e.g. "36", "37.2"
+     * @return the name to compile against, or null when the level is not
+     *         installed at all -- in which case the caller should keep asking
+     *         for the bare number and let AGP fetch it
+     */
+    static String compileSdkPlatformName(int compileSdk, List<String> installed) {
+        if (installed == null) {
+            return null;
+        }
+        String bare = String.valueOf(compileSdk);
+        String best = null;
+        int bestMinor = -1;
+        for (String name : installed) {
+            if (name == null) {
+                continue;
+            }
+            String trimmed = name.trim();
+            if (trimmed.equals(bare)) {
+                // The unsuffixed platform is installed, which is the case for
+                // every level up to 36 and for any SDK that took android-37.0.
+                // Nothing to do: the number AGP was going to resolve is there.
+                return bare;
+            }
+            Integer level = parseSdkInt(trimmed);
+            if (level == null || level != compileSdk) {
+                continue;
+            }
+            int dot = trimmed.indexOf('.');
+            String minorText = dot >= 0 ? trimmed.substring(dot + 1) : "";
+            int minor = 0;
+            try {
+                minor = Integer.parseInt(minorText);
+            } catch (NumberFormatException notANumber) {
+                continue;
+            }
+            if (minor > bestMinor) {
+                bestMinor = minor;
+                best = trimmed;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * The value to write after {@code compileSdkVersion} in build.gradle.
+     *
+     * <p>The bare number wherever the unsuffixed platform exists, which is
+     * every level up to 36 and keeps those builds byte-identical. Where the
+     * level is installed only as a minor revision this switches to the quoted
+     * hash string -- {@code 'android-37.2'} -- which AGP 8.13.2 accepts and
+     * resolves to that exact platform. The int property has no way to say
+     * "37.2" (compileSdkMinor is AGP 9), so the hash string is the only
+     * spelling available.</p>
+     *
+     * <p>Worth being blunt about the reach of that: from API 37 there is no
+     * unsuffixed platform at all, so the quoted form is what an API 37 build
+     * gets, not a rare fallback. Anything that reads the generated
+     * {@code compileSdkVersion} back has to cope with it -- {@code
+     * PatchGradleFiles}, which the build scripts use to re-pin a generated
+     * project, matched only digits and so inserted a second declaration
+     * instead of replacing this one, leaving the original later in the block
+     * where Groovy let it win.</p>
+     *
+     * @param compileSdkVersion the compile SDK settled on, as a string
+     * @param installed         the platform names the SDK reports
+     * @return the Groovy literal to emit
+     */
+    static String compileSdkGradleValue(String compileSdkVersion,
+            List<String> installed) {
+        Integer compileSdk = parseSdkInt(compileSdkVersion);
+        if (compileSdk == null) {
+            return compileSdkVersion;
+        }
+        String name = compileSdkPlatformName(compileSdk, installed);
+        if (name == null || name.indexOf('.') < 0) {
+            return String.valueOf(compileSdk);
+        }
+        return "'android-" + name + "'";
+    }
+
+    /**
+     * The value {@code android.suppressUnsupportedCompileSdk} has to carry to
+     * silence AGP for a given compile SDK.
+     *
+     * <p>AGP compares the property against the name of the platform it
+     * <em>resolved</em>, not against the number the build asked for, and from
+     * API 37 those differ: there is no {@code platforms;android-37}, so
+     * {@code compileSdkVersion 37} resolves to android-37.0 and AGP asks for
+     * {@code 37.0}. Compiling against android-37.2 it asks for {@code 37.2}.
+     * Writing the bare {@code 37} the build requested left the "We recommend
+     * using a newer Android Gradle plugin" warning in every API 37 build log
+     * -- all three spellings measured against AGP 8.13.2, which is what
+     * {@link #ANDROID_GRADLE_PLUGIN_8_VERSION} pins.</p>
+     *
+     * <p>The property takes a comma-separated list, so rather than predict
+     * which spelling AGP will resolve to, emit every one this build could
+     * produce. The redundant entries are inert: AGP does not warn about an
+     * entry that matches nothing.</p>
+     *
+     * @param compileSdk   the API level this build compiles against
+     * @param platformName the platform name it will resolve to, or null
+     * @return the property value, covering every spelling of that level
+     */
+    static String suppressUnsupportedCompileSdkValue(int compileSdk,
+            String platformName) {
+        StringBuilder value = new StringBuilder();
+        value.append(compileSdk).append(',').append(compileSdk).append(".0");
+        if (platformName != null && platformName.indexOf('.') > 0
+                && !platformName.equals(compileSdk + ".0")) {
+            value.append(',').append(platformName);
+        }
+        return value.toString();
+    }
+
+    /**
+     * The API level named by a compile or target SDK string.
+     *
+     * <p>Accepts the spellings the SDK and the build hints actually produce:
+     * a bare {@code 36}, the quoted {@code android-36} the legacy Gradle
+     * files use, and -- since Android 17 -- a platform name carrying a minor,
+     * {@code 37.2}. Only the major matters to every caller: AGP's
+     * {@code compileSdk} is an API level, and the minor selects which
+     * revision of that level the platform is.</p>
+     *
+     * <p>The minor is dropped before the digits are gathered rather than
+     * after, because gathering first turns "37.2" into 372 -- an API level
+     * three hundred short of anything real, which compares greater than every
+     * floor in this class and so would silently defeat all of them.</p>
+     *
+     * @param value the SDK string, or null
+     * @return the API level, or null when there is no number in it
+     */
+    private static Integer parseSdkInt(String value) {
+        if (value == null) {
+            return null;
+        }
+        String major = value.trim();
+        int dot = major.indexOf('.');
+        if (dot >= 0) {
+            major = major.substring(0, dot);
+        }
+        String digits = major.replaceAll("\\D", "");
+        if (digits.isEmpty()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(digits);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private boolean hasSourceFileWithExtension(File dir, String extension) {
+        if (dir == null || !dir.exists()) {
+            return false;
+        }
+        if (dir.isFile()) {
+            return dir.getName().endsWith(extension);
+        }
+        File[] children = dir.listFiles();
+        if (children == null) {
+            return false;
+        }
+        for (File child : children) {
+            if (hasSourceFileWithExtension(child, extension)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void stripKotlin(File dummyClassesDir) {
+        String[] skipDirectories = new String[] {
+                "org" + File.separator + "jetbrains" + File.separator + "annotations",
+                "org" + File.separator + "intellij" + File.separator + "lang" + File.separator + "annotations",
+                "kotlin"
+        };
+        for (String path : skipDirectories) {
+            File directory = new File(dummyClassesDir, path);
+            if (directory.isDirectory()) {
+                log("Deleting directory " + directory);
+                delTree(directory, true);
+            }
+        }
+    }
+
+
+    /**
+     * The API level this build compiles against.
+     *
+     * <p>Extracted so the manifest fragments and the generated
+     * {@code compileSdkVersion} cannot disagree: a fragment naming an
+     * attribute value newer than the compile SDK is rejected by AAPT before
+     * anything is compiled, and the two decisions live thousands of lines
+     * apart. This mirrors the ladder in the gradle-file generation below and
+     * is the only other place that decides it.</p>
+     *
+     * @param maxPlatformVersion the newest installed platform
+     * @param buildToolsVersion  the effective build-tools version
+     * @param targetNumber       the {@code android.targetSDKVersion} in force
+     * @return the API level, or 0 when it cannot be determined
+     */
+    /** The compile SDK androidx.core.uwb's AAR metadata demands. */
+    static final int RANGING_MIN_COMPILE_SDK = 36;
+
+    /** The compile SDK any nearby cluster demands; see the block below. */
+    static final int NEARBY_MIN_COMPILE_SDK = 33;
+
+    /**
+     * The compile SDK {@code android:foregroundServiceType} needs.
+     *
+     * <p>The attribute arrived in API 29 and AAPT rejects an enum value the
+     * compile SDK does not know, so a VoIP app has to compile against at
+     * least this to declare {@code phoneCall} -- which from API 34 Android
+     * requires before it will start the service at all.</p>
+     */
+    static final int FOREGROUND_SERVICE_TYPE_COMPILE_SDK = 29;
+
+    /// The compile SDK a packet tunnel needs.
+    ///
+    /// 34, where FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED and the
+    /// systemExempted manifest enum arrive. AAPT rejects an enum value the
+    /// compile SDK has never heard of, so the legacy configuration -- which
+    /// is still supported and can sit at 28 -- failed on the generated
+    /// manifest before anything was compiled.
+    static final int TUNNEL_MIN_COMPILE_SDK = 34;
+
+    static int compileSdkInt(String maxPlatformVersion, String buildToolsVersion,
+            String targetNumber, boolean usesNearbyRanging,
+            boolean usesAnyNearby, boolean usesCallVoip,
+            boolean usesCustomTunnel) {
+        String compileSdkVersion = maxPlatformVersion;
+        String[] ladder = {"28", "29", "30", "31", "32", "33", "34", "35", "36",
+            "37"};
+        for (int i = 0; i < ladder.length; i++) {
+            if (buildToolsVersion != null
+                    && buildToolsVersion.startsWith(ladder[i])) {
+                compileSdkVersion = ladder[i];
+            }
+        }
+        compileSdkVersion =
+                ensureCompileSdkAtLeastTarget(compileSdkVersion, targetNumber);
+        // EVERY feature raise, in the same order the generation below applies
+        // them. Leaving one out gave the manifest fragments a preliminary
+        // answer: a VoIP app that also used nearby dropped
+        // android:foregroundServiceType="phoneCall" and then compiled against
+        // 33 or 36, where startForeground refuses a type the manifest never
+        // declared. A new raise belongs here, and the block that applies it
+        // below becomes a no-op once it is.
+        if (usesNearbyRanging) {
+            compileSdkVersion = ensureCompileSdkAtLeastTarget(
+                    compileSdkVersion, String.valueOf(RANGING_MIN_COMPILE_SDK));
+        }
+        if (usesAnyNearby) {
+            compileSdkVersion = ensureCompileSdkAtLeastTarget(
+                    compileSdkVersion, String.valueOf(NEARBY_MIN_COMPILE_SDK));
+        }
+        if (usesCustomTunnel) {
+            // See TUNNEL_MIN_COMPILE_SDK. Unlike the VoIP attribute below,
+            // this one is not covered by the raise-to-target above: the
+            // VALUE is what needs the newer SDK, and a tunnel app may
+            // legitimately target something older than 34.
+            compileSdkVersion = ensureCompileSdkAtLeastTarget(
+                    compileSdkVersion, String.valueOf(TUNNEL_MIN_COMPILE_SDK));
+        }
+        // NO VoIP raise here, deliberately, and this is where the daemon
+        // twin has one. A VoIP app targeting 29 or later must declare
+        // android:foregroundServiceType="phoneCall", which needs a compile
+        // SDK of at least 29 -- but this copy has already raised the compile
+        // SDK to the target above, unconditionally, so any target that
+        // requires the attribute has already made it writable. The daemon
+        // copy raises to the target only inside its container path, which is
+        // why it needs the rule stated separately.
+        // Through parseSdkInt rather than Integer.parseInt: a platform name
+        // with a minor in it ("37.2") is a NumberFormatException here, and the
+        // 0 that catch returns reads to every caller as "could not be
+        // determined" -- so an API 37 build lost the compile SDK that the
+        // manifest fragments check their attribute values against.
+        Integer parsed = parseSdkInt(compileSdkVersion);
+        return parsed == null ? 0 : parsed;
+    }
+
+}

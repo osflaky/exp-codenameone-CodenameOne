@@ -1,0 +1,2627 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *  
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ * 
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ * 
+ * Please contact Codename One through http://www.codenameone.com/ if you 
+ * need additional information or have any questions.
+ */
+package com.codename1.impl.ios;
+
+import com.codename1.contacts.Contact;
+import com.codename1.payment.Product;
+import com.codename1.social.GoogleImpl;
+import com.codename1.social.LoginCallback;
+import com.codename1.ui.geom.Rectangle;
+import com.codename1.util.SuccessCallback;
+import java.io.Writer;
+import java.util.ArrayList;
+import java.util.Vector;
+
+/**
+ * Abstraction of the underlying native API's
+ *
+ * @author Shai Almog
+ */
+public final class IOSNative {
+
+    native long beginBackgroundTask();
+
+    native void endBackgroundTask(long taskId);
+    
+    
+    //native void startMainThread(Runnable r);
+    native void initVM();
+
+    /// Returns true when CN1_USE_METAL is defined in CN1RenderBackend.h, which
+    /// is every slice but watchOS. Java-side code that needs to branch
+    /// between the Core Graphics and Metal mutable-image rendering paths
+    /// queries this once at init -- there is no other reliable source of
+    /// truth on the Java side, since which slice is being built only
+    /// affects native compilation.
+    native boolean isMetalRendering();
+    native boolean calendarSupported();
+    native int calendarAuthorizationStatus(int entityType);
+    native boolean calendarRequestAccess(int entityType, boolean writeOnly);
+    native String calendarList(int entityType);
+    native String calendarEvents(String calendarId, long startTime, long endTime);
+    native String calendarEvent(String calendarId, String eventId);
+    native String calendarSaveEvent(String eventJson, int mutationScope);
+    native boolean calendarDeleteEvent(String eventId, int mutationScope);
+    native String calendarTasks(String calendarId);
+    native String calendarSaveTask(String taskJson);
+    native boolean calendarDeleteTask(String taskId);
+    static native void deinitializeVM();
+    native boolean isPainted();
+    native int getDisplayWidth();
+    native int getDisplayHeight();
+
+    /// The screen's scale factor -- 1, 2 or 3 on iOS -- straight from UIScreen,
+    /// NOT derived from the artwork density bucket. The two are different
+    /// questions: the bucket approximates DPI and is chosen from the display
+    /// resolution (and under ios.densityOld from the superclass's own resolution
+    /// rules), so a 2x phone can land in a bucket that implies 3.
+    native float getDisplayScale();
+    native void editStringAt(int x, int y, int w, int h, long peer, boolean singleLine,
+            int rows, int maxSize, int constraint, String text, boolean forceSlideUp,
+            int color, long imagePeer, int padTop, int padBottom, int padLeft, int padRight,
+            String hint, int hintColor, boolean showToolbar, boolean blockCopyPaste, int alignment, int verticalAlignment,
+            boolean returnExitsEditing);
+    native void startTextInput(int constraint, boolean autoCorrect, boolean autoCapitalize, boolean multiline, String initialText, int selStart, int selEnd, int actionType);
+    native void updateTextInputState(String text, int selStart, int selEnd, int caretX, int caretY, int caretW, int caretH, int seq);
+    native void setTextInputBounds(int x, int y, int w, int h);
+    native void stopTextInput();
+    native void resizeNativeTextView(int x, int y, int w, int h, int padTop, int padRight, int padBottom, int padLeft);
+    native void flushBuffer(long peer, int x, int y, int width, int height);
+    native void flushBufferForReadback(int x, int y, int width, int height);
+    native void imageRgbToIntArray(long imagePeer, int[] arr, int x, int y, int width, int height, int imgWidth, int imgHeight);
+    native long createImageFromARGB(int[] argb, int width, int height);
+    native long createImage(byte[] data, int[] widthHeight);
+    native long createImageNSData(long nsData, int[] widthHeight);
+    native long scale(long peer, int width, int height);
+    native void setNativeClippingMutable(int x, int y, int width, int height, boolean firstClip);
+    native void setNativeClippingGlobal(int x, int y, int width, int height, boolean firstClip);
+    native void setAntiAliasedMutable(boolean antialiased) ;
+
+    native void nativeDrawLineMutable(int color, int alpha, int x1, int y1, int x2, int y2);
+    native void nativeDrawLineGlobal(int color, int alpha, int x1, int y1, int x2, int y2);
+    // Queues a live-screen backdrop-filter:blur op (real glass). Enqueued in paint
+    // order; the drain blurs the already-drawn screenTexture region and draws it back.
+    native void nativeBlurScreenRegion(int x, int y, int width, int height, float radius);
+    // Queues a live-screen "Liquid Glass" MATERIAL op (the full backdrop-filter
+    // recipe -- material + blur + rounded-rect mask + refraction + specular),
+    // matching the offscreen IOSImplementation.glassRegion. Enqueued in paint order.
+    native void nativeGlassScreenRegion(int x, int y, int width, int height, float radius, float cornerRadius, float sat, float scale, float offset, float refract, float specular);
+    // Queues a live-screen iOS 26 selection-drop LENS op (magnify + chromatic
+    // aberration + dark->accent tint over the painted content). See lensScreenRegionX.
+    native void nativeLensScreenRegion(int x, int y, int width, int height, float cornerRadius, float magnify, float aberration, int tintColor, float tintStrength);
+    // Renders an Apple SF Symbol to a GLUIImage peer (iOS 13+). Returns 0 when the
+    // symbol is unavailable; writes the pixel width/height into widthHeight[0]/[1].
+    native long nativeCreateSFSymbol(String name, int color, float size, int weight, int[] widthHeight);
+    native void nativeFillRectMutable(int color, int alpha, int x, int y, int width, int height);
+    native void nativeFillRectGlobal(int color, int alpha, int x, int y, int width, int height);
+    native void nativeDrawRectMutable(int color, int alpha, int x, int y, int width, int height);
+    native void nativeDrawRectGlobal(int color, int alpha, int x, int y, int width, int height);
+    native void nativeDrawRoundRectMutable(int color, int alpha, int x, int y, int width, int height, int arcWidth, int arcHeight);
+    native void nativeDrawRoundRectGlobal(int color, int alpha, int x, int y, int width, int height, int arcWidth, int arcHeight);
+    native void nativeFillRoundRectMutable(int color, int alpha, int x, int y, int width, int height, int arcWidth, int arcHeight);
+    native void nativeFillRoundRectGlobal(int color, int alpha, int x, int y, int width, int height, int arcWidth, int arcHeight);
+    native void nativeFillArcMutable(int color, int alpha, int x, int y, int width, int height, int startAngle, int arcAngle);
+    native void nativeDrawArcMutable(int color, int alpha, int x, int y, int width, int height, int startAngle, int arcAngle);
+    native void nativeDrawStringMutable(int color, int alpha, long fontPeer, String str, int x, int y);
+    native void nativeDrawStringGlobal(int color, int alpha, long fontPeer, String str, int x, int y);
+    native void nativeDrawImageMutable(long peer, int alpha, int x, int y, int width, int height, int renderingHints);
+    native void nativeDrawImageGlobal(long peer, int alpha, int x, int y, int width, int height, int renderingHints);
+
+    /// Whether this build can round a picture's corners as it draws it -- only
+    /// the Metal renderer has the shader.
+    native boolean isRoundedImageDrawSupported();
+
+    native void nativeDrawImageRoundedGlobal(long peer, int alpha, int x, int y, int width, int height, int renderingHints, float cornerRadius);
+
+    native void nativeDrawImageRoundedMutable(long peer, int alpha, int x, int y, int width, int height, int renderingHints, float cornerRadius);
+    native void nativeTileImageGlobal(long peer, int alpha, int x, int y, int width, int height);
+    native int stringWidthNative(long peer, String str);
+    native int charWidthNative(long peer, char ch);
+    native int getFontHeightNative(long peer);
+    native int fontAscentNative(long peer);
+    native int fontDescentNative(long peer);
+    native long createSystemFont(int face, int style, int size);
+    byte[] loadResource(String name, String type) {
+        int val = getResourceSize(name, type);
+        if(val < 0) {
+            return null;
+        }
+        byte[] data = new byte[val];
+        loadResource(name, type, data);
+        return data;
+    }
+    native int getResourceSize(String name, String type);
+    native void loadResource(String name, String type, byte[] data);
+
+    native long createNativeMutableImage(int w, int h, int color);
+
+    native void startDrawingOnImage(int w, int h, long peer);
+    native long finishDrawingOnImage();
+
+    native void deleteNativePeer(long peer);
+    native void deleteNativeFontPeer(long peer);
+
+    native void resetAffineGlobal();
+
+    native void scaleGlobal(float x, float y);
+
+    native void rotateGlobal(float angle);
+    native void rotateGlobal(float angle, int x, int y);
+    /*
+    native void translateGlobal(int x, int y);
+    native int getTranslateXGlobal();
+    native int getTranslateYGlobal();
+    */
+
+    native void shearGlobal(float x, float y);
+
+    native void fillRectRadialGradientGlobal(int startColor, int endColor, int x, int y, int width, int height, float relativeX, float relativeY, float relativeSize);
+
+    native void fillLinearGradientGlobal(int startColor, int endColor, int x, int y, int width, int height, boolean horizontal);
+
+    native void fillRectRadialGradientMutable(int startColor, int endColor, int x, int y, int width, int height, float relativeX, float relativeY, float relativeSize);
+
+    native void fillLinearGradientMutable(int startColor, int endColor, int x, int y, int width, int height, boolean horizontal);
+
+    /// Metal-only multi-stop gradient bridge to CN1MetalFillGradient. positions
+    /// holds stopCount entries in [0, 1]; premultipliedRgba holds stopCount * 4
+    /// floats. It is a no-op where Metal is absent. mutable is true when the
+    /// fill targets the current mutable image's offscreen MTLTexture.
+    native void fillGradient(int kind, int stopCount, float[] positions, float[] premultipliedRgba,
+                             int cycleMethod, float angleOrFromAngle,
+                             float cx, float cy, float rx, float ry, int shape,
+                             int x, int y, int width, int height, boolean mutable);
+
+    native boolean isTablet();
+    native boolean isIOS7();
+    native boolean isRunningOnMac();
+
+    // Returns true when the binary is running on the watchOS slice. Implemented
+    // natively via the TARGET_OS_WATCH compile-time check so the iOS slice keeps
+    // returning false with zero runtime cost.
+    native boolean isRunningOnWatch();
+
+    // Returns true when the binary is running on the tvOS slice. Implemented
+    // natively via the TARGET_OS_TV compile-time check so the iOS slice keeps
+    // returning false with zero runtime cost.
+    native boolean isRunningOnTV();
+
+    // Mac native (Catalyst): set the host window title bar text from the current form title.
+    native void setWindowTitle(String title);
+
+    // Mac native (Catalyst): replace the application menu's CN1 command items. namesNewlineJoined
+    // holds one row per command separated by '\n'; selecting an item calls back into
+    // IOSImplementation.fireMacMenuCommand() with the id the row's last column carries.
+    native void setNativeMenuCommands(String namesNewlineJoined);
+
+    // Mac native: run the next step of the delivery queue -- releasing what cold-launching the
+    // application held (a deep link, a local notification, a push) the first time, and handing over
+    // the next push after that. Called from the far side of an EDT barrier, which is what paces it.
+    // Nothing to run on any other platform, where the delegate holds nothing.
+    native void macRunPendingDeliveries();
+
+    // Mac native: propagate the current form's brightness to the host
+    // NSWindow's appearance so the Mac titlebar (rendered by AppKit, not
+    // CN1) matches the app's dark/light theme. A no-op on iOS/iPadOS.
+    native void setMacWindowDarkAppearance(boolean dark);
+
+    // Mac native (Catalyst): undecorate the host window for the "custom" desktop title-bar mode -
+    // hide the AppKit title bar (transparent + hidden title + full-size content view) so the CN1
+    // Toolbar acts as the window title bar, and make the window movable by its background so the
+    // toolbar drags it. Passing false restores the standard titled window. A no-op on iOS/iPadOS.
+    native void setMacWindowUndecorated(boolean undecorated);
+
+    
+    native void setImageName(long nativeImage, String name);
+    
+    native boolean canExecute(String url);
+    native void execute(String url);
+
+    native void flashBacklight(int duration);
+    
+    native boolean isLargerTextEnabled();
+    native float getLargerTextScale();
+    native boolean isHighContrastEnabled();
+    native boolean isDifferentiateWithoutColorEnabled();
+    native boolean isReduceMotionEnabled();
+    native boolean isReduceTransparencyEnabled();
+    native boolean isBoldTextEnabled();
+    native boolean isInvertColorsEnabled();
+    native boolean isGrayscaleEnabled();
+    native boolean isOnOffSwitchLabelsEnabled();
+    native boolean isScreenReaderEnabled();
+
+    // SJH Nov. 17, 2015 : Removing native isMinimized() method because it conflicted with
+    // tracking on the java side.  It caused the app to still be minimized inside start()
+    // method.  
+    // Related to this issue https://groups.google.com/forum/?utm_medium=email&utm_source=footer#!msg/codenameone-discussions/Ajo2fArN8mc/KrF_e9cTDwAJ
+    //native boolean isMinimized();
+    
+    native boolean minimizeApplication();
+
+    native void restoreMinimizedApplication();
+
+    native void lockOrientation(boolean portrait);
+    native void unlockOrientation();
+    native void lockScreen();
+    native void unlockScreen();
+    native void setDisableScreenshots(boolean disable);
+
+    native void vibrate(int duration);
+
+    native boolean isMotionSensorSupported(int type);
+
+    native void startMotionSensor(int type, int rateMillis);
+
+    native void stopMotionSensor(int type);
+
+    native boolean hasMotionData(int type);
+
+    native float getMotionSensorX(int type);
+
+    native float getMotionSensorY(int type);
+
+    native float getMotionSensorZ(int type);
+
+    native int getAudioDuration(long peer);
+
+    native void playAudio(long peer);
+
+    native int getAudioTime(long peer);
+
+    native void pauseAudio(long peer);
+
+    native void setAudioTime(long peer, int time);
+    native boolean isAudioPlaying(long peer);
+
+    native void cleanupAudio(long peer);
+
+    native long createAudio(String uri, Runnable onCompletion);
+
+    native long createAudio(byte[] data, Runnable onCompletion);
+
+    // ---- low latency game sound pool (com.codename1.gaming.SoundPool) ----
+    native long nativeCreateSoundPool(int maxStreams);
+    native long nativeLoadSound(long pool, byte[] data, int ringSize);
+    native int nativePlaySound(long pool, long sound, float volume, float pan, float rate, int loop);
+    native void nativeSetSoundVolume(long pool, int voiceId, float volume);
+    native void nativeSetSoundRate(long pool, int voiceId, float rate);
+    native void nativeSetSoundPan(long pool, int voiceId, float pan);
+    native void nativePauseSound(long pool, int voiceId);
+    native void nativeResumeSound(long pool, int voiceId);
+    native void nativeStopSound(long pool, int voiceId);
+    native void nativeStopAllSounds(long pool);
+    native void nativeAutoPauseSoundPool(long pool);
+    native void nativeAutoResumeSoundPool(long pool);
+    native void nativeUnloadSound(long pool, long sound);
+    native void nativeReleaseSoundPool(long pool);
+
+    native float getVolume();
+
+    native void setVolume(float vol);
+    
+    // Peer Component methods
+    
+    native void calcPreferredSize(long peer, int w, int h, int[] response);
+
+    native void updatePeerPositionSize(long peer, int x, int y, int w, int h);
+    
+    // windowId is the framework id of the Window the peer lives in, or -1 for the main surface.
+    // The native side cannot work it out: it sees a view and a rectangle, and on macOS every peer
+    // whose window could not be named landed on the main window and drew there at another window's
+    // coordinates.
+    native void peerInitialized(long peer, int x, int y, int w, int h, int windowId);
+
+    native void peerDeinitialized(long peer);
+    native void peerSetVisible(long peer, boolean v);
+    native long createPeerImage(long peer, int[] wh);
+
+    /// Tells the peer it does not have to keep the decoded UIImage alive once it
+    /// has uploaded its texture: the caller holds the encoded bytes and will
+    /// recreate the image if the platform loses it. See
+
+    native void releasePeer(long peer);
+    native void retainPeer(long peer);
+
+    /// The path with every symbolic link followed, as the platform resolves it.
+    ///
+    /// realpath, which is what SQLite's unix layer does to the filename it reports, and what
+    /// java.io.File.getCanonicalPath is specified to do -- but that class's natives are not
+    /// linked into the watch and tv targets, so calling it from the port breaks those builds.
+    ///
+    /// A file that does not exist yet has its directory resolved instead and its name put back,
+    /// so a database keeps one identity before and after it is created.
+    ///
+    /// #### Parameters
+    ///
+    /// - `path`: a native path
+    ///
+    /// #### Returns
+    ///
+    /// the resolved path, or the path itself when nothing can be resolved
+    native String realPath(String path);
+
+    native void setClipboardString(String s);
+    native String getClipboardString();
+    /// Adds one further representation to the clip the next setClipboardContent publishes.
+    ///
+    /// The fixed arguments below name the types the framework has constants for; a content
+    /// may offer any type at all, and one of those reached the pasteboard nowhere else.
+    native void addClipboardRepresentation(String mimeType, byte[] value);
+    native void setClipboardContent(String plain, String html, String rtf, String markdown, String asciidoc, byte[] image, String fileUris);
+    native String getClipboardContent(String mimeType);
+
+    /// How many representations the system pasteboard is offering, so they can be read by
+    /// index rather than joined into one string -- see addNativeDragFiles for what a
+    /// separator costs.
+    native int getClipboardTypeCount();
+
+    /// The MIME type of one of them, or null for an identifier this framework has no
+    /// reading of.
+    native String getClipboardTypeAt(int index);
+
+    /// Its bytes, or null when the pasteboard no longer has it.
+    native byte[] getClipboardRepresentation(String mimeType);
+    native byte[] getClipboardImage();
+    native String getClipboardFileUris();
+
+    /// Native drag and drop. UIKit owns the drag gesture, so the framework stages what a press
+    /// has made draggable and the native side asks for the payload once UIDragInteraction
+    /// decides a drag has begun. See `Ports/iOSPort/nativeSources/CN1DragAndDrop.m`.
+    native boolean isNativeDragAndDropSupported();
+
+    /// True where a drag started in this application can be dropped in another one, which is
+    /// iPadOS and Mac Catalyst rather than a phone in full screen.
+    native boolean isNativeDragOutsideAppSupported();
+
+    /// Stages the representations a drag could offer -- named, not built -- along with what a
+    /// receiver may do with them and the image to show under the finger.
+    ///
+    /// #### Parameters
+    ///
+    /// - `mimeTypes`: newline separated MIME types
+    ///
+    /// - `allowedActions`: the `com.codename1.ui.NativeDragOperation` action bit set
+    ///
+    /// - `dragImagePng`: the preview as PNG bytes, or null for the platform default
+    ///
+    /// - `touchX`: the press position within the drag image
+    ///
+    /// - `touchY`: the press position within the drag image
+    native void prepareNativeDrag(String mimeTypes, int allowedActions, byte[] dragImagePng,
+            int touchX, int touchY);
+
+    /// Clears the payload, ready for the representations of the session UIKit has just started,
+    /// and records the id the framework gave that session. Called from inside the
+    /// session-started callback, so that a promised representation is built only once a drag
+    /// really happens.
+    ///
+    /// #### Parameters
+    ///
+    /// - `sessionId`: travels with every load handler this session registers, so a
+    ///   representation read after another drag has begun resolves against its own operation
+    native void beginNativeDragPayload(int sessionId);
+
+    /// Names a representation the drag can offer, without producing it.
+    ///
+    /// Every MIME type the operation advertises goes through here rather than a fixed list, so
+    /// nothing the application published is silently left behind -- a drag offering only
+    /// `text/markdown` used to advertise it and then carry nothing, which UIKit cancels. The
+    /// value is produced only if a receiver reads that type, which is what
+    /// `com.codename1.ui.ClipboardContent#setDataProvider(java.lang.String, com.codename1.ui.ClipboardDataProvider)`
+    /// promises.
+    ///
+    /// #### Parameters
+    ///
+    /// - `mimeType`: the representation's MIME type
+    native void declareNativeDragPayload(String mimeType);
+
+    /// Adds the file list, the one representation that cannot be deferred: UIKit needs the
+    /// number of items when the session begins, and for a file drag that is the number of
+    /// files.
+    ///
+    /// #### Parameters
+    ///
+    /// - `paths`: newline separated file paths or `file:` URIs
+    native void addNativeDragFiles(String path);
+
+    /// Reports that a drop's target callback has run, so the files it copied out are no longer
+    /// owed to anybody and may be reclaimed with the rest.
+    ///
+    /// #### Parameters
+    ///
+    /// - `dropId`: the drop, as the commit named it
+    native void dropDeliveryFinished(int dropId);
+
+    /// Adds one link a text/uri-list named, which becomes a drag item of its own.
+    ///
+    /// Resolved when the session begins for the reason the file list is: the item count is
+    /// fixed then, and a list of links is that many items. A public.url representation is
+    /// one URL, so the whole list registered as a single one reached every native receiver
+    /// as a malformed address.
+    ///
+    /// #### Parameters
+    ///
+    /// - `url`: one entry of the list, a URL or a local path
+    native void addNativeDragUrl(String url);
+
+    /// Drops whatever `#prepareNativeDrag(java.lang.String, int, byte[], int, int)` staged,
+    /// because the press turned out to be a tap.
+    native void cancelNativeDrag();
+
+    /// Attaches the drag interaction, because the application has a component that can be
+    /// dragged out.
+    ///
+    /// UIKit recognizes the drag gesture with a recognizer installed on the surface, and having
+    /// one there changes how every touch is delivered -- with it attached unconditionally a
+    /// plain tap stopped reaching the framework. So it is attached on demand, and an
+    /// application that never drags anything keeps exactly the touch handling it had.
+    /// Idempotent.
+    native void enableNativeDragSource();
+
+    /// Attaches the drop interaction, because the application has a component that accepts
+    /// drops. Withheld until then on the same principle as the drag interaction. Idempotent.
+    native void enableNativeDropTarget();
+    
+    native void setPinchToZoomEnabled(long peer, boolean e);
+    native void setNativeBrowserScrollingEnabled(long peer, boolean e);
+    
+    // Creates a UIWebView
+    native long createBrowserComponent(Object bc);
+    
+    // Creates a WKWebView
+    native long createWKBrowserComponent(Object browserComponent);
+    native void setBrowserPage(long browserPeer, String html, String baseUrl);
+
+    native void setBrowserURL(long browserPeer, String url);
+    native void setBrowserURL(long browserPeer, String url, String[] keys, String[] values);
+    
+    native void setBrowserUserAgent(long browserPeer, String ua);
+    native void setBrowserFollowTargetBlank(long browserPeer, boolean follow);
+    // style: 0 = unspecified/auto (follow device), 1 = light, 2 = dark
+    native void setBrowserInterfaceStyle(long browserPeer, int style);
+    
+    native void browserBack(long browserPeer);
+    native void browserStop(long browserPeer);
+
+    native void browserClearHistory(long browserPeer);
+
+    native void browserExecute(long browserPeer, String javaScript);
+    native void browserExecuteAndReturnStringCallback(long browserPeer, String javaScript, SuccessCallback<String> callback);
+    native String browserExecuteAndReturnString(long browserPeer, String javaScript);
+    
+    native void browserForward(long browserPeer);
+
+    native boolean browserHasBack(long browserPeer);
+
+    native boolean browserHasForward(long browserPeer);
+
+    native void browserReload(long browserPeer);
+
+    native String getBrowserTitle(long browserPeer);
+
+    native String getBrowserURL(long browserPeer);
+    
+    native long createVideoComponent(String url, int onCompletionCallbackId);
+    native long createVideoComponent(byte[] video, int onCompletionCallbackId);
+    native long createVideoComponentNSData(long video, int onCompletionCallbackId);
+    native long createNativeVideoComponent(String url, int onCompletionCallbackId);
+    native long createNativeVideoComponent(byte[] video, int onCompletionCallbackId);
+    native long createNativeVideoComponentNSData(long video, int onCompletionCallbackId);
+
+    native void startVideoComponent(long peer); 
+    
+    native void stopVideoComponent(long peer);
+    native void pauseVideoComponent(long peer);
+    native void prepareVideoComponent(long moviePlayerPeer);
+
+    native int getMediaTimeMS(long peer);
+    
+    native int setMediaTimeMS(long peer, int now);
+
+    native int getMediaDuration(long peer);
+    
+    native void setMediaBgArtist(String artist);
+    native void setMediaBgTitle(String title);
+    native void setMediaBgDuration(long duration);
+    native void setMediaBgPosition(long position);
+    native void setMediaBgAlbumCover(long cover);
+    native void setNativeVideoControlsEmbedded(long peer, boolean value);
+    
+    native boolean isVideoPlaying(long peer);
+
+    native void setVideoFullScreen(long peer, boolean fullscreen);
+
+    native boolean isVideoFullScreen(long peer);
+
+    native long getVideoViewPeer(long peer);
+    
+    native void showNativePlayerController(long peer);
+    
+    // IO methods
+
+    native int writeToFile(byte[] data, String path);
+    native int appendToFile(byte[] data, String path);
+    native int getFileSize(String path);
+    native long getFileLastModified(String path);
+    native void readFile(String path, byte[] bytes);
+
+    native String getDocumentsDir();
+    native String getCachesDir();
+    native String getResourcesDir();
+    native void deleteFile(String file);
+    native boolean fileExists(String file);
+    native boolean isDirectory(String file);
+
+    native boolean isDarkMode();
+    native boolean isDarkModeDetectionSupported();
+    native boolean isVPNActive();
+
+    // Active-network type queries used by NetworkManager.getCurrentNetworkType
+    // and addNetworkTypeListener. Returns one of
+    // NetworkManager.NETWORK_TYPE_* constants. Implementation uses
+    // SCNetworkReachability (always available) and an interface-name probe to
+    // distinguish WiFi from cellular.
+    native int wifiNetworkType();
+    native void wifiInstallTypeListener(Object instance);
+    native void wifiUninstallTypeListener();
+
+    // WiFi info; SSID/BSSID require the wifi-info entitlement and (since iOS
+    // 13) a granted CoreLocation authorization. The build pipeline injects
+    // both automatically when WiFi.getCurrentSSID/getBSSID is on the
+    // classpath. Returns null when permission denied or not on WiFi.
+    native String wifiCurrentSSID();
+    native String wifiCurrentBSSID();
+    native String wifiGateway();
+    native String wifiIpAddress();
+
+    // NEHotspotConfiguration-backed join. Requires the
+    // com.apple.developer.networking.HotspotConfiguration entitlement
+    // (injected by IPhoneBuilder when com.codename1.io.wifi.WiFi.connect is
+    // referenced). The result is delivered via
+    // com.codename1.impl.ios.IOSConnectivity.wifiConnectResult.
+    native void wifiConnect(String ssid, String password, int security);
+    native void wifiDisconnect(String ssid);
+
+    // NSNetServiceBrowser-backed Bonjour discovery. Callbacks land in
+    // com.codename1.impl.ios.IOSConnectivity.bonjour* static dispatchers.
+    native long bonjourBrowseStart(String type);
+    native void bonjourBrowseStop(long handle);
+    native long bonjourPublishStart(String name, String type, int port, String[] txtKeys, String[] txtVals);
+    native void bonjourPublishStop(long handle);
+
+    native int fileCountInDir(String dir);
+    native void listFilesInDir(String dir, String[] files);
+    native void createDirectory(String dir);
+    native void moveFile(String src, String dest);
+    
+    native long openConnection(String url, int timeout);
+    native void connect(long peer);
+    native String getSSLCertificates(long peer);
+    native void setMethod(long peer, String mtd);
+    native void setChunkedStreamingMode(long peer, int len);
+    native int getResponseCode(long peer);
+
+    native String getResponseMessage(long peer);
+
+    native int getContentLength(long peer);
+
+    native String getResponseHeader(long peer, String name);
+    native int getResponseHeaderCount(long peer);
+    native String getResponseHeaderName(long peer, int offset);
+
+    native void addHeader(long peer, String key, String value);
+
+    native void setBody(long peer, byte[] arr);  
+    
+    native void setBody(long peer, String file);
+    
+    native void closeConnection(long peer);
+    
+    native String getUDID();
+    native String getOSVersion();
+    native String getDeviceName();
+    native boolean isSimulator();
+    // The hardware/marketing model identifier (e.g. "iPhone15,2"). Unlike
+    // getDeviceName() -- which returns the user-assigned device name and is
+    // therefore personally identifying -- this is safe to use for analytics
+    // device segmentation.
+    native String getDeviceHardwareModel();
+
+    // Diagnostics for the status-bar tap-to-scroll-to-top path. Surfaced to
+    // user code via Display.getProperty("cn1.iosStatusBarTap.*") in
+    // IOSImplementation. Lets developers detect on-device whether iOS is
+    // delivering the scroll-to-top message at all when the gesture does
+    // nothing visibly.
+    native int getStatusBarTapCount();
+    native long getStatusBarTapLastEpochMillis();
+    native int getStatusBarTapLastX();
+    native int getStatusBarTapLastY();
+    native boolean isStatusBarTapProxyInstalled();
+    
+    // location manager
+    native boolean isGPSEnabled();
+    native long createCLLocation();
+    native boolean isGoodLocation(long clLocation);
+    native long getCurrentLocationObject(long clLocation);
+    native double getLocationLatitude(long location);
+    native double getLocationAltitude(long location);
+    native double getLocationLongtitude(long location);
+    native double getLocationAccuracy(long location);
+    native double getLocationDirection(long location);
+    native double getLocationVelocity(long location);
+    native long getLocationTimeStamp(long location);
+
+    native void startUpdatingLocation(long clLocation, int priority);
+    native void stopUpdatingLocation(long clLocation);
+    native void startUpdatingBackgroundLocation(long clLocation);
+    native void stopUpdatingBackgroundLocation(long clLocation);
+    
+    /// Whether this platform actually monitors a region.
+    ///
+    /// addGeofencing below is an empty body on macOS, watchOS and tvOS, and a
+    /// caller that cannot tell persists a listener and waits for a callback that
+    /// nothing will ever send.
+    native boolean isGeofencingSupported();
+
+    native void addGeofencing(long clLocation, double lat, double lng, double radius, long expiration, String id);
+    native void removeGeofencing(long clLocation, String id);
+    
+    // capture
+    native void captureCamera(boolean movie, int quality, int duration);
+    native void openGallery(int type);
+    native void openFileChooser(String accept);
+
+    // Low-level camera API (com.codename1.camera). Backed by CN1Camera.m
+    // which wraps AVCaptureSession. The IOSCameraImpl class on the Java side
+    // routes static callbacks delivered from the capture queue.
+    // Asks the system for camera (and optionally microphone) access and reports the answer to
+    // IOSImplementation.cn1CameraAccessResult with this id. Asking is the only way to know: the
+    // status may be undetermined, in which case the answer does not exist until the user has been
+    // shown the prompt.
+    native void cn1CameraRequestAccess(boolean audio, int callbackId);
+
+    native String cn1CameraEnumerate();
+    native long cn1CameraOpen(String cameraId, int previewW, int previewH, boolean captureAudio);
+    native long cn1CameraCreatePreviewView(long sessionPeer);
+    native void cn1CameraTakePhoto(long sessionPeer, int width, int height, int jpegQuality, String filePath, int callbackId);
+    native boolean cn1CameraStartVideo(long sessionPeer, String filePath, boolean captureAudio);
+    native void cn1CameraStopVideo(long sessionPeer, int callbackId);
+    native void cn1CameraSetFrameDelivery(long sessionPeer, boolean enabled, int maxFps);
+    native void cn1CameraSetFlash(long sessionPeer, int mode);
+    native void cn1CameraSetZoom(long sessionPeer, float ratio);
+    native void cn1CameraFocus(long sessionPeer, float xNorm, float yNorm);
+    native void cn1CameraPause(long sessionPeer);
+    native void cn1CameraResume(long sessionPeer);
+    native void cn1CameraClose(long sessionPeer);
+
+    // On-device image analysis backed by Apple Vision/Core Image.
+    native boolean cn1VisionIsSupported(int feature, boolean mlKit);
+    native String cn1VisionAnalyze(byte[] imageData, int feature, boolean mlKit,
+                                   int rotationDegrees, int width, int height,
+                                   int frameFormat, String textScript);
+    native boolean cn1LanguageIsSupported(int feature, boolean mlKit);
+    native String cn1LanguageIdentify(String text, float minimumConfidence,
+                                      boolean mlKit);
+    native String cn1LanguageTranslate(String text, String sourceLanguage,
+                                       String targetLanguage);
+    native String cn1LanguageSmartReply(String conversationJson);
+    native boolean cn1InferenceIsSupported();
+    native String cn1InferenceOpen(byte[] model, int threads, int accelerator,
+                                   boolean allowFallback);
+    native String cn1InferenceOpenFile(String path, int threads, int accelerator,
+                                      boolean allowFallback);
+    native String cn1InferenceMetadata(int handle, boolean outputs);
+    native String cn1InferenceCopyInput(int handle, int index, byte[] data);
+    native String cn1InferenceInvoke(int handle);
+    native long cn1InferenceOutputData(int handle, int index);
+    native String cn1InferenceResize(int handle, int index, int[] shape);
+    native void cn1InferenceClose(int handle);
+
+    // Augmented reality API (com.codename1.ar). Backed by CN1AR.m which wraps
+    // an ARKit ARSession composited through an ARSCNView. The IOSARImpl class
+    // on the Java side routes static callbacks delivered from the session and
+    // renderer queues. Sessions are referenced by the retained CN1AR pointer
+    // cast to long; configType is 0 for world tracking, 1 for face tracking;
+    // planeMask is bit 0 horizontal, bit 1 vertical.
+    native boolean cn1ArIsSupported(int configType);
+    native long cn1ArCreate();
+    native void cn1ArAddReferenceImage(long sessionPeer, byte[] encodedImage, String name, float physicalWidthMeters);
+    native boolean cn1ArStart(long sessionPeer, int configType, int planeMask, boolean lightEstimation);
+    native long cn1ArCreateView(long sessionPeer);
+    native String cn1ArHitTest(long sessionPeer, float xNorm, float yNorm);
+    native String cn1ArCreateAnchor(long sessionPeer, float tx, float ty, float tz, float qx, float qy, float qz, float qw);
+    native String cn1ArCreateAnchorFromHit(long sessionPeer, int hitId);
+    native void cn1ArRemoveAnchor(long sessionPeer, String anchorId);
+    native void cn1ArClearAnchorContent(long sessionPeer, String anchorId);
+    native void cn1ArAddAnchorMesh(long sessionPeer, String anchorId, float[] interleaved, int vertexCount, int[] indices, int indexCount, int argbColor, byte[] encodedTexture, float[] localTransform16);
+    native void cn1ArPause(long sessionPeer);
+    native void cn1ArResume(long sessionPeer);
+    native void cn1ArClose(long sessionPeer);
+
+    // ---------------------------------------------------------------------
+    // Portable 3D API (com.codename1.gpu) Metal backend. Backed by CN1GL3D.m.
+    // Buffers are created over SIMD aligned Java arrays so Metal can wrap them
+    // with newBufferWithBytesNoCopy (zero copy) where possible. Handles are the
+    // corresponding Objective-C / Metal object pointers cast to long.
+    // ---------------------------------------------------------------------
+
+    // Creates the native Metal 3D context hosting an MTKView; returns a context
+    // handle (CN1GL3D pointer cast to long) or 0 if Metal is unavailable.
+    native long gl3dCreateContext();
+    // Returns the UIView peer handle for the context's MTKView, hosted as a
+    // NativeIPhoneView peer.
+    native long gl3dGetViewPeer(long contextPeer);
+    native void gl3dDestroyContext(long contextPeer);
+    native void gl3dSetContinuous(long contextPeer, boolean continuous);
+    native void gl3dRequestRender(long contextPeer);
+
+    // Resource creation / update. floatCount / indexCount are element counts.
+    native long gl3dCreateFloatBuffer(float[] data, int floatCount);
+    native void gl3dUpdateFloatBuffer(long bufferPeer, float[] data, int floatCount);
+    native long gl3dCreateShortBuffer(short[] data, int indexCount);
+    native void gl3dUpdateShortBuffer(long bufferPeer, short[] data, int indexCount);
+    native long gl3dCreateTexture(int[] argb, int width, int height);
+    native void gl3dDisposeBuffer(long bufferPeer);
+    native void gl3dDisposeTexture(long texturePeer);
+    native void gl3dDisposePipeline(long pipelinePeer);
+
+    // Compiles the supplied MSL source (once) and builds a MTLRenderPipelineState
+    // for the given blend/cull/depth state. Returns the pipeline handle or 0.
+    native long gl3dGetOrCreatePipeline(long contextPeer, String key, String mslSource,
+            int blendMode, int cullMode, int depthTest, int depthWrite);
+
+    native void gl3dClear(long contextPeer, int argbColor, boolean clearColor, boolean clearDepth);
+    native void gl3dSetViewport(long contextPeer, int x, int y, int width, int height);
+
+    native void gl3dDrawIndexed(long contextPeer, long pipelinePeer, long vboPeer, int strideBytes,
+            long iboPeer, int indexCount, int primitive, float[] uniforms, int uniformFloats,
+            long texturePeer, int texFilter, int texWrap);
+    native void gl3dDrawArrays(long contextPeer, long pipelinePeer, long vboPeer, int strideBytes,
+            int vertexCount, int primitive, float[] uniforms, int uniformFloats,
+            long texturePeer, int texFilter, int texWrap);
+
+    native void destroyAudioUnit(long peer);
+
+    native long createAudioUnit(String path, int audioChannels, float sampleRate, float[] f);
+
+    
+    native void startAudioUnit(long audioUnit);
+    native void stopAudioUnit(long audioUnit);
+    
+    native long createAudioRecorder(final String path, final String mimeType, final int sampleRate, final int bitRate, final int audioChannels, final int maxDuration);
+    native void startAudioRecord(long peer);
+    native void pauseAudioRecord(long peer);
+    native void cleanupAudioRecord(long peer);
+
+    native void sendEmailMessage(String[] recipients, String subject, String content, String[] attachment, String[] attachmentMimeType, boolean htmlMail);
+
+    native boolean isContactsPermissionGranted();
+    native int getContactCount(boolean withNumbers);
+    native void getContactRefIds(int[] refs, boolean withNumbers);
+    native void updatePersonWithRecordID(int id, Contact cnt, boolean includesFullName, boolean includesPicture, boolean includesNumbers, boolean includesEmail, boolean includeAddress);
+    native long getPersonWithRecordID(int id);
+    native String getPersonFirstName(long id);
+    native String getPersonSurnameName(long id);
+    native int getPersonPhoneCount(long id);
+    native String getPersonPhone(long id, int offset);
+    native String getPersonPhoneType(long id, int offset);
+    native String getPersonPrimaryPhone(long id);
+    native String getPersonEmail(long id);
+    native String getPersonAddress(long id);
+    native long createPersonPhotoImage(long id);
+    native String createContact(String firstName, String surname, String officePhone, String homePhone, String cellPhone, String email);
+    native boolean deleteContact(int id);
+
+    /**
+     * Whether {@code CNContactPickerViewController} was compiled into this
+     * build and can run on this device.
+     *
+     * <p>False when the application never referenced
+     * {@code com.codename1.contacts.ContactPicker}, because the builder only
+     * turns on {@code CN1_USE_CONTACT_PICKER} and links ContactsUI when it
+     * did.</p>
+     */
+    native boolean isContactPickerSupported();
+
+    /**
+     * Presents the system contact picker.
+     *
+     * <p>Unlike every other native on this class the picker needs no
+     * {@code NSContactsUsageDescription}: it runs out of process and hands
+     * back only the contacts the user tapped.</p>
+     *
+     * @param requestedFields bit set of
+     *                        {@code com.codename1.contacts.ContactPicker}
+     *                        constants
+     * @param multiSelect     true to let the user pick more than one
+     * @param selectionLimit  the largest selection to report back
+     */
+    native void openContactPicker(int requestedFields, boolean multiSelect, int selectionLimit);
+
+    /**
+     * Copies one picked contact into a Java {@code Contact}.
+     *
+     * <p>Valid only between the {@code contactPickerResult} callback and
+     * {@link #releasePickedContacts()}, which is when the native side is
+     * still holding the array the picker returned.</p>
+     *
+     * @param index           position in the picked array
+     * @param cnt             the contact to populate, whose hashtables must
+     *                        already exist
+     * @param requestedFields bit set of
+     *                        {@code com.codename1.contacts.ContactPicker}
+     *                        constants
+     */
+    native void updatePickedContact(int index, Contact cnt, int requestedFields);
+
+    /** Drops the picked contacts the native side was holding. */
+    native void releasePickedContacts();
+    
+    native void dial(String phone);
+    native void requestAppStoreReview();
+    native void sendSMS(String phone, String text);
+
+    native void registerPush();
+
+    native void deregisterPush();
+    native void setBadgeNumber(int number);
+
+    native long createImageFile(long imagePeer, boolean jpeg, int width, int height, float quality);
+    native int getNSDataSize(long nsData);
+    native void nsDataToByteArray(long nsData, byte[] data);
+
+    // ---- VideoIO (com.codename1.media.VideoIO) ----
+    native boolean videoSupportsHEVC();
+    native long videoReaderOpen(String path);
+    native int videoReaderWidth(long peer);
+    native int videoReaderHeight(long peer);
+    native long videoReaderDuration(long peer);
+    native float videoReaderFrameRate(long peer);
+    native boolean videoReaderHasVideo(long peer);
+    native boolean videoReaderHasAudio(long peer);
+    native int videoReaderAudioSampleRate(long peer);
+    native int videoReaderAudioChannels(long peer);
+    /** Returns an NSData* (as a peer) holding width*height*4 RGBA bytes for the frame at ms, or 0. */
+    native long videoReaderFrameAt(long peer, long ms);
+    /** Returns an NSData* (as a peer) holding interleaved signed 16-bit PCM for the whole audio track, or 0. */
+    native long videoReaderReadAudio(long peer);
+    native void videoReaderClose(long peer);
+    native long videoWriterOpen(String path, int width, int height, float fps, boolean hevc, int bitRate, int gop, boolean hasAudio, int sampleRate, int channels, int audioBitRate);
+    native void videoWriterAddFrame(long peer, byte[] rgba, int width, int height, long ptsMs);
+    native void videoWriterAddAudio(long peer, byte[] pcm16le, int sampleRate, int channels, long ptsMs);
+    native boolean videoWriterClose(long peer);
+
+    native long createNSData(String file);
+    native long createNSDataResource(String name, String type);
+    native int read(long nsData, int pointer);
+    native void read(long nsData, byte[] destination, int offset, int length, int pointer);
+    
+    native boolean sqlDbExists(String name);
+    native long sqlDbCreateAndOpen(String name);
+    /**
+     * Applies an encryption key to an open connection, returning false when the key does not
+     * decrypt the database. Reporting rather than throwing keeps the distinction between a wrong
+     * key and a failure to open the file, without the native layer having to name a core class.
+     */
+    native boolean sqlDbApplyKey(long db, String key);
+
+    /// Applies the key and probes it, reporting the SQLite result rather than a bare pass or fail.
+    ///
+    /// 0 is SQLITE_OK and means the key worked. 26 is SQLITE_NOTADB, which is what a key that did
+    /// not decrypt the file looks like: the plaintext it produces has no valid header. Anything
+    /// else is a corrupt image or a read error, which no key repairs, so the caller must not
+    /// report those as a wrong key.
+    native int sqlDbApplyKeyStatus(long db, String key);
+    native void sqlDbDelete(String name);
+    native void sqlDbClose(long db);
+    /** Re-keys an open database, or removes the key when passed null. */
+    native void sqlDbRekey(long db, String key);
+    /** True when the linked SQLite build understands the cipher pragmas. */
+    native boolean sqlDbIsCipherAvailable();
+    /** Resolves a database name to its absolute path, honouring a file:// prefix. */
+    native String sqlDbPath(String name);
+
+    native void sqlDbExec(long dbPeer, String sql, String[] args);
+    /** Whether the engine reports a transaction in progress, which is sqlite3_get_autocommit. */
+    native boolean sqlDbInTransaction(long dbPeer);
+
+    /** Runs an entire script through sqlite3_exec, which handles multiple statements. */
+    native void sqlDbExecScript(long dbPeer, String sql);
+
+    native long sqlDbExecQuery(long dbPeer, String sql, String[] args);
+
+    /** Compiles a statement, returning the sqlite3_stmt peer. */
+    native long sqlStmtPrepare(long dbPeer, String sql);
+    native int sqlStmtParameterCount(long statementPeer);
+    native void sqlStmtBindNull(long statementPeer, int index);
+    /** Binds SQL text as UTF-8 bytes; see com.codename1.impl.SQLText for why not a String. */
+    native void sqlStmtBindText(long statementPeer, int index, byte[] utf8);
+    native void sqlStmtBindBlob(long statementPeer, int index, byte[] value);
+    native void sqlStmtBindLong(long statementPeer, int index, long value);
+    native void sqlStmtBindDouble(long statementPeer, int index, double value);
+    /** Steps a statement, returning true when it landed on a row. */
+    /// Declares what it does: a step that fails raises the SQLite error from the native side,
+    /// so callers can catch it rather than reaching for a finally that runs while the exception
+    /// is already unwinding.
+    native boolean sqlStmtStep(long statementPeer) throws java.io.IOException;
+    /** Resets a statement back to before its first row, keeping its bindings. */
+    native void sqlStmtReset(long statementPeer);
+    native void sqlStmtFinalize(long statementPeer);
+    /** Steps a statement to completion and finalizes it, for non-query use. */
+    native void sqlStmtExecuteAndFinalize(long statementPeer);
+
+    native boolean sqlCursorFirst(long statementPeer);
+    native boolean sqlCursorNext(long statementPeer);
+    native byte[] sqlGetColName(long statementPeer, int index);
+    native void sqlCursorCloseStatement(long statement);
+
+    native byte[] sqlCursorValueAtColumnBlob(long statement, int col);
+    native double sqlCursorValueAtColumnDouble(long statement, int col);
+    native float sqlCursorValueAtColumnFloat(long statement, int col);
+    native int sqlCursorValueAtColumnInteger(long statement, int col);
+    native long sqlCursorValueAtColumnLong(long statement, int col);
+    native short sqlCursorValueAtColumnShort(long statement, int col);
+    native byte[] sqlCursorValueAtColumnText(long statement, int col);
+    native boolean sqlCursorNullValueAtColumn(long statement, int col); //Warning. This function only works if no automatic type conversions have occurred for the value in question. So it must be called before any of the sqlCursorValueAtColumn* methods. After a type conversion, the result of calling this method is undefined, though harmless
+    
+    native int sqlCursorGetColumnCount(long statementPeer);
+    
+    native void fetchProducts(String[] skus, Product[] products);
+    native void purchase(String sku);
+    native boolean canMakePayments();
+    native void restorePurchases();
+    native void zoozPurchase(double amount, String currency, String appKey, boolean sandbox, String invoiceNumber);
+
+    native void setLocale(String localeStr);
+    native String formatInt(int i);
+    native String formatDouble(double d);
+    native String formatCurrency(double d);
+    native String formatDate(long date);
+    native String formatDateShort(long date);
+    native String formatDateTime(long date);
+    native double parseDouble(String localeFormattedDecimal);
+    native String formatDateTimeMedium(long date);
+    native String formatDateTimeShort(long date);
+    native String getLongMonthName(long time);
+    native String getShortMonthName(long time);
+    native String getCurrencySymbol();
+    
+    native void scanQRCode();
+    native void scanBarCode();
+
+    native long createTruetypeFont(String name);
+
+    /// Registers ONE bundled font file, by its bundle-relative name.
+    ///
+    /// createTrueTypeFont is given both the font's name and the file it lives
+    /// in, and the file is the cheap way to make the name resolvable. Without
+    /// it the only option is registering every bundled font to satisfy one
+    /// lookup -- 33 files and 5.7MB in an application shipping a font family,
+    /// measured at 25ms on the start-up path.
+    native void registerBundledFont(String fileName);
+    native long deriveTruetypeFont(long uiFont, boolean bold, boolean italic, float size);
+
+    native void log(String text);
+
+    native void addCookie(String key, String value, String domain, String path, boolean secure, boolean httpOnly, long expires);
+    native void getCookiesForURL(String url, Vector out);
+
+    native String getUserAgentString(String callbackId);
+    
+    native void openDatePicker(int type, long time, int x, int y, int w, int h, int preferredWidth, int preferredHeight, int minuteStep);
+    native void openStringPicker(String[] stringArray, int selection, int x, int y, int w, int h, int preferredWidth, int preferredHeight);
+    
+    native void socialShare(String text, long imagePeer, Rectangle sourceRect);
+
+    // Same as socialShare but reports the outcome via
+    // IOSImplementation.socialShareCallback(int, String, String) using
+    // the supplied callbackId. Status: 1=SHARED_TO, 2=DISMISSED, 3=FAILED.
+    native void socialShareWithCallback(String text, long imagePeer, Rectangle sourceRect, int callbackId);
+
+    // Printing via UIPrintInteractionController
+    native boolean isPrintingAvailable();
+
+    // Prints the document at path and reports the outcome via
+    // IOSImplementation.printDocumentCallback(int, int, String) using
+    // the supplied callbackId. Status: 1=COMPLETED, 2=CANCELLED, 3=FAILED.
+    native void printDocument(String path, String mimeType, int callbackId);
+
+    // facebook connect
+    public native void facebookLogin(Object callback);
+    public native boolean isFacebookLoggedIn();
+    public native String getFacebookToken();
+    public native void facebookLogout();
+    public native boolean askPublishPermissions(LoginCallback lc);
+    public native boolean hasPublishPermissions();
+
+    // OidcClient / SystemBrowser -- ASWebAuthenticationSession (iOS 12+).
+    // See nativeSources/CN1OidcBrowser.m for the Obj-C side.
+    public native boolean oidcSystemBrowserSupported();
+    public native String oidcStartAuthorization(String authUrl, String redirectScheme);
+
+    // AppleSignIn -- ASAuthorizationAppleIDProvider (iOS 13+).
+    // See nativeSources/CN1AppleSignIn.m for the Obj-C side.
+    public native boolean appleSignInSupported();
+    public native String appleSignIn(String scopes, String nonce);
+    public native boolean appleSignInIsLoggedIn();
+    public native void appleSignInSignOut();
+
+    // Crash protection -- see nativeSources/CN1CrashProtection.m.
+    // crashProtectionInstall() is idempotent; hooks SIGSEGV/SIGABRT/
+    // SIGBUS/SIGILL/SIGFPE/SIGPIPE/SIGTRAP plus
+    // NSSetUncaughtExceptionHandler, writes a JSON record to the
+    // documents directory before the process dies.
+    // crashProtectionLogSnapshot() returns the recent stderr/NSLog
+    // ring buffer (~32 KB cap). crashProtectionConsumePending() reads
+    // and deletes the pending-crash JSON written on a prior launch.
+    public native void crashProtectionInstall();
+    public native String crashProtectionLogSnapshot();
+    public native String crashProtectionConsumePending();
+
+    // WebAuthn / passkeys --
+    // ASAuthorizationPlatformPublicKeyCredentialProvider (iOS 16+).
+    // See nativeSources/CN1WebAuthn.m for the Obj-C side.
+    public native boolean webauthnSupported();
+    public native String webauthnCreate(String optionsJson);
+    public native String webauthnGet(String optionsJson);
+
+
+    
+    public native boolean isAsyncEditMode();
+    public native void setAsyncEditMode(boolean b);
+    public native void foldVKB();
+    public native void hideTextEditing();
+    public native int getVKBHeight();
+    public native int getVKBWidth();
+
+    public native long connectSocket(String host, int port, int connectTimeout);
+    public native long listenSocketLoopback(int port);
+    public native boolean isDebuggableBuild();
+    public native void stopListeningSocket(int port);
+    public native String getHostOrIP();
+    public native void disconnectSocket(long socket);
+    public native boolean isSocketConnected(long socket);
+    public native String getSocketErrorMessage(long socket);
+    public native int getSocketErrorCode(long socket);
+    public native int getSocketAvailableInput(long socket);
+    public native byte[] readFromSocketStream(long socket);
+    public native void writeToSocketStream(long socket, byte[] data);
+    public native void writeToSocketStream(long socket, byte[] data, int offset, int len);
+
+    public native long createWebSocketNative(int connectionId, String url);
+    public native void connectWebSocketNative(long handle, int connectTimeoutMs, String subprotocolsCsv);
+    public native void closeWebSocketNative(long handle);
+    public native void sendWebSocketTextNative(long handle, String text);
+    public native void sendWebSocketBinaryNative(long handle, byte[] data);
+    public native void releaseWebSocketNative(long handle);
+
+    
+    // Paths
+    native long nativePathStrokerCreate(long consumerOutPtr, float lineWidth, int capStyle, int joinStyle, float miterLimit);
+    native void nativePathStrokerCleanup(long ptr);
+    native void nativePathStrokerReset(long ptr, float lineWidth, int capStyle, int joinStyle, float miterLimit);
+    native long nativePathStrokerGetConsumer(long ptr);
+    
+    native long nativePathRendererCreate(int pix_boundsX, int pix_boundsY,
+                           int pix_boundsWidth, int pix_boundsHeight,
+                           int windingRule);
+    native void nativePathRendererSetup(int subpixelLgPositionsX, int subpixelLgPositionsY);
+    native void nativePathRendererCleanup(long ptr);
+    native void nativePathRendererReset(long ptr, int pix_boundsX, int pix_boundsY,
+                           int pix_boundsWidth, int pix_boundsHeight,
+                           int windingRule);
+    native void nativePathRendererGetOutputBounds(long ptr, int[] bounds);
+    native long nativePathRendererGetConsumer(long ptr);
+    native long nativePathRendererCreateTexture(long ptr);
+    native int[] nativePathRendererToARGB(long ptr, int color);
+    native void nativeDeleteTexture(long textureID);
+    
+    native void nativePathConsumerMoveTo(long ptr, float x, float y);
+    native void nativePathConsumerLineTo(long ptr, float x, float y);
+    native void nativePathConsumerQuadTo(long ptr, float xc, float yc, float x1, float y1);
+    native void nativePathConsumerCurveTo(long ptr, float xc1, float yc1, float xc2, float yc2, float x1, float y1);
+    native void nativePathConsumerClose(long ptr);
+    native void nativePathConsumerDone(long ptr);
+   
+    
+    native void nativeDrawPath(int color, int alpha, long ptr);
+    native void nativeSetTransform( 
+            float a0, float a1, float a2, float a3, 
+            float b0, float b1, float b2, float b3,
+            float c0, float c1, float c2, float c3,
+            float d0, float d1, float d2, float d3,
+            int originX, int originY
+    );
+    native void nativeSetTransformMutable( 
+            float a0, float a1, float a2, float a3, 
+            float b0, float b1, float b2, float b3,
+            float c0, float c1, float c2, float c3,
+            float d0, float d1, float d2, float d3,
+            int originX, int originY
+    );
+    
+    
+    native boolean nativeIsTransformSupportedGlobal();
+    native boolean nativeIsShapeSupportedGlobal();
+    native boolean nativeIsPerspectiveTransformSupportedGlobal();
+    native boolean nativeIsAlphaMaskSupportedGlobal();
+    
+    
+    native void drawTextureAlphaMask(long textureId, int color, int alpha, int x, int y, int w, int h);
+    
+    native void nativeFillShapeMutable(int color, int alpha, int commandsLen, byte[] commandsArr, int pointsLen, float[] pointsArr); 
+    native void nativeDrawShadowMutable(long image, int x, int y, int offsetX, int offsetY, int blurRadius, int spreadRadius, int color, float opacity);
+    native void nativeDrawShapeMutable(int color, int alpha, int commandsLen, byte[] commandsArr, int pointsLen, float[] pointsArr, float lineWidth, int capStyle, int joinStyle, float miterLimit);
+    
+    // End paths
+
+    native void setNativeClippingMaskGlobal(long textureName, int x, int y, int width, int height);
+
+    
+
+    public native void printStackTraceToStream(Throwable t, Writer o);
+    //public native String stackTraceToString(Throwable t);
+
+    native void fillConvexPolygonGlobal(float[] points, int color, int alpha);
+
+    native void drawConvexPolygonGlobal(float[] points, int color, int alpha, float lineWidth, int joinStyle, int capStyle, float miterLimit);
+
+    native void setNativeClippingPolygonGlobal(float[] points);
+
+    
+    native void clearNativeCookies();
+
+    native void splitString(String source, char separator, ArrayList<String> out) ;
+
+    native void readFile(long nsFileHandle, byte[] b, int off, int len);
+
+    native int getNSFileOffset(long nsFileHandle);
+
+    native int getNSFileAvailable(long nsFileHandle);
+
+    native int getNSFileSize(long nsFileHandle);
+
+    native long createNSFileHandle(String name, String type);
+
+    native long createNSFileHandle(String file);
+
+    native void setNSFileOffset(long nsFileHandle, int off);
+
+    /**
+     * Reads a single byte from filehandle.
+     * @param nsFileHandle
+     * @return 
+     */
+    native int readNSFile(long nsFileHandle);
+
+    public native boolean isGoogleLoggedIn();
+
+    public native void googleLogin(Object callback);
+
+    public native String getGoogleToken();
+
+    public native void googleLogout();
+
+    public native void inviteFriends(String appLinkUrl, String previewImageUrl);
+    
+    native void sendLocalNotification(String id, String alertTitle, String alertBody, String alertSound, int badgeNumber, long fireDate, int repeatType, boolean foreground);
+
+    /// Enriched local notification scheduling carrying actions, grouping, time-sensitive
+    /// flag and an image attachment. actionsEncoded packs the actions as
+    /// id, title, placeholder and button joined by 0x01, records separated by 0x02.
+    native void sendLocalNotification2(String id, String alertTitle, String alertBody, String alertSound, int badgeNumber, long fireDate, int repeatType, boolean foreground, String categoryId, String threadId, boolean timeSensitive, String imageAttachmentPath, String actionsEncoded);
+
+    native void cancelLocalNotification(String id);
+
+    /// Requests notification authorization with the given UNAuthorizationOptions mask. The
+    /// result is delivered asynchronously to IOSImplementation.notificationPermissionResult.
+    native void requestNotificationPermission(int optionsMask);
+
+    /// Registers a BGTaskScheduler processing task identifier. Must be called before
+    /// application:didFinishLaunchingWithOptions: returns.
+    native void registerBackgroundProcessingTask(String identifier);
+
+    /// Submits a BGProcessingTaskRequest for the given identifier.
+    native void submitBackgroundProcessingTask(String identifier, double earliestBeginEpochSeconds, boolean requiresNetwork, boolean requiresPower);
+
+    /// Cancels a pending BGTaskScheduler request by identifier.
+    native void cancelBackgroundTask(String identifier);
+
+    /// True if BGTaskScheduler (iOS 13+) is available.
+    native boolean isBackgroundProcessingSupported();
+
+    /// Reads and clears any shared content payload written by the share extension into the
+    /// shared App Group user defaults. Returns a JSON string or null if there is none.
+    native String getPendingSharedContent(String appGroupId);
+
+    // --- Wallet issuer-provisioning extension (PassKit) ---------------------
+    // The App Group id is read natively from the CN1WalletAppGroup Info.plist
+    // key injected by the build when ios.wallet.extension is enabled.
+
+    /// True on iOS 14+ when the CN1WalletAppGroup Info.plist key is present.
+    native boolean isWalletExtensionSupported();
+
+    /// Removes all published pass entries from the iPhone (remote=false) or
+    /// Apple Watch (remote=true) list, including their card-art files.
+    native void walletExtensionClearPassEntries(boolean remote);
+
+    /// Appends one pass entry to the shared App Group suite and writes its
+    /// card art PNG into the group container.
+    native void walletExtensionAddPassEntry(boolean remote, String identifier, String title,
+            String cardholderName, String accountSuffix, String network, String description, byte[] artPng);
+
+    /// Sets the requires-authentication flag read by the extension's status callback.
+    native void walletExtensionSetRequiresAuthentication(boolean requiresAuthentication);
+
+    /// Stores the auth token forwarded to the issuer endpoint; null removes it.
+    native void walletExtensionSetAuthToken(String token);
+
+    /// Clears all wallet extension data from the App Group.
+    native void walletExtensionClear();
+
+    // --- Biometrics (LocalAuthentication.framework) -------------------------
+
+    /** True when LAContext.canEvaluatePolicy(deviceOwnerAuthenticationWithBiometrics) succeeds. */
+    native boolean isBiometricsSupported();
+
+    /// True when the Metal view renders straight into the CAMetalLayer drawable
+    /// instead of into a retained screen texture. The renderer decides this, not
+    /// Java, but the paint model has to follow it: a direct-mode frame presents a
+    /// different buffer every time, so anything left unpainted shows a frame from
+    /// two or three presents ago. See IOSImplementation.paintDirty.
+    native boolean isDirectToDrawable();
+
+    /// True while VoiceOver, Switch Control or Voice Control is actually running.
+    /// UIKit pulls the semantic tree on demand, so nothing needs projecting eagerly
+    /// unless one of these is listening.
+    native boolean isAssistiveTechnologyActive();
+
+    /** Same as {@link #isBiometricsSupported()} but also requires at least one biometric to be enrolled. */
+    native boolean canAuthenticateBiometric();
+
+    /** Bitmask: bit 0 = FINGERPRINT (Touch ID), bit 1 = FACE (Face ID). */
+    native int getAvailableBiometricTypes();
+
+    /**
+     * Triggers an asynchronous biometric prompt. Native code calls back into
+     * {@code IOSBiometrics.nativeAuthSuccess(int)} or
+     * {@code IOSBiometrics.nativeAuthError(int, int, String)} with the same
+     * requestId.
+     */
+    native void authenticateBiometric(int requestId, String reason);
+
+    /** Invalidates the LAContext so the in-flight prompt resolves with LAErrorAppCancel. */
+    native void stopBiometricAuthentication();
+
+    // --- App Attest (DeviceCheck.framework) ---------------------------------
+
+    /** True when {@code DCAppAttestService.sharedService.isSupported} on this device. */
+    native boolean isAppAttestSupported();
+
+    /**
+     * Generates a fresh App Attest hardware key. Calls back into
+     * {@code IOSDeviceIntegrity.nativeKeyGenerated(int, String)} with the key
+     * identifier, or {@code nativeAttestError(int, int, String)} on failure.
+     *
+     * <p>Apple rate-limits key generation, so this must happen once per install
+     * and the identifier must be persisted -- not once per request.</p>
+     */
+    native void appAttestGenerateKey(int requestId);
+
+    /**
+     * Attests a previously generated key against a server challenge. Calls back
+     * into {@code IOSDeviceIntegrity.nativeAttestationReady(int, String)} with a
+     * base64 attestation object for the backend to verify with Apple.
+     *
+     * @param clientDataHashB64 base64 of the SHA-256 the attestation binds to,
+     *        computed on the Java side so the attest and assert paths cannot
+     *        disagree about what was hashed
+     */
+    native void appAttestAttestKey(int requestId, String keyId, String clientDataHashB64);
+
+    /**
+     * Produces an assertion over a previously attested key -- the cheap,
+     * unlimited operation that every request after the first should use. Calls
+     * back into {@code IOSDeviceIntegrity.nativeAssertionReady(int, String)}.
+     */
+    native void appAttestGenerateAssertion(int requestId, String keyId, String clientDataHashB64);
+
+    /**
+     * Comma separated jailbreak/hooking signal codes observed on this device, or
+     * an empty string when clean. Unlike the {@code ios.detectJailbreak} launch
+     * gate this never terminates the app.
+     */
+    native String iosJailbreakSignals();
+
+    // --- CarPlay (CarPlay.framework) ----------------------------------------
+    // All gated natively by CN1_USE_CARPLAY (the build flips it on when the app references
+    // com.codename1.car). When the define is off these compile to harmless stubs so the symbols
+    // always resolve. The Java side (IOSCarBridge) describes each CarTemplate as a compact JSON
+    // string; native (CodenameOne_CarPlaySceneDelegate) parses it and builds the CPTemplate tree.
+
+    /** True while a CarPlay head unit is connected and the interface controller is live. */
+    native boolean isCarPlayConnected();
+
+    /**
+     * Renders the supplied template description on the CarPlay interface controller. When
+     * {@code isRoot} is true it becomes the root template, otherwise it is pushed onto the stack.
+     * {@code screenId} ties native selection callbacks back to the originating CarScreen.
+     */
+    native void carPlaySetTemplate(int screenId, String json, boolean isRoot);
+
+    /** Pops the top CarPlay template (returns to the previous screen). */
+    native void carPlayPopTemplate();
+
+    /** Rebuilds the template for an already-pushed screen in place (CarScreen.invalidate()). */
+    native void carPlayUpdateTemplate(int screenId, String json);
+
+    /** Registers a PNG image referenced by {@code key} in a subsequent template JSON. */
+    native void carPlayRegisterImage(String key, byte[] png);
+
+    /** Shows a transient CarPlay alert/banner with the supplied message for {@code seconds}. */
+    native void carPlayShowToast(String message, int seconds);
+
+    // --- External surfaces (WidgetKit + ActivityKit) -------------------------
+    // All gated natively by CN1_USE_WIDGETS (the build flips it on when the app references
+    // com.codename1.surfaces). When the define is off these compile to harmless stubs so the
+    // symbols always resolve. WidgetKit/ActivityKit are Swift-only frameworks; the real
+    // implementations trampoline into the Swift CN1SurfaceBridge class (compiled into the app
+    // target by the builder) via NSClassFromString. The Java side (IOSSurfaceBridge) persists
+    // the serialized payloads into the App Group container before calling these.
+
+    /**
+     * Returns the filesystem path of the App Group container shared with the CN1Widgets
+     * extension (group id from the CN1SurfacesAppGroup Info.plist key), or an empty string
+     * when no usable app group exists.
+     */
+    native String getSurfacesContainerPath();
+
+    /**
+     * Asks WidgetCenter to re-render the widgets of {@code kind} from their persisted
+     * timelines; an empty string reloads all kinds.
+     */
+    native void surfacesReloadTimelines(String kind);
+
+    /**
+     * Number of widget instances of {@code kind} the user placed on their home/lock screen.
+     * WidgetCenter answers asynchronously so this returns the last cached answer, 0 when
+     * still unknown.
+     */
+    native int surfacesInstalledCount(String kind);
+
+    /**
+     * Starts an ActivityKit live activity from the serialized descriptor (which embeds the
+     * initial state). Returns the platform activity id, or an empty string on failure.
+     */
+    native String surfacesStartActivity(String descriptorJson);
+
+    /** Pushes a fresh state map into a running live activity; the views re-interpolate locally. */
+    native void surfacesUpdateActivity(String activityId, String stateJson);
+
+    /**
+     * Ends a live activity, optionally showing {@code finalStateJson} before dismissal.
+     * {@code dismissImmediately} removes the surface right away instead of letting iOS
+     * linger on the final state.
+     */
+    native void surfacesEndActivity(String activityId, String finalStateJson, boolean dismissImmediately);
+
+    /**
+     * Mirrors a published timeline to the paired watch, when the kind declares a complication
+     * family and this build has a watch app to receive it.
+     *
+     * <p>An App Group container is device-local -- the watch resolves the same identifier to a
+     * directory of its own -- so a phone-side publish is invisible to a complication until it
+     * travels. This is that transport. It is budgeted and best-effort by nature: the native
+     * degrades through progressively weaker delivery and finally to nothing, logging once at
+     * each step, because a failed mirror must never break the publish that already succeeded
+     * locally.</p>
+     *
+     * <p>A no-op on a build with no watch app, on a kind with no watch family, and on the watch
+     * itself -- where the app's own publish is authoritative and mirroring back would loop.</p>
+     *
+     * @param kindId the widget kind
+     * @param timelineJson the serialized timeline
+     * @param imageNames names of the images the timeline references, may be empty
+     * @param imageBlobs the corresponding PNG bytes, parallel to imageNames
+     */
+    native void surfacesMirrorToWatch(String kindId, String timelineJson,
+            String[] imageNames, byte[][] imageBlobs);
+
+    /** True when this build/device can render WidgetKit widgets (iOS 14+, app group resolvable). */
+    native boolean surfacesWidgetsSupported();
+
+    /** True when ActivityKit live activities are available and enabled (iOS 16.1+). */
+    native boolean surfacesActivitiesSupported();
+
+    // --- Document provider (FileProvider) -----------------------------------
+    // All gated natively by CN1_USE_DOCUMENTS (the build flips it on when the app references
+    // com.codename1.documents). When the define is off these compile to harmless stubs so the
+    // symbols always resolve. The reader is the generated CN1Documents app extension, a
+    // separate process that cannot call Java, so nothing here hands it data: the Java side
+    // (IOSDocumentProviderBridge) writes the index and the endpoint settings into the App Group
+    // container, and these natives only tell the system that a provider exists and that what it
+    // published has changed.
+
+    /**
+     * Returns the filesystem path of the App Group container shared with the CN1Documents
+     * extension (group id from the CN1DocumentsAppGroup Info.plist key), or an empty string
+     * when no usable app group exists.
+     */
+    native String getDocumentsContainerPath();
+
+    /**
+     * Registers this app's provider domain with the system, so the location appears in the file
+     * browser. Idempotent: registering a domain that already exists is not an error and is how
+     * this is called on every publish rather than once.
+     */
+    native void documentsRegisterDomain();
+
+    /** Removes the provider domain, so the location disappears from the file browser. */
+    native void documentsRemoveDomain();
+
+    /**
+     * Tells the system that the published tree changed and its enumerators are stale. The
+     * browser re-enumerates on its own schedule; this is a hint, not a synchronous refresh.
+     */
+    native void documentsSignalChange();
+
+    /** True when this build linked the document provider natives and the app group resolves. */
+    native boolean documentProviderSupported();
+
+    /**
+     * Atomically replaces {@code target} with {@code source}, both absolute paths.
+     *
+     * <p>The published index is read by the extension, which is a different process: a delete
+     * followed by a rename leaves a window in which there is no index at all, and an enumeration
+     * landing there reports an empty tree. No lock in this process can close that window. POSIX
+     * rename replaces in one step -- the old file stays visible until the new one takes its
+     * name -- and a failure leaves the previous publication intact rather than destroyed.</p>
+     *
+     * @return true when the replacement happened
+     */
+    native boolean documentsReplaceFile(String source, String target);
+
+    /**
+     * Removes {@code path} and everything under it, without following symbolic links.
+     *
+     * <p>Walking the tree from Java and deleting file by file follows links: a link inside the
+     * published tree pointing at the app's own storage would have logout's {@code clear()} delete
+     * that storage's contents. {@code -[NSFileManager removeItemAtPath:error:]} removes a link
+     * rather than what it names, so the recursion cannot leave the tree.</p>
+     *
+     * @return true when nothing is left at that path
+     */
+    native boolean documentsRemoveTree(String path);
+
+    // --- App intents (Core Spotlight + App Intents) -------------------------
+    // Backs com.codename1.intents. Two frameworks with different floors sit behind these:
+    // Core Spotlight is Objective-C and available well below this port's minimum, while App
+    // Intents is Swift-only and needs a newer iOS, so the two capability queries are answered
+    // separately rather than from one flag. Payloads cross as JSON strings; the App Intents
+    // half trampolines through the generated Swift declarations via an Objective-C shim,
+    // because Swift cannot name a translated Java symbol.
+
+    /** True when this build linked the intent natives at all. */
+    native boolean intentsSupported();
+
+    /** True when App Intents is available, which is what Siri and headless execution need. */
+    native boolean intentsAppIntentsSupported();
+
+    /** True when Core Spotlight can accept indexed content on this device. */
+    native boolean intentsIndexingSupported();
+
+    /** Hands the native side the application's full intent catalogue at startup. */
+    native void intentsRegister(String declarationsJson);
+
+    /** Records that the user performed a capability, so the system can suggest it later. */
+    native void intentsDonate(String intentId, String title, String paramsJson);
+
+    /**
+     * Stages a PNG blob under {@code name} for the next indexing or completion call, which
+     * reference it by that name from inside their JSON. Keeping the bytes out of the JSON is
+     * what lets the payload stay a plain string across the boundary.
+     */
+    native void intentsStageImage(String name, byte[] data, int length);
+
+    /** Publishes serialized entities to the Core Spotlight index. */
+    native void intentsIndex(String entitiesJson);
+
+    /** Removes the serialized {@code type, id} references from the index. */
+    native void intentsRemoveFromIndex(String idsJson);
+
+    /** Removes every indexed entry of one type, or all of this app's entries when null. */
+    native void intentsClearIndex(String entityType);
+
+    /**
+     * Answers the invocation the native side is holding open under {@code token}. Called at
+     * most once per token: the Swift continuation waiting on the other side crashes the
+     * process if it is resumed twice.
+     */
+    native void intentsCompleteInvocation(String token, String resultJson);
+
+    // --- State restoration and continuity -----------------------------------
+    // Backs com.codename1.continuity. Two unrelated Apple mechanisms sit behind these and are
+    // answered separately: NSUserActivity carries the current activity to a device that is
+    // physically nearby, and NSUbiquitousKeyValueStore carries a few durable values to every
+    // device on the account whether they are nearby or not. The first needs no entitlement and
+    // the second needs one, which is why com.codename1.continuity.sync is a package of its own.
+    // Payloads cross as JSON strings, matching the intents natives above.
+
+    /** True when this build linked the continuation natives at all. */
+    native boolean continuitySupported();
+
+    /**
+     * Advertises the current activity to the user's nearby devices, replacing whatever was
+     * advertised before. The JSON is the state; the title is what the receiving device shows.
+     */
+    native void continuityPublish(String activityType, String title, String userInfoJson);
+
+    /** Withdraws the advertised activity. */
+    native void continuityClear();
+
+    /** True when this build linked the synced store and the entitlement granted one. */
+    native boolean continuitySyncedStoreSupported();
+
+    /** Writes a value to the synced store, answering whether the store holds it afterwards. */
+    native boolean continuitySyncedStorePut(String key, String value);
+
+    /** Reads a value from the synced store, or null when the key is absent. */
+    native String continuitySyncedStoreGet(String key);
+
+    /** Removes a key from the synced store. */
+    native void continuitySyncedStoreRemove(String key);
+
+    /**
+     * Every key in the synced store, as {@code {"keys":["a","b"]}}. A JSON document rather than
+     * a {@code String[]} because every other native here exchanges JSON, and because a store key
+     * is an application-chosen string that no separator character is safe against.
+     */
+    native String continuitySyncedStoreKeys();
+
+    // --- Phone-to-watch link (WatchConnectivity) ----------------------------
+    // Backs com.codename1.wearable. The same natives serve both halves of a pair: WCSession is
+    // symmetric, so the phone app and the watch app run identical code. Payloads cross as opaque
+    // bytes; the value model lives in com.codename1.wearable.WearableMessage.
+
+    /** True when this device supports a phone-to-watch link at all (false on iPad). */
+    native boolean wearableSupported();
+
+    /** True when a counterpart device is paired, in range or not. */
+    native boolean wearablePaired();
+
+    /** True when the peer app can receive a live message right now. */
+    native boolean wearableReachable();
+
+    /** True when the counterpart app is installed on the paired device. */
+    native boolean wearableCompanionInstalled();
+
+    /** The paired device's name, for display. Empty when nothing is paired. */
+    native String wearablePeerName();
+
+    /** The paired device's opaque identifier. Empty when nothing is paired. */
+    native String wearablePeerId();
+
+    /**
+     * Sends a live message, delivered only while the peer is reachable. A non-zero
+     * {@code replyToken} asks for an answer, which comes back through {@code IOSWearableCallbacks}.
+     */
+    native void wearableSendMessage(String path, byte[] payload, int replyToken);
+
+    /** Answers a message that arrived carrying a reply token. */
+    native void wearableSendReply(int replyToken, byte[] payload);
+
+    /** Publishes or replaces the replicated value at a path (the WCSession application context). */
+    native void wearablePutData(String path, byte[] payload);
+
+    /** Reads the replicated value at a path, published by either side. Null when absent. */
+    native byte[] wearableGetData(String path);
+
+    /** Removes the replicated value at a path. */
+    native void wearableRemoveData(String path);
+
+    /** Every path currently holding a replicated value, newline separated. */
+    native String wearableDataPaths();
+
+    /** Queues a background file transfer to the peer. */
+    native void wearableTransferFile(String path, String name, byte[] contents);
+
+    /// Retires a durable inbox entry once the payload has reached the application. Delivery of an
+    /// incoming file parks a copy on disk first, and only this call -- made from the EDT after the
+    /// listener has run -- is allowed to discard it.
+    native void wearableConfirmInbox(String token);
+
+    /// Gives up an inbox entry that was never delivered, keeping the file so a later activation can
+    /// replay it. Only the in-process marker that suppresses replay is cleared.
+    native void wearableReleaseInbox(String token);
+
+    /// Re-offers everything still parked in the durable inbox. Called once a data listener exists.
+    native void wearableReplayInbox();
+
+    /// Forgets that a path's value was received, so the next context update delivers it again.
+    /// Used to recover a delivery the pending-delivery cap discarded.
+    native void wearableForgetReceived(String path);
+
+    // --- Smart home (HomeKit, plus MatterSupport for commissioning) ---------
+    // Backs com.codename1.home. Compiled only when the builder flipped
+    // CN1_INCLUDE_HOMEKIT, which it does when the app references the package; without it every
+    // native below answers unsupported and the whole API reports NOT_SUPPORTED.
+    //
+    // Arrays cross as ONE newline-joined string in both directions rather than as String[].
+    // Building a Java array of Java strings from Objective-C means allocating on the ParparVM heap
+    // from whatever thread HomeKit called back on; joining costs a string concatenation on a side
+    // where that is free. IOSHomeBridge does the splitting. A field can never contain a newline or
+    // a tab because the native side replaces both with a space before joining -- the only fields
+    // carrying arbitrary text are user-chosen accessory, room and scene names, and a name that
+    // loses a line break is worth less than a record that survives.
+    //
+    // Every method taking a requestId returns immediately and answers later through
+    // IOSHomeCallbacks.
+
+    /** True when HomeKit is present and this build linked it. */
+    native boolean homeSupported();
+
+    /** The com.codename1.home.HomeAvailability ordinal for the current state. */
+    native int homeAvailability();
+
+    /** The com.codename1.home.HomeAuthorizationStatus ordinal. */
+    native int homeAuthorizationStatus();
+
+    /**
+     * What the build is missing that HomeKit needs -- the entitlement, the usage description --
+     * one sentence per line. Empty when nothing is missing.
+     */
+    native String homeConfigurationProblems();
+
+    /** Connects to HMHomeManager and loads the graph. Answers via IOSHomeCallbacks.started. */
+    native void homeStart(int requestId);
+
+    /** Releases the home manager and every delegate and observer. Idempotent. */
+    native void homeStop();
+
+    /** Prompts for access. Answers via IOSHomeCallbacks.authorization when the prompt closes. */
+    native void homeRequestAuthorization(int requestId);
+
+    /** Opens this app's page in Settings, the only recovery from a denied grant. */
+    native boolean homeOpenSettings();
+
+    /** Opens the Apple Home app so the user can create a home or add an accessory. */
+    native boolean homeOpenEcosystemApp();
+
+    /** The homes, one record per line. */
+    native String homeStructures();
+
+    /** The rooms of one home, one record per line. */
+    native String homeRooms(String structureId);
+
+    /** The zones of one home, one record per line. HomeKit is the only backend that has these. */
+    native String homeZones(String structureId);
+
+    /** The accessories of one home, one record per line. */
+    native String homeAccessories(String structureId);
+
+    /** The services of one accessory, one record per line. */
+    native String homeServices(String accessoryId);
+
+    /** The traits of one service, one record per line. */
+    native String homeTraits(String accessoryId, String serviceId);
+
+    /** Reloads the graph. Answers via IOSHomeCallbacks.refreshed. */
+    native void homeRefresh(int requestId);
+
+    /**
+     * Reads characteristics. The three lists are newline-joined and positionally aligned.
+     * Answers via IOSHomeCallbacks.readings.
+     */
+    native void homeReadTraits(int requestId, String accessoryIds, String serviceIds,
+            String traitIds, boolean allowCached);
+
+    /**
+     * Writes characteristics. All eight lists are newline-joined and positionally aligned;
+     * {@code authorizationData} carries a door-lock credential per write, which HomeKit ignores and
+     * which is carried because the SPI is shared with Matter. Answers via
+     * IOSHomeCallbacks.writeResults.
+     */
+    native void homeWriteTraits(int requestId, String accessoryIds, String serviceIds,
+            String traitIds, String kinds, String numericValues, String stringValues,
+            String unitWireIds, String authorizationData);
+
+    /** Starts watching characteristics. Changes arrive via IOSHomeCallbacks.changes. */
+    native void homeSubscribe(int requestId, String subscriptionId, String accessoryIds,
+            String serviceIds, String traitIds);
+
+    /** Stops watching and disables the underlying notifications. */
+    native void homeUnsubscribe(String subscriptionId);
+
+    /**
+     * Hands over changes gathered while nothing was listening. HomeKit does push, so this is
+     * usually empty -- it exists because the SPI is shared with backends that do not.
+     */
+    native void homeDrainChanges(int requestId);
+
+    /** The action sets of one home, one record per line. */
+    native String homeScenes(String structureId);
+
+    /** What one action set does, one record per line. */
+    native String homeSceneActions(String structureId, String sceneId);
+
+    /** Runs an action set. Answers via IOSHomeCallbacks.sceneResult. */
+    native void homeExecuteScene(int requestId, String structureId, String sceneId);
+
+    /** Creates an action set. Answers via IOSHomeCallbacks.sceneResult with the new scene. */
+    native void homeCreateScene(int requestId, String structureId, String name,
+            String accessoryIds, String serviceIds, String traitIds, String kinds,
+            String numericValues, String stringValues, String unitWireIds);
+
+    /** Deletes an action set. Answers via IOSHomeCallbacks.sceneResult. */
+    native void homeDeleteScene(int requestId, String structureId, String sceneId);
+
+    /** The com.codename1.home.commissioning.CommissioningStyle ordinal for this platform. */
+    native int homeCommissioningStyle();
+
+    /**
+     * Runs the MatterSupport add-device flow. Answers via
+     * IOSHomeCallbacks.commissioningResult when the OS sheet closes, however it closed.
+     */
+    native void homeCommission(int requestId, String setupPayload, String structureId,
+            String roomId, String suggestedName, int timeoutMillis);
+
+    /** Asks an accessory to identify itself. Answers via IOSHomeCallbacks.identifyResult. */
+    native void homeIdentify(int requestId, String accessoryId);
+
+    // --- Secure storage (Security.framework keychain) -----------------------
+
+    /** Sets the kSecAttrAccessGroup applied to subsequent keychain operations. {@code null} clears. */
+    native void setSecureStorageAccessGroup(String accessGroup);
+
+    /** Async keychain read; result via IOSSecureStorage.nativeStorageStringResult / nativeStorageError. */
+    native void secureStorageGet(int requestId, String reason, String account);
+
+    /** Async keychain write; result via IOSSecureStorage.nativeStorageBooleanResult / nativeStorageError. */
+    native void secureStorageSet(int requestId, String reason, String account, String value);
+
+    /** Async keychain delete; result via IOSSecureStorage.nativeStorageBooleanResult / nativeStorageError. */
+    native void secureStorageRemove(int requestId, String reason, String account);
+
+    /** Synchronous keychain read without biometric prompting. */
+    native String secureStorageGetPlain(String account);
+
+    /**
+     * Whether a keychain item exists: 1 present, 0 absent, -1 the keychain could not say.
+     *
+     * <p>Separate from {@link #secureStorageGetPlain(String)}, which answers null for an item that
+     * is not there and for one it could not read.
+     *
+     * @param account the item to ask about
+     * @return the state
+     */
+    native int secureStorageEntryStatePlain(String account);
+
+    /** Synchronous keychain write without biometric prompting. */
+    native boolean secureStorageSetPlain(String account, String value);
+
+    /**
+     * Creates a keychain item only if the account has none: 1 created, 0 already there, -1 failed.
+     *
+     * <p>The keychain's own add is what makes this atomic between processes, which
+     * {@link #secureStorageSetPlain(String, String)} is not -- it falls back to an update, so two
+     * processes creating a managed database key at the same moment would each overwrite the other
+     * and leave the database encrypted under a key nobody has.
+     *
+     * @param account the item to create
+     * @param value the value to store when there is none
+     * @return whether it was created, already present, or could not be attempted
+     */
+    native int secureStorageAddPlain(String account, String value);
+
+    /** Synchronous keychain delete without biometric prompting. */
+    native boolean secureStorageRemovePlain(String account);
+
+    // --- NFC (Core NFC) -----------------------------------------------------
+
+    /** True when NFCNDEFReaderSession is available (iOS 11+) and the device has NFC hardware. */
+    native boolean isNfcSupported();
+
+    /** True when Core NFC reader sessions can be started right now. */
+    native boolean canReadNfc();
+
+    /** True when Core NFC tag sessions (ISO-DEP / FeliCa / MIFARE) are available (iOS 13+). */
+    native boolean canReadNfcTags();
+
+    /** True when CardSession (HCE) is available; iOS 17.4+ EU-only with entitlement. */
+    native boolean canHostEmulateNfc();
+
+    /**
+     * Starts an NDEF-only NFCNDEFReaderSession. Result is delivered via
+     * IOSNfc.nativeNdefResult(int, byte[]) or
+     * IOSNfc.nativeNfcError(int, int, String).
+     */
+    native void startNdefRead(int requestId, String alertMessage, long timeoutMs);
+
+    /**
+     * Starts an NFCTagReaderSession that accepts ISO-DEP / FeliCa / MIFARE.
+     * `polling` is a bitmask: 1 = NFC-A, 2 = NFC-B, 4 = NFC-F, 8 = NFC-V (Core
+     * NFC does not actually expose B/V; the request is silently downgraded
+     * by the OS). `aidsArr`, when non-null, lists ISO 7816 AIDs to auto-SELECT.
+     * `felicaSystemCodes` is a list of 2-byte hex strings.
+     * Result via IOSNfc.nativeTagDiscovered(int, byte[], int) and
+     * IOSNfc.nativeNfcError(int, int, String).
+     */
+    native void startTagRead(int requestId, String alertMessage,
+            int polling, String[] felicaSystemCodes, byte[][] aidsArr,
+            long timeoutMs);
+
+    /** Cancels the active reader session. */
+    native void stopNfcRead(int requestId);
+
+    /** Sends an APDU on the currently-connected ISO 7816 tag.
+     * Result via IOSNfc.nativeTransceiveResult(int, byte[]) or
+     * IOSNfc.nativeNfcError(int, int, String). */
+    native void nfcTransceive(int requestId, long tagHandle, byte[] payload);
+
+    /** Reads the NDEF message on the currently-connected tag (after tag session). */
+    native void nfcReadNdefFromTag(int requestId, long tagHandle);
+
+    /** Writes an NDEF message to the currently-connected tag. */
+    native void nfcWriteNdefToTag(int requestId, long tagHandle, byte[] ndef);
+
+    /** Permanently locks the NDEF area on the currently-connected tag. */
+    native void nfcLockTag(int requestId, long tagHandle);
+
+    /** Registers / clears HCE AID list. Called by IOSNfc.registerHostCardEmulationService. */
+    native void registerHceAids(String[] aids);
+
+    /** Sends the HCE response for the APDU currently outstanding on CardSession. */
+    native void hceSendResponse(byte[] response);
+
+    // --- Bluetooth (Core Bluetooth) ------------------------------------------
+    //
+    // Implemented in nativeSources/CN1Bluetooth.m, gated on
+    // CN1_INCLUDE_BLUETOOTH. Asynchronous results and events come back
+    // through the static IOSBluetooth.nativeBt* callbacks; request ids are
+    // allocated by IOSBluetooth.takeId.
+
+    /** True when the BLE peripheral role (CBPeripheralManager) exists on
+     * this target slice -- false on tvOS / watchOS. */
+    native boolean isBlePeripheralSupported();
+
+    /** Raw CBManagerAuthorization: 0 notDetermined, 1 restricted, 2 denied,
+     * 3 allowedAlways. Does not create a manager / prompt the user. */
+    native int getBluetoothAuthorization();
+
+    /** Lazily creates the CBCentralManager (this pops the permission
+     * dialog on first run) and starts forwarding state changes through
+     * IOSBluetooth.nativeBtStateChanged. Idempotent. */
+    native void startBluetoothStateMonitor();
+
+    /** Starts / retunes the platform scan. `serviceUuids` may be null for
+     * an unfiltered scan; results via IOSBluetooth.nativeBtScanResult. */
+    native void btStartScan(String[] serviceUuids, boolean allowDuplicates);
+
+    /** Stops the platform scan. */
+    native void btStopScan();
+
+    /** Resolves a persisted identifier via
+     * retrievePeripheralsWithIdentifiers and retains the CBPeripheral.
+     * Returns the peripheral name ("" when unnamed) or null when the
+     * identifier cannot be resolved. */
+    native String btRetrievePeripheral(String peripheralId);
+
+    /** System-connected peripherals offering the given service
+     * (retrieveConnectedPeripheralsWithServices). Returns
+     * "id\tname\n"-joined entries; empty/null when none. */
+    native String btGetKnownPeripherals(String serviceUuid);
+
+    /** Connects; resolution via IOSBluetooth.nativeBtConnected /
+     * nativeBtConnectFailed. */
+    native void btConnect(String peripheralId);
+
+    /** Disconnects / cancels a pending connect
+     * (cancelPeripheralConnection). */
+    native void btDisconnect(String peripheralId);
+
+    /** Full discovery pass (services, then characteristics, then
+     * descriptors); one aggregated result via
+     * IOSBluetooth.nativeBtServicesDiscovered. */
+    native void btDiscoverServices(int requestId, String peripheralId);
+
+    /** Reads a characteristic; result via IOSBluetooth.nativeBtValue. */
+    native void btReadCharacteristic(int requestId, String peripheralId,
+            String serviceUuid, int serviceInstance, String charUuid,
+            int charInstance);
+
+    /** Writes a characteristic; completion via
+     * IOSBluetooth.nativeBtOperationComplete (immediate for
+     * write-without-response). */
+    native void btWriteCharacteristic(int requestId, String peripheralId,
+            String serviceUuid, int serviceInstance, String charUuid,
+            int charInstance, byte[] value, boolean withResponse);
+
+    /** Reads a descriptor; result via IOSBluetooth.nativeBtValue. */
+    native void btReadDescriptor(int requestId, String peripheralId,
+            String serviceUuid, int serviceInstance, String charUuid,
+            int charInstance, String descriptorUuid);
+
+    /** Writes a descriptor; completion via
+     * IOSBluetooth.nativeBtOperationComplete. */
+    native void btWriteDescriptor(int requestId, String peripheralId,
+            String serviceUuid, int serviceInstance, String charUuid,
+            int charInstance, String descriptorUuid, byte[] value);
+
+    /** Arms / disarms notifications (setNotifyValue); completion via
+     * IOSBluetooth.nativeBtOperationComplete. */
+    native void btSetNotify(int requestId, String peripheralId,
+            String serviceUuid, int serviceInstance, String charUuid,
+            int charInstance, boolean enable);
+
+    /** Reads the connection RSSI; result via IOSBluetooth.nativeBtRssi. */
+    native void btReadRssi(int requestId, String peripheralId);
+
+    /** Synchronous maximumWriteValueLengthForType (ATT MTU minus 3);
+     * 0 when the peripheral is unknown / disconnected. */
+    native int btGetMaxWriteLength(String peripheralId, boolean withResponse);
+
+    /** Creates the CBPeripheralManager (lazily) and reports through
+     * IOSBluetooth.nativeBtGattServerOpened once poweredOn. */
+    native void btOpenGattServer(int requestId);
+
+    /** Adds a service from the serialized definition (see
+     * IOSGattServer.doAddService for the S|/C|/D| line format); completion
+     * via IOSBluetooth.nativeBtOperationComplete. */
+    native void btAddService(int requestId, String serviceDefinition);
+
+    /** Removes a service previously added under the given local id. */
+    native void btRemoveService(int serviceLocalId);
+
+    /** Removes all services from the peripheral manager. */
+    native void btCloseGattServer();
+
+    /** Starts advertising. `localName` null omits the name, "" uses the
+     * device name; result via IOSBluetooth.nativeBtAdvertiseStarted. */
+    native void btStartAdvertising(int requestId, String localName,
+            String[] serviceUuids);
+
+    /** Stops advertising. */
+    native void btStopAdvertising();
+
+    /** updateValue:forCharacteristic:onSubscribedCentrals; retried on
+     * peripheralManagerIsReadyToUpdateSubscribers until accepted, then
+     * IOSBluetooth.nativeBtOperationComplete. `centralId` null targets all
+     * subscribed centrals. */
+    native void btNotifyValue(int requestId, int charLocalId, byte[] value,
+            String centralId);
+
+    /** Responds to a parked CBATTRequest read. `attStatus` 0 is success,
+     * otherwise the ATT error code (GattStatus.getAttCode). */
+    native void btRespondToReadRequest(long requestHandle, byte[] value,
+            int attStatus);
+
+    /** Responds to a parked CBATTRequest write. */
+    native void btRespondToWriteRequest(long requestHandle, int attStatus);
+
+    /** Opens an L2CAP channel to a connected peripheral; result via
+     * IOSBluetooth.nativeBtL2capOpened. */
+    native void btOpenL2cap(int requestId, String peripheralId, int psm);
+
+    /** Publishes an L2CAP endpoint
+     * (publishL2CAPChannelWithEncryption); PSM via
+     * IOSBluetooth.nativeBtL2capPublished, incoming channels via
+     * IOSBluetooth.nativeBtL2capIncoming. */
+    native void btPublishL2cap(int requestId, boolean secure);
+
+    /** Unpublishes a previously published PSM. */
+    native void btUnpublishL2cap(int psm);
+
+    /** Blocking read from an open L2CAP channel. Returns the byte count,
+     * -1 on orderly end of stream, -2 on error. */
+    native int btL2capRead(long channelHandle, byte[] buffer, int offset,
+            int len);
+
+    // --- Health (HealthKit) ---
+    // Implemented in nativeSources/CN1Health.m, gated on CN1_INCLUDE_HEALTH.
+    // The #else branch there provides no-op trampolines so a health-free
+    // app -- and the tvOS / Mac Catalyst slices, where HealthKit does not
+    // exist -- still link.
+    native boolean hkIsAvailable();
+    /// Whether the native layer can map this portable type onto a
+    /// HealthKit type at all. Asked rather than assumed: a type with a
+    /// canonical unit is not necessarily one HealthKit knows, and
+    /// advertising it means a query that passes validation and then fails.
+    native boolean hkIsTypeSupported(String typeIdentifier);
+    /// Meaningful for WRITE types only. HealthKit deliberately never
+    /// discloses read authorization, so there is no read equivalent --
+    /// adding one would require inventing an answer.
+    native int hkShareAuthorizationStatus(String typeIdentifier);
+    native void hkRequestAuthorization(int requestId, String[] readTypes,
+            String[] shareTypes);
+    /// `sourceBundleIds` is tab-separated and may be empty for "any
+    /// source". It has to reach HealthKit rather than being filtered after
+    /// the fact: the limit is applied by the query, so filtering the
+    /// results afterwards can return nothing at all while matching data
+    /// sits just past the cut.
+    native void hkQuerySamples(int requestId, String typeIdentifier,
+            double startEpochMs, double endEpochMs, int limit,
+            boolean ascending, String sourceBundleIds);
+    native void hkSaveSamples(int requestId, String samplesTsv);
+
+    /** Blocking write to an open L2CAP channel. Returns the byte count
+     * written (possibly short), or -2 on error. */
+    native int btL2capWrite(long channelHandle, byte[] buffer, int offset,
+            int len);
+
+    /** Closes an L2CAP channel and releases its native wrapper. */
+    native void btL2capClose(long channelHandle);
+
+    native long gausianBlurImage(long peer, float radius);
+    
+    /**
+     * Removes an observer from NSNotificationCenter
+     * @param nsObserverPeer The opaque Objective-C class that is being used as the observer.
+     */
+    native void removeNotificationCenterObserver(long nsObserverPeer);
+
+    /**
+     * This one simply hides the native editing component, but doesn't fold the 
+     * keyboard or remove the component.  It is used to bridge the gap in async
+     * edit mode between when the user clicks "next" and when the next 
+     * editing component is ready.
+     * @param b 
+     */
+    native void setNativeEditingComponentVisible(boolean b) ;
+
+    native void setNativeClippingMutable(int commandsLen, byte[] commandsArr, int pointsLen, float[] pointsArr);
+
+    native void refreshContacts();
+
+    native void translatePoints(int pointSize, float tX, float tY, float tX0, float[] in, int srcPos, float[] out, int destPos, int numPoints);
+
+    native void scalePoints(int pointSize, float sX, float sY, float sZ, float[] in, int srcPos, float[] out, int destPos, int numPoints);
+
+    native void updateNativeEditorText(String text);
+
+    native void fireUIBackgroundFetchResultNoData();
+
+    native void fireUIBackgroundFetchResultNewData();
+
+    native void fireUIBackgroundFetchResultFailed();
+
+    native void setPreferredBackgroundFetchInterval(int seconds);
+
+    native boolean isBackgroundFetchSupported();
+
+    native int countLinkedContacts(int recId);
+
+    native void getLinkedContactIds(int num, int recId, int[] out);
+
+    native void applyRadialGradientPaintMutable(int startColor, int endColor, int x, int y, int width, int height);
+
+    native void clearRadialGradientPaintMutable();
+
+    native void applyRadialGradientPaintGlobal(int startColor, int endColor, int x, int y, int width, int height);
+
+    native void clearRadialGradientPaintGlobal();
+
+    native void clearRectMutable(int x, int y, int width, int height);
+
+    native void nativeClearRectGlobal(int x, int y, int width, int height);
+
+    native void blockCopyPaste(boolean blockCopyPaste);
+
+    //#define INCLUDE_CONTACTS_USAGE
+    //#define INCLUDE_CALENDARS_USAGE
+    //#define INCLUDE_CAMERA_USAGE
+    //#define INCLUDE_FACEID_USAGE
+    //#define INCLUDE_LOCATION_USAGE
+    //#define INCLUDE_MICROPHONE_USAGE
+    //#define INCLUDE_MOTION_USAGE
+    //#define INCLUDE_PHOTOLIBRARYADD_USAGE
+    //#define INCLUDE_PHOTOLIBRARY_USAGE
+    //#define INCLUDE_REMINDERS_USAGE
+    //#define INCLUDE_SIRI_USAGE
+    //#define INCLUDE_SPEECHRECOGNITION_USAGE
+    //#define INCLUDE_NFCREADER_USAGE
+    native boolean checkContactsUsage();
+    native boolean checkCalendarsUsage();
+    native boolean checkCameraUsage();
+
+    /// The CURRENT authorization for the camera, or for the microphone when
+    /// `audio` is set: 0 not determined, 1 restricted, 2 denied, 3 authorized.
+    ///
+    /// Synchronous, unlike cn1CameraRequestAccess, because the caller is
+    /// CameraImpl.open() and that returns a value. Asking is not prompting: this
+    /// reads the status AVFoundation already holds and never shows a dialog, so
+    /// it is safe on any thread and at any time.
+    native int cameraAuthorizationStatus(boolean audio);
+    native boolean checkFaceIDUsage();
+    native boolean checkLocationUsage();
+    /// Whether ios.NSHealthShareUsageDescription was declared. Lives here
+    /// rather than in CN1Health.m because it must answer even when health
+    /// is compiled out, so IOSImplementation can throw a build-hint
+    /// diagnostic instead of failing later in App Review.
+    native boolean checkHealthShareUsage();
+    /// Whether ios.NSHealthUpdateUsageDescription was declared.
+    native boolean checkHealthUpdateUsage();
+    native boolean checkMicrophoneUsage();
+    native boolean checkMotionUsage();
+    native boolean checkPhotoLibraryAddUsage();
+    native boolean checkPhotoLibraryUsage();
+    native boolean checkRemindersUsage();
+    native boolean checkSiriUsage();
+    native boolean checkSpeechRecognitionUsage();
+    native boolean checkNFCReaderUsage();
+
+    // Checks avaiable bytes for NetworkConnection
+    native int available(long peer);
+
+    // Read pending data from NetworkConnection
+    native int readData(long peer, byte[] bytes, int off, int len);
+
+    // Reads next byte from NetworkConnection
+    native int shiftByte(long peer);
+
+    // Appends pending data to NetworkConnection
+    // data is a NSData* object
+    // We go through java in order to use locking concurrency
+    native void appendData(long peer, long data);
+
+    native void screenshot();
+    
+    native void fillPolygonGlobal(int color, int alpha, int[] xPoints, int[] yPoints, int nPoints);
+
+    native void registerPushAction(String id, String title, String textInputPlaceholder, String replyButtonText);
+
+    native void startPushActionCategory(String id);
+
+    native void addPushActionToCategory(String id);
+
+    native void endPushActionCategory();
+
+    native void registerPushCategories();
+    
+    // completionId names the notification whose grant is being released -- see the registry in
+    // IOSNative.m. 0 means the notification carried no grant, which is every platform that does not
+    // wake an app for a push, and is a no-op.
+    native void firePushCompletionHandler(long completionId);
+
+    // Releases the OLDEST outstanding grant. This is what Display.notifyPushCompletion() asks for:
+    // the application says its background work is finished without naming a push, because it has no
+    // id with which to name one.
+    native void releaseOldestPushCompletionHandler();
+
+    native boolean isMultiGallerySelectSupported();
+
+    native void setConnectionId(long peer, int id);
+    native void setInsecure(long peer, boolean insecure);
+    
+    native int getDisplaySafeInsetLeft();
+
+    native int getDisplaySafeInsetTop();
+
+    native int getDisplaySafeInsetRight();
+
+    native int getDisplaySafeInsetBottom();
+
+    native boolean isRTLString(String javaString);
+
+    public static native void announceForAccessibility(String text);
+
+    /// Installs one surface's semantic tree on that surface's native view.
+    ///
+    /// `windowId` is zero for the application's main surface and otherwise names a
+    /// desktop window, whose own view is what the tree has to go on -- installing every
+    /// surface's tree on the main view replaces the main surface's elements with
+    /// whichever window changed last.
+    public static native void updateAccessibilityTree(String json, int changeType, int windowId);
+
+    // ============================================================
+    // Crypto bridge -- backed by CN1Crypto.{h,m} in nativeSources/.
+    //
+    // Each method returns the number of bytes written to its output buffer,
+    // or a negative CN1_CRYPTO_E_* error code on failure. The Java side in
+    // IOSImplementation trims to that length and translates failures into
+    // CryptoException.
+
+    native void secureRandomBytes(byte[] out);
+
+    native int aesCbc(int encrypt, byte[] key, byte[] iv,
+                      byte[] in, byte[] out, int padding);
+
+    native int aesGcm(int encrypt, byte[] key, byte[] iv,
+                      byte[] aad, byte[] in, byte[] out);
+
+    /// PBKDF2 over the password **bytes**, which is what makes the derived key match the one
+    /// Android and a browser derive from the same password. `hashKind` is 256 or 512. Returns the
+    /// number of bytes written into `out`, or a negative CN1_CRYPTO_E_* code.
+    native int pbkdf2(int hashKind, byte[] password, byte[] salt, int iterations, byte[] out);
+
+    native int rsaEncrypt(int paddingKind, byte[] x509, byte[] in, byte[] out);
+
+    native int rsaDecrypt(int paddingKind, byte[] pkcs8, byte[] in, byte[] out);
+
+    native int sign(int algorithm, byte[] pkcs8, byte[] data, byte[] out);
+
+    native int verify(int algorithm, byte[] x509, byte[] data, byte[] sig);
+
+    /// `lengths[0]` is set to public-key DER length, `lengths[1]` to
+    /// private-key DER length. Returns 0 on success, negative on error.
+    native int generateRsaKeyPair(int bits, byte[] outPub, byte[] outPriv, int[] lengths);
+
+
+    // --- Nearby devices (Nearby Interaction, MultipeerConnectivity, ----------
+    //     AccessorySetupKit) ------------------------------------------------
+    // Backs com.codename1.nearby. Compiled only when the builder flipped
+    // CN1_INCLUDE_NEARBY, and each of the three halves only when its own
+    // define is on -- an app that references one package must not link the
+    // frameworks the other two need.
+    //
+    // Structured values cross as the tab-delimited records
+    // com.codename1.impl.nearby.NearbyWire defines, joined with newlines when
+    // there is more than one. IOSNearbyBridge does the splitting. A record
+    // field can never contain a newline: NearbyWire.sanitize replaces one with
+    // a space before it is ever encoded.
+    //
+    // Answers never come back through a return value; they arrive later on
+    // IOSNearbyCallbacks.
+
+    /** True when this build linked Nearby Interaction and the device has the radio. */
+    // ------------------------------------------------------------------
+    // com.codename1.call -- CallKit, PushKit and the Call Directory store.
+    // ------------------------------------------------------------------
+
+    /** True when this build linked CallKit and the OS provides it. */
+    native boolean callSupported();
+
+    /** True when this build linked PushKit. */
+    native boolean callVoipSupported();
+
+    /** True when this build generated a Call Directory extension. */
+    native boolean callDirectorySupported();
+
+    /** The CallBridge.CAPABILITY_* mask this platform offers. */
+    native int callCapabilities();
+
+    /** The CallAvailability ordinal describing whether a call could ring now. */
+    native int callAvailability();
+
+    /** The CallBridge.PERMISSION_* mask currently granted. */
+    native int callGrantedPermissions();
+
+    /** Asks for the permission bits, answering deliverPermissionResult. */
+    native void callRequestPermissions(int requestId, int permissionBits);
+
+    /** Installs the CXProvider configuration from a CallWire record. */
+    native void callConfigureProvider(int requestId, String configWire);
+
+    /** Reports a new incoming call to CallKit. */
+    native void callReportIncoming(int requestId, String callId,
+            String handleWire, String displayName, boolean hasVideo);
+
+    /** Reports a new outgoing call to CallKit. */
+    native void callReportOutgoing(int requestId, String callId,
+            String handleWire, String displayName, boolean hasVideo);
+
+    /** The outgoing call has begun connecting. */
+    native void callStartedConnecting(String callId, long timestampMs);
+
+    /** The outgoing call is connected. */
+    native void callOutgoingConnected(String callId, long timestampMs);
+
+    /** The incoming call is connected. */
+    native void callIncomingConnected(String callId, long timestampMs);
+
+    /** Updates what CallKit shows for a call already reported. */
+    native void callUpdate(String callId, String handleWire,
+            String displayName, boolean hasVideo);
+
+    /** The far end ended the call. */
+    native void callReportEnded(String callId, int endReasonOrdinal,
+            long timestampMs);
+
+    /** This side is ending the call. */
+    native void callEnd(int requestId, String callId, int endReasonOrdinal);
+
+    /** Holds or resumes a call. */
+    native void callSetHeld(int requestId, String callId, boolean held);
+
+    /** Mutes or unmutes a call. */
+    native void callSetMuted(int requestId, String callId, boolean muted);
+
+    /** Sends DTMF digits through CallKit. */
+    native void callSendDtmf(int requestId, String callId, String digits);
+
+    /** Groups or ungroups a call. */
+    native void callSetGroup(int requestId, String callId, String otherCallId);
+
+    /** The CallAudioRoute ordinal of the current output. */
+    native int callAudioRoute();
+
+    /** Asks for a particular audio route. */
+    native void callSetAudioRoute(int requestId, int routeOrdinal);
+
+    /** Shows the system audio route picker. */
+    native void callShowRoutePicker(int requestId, String callId);
+
+    /** Answers a CXAction delivered with this token. */
+    native boolean callCompleteAction(long actionToken, boolean fulfilled);
+
+    /** Registers for VoIP pushes. */
+    native void callRegisterVoipPush(int requestId);
+
+    /** Stops VoIP push delivery. */
+    native void callUnregisterVoipPush(int requestId);
+
+    /** Tells the native side whether application code is listening yet. */
+    native void callSetJavaReady(boolean ready);
+
+    /** Delivers every call reported natively but not yet seen by Java. */
+    native void callDrainPendingCalls(int requestId);
+
+    /** Installs the caller-identification data at this path. */
+    native void callSetDirectorySource(int requestId, String filePath);
+
+    /** Asks the system to re-read the directory extension. */
+    native void callReloadDirectory(int requestId);
+
+    /** Answers with a CallWire-encoded directory status record. */
+    native void callDirectoryStatus(int requestId);
+
+    // ------------------------------------------------------------------
+    // com.codename1.vpn -- NEVPNManager.
+    //
+    // Distinct from isVPNActive() above, which is always compiled in, needs
+    // no entitlement, and answers whether SOME VPN is carrying this device's
+    // traffic rather than managing one.
+    // ------------------------------------------------------------------
+
+    /** True when this build linked NetworkExtension for VPN management. */
+    native boolean vpnSupported();
+
+    /** True when this build generated a packet tunnel extension. */
+    native boolean vpnTunnelSupported();
+
+    /** The VpnBridge.CAPABILITY_* mask this platform offers. */
+    native int vpnCapabilities();
+
+    /// Asks the packet-tunnel extension to start, with the setup record.
+    native void vpnStartTunnel(int requestId, String setupWire);
+
+    /// Asks the packet-tunnel extension to stop.
+    native void vpnStopTunnel(int requestId);
+
+    /** The VpnStatus ordinal of the managed connection. */
+    native int vpnStatus();
+
+    /** Installs or replaces the configuration from a VpnWire record. */
+    native void vpnInstallProfile(int requestId, String profileWire);
+
+    /** Removes the installed configuration. */
+    native void vpnRemoveProfile(int requestId);
+
+    /** Answers with the installed configuration as a VpnWire record. */
+    native void vpnLoadProfile(int requestId);
+
+    /** Brings the tunnel up. */
+    native void vpnStart(int requestId);
+
+    /** Takes the tunnel down. */
+    native void vpnStop(int requestId);
+
+    /** Starts or stops status-change delivery. */
+    native void vpnSetStatusListening(boolean listening);
+
+    native boolean nearbyRangingSupported();
+
+    /** True when this build linked AccessorySetupKit and the OS is new enough. */
+    native boolean nearbyCompanionSupported();
+
+    /** True when this build linked MultipeerConnectivity. */
+    native boolean nearbyTransportSupported();
+
+    /** The com.codename1.nearby.NearbyAvailability ordinal for ranging. */
+    native int nearbyRangingAvailability();
+
+    /** The com.codename1.nearby.NearbyAvailability ordinal for association. */
+    native int nearbyCompanionAvailability();
+
+    /** The com.codename1.nearby.NearbyAvailability ordinal for the transport. */
+    native int nearbyTransportAvailability();
+
+    /** An OR of the NearbyBridge.CAPABILITY_ bits this device can produce. */
+    native int nearbyRangingCapabilities();
+
+    /**
+     * Requests the permissions behind the given NearbyBridge.PERMISSION_ bits.
+     * Answers via IOSNearbyCallbacks.permissionResult.
+     */
+    native void nearbyRequestPermissions(int requestId, int permissionBits);
+
+    /**
+     * Allocates an NISession and publishes its discovery token. Answers via
+     * IOSNearbyCallbacks.sessionPrepared.
+     */
+    native void nearbyPrepareSession(int requestId, int sessionHandle,
+            boolean controller);
+
+    /**
+     * Runs the session against a peer token. Answers via
+     * IOSNearbyCallbacks.sessionStarted.
+     */
+    native void nearbyStartRanging(int requestId, int sessionHandle,
+            byte[] peerToken);
+
+    /**
+     * Runs the session against an accessory's configuration data. Answers via
+     * IOSNearbyCallbacks.accessoryConfiguration with the bytes to send back.
+     */
+    native void nearbyStartAccessoryRanging(int requestId, int sessionHandle,
+            byte[] accessoryData);
+
+    /** Invalidates a session and releases the radio. Idempotent. */
+    native void nearbyStopSession(int sessionHandle);
+
+    /**
+     * Shows the AccessorySetupKit picker. Answers via
+     * IOSNearbyCallbacks.associated.
+     *
+     * @param joinedFilters the encoded filters, newline-joined, never null
+     */
+    native void nearbyAssociate(int requestId, int profile,
+            boolean singleDevice, String joinedFilters);
+
+    /** Every association this app holds, as newline-joined encoded records. */
+    native String nearbyAssociations();
+
+    /** Drops an association. Answers via IOSNearbyCallbacks.disassociated. */
+    native void nearbyDisassociate(int requestId, String associationId);
+
+    /** Starts watching an association; true when the platform accepted. */
+    native boolean nearbyStartObservingPresence(String associationId);
+
+    /** Stops watching an association. Idempotent. */
+    native void nearbyStopObservingPresence(String associationId);
+
+    /** The largest byte payload MultipeerConnectivity accepts in one send. */
+    native int nearbyMaxPayloadSize();
+
+    /** Starts advertising. Answers via IOSNearbyCallbacks.transportOk. */
+    native void nearbyStartAdvertising(int requestId, String serviceId,
+            String localName, int strategy);
+
+    /** Stops advertising. Idempotent. */
+    native void nearbyStopAdvertising();
+
+    /** Starts browsing. Answers via IOSNearbyCallbacks.transportOk. */
+    native void nearbyStartDiscovery(int requestId, String serviceId,
+            int strategy);
+
+    /** Stops browsing. Idempotent. */
+    native void nearbyStopDiscovery();
+
+    /** Invites a peer. Answers via IOSNearbyCallbacks.transportOk. */
+    native void nearbyRequestConnection(int requestId, String endpointId,
+            String localName);
+
+    /** Accepts an invitation. Answers via IOSNearbyCallbacks.transportOk. */
+    native void nearbyAcceptConnection(int requestId, String endpointId);
+
+    /** Declines an invitation. */
+    native void nearbyRejectConnection(String endpointId);
+
+    /**
+     * Sends a payload. Answers via IOSNearbyCallbacks.transportOk once the
+     * payload is handed to the session.
+     *
+     * @param joinedEndpointIds the recipients, newline-joined
+     */
+    native void nearbySendPayload(int requestId, String joinedEndpointIds,
+            int payloadId, int payloadType, byte[] bytes, String path);
+
+    /** Cancels an in-flight payload. Idempotent. */
+    native void nearbyCancelPayload(int payloadId);
+
+    /** Disconnects one peer. Idempotent. */
+    native void nearbyDisconnect(String endpointId);
+
+    /** Stops advertising and browsing and drops every session. */
+    native void nearbyStopAllTransport();
+
+    /**
+     * Whether the app group holding the App Clip invite handoff can be opened
+     * at all. False when the application carries no such entitlement, which is
+     * every build that generated no clip.
+     *
+     * @param appGroup the group identifier
+     * @return true when the shared container is reachable
+     */
+    native boolean isAppClipHandoffSupported(String appGroup);
+
+    /**
+     * Reads the invite handoff an App Clip left behind, WITHOUT clearing it.
+     *
+     * <p>The container is the only durable copy of an exact App Clip code
+     * until the framework writes its own record, so reading and clearing in
+     * one step destroyed it whenever that write failed or the process exited
+     * in between -- and the next launch, finding no handoff, settled an
+     * invited install as no_match for ever. {@link
+     * #clearAppClipInviteHandoff(String)} is what empties it, once the code is
+     * stored.</p>
+     *
+     * @param appGroup the group identifier
+     * @return "code\nclickedSeconds", or null when no clip ran
+     */
+    native String readAppClipInviteHandoff(String appGroup);
+
+    /**
+     * Empties the shared container, once the framework has stored the code.
+     *
+     * <p>Read-once is still the contract the source states: this is the step
+     * that enforces it, moved to the point where losing the value costs
+     * nothing.</p>
+     *
+     * @param appGroup the group identifier
+     */
+    native boolean clearAppClipInviteHandoff(String appGroup);
+
+    // --- Foldable / hinge (UIHinge), implemented in nativeSources/CN1Hinge.m ---
+    //
+    // Apple's foldable API is API_AVAILABLE(ios(27.1)) -- 27.1, not 27.0 -- and
+    // is absent from the Xcode 26 SDK the tree still builds with by default.
+    // CN1Hinge.m compiles the whole implementation out on such an SDK and keeps
+    // these symbols answering "no hinge", so the port links either way and
+    // nothing here is conditional.
+
+    /**
+     * Installs the hinge observer on the root view, once. Idempotent, safe from
+     * any thread, and a no-op on a device or SDK without the hinge API.
+     */
+    native void startHingeMonitoring();
+
+    /**
+     * Whether this display reports a fold at all -- asked of the reserved
+     * regions rather than of the hinge observer, so a caller that arrives
+     * before the first update still gets a real answer instead of a premature
+     * "not foldable".
+     */
+    native boolean isFoldableDisplay();
+
+    /**
+     * The last UIHingeStatus: 0 unknown, 1 closed, 2 partially open, 3 fully
+     * open, or -1 when no hinge has been observed.
+     */
+    native int getHingeStatus();
+
+    /**
+     * The last hinge angle in whole degrees, or -1 when unknown. UIHinge reports
+     * radians; the conversion happens natively so only one unit crosses the
+     * boundary.
+     */
+    native int getHingeAngleDegrees();
+
+    /**
+     * Fills {@code out} with the active fold region in display pixels
+     * (x, y, width, height) and returns its kind: 0 none, 1 occlusion,
+     * 2 division. {@code out} is left untouched when the answer is 0.
+     */
+    native int getFoldRegion(int[] out);
+
+}

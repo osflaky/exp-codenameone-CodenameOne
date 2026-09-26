@@ -1,0 +1,263 @@
+# watchOS rendering port — status & rollout
+
+This documents the watchOS slice of the iOS port (full CN1 UI on Apple Watch via
+a Core Graphics backend). Everything is additive under `#if TARGET_OS_WATCH`, so
+the iOS slice is byte-for-byte unchanged.
+
+## The watch render-driver (the new-port core) — scoped contract
+
+watchOS ships UIKit headers but marks `UIView`/`UIViewController`/`UIEvent`/
+`CADisplayLink`/`UITextView`/`UIDatePicker`/etc. `__attribute__((unavailable))`,
+so `CodenameOne_GLViewController` (a `UIViewController` subclass) and
+`CodenameOne_GLAppDelegate` (a `UIApplication` delegate) **cannot compile for
+watchOS**. They are excluded from the watch slice; a watch render-driver
+provides their surface, modeled on `Ports/LinuxPort/nativeSources/cn1_linux_graphics.c`
+(a non-view-controller native renderer over a 2D API — Cairo there, Core
+Graphics here via `CN1CGGraphics`).
+
+Contract the render-driver must provide (everything else already compiles):
+- **55 native C functions** currently defined in `CodenameOne_GLViewController.m`
+  (`Java_com_codename1_impl_ios_IOSImplementation_*Impl` + helpers): the graphics
+  primitives (which enqueue `ExecutableOp`s), `flushBuffer`, paint/EDT hooks,
+  peer/video/picker entry points. The graphics + `flushBuffer` + queue ones are
+  implemented for real (enqueue → drain → `CN1CGGraphics`); the peer/video/picker
+  ones are no-ops on watch.
+- A **`[CodenameOne_GLViewController instance]`-compatible singleton** (NSObject,
+  NOT UIViewController) exposing the selectors the other 10 files call:
+  `drawFrame`, `flushBuffer`, `drawString`, `upcomingAddClip`, `renderingView`/`view`
+  (return the `CN1WatchRenderingView`), `isPaintFinished`, and no-op
+  `present*ViewController*`.
+- The op queue (`currentTarget`/`upcomingTarget` swap) + `drawFrame` draining
+  into the CG context (the logic from `GLViewController.drawFrame`, minus the GL
+  framebuffer setup).
+- Bootstrap: `cn1_watch_runtime_start/paint/pointer*` start the EDT (the
+  generated main) + drive `drawFrame` from `CN1WatchHost`'s timer.
+
+This is a bounded ~few-hundred-line reimplementation (LinuxPort's renderer is a
+comparable size), not a port of the 4000-line GL view controller.
+
+## watchMain entry point & seamless double-app build
+
+A CN1 project declares the watch entry point next to the phone main in
+`codenameone_settings.properties`:
+```
+codename1.mainName=com.example.MyApp        # phone lifecycle ("main" class)
+codename1.watchMain=com.example.MyWatchApp  # watch lifecycle (Apple Watch + Wear)
+```
+Declaring `codename1.watchMain` is the *entire* opt-in — there are no wearable
+build hints. It reaches `WatchNativeBuilder.parseHints` as the `watchMain` build
+argument by two routes: `CN1BuildMojo.putSecondaryEntryPointArguments` on local
+builds, and, for cloud builds, `createAntProject` mirroring it into
+`codename1.arg.watchMain` in the uploaded settings file (the server only lifts
+`codename1.arg.*` keys, so without that mirror a cloud build produced no watch
+app at all). Everything else — bundle id, deployment target, team id, display
+name — is derived. The one other recognized setting is
+`codename1.watchStandalone=true`, which ships the watch app on its own instead of
+embedding it in the phone app.
+
+**Bootstrap reality - which translation the watch runs:**
+It depends on whether `watchMain` names a different class from the phone main,
+which is what `WatchNativeBuilder.needsOwnTranslation()` decides.
+
+*Different classes* (the usual case, and what the screenshot build does --
+`hellocodenameone` declares `HelloCodenameOneWatch` against a `HelloCodenameOne`
+main): a SECOND ParparVM pass runs, rooted at the watch stub, into
+`<Main>-src/watch-src`. `stageWatchTranslation()` stages that tree and the watch
+target compiles it instead of the phone's, so the watch binary contains what the
+watch lifecycle reaches and nothing else. `writeWatchEntry()` generates the stub
+it boots, and `cn1_watch_app_main` in `CN1WatchBootstrap.m` enters the **watch**
+class, not the phone's.
+
+*Same class*: one translation, shared. Both entry points reach the same code, so
+a second pass would emit the same binary twice. The watch then boots the phone
+lifecycle and `CN.isWatch()` is what selects what it shows.
+
+Two consequences when diagnosing a watch build. Missing output is not
+automatically a Core Graphics problem any more: with separate roots it can be
+code the watch translation legitimately shook out, so check whether the watch
+root reaches it before looking at the backend. And watch UI belongs in the
+`watchMain` lifecycle -- putting it in the phone's will not run on the watch when
+the two differ.
+
+`WatchNativeBuilder.writeWatchEntry` generates the watch target's entry point:
+- `CN1WatchApp.swift` - the SwiftUI `@main` shell that starts `CN1WatchHost`
+  and forwards Digital Crown + tap input;
+- `CN1WatchBootstrap.m` - defines the `cn1_watch_*` hooks `CN1WatchHost` calls,
+  delegating to `cn1_watch_runtime_*` (implemented in `CN1WatchRuntime.m`), and
+  emits the app-specific `cn1_watch_app_main` that enters the regular main
+  class's `Stub.main`;
+- a Swift bridging header.
+
+Because the watch app is SwiftUI-`@main`-rooted, the shared ParparVM `int main()`
+(the phone entry) must not produce a second `main` symbol in the watch target.
+`applyXcodeSettings` neutralises it with a per-file `-Dmain=...` rename on the
+translated phone Stub, which keeps the app's translated classes available to the
+watch. (An earlier draft of this document described a `watchNative.phoneMainSource`
+hint that excluded the file outright; that hint never existed.)
+
+## Complete interactive app on the simulator — VERIFIED (2026-06-17)
+
+A complete multi-screen watch app runs on the watchOS 26.2 simulator through the
+**production pipeline** (`CN1WatchHost` timer pump -> `cn1_watch_paintFrame` ->
+`CN1CGGraphics` -> `presentFramebuffer` -> SwiftUI surface), driven by a
+watchMain-style lifecycle (`/tmp/watchspike/SpikeWatch/Sources/CN1SpikeWatchMain.m`):
+a scrollable home list (Weather/Steps/Heart Rate/Messages/Settings) with colored
+accent bars, Digital-Crown + drag scrolling, and tap navigation into per-item
+detail screens with a Back header. Home + detail both render correctly
+(`/tmp/watchspike/app_home.png`, `app_detail.png`). This exercises the full
+lifecycle -> host -> render -> input loop on real watchOS. Still pending for the
+*ParparVM-translated framework* app (vs this hand-written lifecycle): the per-op
+CG rollout below + ParparVM `arm64_32`/GC + the watch Stub emitting
+`cn1_watch_runtime_*`.
+
+## Phase 0 spike — PASSED (2026-06-17)
+
+The Core Graphics rendering foundation was validated on the real watchOS 26.2
+simulator (Xcode 26.3). A minimal watchOS SwiftUI app (`/tmp/watchspike/`) links
+`CN1CGGraphics` + `CN1WatchRenderingView` (compiled `arm64`, `-fno-objc-arc`) and
+renders a CN1-style form (title bar, button, separator line, Core Text labels,
+vertical gradient) full-screen at native 2x. Rebuild/run:
+```
+ruby /tmp/watchspike/gen_project.rb
+cd /tmp/watchspike/SpikeWatch && xcodebuild -target SpikeWatch -sdk watchsimulator \
+  -configuration Debug SYMROOT=/tmp/watchspike/sym build
+xcrun simctl install <udid> /tmp/watchspike/sym/Debug-watchsimulator/SpikeWatch.app
+xcrun simctl launch  <udid> com.codename1.spikewatch
+```
+Two real bugs were found + fixed during the spike (both in the canonical
+sources):
+1. `CN1WatchRenderingView`/`CN1WatchHost` delegate properties were `weak` —
+   illegal under the port's manual reference counting; changed to `assign`.
+2. `CN1CGBeginFrame` reset the CTM via `CGAffineTransformInvert`, discarding the
+   device scale `allocBitmap` had applied, so content drew at 1x in the
+   bottom-left corner. Now it saves the scaled base and only applies the
+   top-left flip on top (S0/S1 save-state model; `CN1CGEndFrame` pops both).
+
+What this proves: the CG backend compiles + runs on watchOS and the
+coordinate/scale model is correct. The per-op rollout below is now unblocked.
+What it does NOT yet prove: ParparVM C + GC on `arm64_32` (still the Phase 0
+runtime risk for the *real* translated app, vs. this hand-written spike).
+
+## Implemented (foundation)
+
+- **`CN1CGGraphics.{h,m}`** — Core Graphics rasterizer backend. Top-left
+  coordinate flip, color/alpha helpers, and primitives: fill/draw/clear rect,
+  line, polygon, image, tiled image, Core Text string, linear/radial gradient,
+  clip (rect + polygon, with CN1 replace-semantics emulated via gstate rebase),
+  and the affine transform stack.
+- **`CN1WatchRenderingView.{h,m}`** — `CN1RenderingView`-conforming surface
+  backed by a `CGBitmapContext`. `setFramebuffer` binds the context to
+  `CN1CGGraphics`; `presentFramebuffer` snapshots a `UIImage` and hands it to a
+  `CN1WatchFramePresenter` (the host).
+- **`CN1RenderingView.h`** — `addPeerComponent:` degrades to `id` on watchOS
+  (no `UIView`).
+- **Ops wired** (proven pattern, `#if TARGET_OS_WATCH` branch → `CN1CG*`):
+  `FillRect`, `DrawRect`, `ClearRect`, `DrawLine`.
+
+## Mechanical rollout (do after the Phase 0 on-device spike)
+
+Each remaining op gets the same treatment as `FillRect.m`:
+```objc
+#if TARGET_OS_WATCH
+-(void)execute { CN1CG<Primitive>(...); }
+#else
+   ... existing Metal ...
+#endif
+```
+
+Remaining ops and their `CN1CG*` target:
+
+| Op | Backend call | Notes |
+|----|--------------|-------|
+| `FillPolygon` | `CN1CGFillPolygon` | |
+| `DrawString` | `CN1CGDrawString` | header imports UIKit — guard it |
+| `DrawImage` | `CN1CGDrawImage` | use `[img getImage].CGImage` |
+| `TileImage` | `CN1CGTileImage` | as DrawImage |
+| `DrawGradient` | `CN1CGGradientRect` | |
+| `Scale` / `Rotate` | `CN1CGScale` / `CN1CGRotate` | Scale.m imports ClipRect.h (see below) |
+| `SetTransform` | `CN1CGSetAffine` | |
+| `ResetAffine` | `CN1CGResetAffine` | |
+| `ClipRect` | `CN1CGSetClipRect` / `CN1CGSetClipPolygon` | has a texture-handle ivar — guard |
+| `DrawPath` | (tessellate → `CN1CGFillPolygon`/path) | uses `Renderer*`; needs CG path build |
+| `DrawTextureAlphaMask` | `CN1CGDrawImage` of the mask | Metal only today |
+| `DrawMultiStopGradient` | extend `CN1CGGradientRect` | entirely inside `#ifdef CN1_USE_METAL` |
+| `RadialGradientPaint` | paint-state; map to gradient | |
+
+Shared headers needing `#if TARGET_OS_WATCH` / `#else` guards so the watch slice
+compiles (they pull UIKit / Metal):
+`GLUIImage.h` (keep the `UIImage` ivar + `getImage`; drop the texture members),
+`ClipRect.h`, `SetTransform.h`, `Rotate.h`, `RadialGradientPaint.h`,
+`DrawImage.h`, `TileImage.h`, `DrawString.h`, `DrawGradient.h`,
+`DrawTextureAlphaMask.h`, `DrawPath.h`/`Renderer.h`.
+
+Files **excluded** from the watch slice via
+`EXCLUDED_SOURCE_FILE_NAMES[sdk=watchos*]` (Metal-only, no watch substitute) —
+see `WatchNativeBuilder.applyXcodeSettings`:
+`METALView.m`, `CN1GL3D.m`,
+`CN1Metalcompat.m`, `CN1MetalGlyphAtlas.m`, `CN1MetalPipelineCache.m`,
+`DrawGradientTextureCache.m`, `DrawStringTextureCache.m`,
+`CodenameOne_GLViewController.xib`, `CodenameOne_GLSceneDelegate.m`.
+
+## Bootstrap (Phase 3)
+
+`CodenameOne_GLAppDelegate.m` / `CodenameOne_GLViewController.m` instantiate
+`CN1WatchRenderingView` instead of `METALView` and replace the
+`CADisplayLink` pump with a timer (see `CN1WatchHost`). The watch host
+(`CN1WatchHost.{h,m}`, SwiftUI/SpriteKit surface) owns the run loop and feeds
+Digital-Crown + tap input into the CN1 pointer/scroll event path.
+
+> Why staged: the per-op edits and header guards cannot be compile-verified
+> without the watchOS SDK + Xcode. The Phase 0 spike (ParparVM on `arm64_32`,
+> one CG frame on-device) must validate the toolchain before the full rollout is
+> worth committing. The foundation above is what the spike exercises.
+
+## watchOS 27: what actually changed (measured 2026-09-19, Xcode 27.1)
+
+Almost nothing that this port has to act on, and that is worth writing down so
+the next person does not re-derive it.
+
+**WatchKit, ClockKit and WatchConnectivity gain ZERO new headers** between
+`WatchOS26.2.sdk` and `WatchOS27.0.sdk`. The rendering contract, the
+complication surfaces and the phone-watch channel are all unchanged.
+
+What did change is **which frameworks the watch can link**. New on the watch in
+27: `FoundationModels`, `CoreAI`, `Vision`, `ThreadNetwork`, `NowPlaying`,
+`MediaIntents`, `LinkPresentation`, `AudioAccessoryKit`, `StateReporting`,
+`CrashReportExtension`, `_AppIntents_HealthKit` and several `_X_Y` interop
+shims. Plus `CMBody` / `CLBody` / `NIBody` -- body-identity protocols in
+CoreMotion, CoreLocation and NearbyInteraction, with no Codename One surface.
+
+Three entries in `WatchNativeBuilder`'s two lists were re-checked against the
+new SDKs, and the comments there now record the result:
+
+| Framework | WatchOS26.2 | WatchSim26.2 | WatchOS27.0 | WatchSim27.0 |
+|---|---|---|---|---|
+| `SceneKit` | present | present | present | present |
+| `BackgroundTasks` | present | **absent** | present | present |
+| `Vision` | absent | absent | **present** | **present** |
+
+`SceneKit` was never absent -- the comment claiming it was, was simply wrong,
+and harmlessly so: it is weak-linked either way because nothing on the watch
+slice references it. `BackgroundTasks` was the one framework whose availability
+differed between the device and simulator SDKs; that asymmetry is gone in 27.
+`Vision` is genuinely new on the watch.
+
+None of this moves a framework across the optional/linkable partition -- every
+absent framework is still weak-linked and every referenced one is still linked
+-- and `WatchNativeBuilderTest`'s 49 tests pass unchanged against the Xcode 27.1
+SDKs.
+
+`Vision` being present is the one that could become a feature: it is what
+`com.codename1.ai.vision` needs. It is not enough on its own -- `CN1Vision.m`
+would have to compile for `TARGET_OS_WATCH` first -- so the framework stays in
+the optional list as "present but unreferenced" until someone does that work.
+
+HealthKit's watch-relevant additions are covered separately: iOS/watchOS 27 add
+`HKLiveWorkoutZoneUpdate` and a `-workoutBuilder:didUpdateWorkoutZone:`
+delegate callback, which matter here because `CN1_HEALTH_WORKOUT_SESSION` is
+`TARGET_OS_WATCH`-gated in `CodenameOne_GLViewController.h`.
+
+`UIHinge` is `API_UNAVAILABLE(watchos)`, so `CN1Hinge.m` compiles to its
+"no hinge" answers on this slice. It needs no entry in `EXCLUDED_WATCH_SOURCES`:
+the guard is `__has_include(<UIKit/UIHingeInteraction.h>)`, and that header is
+absent from the watch SDK, so the file excludes itself.

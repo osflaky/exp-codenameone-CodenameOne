@@ -1,0 +1,349 @@
+(() => {
+  const CONSENT_KEY = "cn1-crisp-consent-v2";
+  const CONSENT_COOKIE = "cn1_crisp_consent_v2";
+  const WEBSITE_ID = "e0201fca-1e59-4f30-9d00-8c37aa18293e";
+  const CONSENT_TTL_DAYS = 365;
+  const CONVERSION_ARRIVAL_KEY = "cn1-conversion-arrival-v1";
+  const OSS_ATTRIBUTION_KEY = "cn1-oss-attribution-v1";
+  const OSS_VALUE_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+  const readCookie = (name) => {
+    const prefix = `${name}=`;
+    const found = document.cookie
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(prefix));
+    return found ? decodeURIComponent(found.substring(prefix.length)) : null;
+  };
+
+  const writeCookie = (name, value, days) => {
+    const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toUTCString();
+    document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
+  };
+
+  const getConsent = () => {
+    const cookieValue = readCookie(CONSENT_COOKIE);
+    if (cookieValue === "accepted" || cookieValue === "declined") {
+      return cookieValue;
+    }
+    try {
+      const storageValue = localStorage.getItem(CONSENT_KEY);
+      if (storageValue === "accepted" || storageValue === "declined") {
+        return storageValue;
+      }
+    } catch (e) {
+      // no-op
+    }
+    return null;
+  };
+
+  const setConsent = (value) => {
+    writeCookie(CONSENT_COOKIE, value, CONSENT_TTL_DAYS);
+    try {
+      localStorage.setItem(CONSENT_KEY, value);
+    } catch (e) {
+      // no-op
+    }
+  };
+
+  const readOssAttribution = () => {
+    if (getConsent() !== "accepted") {
+      return null;
+    }
+    try {
+      const raw = sessionStorage.getItem(OSS_ATTRIBUTION_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const captureOssAttribution = () => {
+    if (getConsent() !== "accepted") {
+      return null;
+    }
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.get("utm_medium") !== "oss") {
+      return readOssAttribution();
+    }
+    const source = params.get("utm_source") || "";
+    const campaign = params.get("utm_campaign") || "";
+    const content = params.get("utm_content") || "";
+    if (!OSS_VALUE_PATTERN.test(source) || !OSS_VALUE_PATTERN.test(campaign) ||
+        (content && !OSS_VALUE_PATTERN.test(content))) {
+      return readOssAttribution();
+    }
+    const attribution = {
+      source,
+      campaign,
+      page: window.location.pathname || "/"
+    };
+    if (content) {
+      attribution.content = content;
+    }
+    try {
+      sessionStorage.setItem(OSS_ATTRIBUTION_KEY, JSON.stringify(attribution));
+    } catch (e) {
+      // Keep the attribution for this view even when sessionStorage is unavailable.
+    }
+    return attribution;
+  };
+
+  const withOssAttribution = (data) => {
+    const attribution = captureOssAttribution();
+    if (!attribution) {
+      return data;
+    }
+    const enriched = Object.assign({}, data || {}, {
+      oss_source: attribution.source,
+      oss_campaign: attribution.campaign
+    });
+    if (attribution.content) {
+      enriched.oss_content = attribution.content;
+    }
+    return enriched;
+  };
+
+  // --- Crisp trigger events -------------------------------------------------
+  // Pages and product surfaces explicitly call the matching function below. This
+  // shared script handles consent, timing, and deduplication; it never guesses user
+  // intent from the current URL.
+  const firedThisView = {};
+  const pendingEvents = {};
+
+  const crispEventDedupeName = (name, data) =>
+    data && data.action ? `${name}-${data.action}` : name;
+  const crispEventSessionKey = (name, data) =>
+    `cn1-crisp-ev-${crispEventDedupeName(name, data)}`;
+
+  const fireCrispEvent = (name, data) => {
+    // Consent can change after a page schedules a dwell event. Check it at the
+    // moment the event fires, before touching either deduplication guard.
+    const dedupeName = crispEventDedupeName(name, data);
+    if (getConsent() !== "accepted" || !window.$crisp || firedThisView[dedupeName]) {
+      return false;
+    }
+    try {
+      const sessionKey = crispEventSessionKey(name, data);
+      if (sessionStorage.getItem(sessionKey)) {
+        return false; // already fired earlier this session
+      }
+    } catch (e) {
+      // sessionStorage unavailable (private mode) — use the per-view guard only
+    }
+    try {
+      const event = data ? [name, data, "blue"] : [name];
+      window.$crisp.push(["set", "session:event", [[event]]]);
+      firedThisView[dedupeName] = true;
+      try {
+        sessionStorage.setItem(crispEventSessionKey(name, data), "1");
+      } catch (e) {
+        // sessionStorage unavailable — the per-view guard still applies
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+
+  const requestCrispEvent = (name, data) => {
+    const consent = getConsent();
+    if (consent === null) {
+      // The page requested the event before the visitor answered the consent
+      // banner. Remember the request, but don't mark it as fired.
+      pendingEvents[name] = data || null;
+      return false;
+    }
+    return consent === "accepted" && fireCrispEvent(name, data);
+  };
+
+  const flushPendingEvents = () => {
+    Object.keys(pendingEvents).forEach((name) => {
+      const data = pendingEvents[name];
+      delete pendingEvents[name];
+      fireCrispEvent(name, data);
+    });
+  };
+
+  const clearPendingEvents = () => {
+    Object.keys(pendingEvents).forEach((name) => delete pendingEvents[name]);
+  };
+
+  const scheduleCrispEvent = (name, delay, data) => {
+    window.setTimeout(() => requestCrispEvent(name, data), delay);
+  };
+
+  // Explicit hooks for the pages and product surfaces that own each event.
+  const crispEvents = window.cn1CrispEvents || {};
+  crispEvents.consoleDwell60 = (data) => scheduleCrispEvent(
+    "ConsoleDwell60", 60000, data || { page: "console" }
+  );
+  crispEvents.signingScreenView = (data) => requestCrispEvent(
+    "SigningScreenView", data || { page: "signing" }
+  );
+  // Keep the original console-facing name as an alias.
+  crispEvents.signingScreenOpen = (data) => requestCrispEvent(
+    "SigningScreenView", data || { page: "console" }
+  );
+  crispEvents.buildError = (data) => requestCrispEvent("BuildError", data);
+  crispEvents.conversionClick = (data) => requestCrispEvent(
+    "ConversionClick", withOssAttribution(data)
+  );
+  crispEvents.gettingStartedDwell = (data) => scheduleCrispEvent(
+    "GettingStartedDwell", 20000, data
+  );
+  crispEvents.initializrProjectDownloaded = (data) => requestCrispEvent(
+    "InitializrProjectDownloaded", data || { page: "/initializr/" }
+  );
+  crispEvents.pricingEvaluator = (data) => {
+    const firePricing = () => requestCrispEvent("PricingEvaluator", data);
+    window.setTimeout(firePricing, 30000);
+    document.addEventListener("mouseout", (event) => {
+      if (!event.relatedTarget && event.clientY <= 0) {
+        firePricing();
+      }
+    });
+  };
+  window.cn1CrispEvents = crispEvents;
+
+  const reportOssArrival = () => {
+    const attribution = captureOssAttribution();
+    if (!attribution) {
+      return;
+    }
+    const data = {
+      source: attribution.source,
+      campaign: attribution.campaign,
+      page: attribution.page
+    };
+    if (attribution.content) {
+      data.content = attribution.content;
+    }
+    requestCrispEvent("OssArrival", data);
+  };
+
+  const consumeConversionArrival = () => {
+    let raw;
+    try {
+      raw = sessionStorage.getItem(CONVERSION_ARRIVAL_KEY);
+      if (!raw) return;
+      sessionStorage.removeItem(CONVERSION_ARRIVAL_KEY);
+    } catch (e) {
+      return;
+    }
+
+    try {
+      const arrival = JSON.parse(raw);
+      const current = `${window.location.pathname}${window.location.search}`;
+      const referrer = document.referrer ? new URL(document.referrer) : null;
+      const referrerPath = referrer ? `${referrer.pathname}${referrer.search}` : "";
+      const isFresh = Number.isFinite(arrival.createdAt) && Date.now() - arrival.createdAt < 10 * 60 * 1000;
+      if (arrival.action && arrival.destination === current && isFresh && referrer &&
+          referrer.origin === window.location.origin && referrerPath === arrival.source) {
+        crispEvents.conversionClick({
+          action: arrival.action,
+          page: arrival.source,
+          destination: current
+        });
+      }
+    } catch (e) {
+      // Ignore malformed or stale navigation state.
+    }
+  };
+  const loadCrisp = () => {
+    if (window.CRISP_WEBSITE_ID || document.getElementById("cn1-crisp-loader")) {
+      return;
+    }
+    window.$crisp = window.$crisp || [];
+    window.CRISP_WEBSITE_ID = WEBSITE_ID;
+    const d = document;
+    const s = d.createElement("script");
+    s.id = "cn1-crisp-loader";
+    s.src = "https://client.crisp.chat/l.js";
+    s.async = true;
+    d.head.appendChild(s);
+  };
+
+  const hideCrisp = () => {
+    if (!window.$crisp) {
+      return;
+    }
+    try {
+      window.$crisp.push(["do", "chat:hide"]);
+    } catch (e) {
+      // no-op
+    }
+    const crispNode = document.querySelector(".crisp-client");
+    if (crispNode) {
+      crispNode.style.display = "none";
+    }
+  };
+
+  const banner = document.querySelector("[data-cn1-cookie-banner]");
+  const acceptBtn = document.querySelector("[data-cn1-cookie-accept]");
+  const declineBtn = document.querySelector("[data-cn1-cookie-decline]");
+
+  const closeBanner = () => {
+    if (banner) {
+      banner.setAttribute("hidden", "hidden");
+      banner.style.display = "none";
+    }
+  };
+
+  const openBanner = () => {
+    if (banner) {
+      banner.removeAttribute("hidden");
+      banner.style.display = "flex";
+    }
+  };
+
+  const acceptConsent = () => {
+    setConsent("accepted");
+    closeBanner();
+    loadCrisp();
+    reportOssArrival();
+    flushPendingEvents();
+  };
+
+  const declineConsent = () => {
+    setConsent("declined");
+    clearPendingEvents();
+    closeBanner();
+    hideCrisp();
+  };
+
+  const consent = getConsent();
+  if (consent === "accepted") {
+    loadCrisp();
+    closeBanner();
+    reportOssArrival();
+  } else if (consent === "declined") {
+    hideCrisp();
+    closeBanner();
+  } else {
+    openBanner();
+  }
+  consumeConversionArrival();
+
+  if (acceptBtn) {
+    acceptBtn.addEventListener("click", acceptConsent);
+  }
+
+  if (declineBtn) {
+    declineBtn.addEventListener("click", declineConsent);
+  }
+
+  document.querySelectorAll("[data-cn1-enable-chat]").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      openBanner();
+    });
+  });
+
+  document.querySelectorAll("[data-cn1-manage-chat]").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      openBanner();
+    });
+  });
+})();

@@ -1,0 +1,330 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.certificatewizard.api;
+
+import com.codename1.util.OnComplete;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+public final class MockSigningService implements SigningService {
+    private SigningState.Credential credential = new SigningState.Credential(true, "ABCD1234EF",
+            "11111111-2222-3333-4444-555555555555");
+    private final List<SigningState.Certificate> certificates = new ArrayList<SigningState.Certificate>();
+    private final List<SigningState.BundleId> bundles = new ArrayList<SigningState.BundleId>();
+    private final List<SigningState.Device> devices = new ArrayList<SigningState.Device>();
+    private final List<SigningState.Profile> profiles = new ArrayList<SigningState.Profile>();
+    private final List<SigningState.ApnsKey> apns = new ArrayList<SigningState.ApnsKey>();
+    private final List<SigningState.AppGroup> appGroups = new ArrayList<SigningState.AppGroup>();
+    private final Map<String, List<String>> appGroupAssociations = new LinkedHashMap<String, List<String>>();
+    private final List<String> pushEnabledOn = new ArrayList<String>();
+    private final List<String> callLog = new ArrayList<String>();
+    private String pushCapabilityFailure;
+    private String profileDeletionFailure;
+    private int deletedProfileAttempts;
+    private final List<Long> deletedProfileIds = new ArrayList<Long>();
+    private long seq = 100;
+
+    public MockSigningService() {
+        long now = System.currentTimeMillis();
+        certificates.add(new SigningState.Certificate(1L, "CERT9F2A", "IOS_DISTRIBUTION",
+                "App Store Distribution", "4A2B9C7E11F0", now + 312L * 86400000L, "ACTIVE", true));
+        certificates.add(new SigningState.Certificate(2L, "CERT3B7C", "IOS_DEVELOPMENT",
+                "Development", "88DE1140AA92", now + 27L * 86400000L, "ACTIVE", true));
+        certificates.add(new SigningState.Certificate(3L, "CERTMAC1", "MAC_APP_DISTRIBUTION",
+                "Mac App Store Distribution", "MACD1140AA92", now + 300L * 86400000L, "ACTIVE", true));
+        certificates.add(new SigningState.Certificate(4L, "CERTDEV1", "DEVELOPER_ID_APPLICATION",
+                "Developer ID Application", "DEVID140AA92", now + 300L * 86400000L, "ACTIVE", true));
+        // Reconciled from Apple, so the cloud holds no private key for it. A profile can still be
+        // created against it -- only exporting the .p12 afterwards needs the key.
+        certificates.add(new SigningState.Certificate(5L, "CERTSYNC", "IOS_DISTRIBUTION",
+                "Synced App Store Distribution", "5A3C0D8E22A1", now + 200L * 86400000L, "ACTIVE", false));
+        bundles.add(new SigningState.BundleId("BID_A1", "com.example.myapp", "My App", "IOS", true));
+        bundles.add(new SigningState.BundleId("BID_B2", "com.example.watch", "Watch App", "IOS", false));
+        bundles.add(new SigningState.BundleId("BID_MAC", "com.example.myapp", "My App Mac", "MAC_OS", true));
+        // null push: what the real service reports for every App ID, because the listing
+        // endpoint carries no capabilities at all. The wizard has to render that as unknown
+        // rather than as off (issue #5657).
+        bundles.add(new SigningState.BundleId("BID_C3", "com.example.legacy", "Legacy App", "IOS", null));
+        // Registered for macOS and nothing else, which is what an account looks like after
+        // Mac signing was set up for a project before anything else was.
+        bundles.add(new SigningState.BundleId("BID_MACONLY", "com.example.macapp", "Mac Only App",
+                "MAC_OS", null));
+        // One App ID serving both platforms, which is what Apple's UNIVERSAL registration
+        // is: a capability change on it changes what EVERY profile issued from it was a
+        // snapshot of, iOS and Mac alike.
+        bundles.add(new SigningState.BundleId("BID_UNIV", "com.example.universal", "Universal App",
+                "UNIVERSAL", null));
+        devices.add(new SigningState.Device("DEV_1", "Shai's iPhone", "00008120-000A1C3E0C68201E", "IOS", "ENABLED"));
+        devices.add(new SigningState.Device("DEV_2", "QA iPad", "00008027-0004450E2688002E", "IOS", "ENABLED"));
+        // A retired device is still on the account and Apple rejects a profile request naming it,
+        // so the pickers have to leave it out.
+        devices.add(new SigningState.Device("DEV_3", "Retired iPhone", "00008030-001A2B3C4D5E6F70", "IOS", "DISABLED"));
+        profiles.add(new SigningState.Profile(1L, "PRF_STORE", "My App App Store", "IOS_APP_STORE",
+                "com.example.myapp", "STORE-UUID", now + 312L * 86400000L, "ACTIVE"));
+        profiles.add(new SigningState.Profile(2L, "PRF_DEV", "My App Development", "IOS_APP_DEVELOPMENT",
+                "com.example.myapp", "DEV-UUID", now + 27L * 86400000L, "ACTIVE"));
+        profiles.add(new SigningState.Profile(3L, "PRF_MAC_STORE", "My App Mac App Store", "MAC_APP_STORE",
+                "com.example.myapp", "MAC-STORE-UUID", now + 300L * 86400000L, "ACTIVE"));
+        profiles.add(new SigningState.Profile(4L, "PRF_MAC_DIRECT", "My App Developer ID", "MAC_APP_DIRECT",
+                "com.example.myapp", "MAC-DIRECT-UUID", now + 300L * 86400000L, "ACTIVE"));
+        apns.add(new SigningState.ApnsKey("A1B2C3D4E5", "9WQ7X2K4LM", "Production APNs",
+                now - 120L * 86400000L));
+    }
+
+    public void refresh(OnComplete<Result<SigningState>> callback) {
+        callback.completed(Result.ok(snapshot()));
+    }
+
+    public void saveCredential(String keyId, String issuerId, String privateKeyP8, OnComplete<Result<Void>> callback) {
+        credential = new SigningState.Credential(true, keyId, issuerId);
+        callback.completed(Result.ok(null));
+    }
+
+    public void deleteCredential(OnComplete<Result<Void>> callback) {
+        credential = new SigningState.Credential(false, null, null);
+        callback.completed(Result.ok(null));
+    }
+
+    public void createCertificate(String certificateType, String displayName, OnComplete<Result<Void>> callback) {
+        long id = ++seq;
+        certificates.add(new SigningState.Certificate(id, "CERT" + id, certificateType,
+                displayName == null || displayName.isEmpty() ? certificateType : displayName,
+                "SER" + id, System.currentTimeMillis() + 365L * 86400000L, "ACTIVE", true));
+        callback.completed(Result.ok(null));
+    }
+
+    public void reconcile(OnComplete<Result<Void>> callback) {
+        callback.completed(Result.ok(null));
+    }
+
+    public void revokeCertificate(Long id, OnComplete<Result<Void>> callback) {
+        for (int i = 0; i < certificates.size(); i++) {
+            SigningState.Certificate c = certificates.get(i);
+            if (c.id().equals(id)) {
+                certificates.set(i, new SigningState.Certificate(c.id(), c.appleCertId(), c.certificateType(),
+                        c.displayName(), c.serialNumber(), c.expiresAt(), "REVOKED", c.privateKeyPresent()));
+            }
+        }
+        callback.completed(Result.ok(null));
+    }
+
+    public void createBundleId(String identifier, String name, String platform, boolean push,
+                               OnComplete<Result<Void>> callback) {
+        bundles.add(new SigningState.BundleId("BID_" + (++seq), identifier, name,
+                platform == null || platform.trim().length() == 0 ? "IOS" : platform, push));
+        callback.completed(Result.ok(null));
+    }
+
+    public void createAppGroup(String identifier, String name, OnComplete<Result<SigningState.AppGroup>> callback) {
+        for (SigningState.AppGroup g : appGroups) {
+            if (g.identifier() != null && g.identifier().equals(identifier)) {
+                callback.completed(Result.ok(g));
+                return;
+            }
+        }
+        SigningState.AppGroup created = new SigningState.AppGroup("GRP_" + (++seq), identifier, name);
+        appGroups.add(created);
+        callback.completed(Result.ok(created));
+    }
+
+    public void enableAppGroupCapability(String bundleIdAppleId, List<String> appGroupIds,
+                                         OnComplete<Result<Void>> callback) {
+        appGroupAssociations.put(bundleIdAppleId,
+                appGroupIds == null ? new ArrayList<String>() : new ArrayList<String>(appGroupIds));
+        callback.completed(Result.ok(null));
+    }
+
+    public void enablePushCapability(String bundleIdAppleId, OnComplete<Result<Void>> callback) {
+        callLog.add("enablePush:" + bundleIdAppleId);
+        if (pushCapabilityFailure != null) {
+            callback.completed(Result.<Void>fail(pushCapabilityFailure));
+            return;
+        }
+        pushEnabledOn.add(bundleIdAppleId);
+        for (int i = 0; i < bundles.size(); i++) {
+            SigningState.BundleId b = bundles.get(i);
+            if (b.id() != null && b.id().equals(bundleIdAppleId)) {
+                bundles.set(i, new SigningState.BundleId(b.id(), b.identifier(), b.name(), b.platform(),
+                        Boolean.TRUE));
+            }
+        }
+        callback.completed(Result.ok(null));
+    }
+
+    /// The App IDs push has been asserted on, so a test can tell "the wizard asked" from
+    /// "the App ID happened to have it already".
+    public List<String> pushEnabledOn() {
+        return new ArrayList<String>(pushEnabledOn);
+    }
+
+    /// Marks every profile of this bundle INVALID, which is what Apple does to the
+    /// profiles issued before a capability change.
+    public void invalidateProfilesFor(String bundleIdentifier) {
+        for (int i = 0; i < profiles.size(); i++) {
+            SigningState.Profile p = profiles.get(i);
+            if (bundleIdentifier != null && bundleIdentifier.equals(p.bundleId())) {
+                profiles.set(i, new SigningState.Profile(p.id(), p.appleProfileId(), p.name(),
+                        p.profileType(), p.bundleId(), p.uuid(), p.expiresAt(), "INVALID"));
+            }
+        }
+    }
+
+    /// Makes profile deletion fail with `message`, or succeed again when given null.
+    public void failProfileDeletion(String message) {
+        profileDeletionFailure = message;
+    }
+
+    /// How many times a delete was attempted, so a test can tell a retry from a run that
+    /// decided the profile had already been dealt with.
+    public int deletedProfileAttempts() {
+        return deletedProfileAttempts;
+    }
+
+    /// Which profiles a delete was attempted on, in order. A run retiring several invalid
+    /// profiles makes a bare count useless: what says the guard was reset is the SAME
+    /// profile being attempted a second time.
+    public List<Long> deletedProfileIds() {
+        return new ArrayList<Long>(deletedProfileIds);
+    }
+
+    /// Makes every push capability call fail with `message`, so a test can read the
+    /// diagnostic the wizard puts up rather than only the happy path.
+    public void failPushCapability(String message) {
+        pushCapabilityFailure = message;
+    }
+
+    /// Every call that changed something, in the order it arrived. A profile is a snapshot
+    /// of an App ID's capabilities, so WHEN a capability was changed relative to the
+    /// profiles issued from it is the thing a test has to be able to see.
+    public List<String> callLog() {
+        return new ArrayList<String>(callLog);
+    }
+
+    /// Moves one App ID to the front of the listing.
+    ///
+    /// Apple returns an account's bundle IDs in no documented order, so an identifier
+    /// registered for both platforms can come back either way round. A caller that
+    /// resolves such an identifier without saying which platform it means gets whichever
+    /// happens to be first, and a test has to be able to say "the macOS record was".
+    public void moveBundleToFront(String appleId) {
+        for (int i = 0; i < bundles.size(); i++) {
+            if (bundles.get(i).id() != null && bundles.get(i).id().equals(appleId)) {
+                bundles.add(0, bundles.remove(i));
+                return;
+            }
+        }
+    }
+
+    /// Drops every App ID registered for `platform`, so a test can build the account shape
+    /// where the identifiers on file are all for the other one.
+    public void removeBundlesForPlatform(String platform) {
+        for (int i = bundles.size() - 1; i >= 0; i--) {
+            String p = bundles.get(i).platform();
+            if (p != null && p.equals(platform)) {
+                bundles.remove(i);
+            }
+        }
+    }
+
+    public List<String> appGroupAssociation(String bundleIdAppleId) {
+        List<String> assoc = appGroupAssociations.get(bundleIdAppleId);
+        return assoc == null ? new ArrayList<String>() : new ArrayList<String>(assoc);
+    }
+
+    public void registerDevice(String name, String udid, String platform, OnComplete<Result<Void>> callback) {
+        String plat = platform == null || platform.trim().isEmpty() ? "IOS" : platform.trim();
+        devices.add(new SigningState.Device("DEV_" + (++seq), name, udid, plat, "ENABLED"));
+        callback.completed(Result.ok(null));
+    }
+
+    public void createProfile(String name, String profileType, String bundleIdAppleId, List<String> certificateAppleIds,
+                              List<String> deviceAppleIds, OnComplete<Result<Void>> callback) {
+        callLog.add("createProfile:" + bundleIdAppleId);
+        String bundle = bundleIdAppleId;
+        for (SigningState.BundleId b : bundles) {
+            if (b.id().equals(bundleIdAppleId)) {
+                bundle = b.identifier();
+            }
+        }
+        profiles.add(new SigningState.Profile(++seq, "PRF_" + seq, name, profileType, bundle,
+                "UUID-" + seq, System.currentTimeMillis() + 365L * 86400000L, "ACTIVE"));
+        callback.completed(Result.ok(null));
+    }
+
+    public void deleteProfile(Long id, OnComplete<Result<Void>> callback) {
+        deletedProfileAttempts++;
+        deletedProfileIds.add(id);
+        if (profileDeletionFailure != null) {
+            callback.completed(Result.<Void>fail(profileDeletionFailure));
+            return;
+        }
+        for (int i = profiles.size() - 1; i >= 0; i--) {
+            if (profiles.get(i).id().equals(id)) {
+                profiles.remove(i);
+            }
+        }
+        callback.completed(Result.ok(null));
+    }
+
+    public void saveApnsKey(String keyId, String teamId, String privateKeyP8, String displayName,
+                            OnComplete<Result<Void>> callback) {
+        apns.add(new SigningState.ApnsKey(keyId, teamId, displayName, System.currentTimeMillis()));
+        callback.completed(Result.ok(null));
+    }
+
+    public void deleteApnsKey(String keyId, OnComplete<Result<Void>> callback) {
+        for (int i = apns.size() - 1; i >= 0; i--) {
+            if (apns.get(i).keyId().equals(keyId)) {
+                apns.remove(i);
+            }
+        }
+        callback.completed(Result.ok(null));
+    }
+
+    public void clearSigningData(OnComplete<Result<Void>> callback) {
+        credential = new SigningState.Credential(false, null, null);
+        certificates.clear();
+        bundles.clear();
+        devices.clear();
+        profiles.clear();
+        apns.clear();
+        appGroups.clear();
+        appGroupAssociations.clear();
+        callback.completed(Result.ok(null));
+    }
+
+    public void downloadP12(Long certificateId, String password, String suggestedName, OnComplete<Result<String>> callback) {
+        callback.completed(Result.ok("/tmp/" + suggestedName));
+    }
+
+    public void downloadProfile(Long profileId, String suggestedName, OnComplete<Result<String>> callback) {
+        callback.completed(Result.ok("/tmp/" + suggestedName));
+    }
+
+    private SigningState snapshot() {
+        return new SigningState(credential, certificates, bundles, devices, profiles, apns, appGroups);
+    }
+}

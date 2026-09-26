@@ -1,0 +1,314 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.ui;
+
+import com.codename1.ui.geom.Rectangle2D;
+import com.codename1.util.MathUtil;
+
+import static com.codename1.ui.MultipleGradientPaint.CycleMethod.REFLECT;
+
+/// LinearGradientPaint provides a way to fill a `Shape` with a linear gradient.
+///
+/// @author shannah
+///
+/// #### See also
+///
+/// - Graphics#setColor(com.codename1.ui.Paint)
+public class LinearGradientPaint extends MultipleGradientPaint {
+    private final double startX;
+    private final double startY;
+    private final double endX;
+    private final double endY;
+    private final Transform t = Transform.makeIdentity();
+    private final Transform t2 = Transform.makeIdentity();
+
+    /// Creates a LinearGradientPaint with the specified settings.
+    ///
+    /// #### Parameters
+    ///
+    /// - `startX`: The startX coordinate of the gradient in user space.
+    ///
+    /// - `startY`: The startY coordinate of the gradient in user space.
+    ///
+    /// - `endX`: The endX coordinate of the gradient in user space.
+    ///
+    /// - `endY`: THe endY coordinate of the gradient in user space.
+    ///
+    /// - `fractions`: Fractional positions of where gradient colors begin.  Each value should be between 0 and 1.
+    ///
+    /// - `colors`: The colors to use in the gradient.  There should be the same number of colors as there are fractions.
+    ///
+    /// - `cycleMethod`: The cycle method to use.
+    ///
+    /// - `colorSpace`: The color space to use.
+    ///
+    /// - `gradientTransform`: Transform to use for the gradient.  Not used right now.
+    public LinearGradientPaint(float startX, float startY, float endX, float endY, float[] fractions, int[] colors, MultipleGradientPaint.CycleMethod cycleMethod, MultipleGradientPaint.ColorSpaceType colorSpace, Transform gradientTransform) {
+        super(fractions, colors, cycleMethod, colorSpace, gradientTransform);
+        this.startX = startX;
+        this.startY = startY;
+        this.endX = endX;
+        this.endY = endY;
+    }
+
+    /// Creates a LinearGradientPaint with the specified settings.
+    ///
+    /// #### Parameters
+    ///
+    /// - `startX`: The startX coordinate of the gradient in user space.
+    ///
+    /// - `startY`: The startY coordinate of the gradient in user space.
+    ///
+    /// - `endX`: The endX coordinate of the gradient in user space.
+    ///
+    /// - `endY`: THe endY coordinate of the gradient in user space.
+    ///
+    /// - `fractions`: Fractional positions of where gradient colors begin.  Each value should be between 0 and 1.
+    ///
+    /// - `colors`: The colors to use in the gradient.  There should be the same number of colors as there are fractions.
+    ///
+    /// - `cycleMethod`: The cycle method to use.
+    ///
+    /// - `colorSpace`: The color space to use.
+    ///
+    /// - `gradientTransform`: Transform to use for the gradient.  Not used right now.
+    public LinearGradientPaint(double startX, double startY, double endX, double endY, float[] fractions, int[] colors, MultipleGradientPaint.CycleMethod cycleMethod, MultipleGradientPaint.ColorSpaceType colorSpace, Transform gradientTransform) {
+        super(fractions, colors, cycleMethod, colorSpace, gradientTransform);
+        this.startX = startX;
+        this.startY = startY;
+        this.endX = endX;
+        this.endY = endY;
+    }
+
+    /// Paints linear gradient in the given bounds.
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`
+    ///
+    /// - `bounds`
+    @Override
+    public final void paint(Graphics g, Rectangle2D bounds) {
+        paint(g, bounds.getX(), bounds.getY(), bounds.getWidth(), bounds.getHeight());
+    }
+
+    private double insetStartLength(double w, double h) {
+        return Math.max(w, h);
+    }
+
+    private double insetEndLength(double w, double h) {
+        return Math.max(w, h);
+    }
+
+    private double length() {
+        double x = endX - startX;
+        double y = endY - startY;
+        return Math.sqrt(x * x + y * y);
+    }
+
+    private double theta() {
+        if (length() == 0) {
+            return 0;
+        }
+        return thetaDirection() * MathUtil.acos((endX - startX) / length());
+    }
+
+    private int thetaDirection() {
+        if (endY >= startY) {
+            return 1;
+        } else {
+            return -1;
+        }
+    }
+
+    private int[] reverseColors() {
+        int[] colors = getColors();
+        int len = colors.length;
+        int[] out = new int[len];
+        for (int i = 0; i < len; i++) {
+            out[i] = colors[len - i - 1];
+        }
+        return out;
+    }
+
+    private float[] reverseFractions() {
+        float[] fractions = getFractions();
+        int len = fractions.length;
+        float[] out = new float[len];
+        for (int i = 0; i < len; i++) {
+            out[i] = 1f - fractions[len - i - 1];
+        }
+        return out;
+    }
+
+    /// Painds the linear gradient in the given bounds.
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`
+    ///
+    /// - `x`
+    ///
+    /// - `y`
+    ///
+    /// - `w`
+    ///
+    /// - `h`
+    @Override
+    @SuppressWarnings("UnusedFormalParameter")
+    public void paint(Graphics g, double x, double y, double w, double h) {
+        paint(g, w, h, true);
+    }
+
+    private void paint(Graphics g, double w, double h, boolean processCycles) {
+        Paint p = g.getPaint();
+        int[] colors = getColors();
+        float[] fractions = getFractions();
+
+        double theta = theta();
+        double pw = length();
+        double ph = Math.max(w, h) * 2;
+
+
+        g.getTransform(t);
+        t2.setTransform(t);
+        if (getTransform() != null) {
+            t2.concatenate(getTransform());
+        }
+        // Build the gradient frame on top of the caller's transform. The
+        // previous version captured `g.getTranslateX()/getTranslateY()` and
+        // baked them into `t2.translate(startX + tx, startY + ty)`, then
+        // zeroed `g.translate(-tx, -ty)` before `g.setTransform(t2)`. On
+        // ports where `isTranslationSupported()` is false (iOS, Android,
+        // JavaSE -- every active port today), Graphics already conjugates
+        // setTransform with `T(xTranslate)` so the user matrix operates in
+        // local coordinates regardless of prior g.translate; that
+        // conjugation re-applies the cell offset at the *screen* level
+        // automatically. Baking `tx, ty` into a translate that sits
+        // *inside* the SVG / theme scale meant the cell offset went
+        // through the scale a second time, shifting the gradient fill
+        // away from the stroke. Most visible on SVGStaticScreenshotTest's
+        // gradient_circle, where the filled circle appeared stacked below
+        // the dark-blue outline on Android (and would have appeared the
+        // same on iOS Metal once the triangle-clip bug was unmasked).
+        // Just build `t * Translate(startX, startY) * Rotate * Translate(0,
+        // -ph/2)` and let Graphics.setTransform's existing conjugation
+        // restore the screen-level offset.
+        t2.translate((float) startX, (float) startY);
+        t2.rotate((float) theta, 0, 0);
+        t2.translate(0, -(float) ph / 2);
+
+        g.setTransform(t2);
+        int len = Math.min(colors.length, fractions.length);
+        int alpha = g.getAlpha();
+        int gradientTrans = getTransparency();
+        if (getTransparency() < 0xff) {
+            g.setAlpha((int) (alpha * gradientTrans / 255.0));
+        }
+        if (processCycles) {
+            switch (getCycleMethod()) {
+                case NO_CYCLE: {
+
+                    g.setColor(colors[0]);
+                    g.fillRect((int) Math.floor(-insetStartLength(w, h)), 0, (int) Math.ceil(insetStartLength(w, h)) + 1, (int) Math.round(ph));
+                    break;
+                }
+                case REPEAT:
+                case REFLECT: {
+                    int currPos = 0;
+                    int endPos = (int) Math.floor(-insetStartLength(w, h));
+                    int iter = 0;
+
+                    while (currPos > endPos) {
+                        int[] cols = getColors();
+                        float[] fracs = getFractions();
+                        if (iter % 2 == 0 && getCycleMethod() == REFLECT) {
+                            cols = reverseColors();
+                            fracs = reverseFractions();
+                        }
+                        for (int i = 0; i < len - 1; i++) {
+                            int x1 = (int) Math.round(currPos - fracs[i] * pw);
+                            int x2 = (int) Math.round(currPos - fracs[i + 1] * pw);
+                            g.fillLinearGradient(cols[i], cols[i + 1], x1, 0, Math.abs(x2 - x1), (int) Math.round(ph), true);
+                        }
+                        currPos -= pw;
+                        iter++;
+                    }
+                }
+
+            }
+        }
+        for (int i = 0; i < len - 1; i++) {
+            int x1 = (int) Math.round(fractions[i] * pw);
+            int x2 = (int) Math.round(fractions[i + 1] * pw);
+            g.fillLinearGradient(colors[i], colors[i + 1], x1, 0, x2 - x1, (int) Math.round(ph), true);
+        }
+        if (processCycles) {
+            switch (getCycleMethod()) {
+                case NO_CYCLE: {
+
+                    g.setColor(colors[len - 1]);
+                    g.fillRect((int) Math.floor(pw) - 1, 0, (int) Math.ceil(insetEndLength(w, h)), (int) Math.round(ph));
+                    break;
+                }
+                case REPEAT:
+                case REFLECT: {
+                    int currPos = 0;
+                    int endPos = (int) Math.ceil(insetEndLength(w, h));
+                    int iter = 0;
+
+                    while (currPos < endPos) {
+                        int[] cols = getColors();
+                        float[] fracs = getFractions();
+                        if (iter % 2 == 0 && getCycleMethod() == REFLECT) {
+                            cols = reverseColors();
+                            fracs = reverseFractions();
+                        }
+                        for (int i = 0; i < len - 1; i++) {
+                            int x1 = (int) Math.round(currPos + fracs[i] * pw);
+                            int x2 = (int) Math.round(currPos + fracs[i + 1] * pw);
+                            g.fillLinearGradient(cols[i], cols[i + 1], x1, 0, Math.abs(x2 - x1), (int) Math.round(ph), true);
+                        }
+                        currPos += pw;
+                        iter++;
+                    }
+                }
+
+            }
+        }
+        /*
+        if (pEndX < pw) {
+            g.setColor(colors[len-1]);
+            g.fillRect((int)Math.round(pEndX), 0, (int)Math.round(pw-pEndX), (int)Math.round(ph));
+        }*/
+        g.setAlpha(alpha);
+        g.setTransform(t);
+        if (p != null) {
+            g.setColor(p);
+        }
+
+
+    }
+
+
+}

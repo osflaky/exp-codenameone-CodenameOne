@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- You may freely edit this file. See commented blocks below for -->
+<!-- some examples of how to customize the build. -->
+<!-- (If you delete it and reopen the project it will be recreated.) -->
+<!-- By default, only the Clean and Build commands use this build script. -->
+<!-- Commands such as Run, Debug, and Test only use this build script if -->
+<!-- the Compile on Save feature is turned off for the project. -->
+<!-- You can turn off the Compile on Save (or Deploy on Save) setting -->
+<!-- in the project's Project Properties dialog box.-->
+<project name="Android" default="default" basedir=".">
+    <description>Builds, tests, and runs the project Android.</description>
+    <import file="nbproject/build-impl.xml"/>
+    <!--
+
+    There exist several targets which are by default empty and which can be 
+    used for execution of your tasks. These targets are usually executed 
+    before and after some main targets. They are: 
+
+      -pre-init:                 called before initialization of project properties
+      -post-init:                called after initialization of project properties
+      -pre-compile:              called before javac compilation
+      -post-compile:             called after javac compilation
+      -pre-compile-single:       called before javac compilation of single file
+      -post-compile-single:      called after javac compilation of single file
+      -pre-compile-test:         called before javac compilation of JUnit tests
+      -post-compile-test:        called after javac compilation of JUnit tests
+      -pre-compile-test-single:  called before javac compilation of single JUnit test
+      -post-compile-test-single: called after javac compilation of single JUunit test
+      -pre-jar:                  called before JAR building
+      -post-jar:                 called after JAR building
+      -post-clean:               called after cleaning build products
+
+    (Targets beginning with '-' are not intended to be called on their own.)
+
+    Example of inserting an obfuscator after compilation could look like this:
+
+        <target name="-post-compile">
+            <obfuscate>
+                <fileset dir="${build.classes.dir}"/>
+            </obfuscate>
+        </target>
+
+    For list of available properties check the imported 
+    nbproject/build-impl.xml file. 
+
+
+    Another way to customize the build is by overriding existing main targets.
+    The targets of interest are: 
+
+      -init-macrodef-javac:     defines macro for javac compilation
+      -init-macrodef-junit:     defines macro for junit execution
+      -init-macrodef-debug:     defines macro for class debugging
+      -init-macrodef-java:      defines macro for class execution
+      -do-jar-with-manifest:    JAR building (if you are using a manifest)
+      -do-jar-without-manifest: JAR building (if you are not using a manifest)
+      run:                      execution of project 
+      -javadoc-build:           Javadoc generation
+      test-report:              JUnit report generation
+
+    An example of overriding the target for project execution could look like this:
+
+        <target name="run" depends="Android-impl.jar">
+            <exec dir="bin" executable="launcher.exe">
+                <arg file="${dist.jar}"/>
+            </exec>
+        </target>
+
+    Notice that the overridden target depends on the jar target and not only on 
+    the compile target as the regular run target does. Again, for a list of available 
+    properties which you can use, check the target you are overriding in the
+    nbproject/build-impl.xml file. 
+
+    -->
+    <target name="-pre-compile">
+        <copy file="../../Themes/androidTheme.res" todir="src" />
+        <copy file="../../Themes/android_holo_light.res" todir="src" />
+        <!-- Android Material 3 theme committed under Themes/ and kept in sync
+             by .github/workflows/native-themes-sync.yml from
+             native-themes/android-material/theme.css. -->
+        <copy file="../../Themes/AndroidMaterialTheme.res" todir="src" />
+    </target>
+
+    <target name="-pre-jar">
+        <!-- delete file="build/classes/com/android/vending/billing/IMarketBillingService.class" />
+        <delete file="build/classes/com/android/vending/billing/IMarketBillingService$Stub$Proxy.class" />
+        <delete file="build/classes/com/android/vending/billing/IMarketBillingService$Stub.class" / -->
+    </target>
+
+    <target name="-pre-clean">
+        <delete dir="build/tmp" />
+    </target>
+
+    <target name="jar" depends="compile">
+        <!-- delete file="${dist.jar}.old" />
+        <move file="${dist.jar}" tofile="${dist.jar}.old" />
+        <jar jarfile="${dist.jar}">
+            <zipfileset src="${dist.jar}.old" excludes="META-INF/*" />
+            <zipfileset src="${reference.CodenameOne.jar}" excludes="META-INF/*,**/ImplementationFactory*" />
+            <manifest>
+            </manifest>
+        </jar>
+        <delete file="${dist.jar}.old" / -->
+        <delete file="${dist.jar}" />
+        <mkdir dir="build/tmp"/>
+        <echo message="Building to javac.classpath = ${javac.classpath}" />
+        <echo message="build.classes.dir = ${build.classes.dir}" />
+        <echo message="src.dir = ${src.dir}" />
+        <javac destdir="build/tmp"
+            classpath="${javac.classpath}:${build.classes.dir}">
+            <src path="../../CodenameOne/src" />
+        </javac>        
+        <delete file="build/tmp/com/codename1/impl/CodenameOneThread.class" />
+        <!-- Optional AR, AI and encrypted-database implementations compile
+             against dependencies which are not in cn1-binaries. They are
+             compiled inside user app builds where the Android builder adds only
+             the dependencies and sources used by the app. The BiometricPrompt
+             backend is there for the same reason against a newer SDK rather
+             than a missing dependency: android.hardware.biometrics is API 28 to
+             30 and the cn1-binaries android.jar is API 27. Mirrors the excludes=
+             entry in nbproject/project.properties and in maven/android/pom.xml.
+
+             The referrer package is excluded for the ordinary reason: it names
+             com.android.installreferrer, a Play library the generated
+             application pulls in through PlatformFeatureCatalog and the port
+             jar never has.
+
+             THE LIST LIVES IN THREE FILES: here, in
+             nbproject/project.properties, and in maven/android/pom.xml. The
+             Maven build stays green with only its own copy updated, so adding
+             a package to one file is not adding it. -->
+        <javac destdir="build/tmp"
+            classpath="${javac.classpath}:build/tmp"
+            excludes="com/codename1/impl/android/ar/**,com/codename1/impl/android/ai/**,com/codename1/impl/android/cipher/**,com/codename1/impl/android/nearby/**,com/codename1/impl/android/referrer/**,com/codename1/impl/android/biometrics/**,com/codename1/impl/android/BillingSupport.java">
+            <src path="${src.dir}" />
+        </javac>
+        <jar jarfile="${dist.jar}" basedir="build/tmp">
+            <fileset dir="src" includes="*.res" />
+            <fileset dir="../../CodenameOne/src" includes="*.res" />
+        </jar>
+    </target>    
+</project>

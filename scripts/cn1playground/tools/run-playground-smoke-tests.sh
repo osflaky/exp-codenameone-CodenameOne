@@ -1,0 +1,128 @@
+#!/bin/bash
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+
+cd "$ROOT"
+# The playground is pinned to the in-repo 8.0-SNAPSHOT (see pom.xml), so the
+# registry is generated from the LOCAL framework sources -- the same API the
+# playground builds against. Release-source mode would 404 on Central for a
+# SNAPSHOT version and would describe a different API anyway.
+echo "Regenerating CN1 access registry from local workspace sources..."
+CN1_ACCESS_USE_LOCAL_SOURCES=true bash "$ROOT/tools/generate-cn1-access-registry.sh"
+
+echo "Verifying Component is present in generated registry..."
+if ! grep -q 'index.put("com.codename1.ui.Component"' "$ROOT/common/src/main/java/bsh/cn1/GeneratedCN1Access.java"; then
+  echo "GeneratedCN1Access is missing com.codename1.ui.Component" >&2
+  exit 1
+fi
+
+echo "Verifying key com.codename1.ui classes are present in generated registry..."
+for cls in Button Container Dialog Display Form Label List TextField BrowserComponent CodeEditor RichTextArea; do
+  if ! grep -q "index.put(\"com.codename1.ui.${cls}\"" "$ROOT/common/src/main/java/bsh/cn1/GeneratedCN1Access.java"; then
+    echo "GeneratedCN1Access is missing com.codename1.ui.${cls}" >&2
+    exit 1
+  fi
+done
+
+echo "Verifying new editor APIs are available to playground scripts..."
+for member in 'setContent(String, RichTextFormat)' \
+              'setMarkdown(String)' 'setAsciiDoc(String)' 'setRtf(String)'; do
+  if ! grep -q "$member" "$ROOT/common/src/main/java/bsh/cn1/GeneratedCN1Access.java"; then
+    echo "GeneratedCN1Access is missing editor API ${member}" >&2
+    exit 1
+  fi
+done
+
+echo "Verifying the playground uses CodeEditor for its source panes..."
+PLAYGROUND_EDITOR="$ROOT/common/src/main/java/com/codenameone/playground/PlaygroundCodeEditor.java"
+if ! grep -q 'new CodeEditor' "$PLAYGROUND_EDITOR"; then
+  echo "Playground source pane is not backed by CodeEditor" >&2
+  exit 1
+fi
+for integration in 'setShowLineNumbers(true)' 'setDiagnostics(' 'setTheme('; do
+  if ! grep -q "$integration" "$PLAYGROUND_EDITOR"; then
+    echo "Playground CodeEditor integration is missing ${integration}" >&2
+    exit 1
+  fi
+done
+if grep -q 'new TextArea(this.source' "$PLAYGROUND_EDITOR"; then
+  echo "Playground source pane regressed to a generic TextArea" >&2
+  exit 1
+fi
+if grep -q 'setEngineURL' "$PLAYGROUND_EDITOR"; then
+  echo "Playground source pane installs a custom browser editor engine" >&2
+  exit 1
+fi
+
+# Scope the tripwire to the subsystems the old browser editor lived in; a repo-wide
+# grep would fail this job for unrelated legitimate uses (the forbidden name is also
+# a macOS monospace font that may appear in docs, skins or font lists). The name is
+# split below so this script never matches its own tripwire.
+forbidden_editor='mona''co'
+
+# The playground's own tree is small and controlled, so the bare name is forbidden
+# there outright.
+if git -C "$ROOT/../.." grep -in "$forbidden_editor" -- 'scripts/cn1playground'; then
+  echo "Removed browser-editor dependency is still referenced by playground files" >&2
+  exit 1
+fi
+
+# CodenameOne/src is four thousand files of framework source, and the bare name over
+# it is not a tripwire -- it is a guarantee of an eventual false positive, because the
+# name is also a country and a font. It already fired: PhoneNumberField's dialing-code
+# table lists the principality, and this job went red on a pull request that had
+# touched neither the editor nor that file.
+#
+# So over core the name counts only where it is shaped like a DEPENDENCY -- adjacent
+# to '-', '.' or '/'. That is every way the editor is actually referenced (the npm
+# package name, the JS namespace before .editor.create, the loader path under /min/vs)
+# and none of the ways the word occurs in prose, in a dialing-code table, or in a font
+# stack that also names Menlo.
+#
+# The residual is a bare-word reference from core alone, which the setEngineURL check
+# above already covers for the file that would carry it.
+#
+# Note the workflow only triggers on scripts/cn1playground changes, so this core scan
+# runs only alongside a playground change. That is why it went two and a half weeks
+# without noticing the table above.
+# No \b here, deliberately: `git grep -E` honours neither \b nor \< on macOS (measured
+# on Apple Git 2.54 -- `\bpublic\b` matches zero lines in a file with thirty), so a
+# word-boundary pattern would be a gate that passes on a developer machine because it
+# matches NOTHING and only really runs on Linux CI.
+if git -C "$ROOT/../.." grep -inE "[-./]${forbidden_editor}|${forbidden_editor}[-./]" \
+    -- 'CodenameOne/src'; then
+  echo "Removed browser-editor dependency is still referenced by core files" >&2
+  exit 1
+fi
+
+echo "Verifying package-private/internal sentinel classes are NOT generated..."
+for cls in com.codename1.ui.Accessor com.codename1.io.IOAccessor; do
+  if grep -q "index.put(\"${cls}\"" "$ROOT/common/src/main/java/bsh/cn1/GeneratedCN1Access.java"; then
+    echo "GeneratedCN1Access unexpectedly includes internal class ${cls}" >&2
+    exit 1
+  fi
+done
+
+# These checks intentionally exercise the locally-installed framework SNAPSHOT.
+# Do not let Maven replace it with the latest remote SNAPSHOT between compilation
+# and the harness runs.
+mvn -nsu -pl common -am -DskipTests install
+mvn -nsu -f common/pom.xml -DskipTests org.codehaus.mojo:exec-maven-plugin:3.0.0:java \
+  -Dexec.classpathScope=test \
+  -Dexec.mainClass=com.codenameone.playground.PlaygroundSmokeHarness
+mvn -nsu -f common/pom.xml -DskipTests org.codehaus.mojo:exec-maven-plugin:3.0.0:java \
+  -Dexec.classpathScope=test \
+  -Dexec.mainClass=com.codenameone.playground.PlaygroundSyntaxMatrixHarness
+# This harness checks only the native CN1 chrome. Keep its BrowserComponent as
+# a placeholder instead of provisioning a full JCEF runtime during the test.
+mvn -nsu -f common/pom.xml -DskipTests org.codehaus.mojo:exec-maven-plugin:3.0.0:java \
+  -Dexec.classpathScope=test \
+  -Dcn1.javase.implementation=jmf \
+  -Dexec.mainClass=com.codenameone.playground.PlaygroundLayoutHarness
+mvn -nsu -f common/pom.xml -DskipTests org.codehaus.mojo:exec-maven-plugin:3.0.0:java \
+  -Dexec.classpathScope=test \
+  -Dexec.mainClass=com.codenameone.playground.PlaygroundPreviewResolutionHarness
+mvn -nsu -f common/pom.xml -DskipTests org.codehaus.mojo:exec-maven-plugin:3.0.0:java \
+  -Dexec.classpathScope=test \
+  -Dexec.mainClass=com.codenameone.playground.PlaygroundSamplesHarness

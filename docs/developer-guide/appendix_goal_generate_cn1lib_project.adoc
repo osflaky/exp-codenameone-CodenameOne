@@ -1,0 +1,66 @@
+=== Generate cn1lib project (`generate-cn1lib-project`)
+
+Generates a Maven cn1lib project (using the <<cn1lib-archetype, cn1lib-archetype>>) given an ANT cn1lib project as a template.
+
+This is to assist in migrating Ant projects to Maven projects. This won't make any changes to the source Ant project. It generates a new project using the <<cn1lib-archetype>> and copies all files and configuration from the source project, into the new project.
+
+==== Usage example
+
+IMPORTANT: This goal isn't run in an existing maven project directory, so you need to include the absolute Maven coordinates for the goal.
+
+Suppose you have an Ant Codename One library project at `/path/to/MyLegacyAntLibraryProject` and you want to convert it to a Maven project.
+
+You can run the `generate-cn1lib-project` goal as follows:
+
+.Maven command to migrate an Ant project to Maven:
+
+[source,bash]
+----
+include::../demos/common/src/main/snippets/developer-guide/appendix-goal-generate-cn1lib-project.sh[tag=appendix-goal-generate-cn1lib-project-bash-001,indent=0]
+----
+
+NOTE: Make sure you substitute the latest `codenameone-maven-plugin` version, listed as `<release>` in the https://repo.codenameone.com/maven2/com/codenameone/codenameone-maven-plugin/maven-metadata.xml[repository metadata], for the `$CN1VERSION` in this command. Because this goal runs outside any project, Maven can only find that version if you have configured the Codename One repository in your Maven settings; see the _Configuring the Codename One repository_ section of <<creating-app-project,Creating a new project>>.
+
+Some notes about this command as shown above:
+
+. This command is formatted for Unix/Mac on multiple lines, using the `\` character to escape the new-lines. On Windows the command will need to be all one line, and you should omit those `\` escape characters.
+. The `-U` flag tells Maven to update its catalogs to ensure that it can find the `$CN1VERSION` that you specify.
+
+If all goes well, you should find a new maven project generated in the "your-maven-lib" directory (named after the `artifactId` that you specified).
+
+To test that the project was generated successfully, try opening the resulting project in your IDE or run its "install" goal on the command-line.
+
+For example:
+
+[source,bash]
+----
+include::../demos/common/src/main/snippets/developer-guide/appendix-goal-generate-cn1lib-project.sh[tag=appendix-goal-generate-cn1lib-project-bash-002,indent=0]
+----
+
+After running the "install" command, you should be able to add your library as a dependency to a <<cn1app-archetype>> project using the following dependency:
+
+[source,xml]
+----
+include::../demos/common/src/main/snippets/developer-guide/appendix-goal-generate-cn1lib-project.xml[tag=appendix-goal-generate-cn1lib-project-xml-001,indent=0]
+----
+
+IMPORTANT: Notice that the `artifactId` has an extra "-lib" appended. That is, it's `<artifactId>my-maven-lib-lib</artifactId>` and not `<artifactId>my-maven-lib</artifactId>`. This is because the `artifactId` that you specify in the `generate-cn1lib-project` goal is used for the "root" module of the multimodule maven project. The actual "lib" project that you can use as a Maven dependency is the "lib" submodule, which uses the specified artifactId with a "-lib" suffix.
+
+See <<creating-cn1libs>> for more information about the resulting maven library project.
+
+==== Properties
+
+sourceProject::
+The path to the legacy Ant project that you want to convert to a Maven project.
+
+groupId::
+The maven `groupId` to use for the resulting project.
+
+artifactId::
+The maven `artifactId` to use for the resulting project.
+
+version::
+The maven `version` to use for the resulting project. Default "1.0-SNAPSHOT"
+
+
+

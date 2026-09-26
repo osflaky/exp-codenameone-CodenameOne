@@ -1,0 +1,3290 @@
+/*
+ * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores
+ * CA 94065 USA or visit www.oracle.com if you need additional information or
+ * have any questions.
+ */
+package com.codename1.ui.plaf;
+
+import com.codename1.charts.util.ColorUtil;
+import com.codename1.io.Log;
+import com.codename1.ui.CN;
+import com.codename1.ui.Component;
+import com.codename1.ui.Display;
+import com.codename1.ui.Font;
+import com.codename1.ui.Image;
+import com.codename1.ui.TextField;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.plaf.StyleParser.BorderInfo;
+import com.codename1.ui.plaf.StyleParser.FontInfo;
+import com.codename1.ui.plaf.StyleParser.ImageInfo;
+import com.codename1.ui.plaf.StyleParser.MarginInfo;
+import com.codename1.ui.plaf.StyleParser.PaddingInfo;
+import com.codename1.ui.plaf.StyleParser.StyleInfo;
+import com.codename1.ui.util.EventDispatcher;
+import com.codename1.ui.util.Resources;
+import com.codename1.util.StringUtil;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Hashtable;
+import java.util.Map;
+import java.util.Vector;
+
+/// Central point singleton managing the look of the application, this class allows us to
+/// customize the styles (themes) as well as the look instance.
+///
+/// @author Chen Fishbein
+public class UIManager {
+
+    static UIManager instance;
+    /// This member is used by the resource editor
+    static boolean accessible = true;
+    /// This member is used by the resource editor
+    static boolean localeAccessible = true;
+    private final HashMap<String, Style> styles = new HashMap<String, Style>();
+    private final HashMap<String, Style> selectedStyles = new HashMap<String, Style>();
+    /// Prototype cache for the PREFIXED styles - the "press" and "dis" variants
+    /// every component resolves alongside its unselected and selected styles.
+    ///
+    /// Those two used to skip the cache entirely and re-parse the theme for
+    /// every component ever created. Building a component's four styles then
+    /// cost two full theme parses, which measured at roughly 0.3ms per
+    /// component - two orders of magnitude more than copying a prototype - and
+    /// it is paid by every Codename One application, on every screen.
+    private final HashMap<String, Style> prefixedStyles = new HashMap<String, Style>();
+
+    /// True once a Style has been installed through setComponentStyle or
+    /// setComponentSelectedStyle, which switches the prefixed cache off.
+    ///
+    /// Those objects stay owned by the caller, who is free to mutate one after
+    /// installing it -- and a mutation reaches UIManager through nothing at all,
+    /// so a prefixed prototype derived from one cannot be told it has gone
+    /// stale. Everything else the cache is built from does announce itself:
+    /// themeProps changes run through parseStyle, and a theme swap clears the
+    /// map outright. So the cache is kept only while every input is one we hear
+    /// about, and dropped for the lifetime of the theme once one is not.
+    ///
+    /// This costs almost nothing in practice: no framework or port code calls
+    /// those setters at all, they are purely an application-facing API.
+    private boolean programmaticStyleInstalled;
+
+    /// Style-lookup keys derived from a UIID, memoised.
+    ///
+    /// getComponentStyleImpl rebuilt them on EVERY request -- `id + "."` on
+    /// every call, and `prefix + '#' + id` again for every prefixed style. A
+    /// component asks for five styles, so on a screen of ~1,900 components that
+    /// was ~17,000 throwaway Strings and as many char[]; an allocation census of
+    /// one screen put java.lang.String at the top of the table with 28,486
+    /// objects, and this was its single largest contributor.
+    ///
+    /// Both keys are PURE functions of their inputs -- no theme state is
+    /// involved -- so unlike the style caches beside them these survive a theme
+    /// change and never need invalidating. Plain HashMaps, matching the access
+    /// assumptions of the style caches above.
+    ///
+    /// Bounded, because a UIID *and* a style type can both be generated at run
+    /// time: past the limit the keys are simply rebuilt as before, so an unusual
+    /// application loses the optimisation instead of leaking. The bound applies
+    /// to each of the three maps below independently -- the ids in dottedIdCache,
+    /// the prefixes in prefixedKeyCache, and the ids within each of its buckets.
+    /// Bounding only the buckets would leave the prefixes themselves unbounded,
+    /// which is no better: a generated type is exactly as likely as a generated
+    /// id.
+    private static final int KEY_CACHE_LIMIT = 512;
+    private final HashMap<String, String> dottedIdCache = new HashMap<String, String>();
+    private final HashMap<String, HashMap<String, String>> prefixedKeyCache =
+            new HashMap<String, HashMap<String, String>>();
+
+    private String dottedId(String id) {
+        String dotted = dottedIdCache.get(id);
+        if (dotted == null) {
+            dotted = id + ".";
+            if (dottedIdCache.size() < KEY_CACHE_LIMIT) {
+                dottedIdCache.put(id, dotted);
+            }
+        }
+        return dotted;
+    }
+
+    private String prefixedKey(String prefix, String dotted) {
+        HashMap<String, String> byId = prefixedKeyCache.get(prefix);
+        if (byId == null) {
+            byId = new HashMap<String, String>();
+            if (prefixedKeyCache.size() < KEY_CACHE_LIMIT) {
+                prefixedKeyCache.put(prefix, byId);
+            }
+            // Otherwise this bucket is used for the call and dropped, which
+            // costs one small map and keeps a generated type from retaining a
+            // bucket, and a copy of its prefix string, for the theme's lifetime.
+        }
+        String key = byId.get(dotted);
+        if (key == null) {
+            key = prefix + '#' + dotted;
+            if (byId.size() < KEY_CACHE_LIMIT) {
+                byId.put(dotted, key);
+            }
+        }
+        return key;
+    }
+
+    /// Bumped whenever the theme changes, so anything that derives a cached
+    /// artifact FROM the theme - a rasterised switch thumb, a shadow, a
+    /// gradient - can tell in one integer comparison whether its cache is
+    /// still answering for the theme that is actually installed. Without a
+    /// signal like this, such caches either have to be per-component (so N
+    /// identical components rasterise N identical images) or risk surviving a
+    /// theme switch and painting the old colours.
+    private static int themeGeneration;
+
+    /// The current theme generation; see {@link #themeGeneration}.
+    public static int getThemeGeneration() {
+        return themeGeneration;
+    }
+    private final HashMap<String, Object> themeConstants = new HashMap<String, Object>();
+    /// Useful for caching theme images so they are not loaded twice in case
+    /// an image reference is used it two places in the theme (e.g. same background
+    /// to title and menu bar).
+    private final HashMap<String, Image> imageCache = new HashMap<String, Image>();
+    private LookAndFeel current;
+    private HashMap<String, Object> themeProps;
+    private Style defaultStyle = new Style();
+    private Style defaultSelectedStyle = new Style();
+    private boolean useLargerTextScale;
+    /// Tracks the original (unscaled) Font we replaced in themeProps when
+    /// [#applyLargerTextScaleToThemeFonts] last ran. Without this, each scale
+    /// change derives from the previously-scaled font and compounds, so going
+    /// XL -> XXL over-scales and going XXL -> Large never shrinks back. The
+    /// parallel scaledFontDerived map records the Font we wrote, so we only
+    /// restore entries that the theme has not overwritten in the meantime.
+    private final Map<String, Font> scaledFontOriginals = new HashMap<String, Font>();
+    private final Map<String, Font> scaledFontDerived = new HashMap<String, Font>();
+    /// Nesting depth of [#buildTheme]. A theme whose `@includeNativeBool` is
+    /// true makes buildTheme install the native theme, and that goes through
+    /// the full setThemeProps -> buildTheme path again with only the native
+    /// theme's entries in themeProps. The larger-text pass must run once, on
+    /// the outermost build that sees the merged native + app theme; running it
+    /// on the inner build made it clear the rollback bookkeeping for every app
+    /// font it could not see, after which the next refresh scaled the
+    /// already-scaled fonts again. See [#applyLargerTextScaleToThemeFonts].
+    private int buildThemeDepth;
+    /// The resource bundle allows us to implicitly localize the UI on the fly, once its
+    /// installed all internal application strings query the resource bundle and extract
+    /// their values from this table if applicable.
+    private Hashtable resourceBundle;
+    private Map<String, String> bundle;
+    private boolean wasThemeInstalled;
+    /// This EventDispatcher holds all listeners who would like to register to
+    /// Theme refreshed event
+    private EventDispatcher themelisteners;
+    // Cache used to keep track of parsed styles.
+    private Map<String, String> parseCache;
+    UIManager() {
+        // Lazy initialization of instance for js port compatibility.  We will
+        // do a double-lazy initialization to try to best prevent regressions
+        // from other projects that may be out of sync.  E.g. the Designer project
+        // uses the "instance" property directly.  This should guarantee that
+        // instance will be set
+        // current is assigned BEFORE this instance is published, not after. The publish
+        // above is what makes getInstance() hand this object out, and resetThemeProps()
+        // below reaches Font, Display and CN -- so anything down there that comes back
+        // through getInstance() would get an object whose getLookAndFeel() is null and
+        // die in Component.initLaf. One statement earlier and there is nothing to see.
+        //
+        // Not a locking question and deliberately unsynchronized: this is all on the EDT.
+        // Ordering it this way is free, and safe because the LookAndFeel constructor only
+        // stores the manager it is handed and cannot reach back through the static.
+        current = new DefaultLookAndFeel(this);
+        if (instance == null) {
+            instance = this;
+        }
+        resetThemeProps(null);
+    }
+
+    /// Singleton instance method
+    ///
+    /// #### Returns
+    ///
+    /// Instance of the ui manager
+    public static UIManager getInstance() {
+        UIManager currentInstance = instance;
+        if (currentInstance == null) {
+            synchronized (UIManager.class) {
+                currentInstance = instance;
+                if (currentInstance == null) {
+                    currentInstance = UIManagerHolder.INSTANCE;
+                    instance = currentInstance;
+                }
+            }
+        }
+        return currentInstance;
+    }
+
+    /// This factory method allows creating a new UIManager instance, this is usefull where an application
+    /// has some screens with different context
+    ///
+    /// #### Returns
+    ///
+    /// a new UIManager instance
+    public static UIManager createInstance() {
+        return new UIManager();
+    }
+
+    private static Image parseImage(String value) throws IOException {
+        int index = 0;
+        byte[] imageData = new byte[value.length() / 2];
+        int vlen = value.length();
+        while (index < vlen) {
+            String byteStr = value.substring(index, index + 2);
+            imageData[index / 2] = Integer.valueOf(byteStr, 16).byteValue();
+            index += 2;
+        }
+        ByteArrayInputStream in = new ByteArrayInputStream(imageData);
+        Image image = Image.createImage(in);
+        in.close();
+        return image;
+    }
+
+    private static Font parseFont(String fontStr) {
+        if (fontStr.startsWith("System")) {
+            int face = 0;
+            int style = 0;
+            int size = 0;
+            String faceStr;
+            String styleStr;
+            String sizeStr;
+            String sysFont = fontStr.substring(fontStr.indexOf("{") + 1, fontStr.indexOf("}"));
+            faceStr = sysFont.substring(0, sysFont.indexOf(";"));
+            sysFont = sysFont.substring(sysFont.indexOf(";") + 1);
+            styleStr = sysFont.substring(0, sysFont.indexOf(";"));
+            sizeStr = sysFont.substring(sysFont.indexOf(";") + 1);
+
+            if (faceStr.indexOf("FACE_SYSTEM") > -1) {
+                face = Font.FACE_SYSTEM;
+            } else if (faceStr.indexOf("FACE_MONOSPACE") > -1) {
+                face = Font.FACE_MONOSPACE;
+            } else if (faceStr.indexOf("FACE_PROPORTIONAL") > -1) {
+                face = Font.FACE_PROPORTIONAL;
+            }
+
+            if (styleStr.indexOf("STYLE_PLAIN") > -1) {
+                style = Font.STYLE_PLAIN;
+            } else {
+                if (styleStr.indexOf("STYLE_BOLD") > -1) {
+                    style = Font.STYLE_BOLD;
+                }
+                if (styleStr.indexOf("STYLE_ITALIC") > -1) {
+                    style = style | Font.STYLE_ITALIC;
+                }
+                if (styleStr.indexOf("STYLE_UNDERLINED") > -1) {
+                    style = style | Font.STYLE_UNDERLINED;
+                }
+            }
+
+            if (sizeStr.indexOf("SIZE_SMALL") > -1) {
+                size = Font.SIZE_SMALL;
+            } else if (sizeStr.indexOf("SIZE_MEDIUM") > -1) {
+                size = Font.SIZE_MEDIUM;
+            } else if (sizeStr.indexOf("SIZE_LARGE") > -1) {
+                size = Font.SIZE_LARGE;
+            }
+
+
+            return Font.createSystemFont(face, style, size);
+        } else {
+            if (fontStr.toLowerCase().startsWith("bitmap")) {
+                try {
+                    String bitmapFont = fontStr.substring(fontStr.indexOf("{") + 1, fontStr.indexOf("}"));
+                    String nameStr;
+                    nameStr = bitmapFont;
+
+
+                    if (nameStr.toLowerCase().startsWith("highcontrast")) {
+                        nameStr = nameStr.substring(nameStr.indexOf(";") + 1);
+                        Font f = Font.getBitmapFont(nameStr);
+                        f.addContrast((byte) 30);
+                        return f;
+                    }
+
+                    return Font.getBitmapFont(nameStr);
+                } catch (Exception ex) {
+                    // illegal argument exception?
+                    Log.e(ex);
+                }
+            }
+        }
+        // illegal argument?
+        return null;
+    }
+
+    /// This is a shorthand notation for boilerplate code for initializing the first theme in the given resource file
+    /// and catching/doing nothing with the IOException since this would be invoked too early in the program
+    /// where we would be out of options if something like that happens. Effectively this is the same as writing:
+    ///
+    /// ```java
+    /// Resources theme = null;
+    /// try {
+    ///     theme = Resources.openLayered(resourceFile);
+    ///     UIManager.getInstance().setThemeProps(theme.getTheme(theme.getThemeResourceNames()[0]));
+    /// } catch (IOException e) {
+    ///     Log.e(e);
+    /// }
+    /// ```
+    ///
+    /// #### Parameters
+    ///
+    /// - `resourceFile`: the name of the resource file starting with / and without the res extension
+    ///
+    /// #### Returns
+    ///
+    /// the resource file or null in case of a failure
+    public static Resources initFirstTheme(String resourceFile) {
+        try {
+            Resources theme = Resources.openLayered(resourceFile);
+            UIManager.getInstance().setThemeProps(theme.getTheme(theme.getThemeResourceNames()[0]));
+            Resources.setGlobalResources(theme);
+            return theme;
+        } catch (IOException e) {
+            Log.e(e);
+        }
+        return null;
+    }
+
+    /// Same as the initFirstTheme method, but unlike that method this allows specifying the theme resource name
+    ///
+    /// #### Parameters
+    ///
+    /// - `resourceFile`: the name of the resource file starting with / and without the res extension
+    ///
+    /// - `resName`: the name of the theme to use from the file if it contains more than one theme
+    ///
+    /// #### Returns
+    ///
+    /// the resource file or null in case of a failure
+    public static Resources initNamedTheme(String resourceFile, String resName) {
+        try {
+            Resources theme = Resources.openLayered(resourceFile);
+            UIManager.getInstance().setThemeProps(theme.getTheme(resName));
+            Resources.setGlobalResources(theme);
+            return theme;
+        } catch (IOException e) {
+            Log.e(e);
+        }
+        return null;
+    }
+
+    /// Checks if larger text scaling is enabled.
+    ///
+    /// #### Returns
+    ///
+    /// true if larger text scaling should be applied.
+    public boolean isUseLargerTextScale() {
+        return useLargerTextScale;
+    }
+
+    /// Enables or disables scaling fonts when larger text is enabled on the device.
+    /// This can also be enabled via the `useLargerTextScaleBool` theme constant.
+    ///
+    /// #### Parameters
+    ///
+    /// - `useLargerTextScale`: @param useLargerTextScale true to apply `Display#getLargerTextScale()` when
+    /// `Display#isLargerTextEnabled()` is true.
+    public void setUseLargerTextScale(boolean useLargerTextScale) {
+        this.useLargerTextScale = useLargerTextScale;
+    }
+
+    /// Indicates if a theme was previously installed since the last reset
+    ///
+    /// #### Returns
+    ///
+    /// true if setThemeProps was invoked
+    public boolean wasThemeInstalled() {
+        return wasThemeInstalled;
+    }
+
+    /// Returns the currently installed look and feel
+    ///
+    /// #### Returns
+    ///
+    /// the currently installed look and feel
+    public LookAndFeel getLookAndFeel() {
+        return current;
+    }
+
+    /// Sets the currently installed look and feel
+    ///
+    /// #### Parameters
+    ///
+    /// - `plaf`: the look and feel for the application
+    public void setLookAndFeel(LookAndFeel plaf) {
+        current.uninstall();
+        current = plaf;
+    }
+
+    /// Allows a developer to programmatically install a style into the UI manager
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: the component id matching the given style
+    ///
+    /// - `style`: the style object to install
+    public void setComponentStyle(String id, Style style) {
+        if (id == null || id.length() == 0) {
+            //if no id return the default style
+            id = "";
+        } else {
+            id = id + ".";
+        }
+
+        styles.put(id, style);
+        // A prefixed style can derive from this id: createStyle resolves
+        // "derive" through getComponentStyle, which reads the very map written
+        // here, and then the result is cached under prefix + id. Without this
+        // the cache keeps answering with the prototype built from the PREVIOUS
+        // base and the style installed here is silently ignored.
+        // The clear drops what is already cached; the flag stops anything
+        // being cached again, because this object can still be mutated.
+        prefixedStyles.clear();
+        programmaticStyleInstalled = true;
+    }
+
+    /// Allows a developer to programmatically install a style into the UI manager
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: the component id matching the given style
+    ///
+    /// - `style`: the style object to install
+    ///
+    /// - `type`: press, dis or other custom type
+    public void setComponentStyle(String id, Style style, String type) {
+        if (type != null && type.length() > 0) {
+            if (id == null || id.length() == 0) {
+                //if no id return the default style
+                id = type + "#";
+            } else {
+                id = id + "." + type + "#";
+            }
+        } else {
+            if (id == null || id.length() == 0) {
+                //if no id return the default style
+                id = "";
+            } else {
+                id = id + ".";
+            }
+        }
+
+        styles.put(id, style);
+        // A prefixed style can derive from this id: createStyle resolves
+        // "derive" through getComponentStyle, which reads the very map written
+        // here, and then the result is cached under prefix + id. Without this
+        // the cache keeps answering with the prototype built from the PREVIOUS
+        // base and the style installed here is silently ignored.
+        // The clear drops what is already cached; the flag stops anything
+        // being cached again, because this object can still be mutated.
+        prefixedStyles.clear();
+        programmaticStyleInstalled = true;
+    }
+
+    /// Allows a developer to programmatically install a style into the UI manager
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: the component id matching the given style
+    ///
+    /// - `style`: the style object to install
+    public void setComponentSelectedStyle(String id, Style style) {
+        if (id == null || id.length() == 0) {
+            //if no id return the default style
+            id = "";
+        } else {
+            id = id + ".";
+        }
+
+        selectedStyles.put(id, style);
+        // A prefixed style can derive from this id: createStyle resolves
+        // "derive" through getComponentStyle, which reads the very map written
+        // here, and then the result is cached under prefix + id. Without this
+        // the cache keeps answering with the prototype built from the PREVIOUS
+        // base and the style installed here is silently ignored.
+        // The clear drops what is already cached; the flag stops anything
+        // being cached again, because this object can still be mutated.
+        prefixedStyles.clear();
+        programmaticStyleInstalled = true;
+    }
+
+    /// Returns the style of the component with the given id or a **new instance** of the default
+    /// style.
+    /// This method will always return a new style instance to prevent modification of the global
+    /// style object.
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: the component id whose style we want
+    ///
+    /// #### Returns
+    ///
+    /// the appropriate style (this method never returns null)
+    public final Style getComponentStyle(String id) {
+        return getComponentStyleImpl(id, false, "");
+    }
+
+    /// Gets the IconUIID for the given UIID.  If the theme defines a style that is named ${id}Icon (i.e. the id with "Icon" suffix)
+    /// such that it derives from id, then this style is deemed to be the icon style corresponding with id.
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: The UIID to check for a companion UIID.
+    ///
+    /// #### Returns
+    ///
+    /// The IconUIID corresponding to the given ID - or null if none is defined in the theme.
+    ///
+    public String getIconUIIDFor(String id) {
+        if (id == null || id.length() == 0) {
+            return null;
+        }
+        if (themeProps == null) {
+            return null;
+        }
+        String iconUIID = id + "Icon";
+        // Check the derive property of this icon style to make sure it points to id.
+        // (The icon style must derive the main style).
+        String baseStyle = (String) themeProps.get(iconUIID + ".derive");
+        if (!id.equals(baseStyle)) {
+            return null;
+        }
+        return iconUIID;
+
+    }
+
+    /// Returns the style of the component with the given baseStyle or a **new instance** of the default
+    /// style, but overrides styles based on the directives in the styleStrings.
+    ///
+    /// This method will always return a new style instance to prevent modification of the global
+    /// style object.
+    ///
+    /// #### Parameters
+    ///
+    /// - `theme`: Theme file used to retrieve images that are referenced by the styleString
+    ///
+    /// - `baseStyle`: @param baseStyle   The component ID that serves as the base style for this style.  These base styles are
+    /// overridden by the styles provided in styleString.
+    ///
+    /// - `id`: the component id into which the resulting style is to be cached.
+    ///
+    /// - `styleString`: @param styleString Array of style strings to override the styles in baseStyle.  Style string syntax is
+    /// is key1:value1; key2:value2; key3:value3; etc....  While this is similar to CSS, it is not CSS.  The keys
+    /// and values
+    /// correspond to properties of `Style` and their associated values.
+    ///
+    /// #### Returns
+    ///
+    /// the appropriate style (this method never returns null)
+    public Style parseComponentStyle(Resources theme, String baseStyle, String id, String... styleString) {
+        return parseStyle(theme, id, "", baseStyle, false, styleString);
+    }
+
+    /// Returns the selected style of the component with the given id or a **new instance** of the default
+    /// style.
+    /// This method will always return a new style instance to prevent modification of the global
+    /// style object.
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: the component id whose selected style we want
+    ///
+    /// #### Returns
+    ///
+    /// the appropriate style (this method never returns null)
+    public Style getComponentSelectedStyle(String id) {
+        return getComponentStyleImpl(id, true, "sel#");
+    }
+
+    /// Returns the selected style of the component with the given baseStyle or a **new instance** of the default
+    /// style, but overrides styles based on the directives in the styleStrings.
+    ///
+    /// This method will always return a new style instance to prevent modification of the global
+    /// style object.
+    ///
+    /// #### Parameters
+    ///
+    /// - `theme`: Theme file used to retrieve images that are referenced by the styleString
+    ///
+    /// - `baseStyle`: @param baseStyle   The component ID that serves as the base style for this style.  These base styles are
+    /// overridden by the styles provided in styleString.
+    ///
+    /// - `id`: the component id into which the resulting style is to be cached.
+    ///
+    /// - `styleString`: @param styleString Array of style strings to override the styles in baseStyle.  Style string syntax is
+    /// is key1:value1; key2:value2; key3:value3; etc....  While this is similar to CSS, it is not CSS.  The keys
+    /// and values
+    /// correspond to properties of `Style` and their associated values.
+    ///
+    /// #### Returns
+    ///
+    /// the appropriate style (this method never returns null)
+    public Style parseComponentSelectedStyle(Resources theme, String baseStyle, String id, String... styleString) {
+        return parseStyle(theme, id, "sel#", baseStyle, true, styleString);
+    }
+
+    /// Returns a custom style for the component with the given id, this method always returns a
+    /// new instance. Custom styles allow us to install application specific or component specific
+    /// style attributes such as pressed, disabled, hover etc.
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: the component id whose custom style we want
+    ///
+    /// - `type`: the style type
+    ///
+    /// #### Returns
+    ///
+    /// the appropriate style (this method never returns null)
+    public Style getComponentCustomStyle(String id, String type) {
+        return getComponentStyleImpl(id, false, type + "#");
+    }
+
+    /// True when a custom style was installed programmatically or the theme declares an entry for the style
+    /// type on this UIID -- `Button.hover#bgColor`, `Button.hover#derive` and so on.
+    ///
+    /// This exists because {@link #getComponentCustomStyle(String, String)} *never returns
+    /// null*: asked for a type the theme says nothing about, it falls through to a copy of
+    /// the blank default style, whose background is white and whose foreground is black. For
+    /// `press` and `dis` that is harmless, because the shipped themes declare them wherever a
+    /// component consults them. For a state a component may consult on any UIID -- hover is
+    /// the first -- it is not: a theme written before that state existed would repaint every
+    /// hovered component in the blank default, which reads as a rendering bug and has no
+    /// obvious cause. So a caller that can tolerate "no such style" asks here first and skips
+    /// the state entirely.
+    ///
+    /// The dark spelling is checked as well, because a theme is free to declare a state only
+    /// inside `@media (prefers-color-scheme: dark)`, which the CSS compiler emits as
+    /// `$Dark&lt;UIID&gt;`.
+    ///
+    /// The answer is memoised for a whole theme generation by the same style-definition index
+    /// that backs dark-style resolution, so the linear scan behind it happens once per UIID
+    /// and type, not once per query.
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: the component id whose custom style we are asking about
+    ///
+    /// - `type`: the style type, e.g. `hover`
+    ///
+    /// #### Returns
+    ///
+    /// true when that custom style is installed or declared for this UIID
+    public boolean hasComponentCustomStyle(String id, String type) {
+        if (type == null || type.length() == 0) {
+            return false;
+        }
+        String dotted = (id == null || id.length() == 0) ? "" : dottedId(id);
+        String suffix = dotted + type + "#";
+        // Typed installations live in styles, while generated custom-style prototypes
+        // live in prefixedStyles. Only the former explicitly opts a UIID into hover.
+        if (styles.get(suffix) != null || hasStyleDefinition(suffix)) {
+            return true;
+        }
+        // A $Dark-only declaration counts ONLY while dark mode is actually on. In light
+        // mode the caller goes on to ask for the LIGHT key, which does not exist, and
+        // getComponentCustomStyle builds it out of blank defaults -- so a theme that
+        // declares $DarkButton.hover# and no light hover would drop the button to the
+        // default colours on hover instead of leaving its normal style alone.
+        Boolean darkMode = CN.isDarkMode();
+        return darkMode != null && darkMode.booleanValue() && hasStyleDefinition("$Dark" + suffix);
+    }
+
+    /// Returns the selected style of the component with the given baseStyle or a **new instance** of the default
+    /// style, but overrides styles based on the directives in the styleStrings.
+    ///
+    /// This method will always return a new style instance to prevent modification of the global
+    /// style object.
+    ///
+    /// #### Parameters
+    ///
+    /// - `theme`: Theme file used to retrieve images that are referenced by the styleString
+    ///
+    /// - `baseStyle`: @param baseStyle   The component ID that serves as the base style for this style.  These base styles are
+    /// overridden by the styles provided in styleString.
+    ///
+    /// - `id`: the component id into which the resulting style is to be cached.
+    ///
+    /// - `type`: the style type
+    ///
+    /// - `styleString`: @param styleString Array of style strings to override the styles in baseStyle.  Style string syntax is
+    /// is key1:value1; key2:value2; key3:value3; etc....  While this is similar to CSS, it is not CSS.  The keys
+    /// and values
+    /// correspond to properties of `Style` and their associated values.
+    ///
+    /// #### Returns
+    ///
+    /// the appropriate style (this method never returns null)
+    public Style parseComponentCustomStyle(Resources theme, String baseStyle, String id, String type, String... styleString) {
+        return parseStyle(theme, id, type + "#", baseStyle, false, styleString);
+    }
+
+    private Style getComponentStyleImpl(String id, boolean selected, String prefix) {
+        try {
+            Style style = null;
+
+            if (id == null || id.length() == 0) {
+                //if no id return the default style
+                id = "";
+            } else {
+                id = dottedId(id);
+            }
+
+            if (selected) {
+                style = selectedStyles.get(id);
+
+                if (style == null) {
+                    style = createStyle(id, prefix, true);
+                    selectedStyles.put(id, style);
+                }
+            } else {
+                if (prefix.length() == 0) {
+                    style = styles.get(id);
+
+                    if (style == null) {
+                        style = createStyle(id, prefix, false);
+                        styles.put(id, style);
+                    }
+                } else {
+                    // Cached on prefix + id, exactly as the unprefixed styles
+                    // are. The returned Style is a copy either way, so a
+                    // caller still gets its own mutable instance.
+                    // The typed setter stores an explicit prototype under id + prefix.
+                    // Detecting its existence alone is insufficient: return its values too.
+                    style = styles.get(id + prefix);
+                    if (style == null && programmaticStyleInstalled) {
+                        // Rebuild every time, exactly as this did before the
+                        // cache existed: a base installed programmatically can
+                        // be mutated by whoever installed it without telling us.
+                        style = createStyle(id, prefix, false);
+                    } else if (style == null) {
+                        String key = prefixedKey(prefix, id);
+                        style = prefixedStyles.get(key);
+                        if (style == null) {
+                            style = createStyle(id, prefix, false);
+                            // Same bound, for the same reason: an application
+                            // generating uiids or types at run time would
+                            // otherwise retain one prototype per combination
+                            // until the theme changed. Past the limit this path
+                            // rebuilds every time, which is what it did before
+                            // the cache existed.
+                            if (prefixedStyles.size() < KEY_CACHE_LIMIT) {
+                                prefixedStyles.put(key, style);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return new Style(style);
+        } catch (Throwable err) {
+            // fail gracefully for an illegal style, this is useful for the resource editor
+            Log.p("Error creating style " + id + " selected: " + selected + " prefix: " + prefix);
+            Log.e(err);
+            return new Style(defaultStyle);
+        }
+    }
+
+    /// #### Returns
+    ///
+    /// the name of the current theme for theme switching UI's
+    public String getThemeName() {
+        if (themeProps != null) {
+            return (String) themeProps.get("name");
+        }
+        return null;
+    }
+
+    // for internal use by the resource editor
+    HashMap<String, Object> getThemeProps() {
+        return themeProps;
+    }
+
+    /// Allows manual theme loading from a hashtable of key/value pairs
+    ///
+    /// #### Parameters
+    ///
+    /// - `themeProps`: the properties of the given theme
+    public void setThemeProps(Hashtable themeProps) {
+        if (accessible) {
+            setThemePropsImpl(themeProps);
+        }
+        wasThemeInstalled = true;
+    }
+
+    /// Initializes the theme properties with the current "defaults"
+    ///
+    /// #### Parameters
+    ///
+    /// - `installedTheme`: @param installedTheme the theme to be installed or null, this is used
+    /// to check if style inheritance is used in which case we must NOT init
+    /// style defaults for that particular component
+    private void resetThemeProps(Hashtable installedTheme) {
+        themeProps = new HashMap<String, Object>();
+        wasThemeInstalled = false;
+        if (current == null) {
+            current = new DefaultLookAndFeel(this);
+        }
+        String disabledColor = Integer.toHexString(getLookAndFeel().getDisableColor());
+        Integer centerAlign = Integer.valueOf(Component.CENTER);
+        Integer rightAlign = Integer.valueOf(Component.RIGHT);
+        Integer leftAlign = Integer.valueOf(Component.LEFT);
+
+        // global settings
+        themeProps.put("sel#transparency", "255");
+        themeProps.put("dis#fgColor", disabledColor);
+
+        Boolean darkModeBoolean = (Boolean) themeProps.get("@darkModeBool");
+        boolean darkMode = darkModeBoolean != null && darkModeBoolean.booleanValue() &&
+                CN.isDarkMode() != null && CN.isDarkMode().booleanValue();
+
+        Font lightFont = Font.getDefaultFont();
+        Font italic = Font.createSystemFont(Font.FACE_SYSTEM,
+                Font.STYLE_ITALIC, Font.SIZE_MEDIUM);
+        Font bold = Font.createSystemFont(Font.FACE_SYSTEM,
+                Font.STYLE_BOLD, Font.SIZE_MEDIUM);
+        if (Font.isNativeFontSchemeSupported()) {
+            int size = Display.getInstance().convertToPixels(2.5f);
+            lightFont = Font.createTrueTypeFont("native:MainLight", "native:MainLight").derive(size, Font.STYLE_PLAIN);
+            italic = Font.createTrueTypeFont("native:ItalicLight", "native:ItalicLight").derive(size, Font.STYLE_ITALIC);
+            bold = Font.createTrueTypeFont(Font.NATIVE_MAIN_BOLD, Font.NATIVE_MAIN_BOLD).derive(size, Font.STYLE_BOLD);
+        }
+
+        // component specific settings
+        if (installedTheme == null || !installedTheme.containsKey("ToolbarSearch.derive")) {
+            themeProps.put("ToolbarSearch.derive", "Toolbar");
+        }
+
+        themeProps.put("ToolbarLandscape.derive", "Toolbar");
+        themeProps.put("TitleCommandLandscape.derive", "TitleCommand");
+        themeProps.put("BackCommandLandscape.derive", "BackCommand");
+        themeProps.put("TitleLandscape.derive", "Title");
+        themeProps.put("StatusBarLandscape.derive", "StatusBar");
+        String foreground = "0";
+        String background = "ffffff";
+        if (darkMode) {
+            foreground = "ffffff";
+            background = "0";
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("TextFieldSearch.derive")) {
+            themeProps.put("TextFieldSearch.derive", "Title");
+            themeProps.put("TextFieldSearch.align", leftAlign);
+            themeProps.put("TextFieldSearch.sel#align", leftAlign);
+            themeProps.put("TextFieldSearch.press#align", leftAlign);
+            themeProps.put("TextFieldSearch.dis#align", leftAlign);
+            themeProps.put("TextFieldSearch.sel#derive", "TextFieldSearch");
+            themeProps.put("TextFieldSearch.press#derive", "TextFieldSearch");
+            themeProps.put("TextFieldSearch.dis#derive", "TextFieldSearch");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("TextHintSearch.derive")) {
+            themeProps.put("TextHintSearch.derive", "TextHint");
+            themeProps.put("TextHintSearch.transparency", "0");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("AccordionItem.derive")) {
+            themeProps.put("AccordionItem.margin", "0,0,0,0");
+            themeProps.put("AccordionItem.padding", "1,1,1,1");
+            themeProps.put("AccordionItem.border", Border.createLineBorder(1));
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("AccordionHeader.derive")) {
+            themeProps.put("AccordionHeader.margin", "0,0,0,0");
+            themeProps.put("AccordionHeader.sel#margin", "0,0,0,0");
+            themeProps.put("AccordionHeader.press#margin", "0,0,0,0");
+            themeProps.put("AccordionHeader.padding", "0,0,0,0");
+            themeProps.put("AccordionHeader.sel#padding", "0,0,0,0");
+            themeProps.put("AccordionHeader.press#padding", "0,0,0,0");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("SignatureButton.derive")) {
+            themeProps.put("SignatureButton.align", centerAlign);
+            themeProps.put("SignatureButton.sel#derive", "SignatureButton");
+            themeProps.put("SignatureButton.press#derive", "SignatureButton");
+            themeProps.put("SignatureButton.dis#derive", "SignatureButton");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("SignatureButtonBox.derive")) {
+            themeProps.put("SignatureButtonBox.fgColor", foreground);
+            themeProps.put("SignatureButtonBox.sel#derive", "SignatureButtonBox");
+            themeProps.put("SignatureButtonBox.press#derive", "SignatureButtonBox");
+            themeProps.put("SignatureButtonBox.dis#derive", "SignatureButtonBox");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("SignaturePanel.derive")) {
+            themeProps.put("SignaturePanel.bgColor", "ffffff");
+            themeProps.put("SignaturePanel.transparency", "255");
+            themeProps.put("SignaturePanel.sel#derive", "SignaturePanel");
+            themeProps.put("SignaturePanel.press#derive", "SignaturePanel");
+            themeProps.put("SignaturePanel.dis#derive", "SignaturePanel");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("SignaturePanelBox.derive")) {
+            themeProps.put("SignaturePanelBox.fgColor", "666666");
+            themeProps.put("SignaturePanelBox.transparency", "255");
+            themeProps.put("SignaturePanelBox.sel#derive", "SignaturePanelBox");
+            themeProps.put("SignaturePanelBox.press#derive", "SignaturePanelBox");
+            themeProps.put("SignaturePanelBox.dis#derive", "SignaturePanelBox");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("SignaturePanelSignature.derive")) {
+            themeProps.put("SignaturePanelSignature.fgColor", "0");
+            themeProps.put("SignaturePanelSignature.transparency", "255");
+            themeProps.put("SignaturePanelSignature.sel#derive", "SignaturePanelSignature");
+            themeProps.put("SignaturePanelSignature.press#derive", "SignaturePanelSignature");
+            themeProps.put("SignaturePanelSignature.dis#derive", "SignaturePanelSignature");
+        }
+
+
+        if (installedTheme == null || !installedTheme.containsKey("ToastBar.derive")) {
+            themeProps.put("ToastBar.margin", "0,0,0,0");
+            if (darkMode) {
+                themeProps.put("ToastBar.bgColor", "dddddd");
+            } else {
+                themeProps.put("ToastBar.bgColor", "0");
+            }
+            themeProps.put("ToastBar.transparency", "200");
+            themeProps.put("ToastBar.bgType", Byte.valueOf(Style.BACKGROUND_NONE));
+            themeProps.put("ToastBar.border", Border.createEmpty());
+            themeProps.put("ToastBar.sel#derive", "ToastBar");
+            themeProps.put("ToastBar.press#derive", "ToastBar");
+            themeProps.put("ToastBar.dis#derive", "ToastBar");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("ToastBarMessage.derive")) {
+
+            themeProps.put("ToastBarMessage.font", lightFont);
+            themeProps.put("ToastBarMessage.transparency", "0");
+            themeProps.put("ToastBarMessage.fgColor", "FFFFFF");
+            themeProps.put("ToastBarMessage.bgType", Byte.valueOf(Style.BACKGROUND_NONE));
+            themeProps.put("ToastBarMessage.border", Border.createEmpty());
+            themeProps.put("ToastBarMessage.sel#derive", "ToastBarMessage");
+            themeProps.put("ToastBarMessage.press#derive", "ToastBarMessage");
+            themeProps.put("ToastBarMessage.dis#derive", "ToastBarMessage");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("Sheet.derive")) {
+            themeProps.put("Sheet.padding", "0,0,0,0");
+            themeProps.put("Sheet.margin", "0,0,0,0");
+            themeProps.put("Sheet.bgType", Byte.valueOf(Style.BACKGROUND_NONE));
+            if (darkMode) {
+                themeProps.put("Sheet.bgColor", "333333");
+            } else {
+                themeProps.put("Sheet.bgColor", "FFFFFF");
+            }
+            themeProps.put("Sheet.transparency", "255");
+            themeProps.put("Sheet.border", RoundRectBorder.create()
+                    //.topOnlyMode(true)
+
+                    .bottomLeftMode(false)
+                    .bottomRightMode(false)
+                    .cornerRadius(2f));
+            themeProps.put("Sheet.sel#derive", "Sheet");
+            themeProps.put("Sheet.press#derive", "Sheet");
+            themeProps.put("Sheet.dis#derive", "Sheet");
+            themeProps.put("SheetTitle.fgColor", foreground);
+            themeProps.put("SheetTitle.transparency", "0");
+            themeProps.put("SheetTitle.font", bold);
+            themeProps.put("SheetTitle.align", centerAlign);
+            themeProps.put("SheetTitle.sel#derive", "SheetTitle");
+            themeProps.put("SheetTitle.press#derive", "SheetTitle");
+            themeProps.put("SheetTitle.dis#derive", "SheetTitle");
+
+            themeProps.put("SheetTitleBar.transparency", "0");
+            themeProps.put("SheetTitleBar.border", Border.createCompoundBorder(Border.createEmpty(), Border.createLineBorder(1, 0xcccccc), Border.createEmpty(), Border.createEmpty()));
+            themeProps.put("SheetTitleBar.sel#derive", "SheetTitleBar");
+            themeProps.put("SheetTitleBar.press#derive", "SheetTitleBar");
+            themeProps.put("SheetTitleBar.dis#derive", "SheetTitleBar");
+
+            if (darkMode) {
+                themeProps.put("SheetBackButton.fgColor", "999999");
+            } else {
+                themeProps.put("SheetBackButton.fgColor", "333333");
+            }
+            themeProps.put("SheetBackButton.transparency", "0");
+            themeProps.put("SheetBackButton.border", Border.createEmpty());
+            themeProps.put("SheetBackButton.sel#derive", "SheetBackButton");
+            themeProps.put("SheetBackButton.press#derive", "SheetBackButton");
+            themeProps.put("SheetBackButton.dis#derive", "SheetBackButton");
+
+
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("ChartComponent.derive")) {
+            themeProps.put("ChartComponent.transparency", "0");
+            themeProps.put("ChartComponent.sel#derive", "ChartComponent");
+            themeProps.put("ChartComponent.press#derive", "ChartComponent");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("Button.derive")) {
+            themeProps.put("Button.border", Border.getDefaultBorder());
+            themeProps.put("Button.padding", "4,4,4,4");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("Button.sel#derive")) {
+            themeProps.put("Button.sel#border", Border.getDefaultBorder());
+            themeProps.put("Button.sel#bgColor", "a0a0a0");
+            themeProps.put("Button.sel#padding", "4,4,4,4");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("RaisedButton.derive")) {
+            themeProps.put("RaisedButton.derive", "Button");
+            themeProps.put("RaisedButton.sel#derive", "Button.sel");
+            themeProps.put("RaisedButton.press#derive", "Button.press");
+            themeProps.put("RaisedButton.dis#derive", "Button.dis");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("Button.press#derive")) {
+            themeProps.put("Button.press#border", Border.getDefaultBorder().createPressedVersion());
+            themeProps.put("Button.press#derive", "Button");
+            themeProps.put("Button.press#padding", "4,4,4,4");
+        }
+        themeProps.put("Button.dis#derive", "Button");
+
+        if (installedTheme == null || !installedTheme.containsKey("CalendarTitle.derive")) {
+            themeProps.put("CalendarTitle.align", centerAlign);
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("CalendarMultipleDay.derive")) {
+            themeProps.put("CalendarMultipleDay.border", Border.getDefaultBorder());
+            themeProps.put("CalendarMultipleDay.align", centerAlign);
+        }
+        themeProps.put("CalendarMultipleDay.sel#derive", "CalendarMultipleDay");
+
+        if (installedTheme == null || !installedTheme.containsKey("CalendarSelectedDay.derive")) {
+            themeProps.put("CalendarSelectedDay.border", Border.getDefaultBorder());
+            themeProps.put("CalendarSelectedDay.align", centerAlign);
+        }
+        themeProps.put("CalendarSelectedDay.sel#derive", "CalendarSelectedDay");
+
+        if (installedTheme == null || !installedTheme.containsKey("CalendarDay.derive")) {
+            themeProps.put("CalendarDay.align", centerAlign);
+        }
+        themeProps.put("CalendarDay.dis#derive", "CalendarDay");
+        themeProps.put("CalendarDay.press#derive", "CalendarDay");
+
+        if (installedTheme == null || !installedTheme.containsKey("CalendarDay.sel#derive")) {
+            themeProps.put("CalendarDay.sel#align", centerAlign);
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("ComboBox.derive")) {
+            themeProps.put("ComboBox.border", Border.getDefaultBorder());
+        }
+        themeProps.put("ComboBox.sel#derive", "ComboBox");
+
+        if (installedTheme == null || !installedTheme.containsKey("MenuButton.derive")) {
+            themeProps.put("MenuButton.transparency", "0");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("ComboBoxItem.derive")) {
+            themeProps.put("ComboBoxItem.margin", "0,0,0,0");
+            themeProps.put("ComboBoxItem.transparency", "0");
+        }
+        themeProps.put("ComboBoxItem.sel#derive", "ComboBoxItem");
+        themeProps.put("ComboBoxItem.dis#derive", "ComboBoxItem");
+
+        if (installedTheme == null || !installedTheme.containsKey("ComboBoxList.derive")) {
+            themeProps.put("ComboBoxList.margin", "2,2,2,2");
+            themeProps.put("ComboBoxList.padding", "0,0,0,0");
+            themeProps.put("ComboBoxList.transparency", "0");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("ComboBoxList.sel#derive")) {
+            themeProps.put("ComboBoxList.sel#margin", "2,2,2,2");
+            themeProps.put("ComboBoxList.sel#padding", "0,0,0,0");
+            themeProps.put("ComboBoxList.sel#transparency", "0");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("ComboBoxPopup.derive")) {
+            themeProps.put("ComboBoxPopup.border", Border.getDefaultBorder());
+        }
+        themeProps.put("ComboBoxPopup.sel#derive", "ComboBoxPopup");
+
+        if (installedTheme == null || !installedTheme.containsKey("Command.derive")) {
+            themeProps.put("Command.margin", "0,0,0,0");
+            themeProps.put("Command.transparency", "0");
+        }
+        themeProps.put("Command.sel#derive", "Command");
+        themeProps.put("Command.dis#derive", "Command");
+
+        if (installedTheme == null || !installedTheme.containsKey("CommandList.derive")) {
+            themeProps.put("CommandList.margin", "0,0,0,0");
+            themeProps.put("CommandList.padding", "0,0,0,0");
+            themeProps.put("CommandList.transparency", "0");
+        }
+        themeProps.put("CommandList.sel#derive", "CommandList");
+
+        if (installedTheme == null || !installedTheme.containsKey("ComponentGroup.derive")) {
+            themeProps.put("ComponentGroup.derive", "Container");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("Container.derive")) {
+            themeProps.put("Container.transparency", "0");
+            themeProps.put("Container.margin", "0,0,0,0");
+            themeProps.put("Container.padding", "0,0,0,0");
+        }
+        themeProps.put("Container.sel#derive", "Container");
+        themeProps.put("Container.dis#derive", "Container");
+        themeProps.put("Container.press#derive", "Container");
+
+        if (installedTheme == null || !installedTheme.containsKey("Switch.derive")) {
+            themeProps.put("Switch.transparency", "255");
+            themeProps.put("Switch.bgColor", "9F9E9E");
+            themeProps.put("Switch.fgColor", "EDEDED");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("Switch.sel#derive")) {
+            themeProps.put("Switch.sel#transparency", "255");
+            themeProps.put("Switch.sel#bgColor", "757E84");
+            themeProps.put("Switch.sel#fgColor", "222C32");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("OnOffSwitch.derive")) {
+            themeProps.put("OnOffSwitch.transparency", "255");
+            themeProps.put("OnOffSwitch.bgColor", "222222");
+            themeProps.put("OnOffSwitch.padding", "0,0,0,0");
+            themeProps.put("OnOffSwitch.font", lightFont);
+        }
+        if (installedTheme == null || !installedTheme.containsKey("OnOffSwitch.sel#derive")) {
+            themeProps.put("OnOffSwitch.sel#transparency", "255");
+            themeProps.put("OnOffSwitch.sel#bgColor", "222222");
+            themeProps.put("OnOffSwitch.sel#padding", "0,0,0,0");
+            themeProps.put("OnOffSwitch.sel#font", lightFont);
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("ContentPane.derive")) {
+            themeProps.put("ContentPane.transparency", "0");
+            themeProps.put("ContentPane.margin", "0,0,0,0");
+            themeProps.put("ContentPane.padding", "0,0,0,0");
+        }
+        themeProps.put("ContentPane.sel#derive", "ContentPane");
+
+        if (installedTheme == null || !installedTheme.containsKey("PopupDialog.derive")) {
+            themeProps.put("PopupDialog.derive", "Dialog");
+            themeProps.put("PopupDialog.border", RoundRectBorder.create().
+                    cornerRadius(2f).
+                    shadowOpacity(60).shadowSpread(3.0f));
+            themeProps.put("PopupDialog.transparency", "255");
+            themeProps.put("PopupDialog.bgColor", background);
+            themeProps.put("PopupDialog.padding", "4,4,4,4");
+            themeProps.put("PopupDialog.padUnit", new byte[]{Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS});
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("TooltipDialog.derive")) {
+            themeProps.put("TooltipDialog.derive", "Dialog");
+            themeProps.put("TooltipDialog.border", RoundRectBorder.create().
+                    cornerRadius(2f));
+            themeProps.put("TooltipDialog.transparency", "255");
+            themeProps.put("TooltipDialog.bgColor", "dddddd");
+            themeProps.put("TooltipDialog.padding", "4,4,4,4");
+            themeProps.put("TooltipDialog.padUnit", new byte[]{Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS});
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("Tooltip.derive")) {
+            themeProps.put("Tooltip.derive", "Label");
+            themeProps.put("Tooltip.fgColor", "0");
+            themeProps.put("Tooltip.align", centerAlign);
+            themeProps.put("TooltipDialog.padding", "2,2,2,2");
+            themeProps.put("TooltipDialog.padUnit", new byte[]{Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS});
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("DialogContentPane.derive")) {
+            themeProps.put("DialogContentPane.margin", "0,0,0,0");
+            themeProps.put("DialogContentPane.padding", "0,0,0,0");
+            themeProps.put("DialogContentPane.transparency", "0");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("PopupContentPane.derive")) {
+            themeProps.put("PopupContentPane.derive", "DialogContentPane");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("DialogTitle.derive")) {
+            themeProps.put("DialogTitle.align", centerAlign);
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("PopupDialogTitle.derive")) {
+            themeProps.put("PopupDialogTitle.derive", "DialogTitle");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("Form.derive")) {
+            themeProps.put("Form.padding", "0,0,0,0");
+            themeProps.put("Form.margin", "0,0,0,0");
+        }
+        themeProps.put("Form.sel#derive", "Form");
+
+        if (installedTheme == null || !installedTheme.containsKey("HorizontalScroll.derive")) {
+            themeProps.put("HorizontalScroll.margin", "0,0,0,0");
+            themeProps.put("HorizontalScroll.padding", "1,1,1,1");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("HorizontalScrollThumb.derive")) {
+            themeProps.put("HorizontalScrollThumb.padding", "0,0,0,0");
+            themeProps.put("HorizontalScrollThumb.bgColor", foreground);
+            themeProps.put("HorizontalScrollThumb.margin", "0,0,0,0");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("List.derive")) {
+            themeProps.put("List.transparency", "0");
+            themeProps.put("List.margin", "0,0,0,0");
+        }
+        themeProps.put("List.sel#derive", "List");
+
+        if (installedTheme == null || !installedTheme.containsKey("ListRenderer.derive")) {
+            themeProps.put("ListRenderer.transparency", "0");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("ListRenderer.sel#derive")) {
+            themeProps.put("ListRenderer.sel#transparency", "100");
+        }
+        themeProps.put("ListRenderer.dis#derive", "ListRenderer");
+
+        if (installedTheme == null || !installedTheme.containsKey("Menu.derive")) {
+            themeProps.put("Menu.padding", "0,0,0,0");
+        }
+        themeProps.put("Menu.sel#derive", "Menu");
+
+        if (installedTheme == null || !installedTheme.containsKey("PopupContentPane.derive")) {
+            themeProps.put("PopupContentPane.transparency", "0");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("Scroll.derive")) {
+            themeProps.put("Scroll.margin", "0,0,0,0");
+            int halfMM = Display.getInstance().convertToPixels(10, true) / 20;
+            halfMM = Math.max(1, halfMM);
+            themeProps.put("Scroll.padding", halfMM + "," + halfMM + "," + halfMM + "," + halfMM);
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("ScrollThumb.derive")) {
+            themeProps.put("ScrollThumb.padding", "0,0,0,0");
+            themeProps.put("ScrollThumb.margin", "0,0,0,0");
+            themeProps.put("ScrollThumb.bgColor", foreground);
+        }
+
+        // The interactive desktop scrollbar draws through its own four UIIDs
+        // (LookAndFeel.initScroll picks them when interactiveScrollBool is on) so that turning
+        // it on never restyles the mobile bar. Nothing seeded them, which meant a theme that
+        // enabled the constant without also defining all four got a track and a thumb built
+        // from the blank default style: an invisible scrollbar, drawn, reserving a gutter, with
+        // nothing reporting a problem. The seeds below are the mobile ones plus the two things
+        // the desktop bar needs and the mobile one does not -- a gutter wide enough to grab
+        // (the track UIID's horizontal padding is what reserves it) and thumb hover/pressed
+        // states, so the highlight exists even before a theme styles it.
+        //
+        // Guarded like every other seed here, so a theme that defines these suppresses them
+        // rather than fighting them. All three desktop native themes do.
+        if (installedTheme == null || !installedTheme.containsKey("DesktopScroll.derive")) {
+            themeProps.put("DesktopScroll.margin", "0,0,0,0");
+            int gutter = Math.max(2, Display.getInstance().convertToPixels(3, true) / 2);
+            themeProps.put("DesktopScroll.padding", "0," + gutter + ",0," + gutter);
+            themeProps.put("DesktopScroll.transparency", "0");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("DesktopScrollThumb.derive")) {
+            themeProps.put("DesktopScrollThumb.padding", "0,0,0,0");
+            themeProps.put("DesktopScrollThumb.margin", "0,0,0,0");
+            themeProps.put("DesktopScrollThumb.bgColor", foreground);
+            // Distinct states, not three derives of one style. The point of this fallback is
+            // that hover and drag are VISIBLE before a theme styles them, and deriving both
+            // from the unchanged base gave three identical appearances -- the highlight the
+            // comment above promises never appeared.
+            //
+            // Opacity rather than colour, because there is no darker shade available to move
+            // to: `foreground` here is pure black in light mode and pure white in dark, so a
+            // "darker on hover" rule has nowhere to go and would have to branch on the
+            // appearance. A thumb that is partly transparent at rest, more opaque under the
+            // pointer and fully opaque while dragged reads correctly in both, and is what the
+            // platforms themselves do.
+            themeProps.put("DesktopScrollThumb.transparency", "140");
+            themeProps.put("DesktopScrollThumb.sel#derive", "DesktopScrollThumb");
+            themeProps.put("DesktopScrollThumb.sel#transparency", "200");
+            themeProps.put("DesktopScrollThumb.press#derive", "DesktopScrollThumb");
+            themeProps.put("DesktopScrollThumb.press#transparency", "255");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("DesktopHorizontalScroll.derive")) {
+            themeProps.put("DesktopHorizontalScroll.margin", "0,0,0,0");
+            int gutter = Math.max(2, Display.getInstance().convertToPixels(3, true) / 2);
+            themeProps.put("DesktopHorizontalScroll.padding", gutter + ",0," + gutter + ",0");
+            themeProps.put("DesktopHorizontalScroll.transparency", "0");
+        }
+        if (installedTheme == null
+                || !installedTheme.containsKey("DesktopHorizontalScrollThumb.derive")) {
+            themeProps.put("DesktopHorizontalScrollThumb.padding", "0,0,0,0");
+            themeProps.put("DesktopHorizontalScrollThumb.margin", "0,0,0,0");
+            themeProps.put("DesktopHorizontalScrollThumb.bgColor", foreground);
+            // Same three states as the vertical thumb above, for the same reason.
+            themeProps.put("DesktopHorizontalScrollThumb.transparency", "140");
+            themeProps.put("DesktopHorizontalScrollThumb.sel#derive", "DesktopHorizontalScrollThumb");
+            themeProps.put("DesktopHorizontalScrollThumb.sel#transparency", "200");
+            themeProps.put("DesktopHorizontalScrollThumb.press#derive", "DesktopHorizontalScrollThumb");
+            themeProps.put("DesktopHorizontalScrollThumb.press#transparency", "255");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("SliderFull.derive")) {
+            themeProps.put("SliderFull.bgColor", foreground);
+        }
+        themeProps.put("SliderFull.sel#derive", "SliderFull");
+
+        if (installedTheme == null || !installedTheme.containsKey("SoftButton.derive")) {
+            themeProps.put("SoftButton.transparency", "255");
+            themeProps.put("SoftButton.margin", "0,0,0,0");
+            themeProps.put("SoftButton.padding", "0,0,0,0");
+        }
+        themeProps.put("SoftButton.sel#derive", "SoftButton");
+
+        if (installedTheme == null || !installedTheme.containsKey("SoftButtonCenter.derive")) {
+            themeProps.put("SoftButtonCenter.align", centerAlign);
+            themeProps.put("SoftButtonCenter.transparency", "0");
+            themeProps.put("SoftButtonCenter.derive", "SoftButton");
+            themeProps.put("SoftButtonCenter.padding", "4,4,4,4");
+        }
+        themeProps.put("SoftButtonCenter.sel#derive", "SoftButtonCenter");
+        themeProps.put("SoftButtonCenter.press#derive", "SoftButtonCenter");
+        themeProps.put("SoftButtonCenter.dis#derive", "SoftButtonCenter");
+
+        if (installedTheme == null || !installedTheme.containsKey("SoftButtonLeft.derive")) {
+            themeProps.put("SoftButtonLeft.transparency", "0");
+            themeProps.put("SoftButtonLeft.derive", "SoftButton");
+            themeProps.put("SoftButtonLeft.padding", "4,4,4,4");
+        }
+        themeProps.put("SoftButtonLeft.sel#derive", "SoftButtonLeft");
+        themeProps.put("SoftButtonLeft.press#derive", "SoftButtonLeft");
+        themeProps.put("SoftButtonLeft.dis#derive", "SoftButtonLeft");
+
+        if (installedTheme == null || !installedTheme.containsKey("SoftButtonRight.derive")) {
+            themeProps.put("SoftButtonRight.align", rightAlign);
+            themeProps.put("SoftButtonRight.transparency", "0");
+            themeProps.put("SoftButtonRight.derive", "SoftButton");
+            themeProps.put("SoftButtonRight.padding", "4,4,4,4");
+        }
+        themeProps.put("SoftButtonRight.sel#derive", "SoftButtonRight");
+        themeProps.put("SoftButtonRight.press#derive", "SoftButtonRight");
+        themeProps.put("SoftButtonRight.dis#derive", "SoftButtonRight");
+
+        if (installedTheme == null || !installedTheme.containsKey("Spinner.derive")) {
+            themeProps.put("Spinner.border", Border.getDefaultBorder());
+        }
+        themeProps.put("Spinner.sel#derive", "Spinner");
+
+        if (installedTheme == null || !installedTheme.containsKey("SpinnerOverlay.derive")) {
+            themeProps.put("SpinnerOverlay.transparency", "0");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("Tab.derive")) {
+            themeProps.put("Tab.margin", "1,1,1,1");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("Tab.sel#derive")) {
+            themeProps.put("Tab.sel#derive", "Tab");
+            themeProps.put("Tab.sel#border", Border.createLineBorder(1));
+        }
+
+        // deprecated so there is no need to referesh this....
+        themeProps.put("TabbedPane.margin", "0,0,0,0");
+        themeProps.put("TabbedPane.padding", "0,0,0,0");
+        themeProps.put("TabbedPane.transparency", "0");
+        themeProps.put("TabbedPane.sel#margin", "0,0,0,0");
+        themeProps.put("TabbedPane.sel#padding", "0,0,0,0");
+
+
+        if (installedTheme == null || !installedTheme.containsKey("Table.derive")) {
+            themeProps.put("Table.border", Border.getDefaultBorder());
+        }
+        themeProps.put("Table.sel#derive", "Table");
+
+        if (installedTheme == null || !installedTheme.containsKey("TableCell.derive")) {
+            themeProps.put("TableCell.transparency", "0");
+        }
+        themeProps.put("TableCell.sel#derive", "TableCell");
+
+        if (installedTheme == null || !installedTheme.containsKey("TableHeader.derive")) {
+            themeProps.put("TableHeader.transparency", "0");
+        }
+        themeProps.put("TableHeader.sel#derive", "TableHeader");
+
+        if (installedTheme == null || !installedTheme.containsKey("Tabs.derive")) {
+            themeProps.put("Tabs.bgColor", "a0a0a0");
+            themeProps.put("Tabs.padding", "0,0,0,0");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("TabsContainer.derive")) {
+            themeProps.put("TabsContainer.padding", "0,0,0,0");
+            themeProps.put("TabsContainer.margin", "0,0,0,0");
+            themeProps.put("TabsContainer.bgColor", "a0a0a0");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("TextArea.derive")) {
+            themeProps.put("TextArea.border", Border.getDefaultBorder());
+        }
+        themeProps.put("TextArea.sel#derive", "TextArea");
+        themeProps.put("TextArea.dis#derive", "TextArea");
+
+        if (installedTheme == null || !installedTheme.containsKey("TextField.derive")) {
+            themeProps.put("TextField.border", Border.getDefaultBorder());
+        }
+
+        themeProps.put("InvalidEmblem.derive", "Label");
+        themeProps.put("InvalidEmblem.fgColor", "ff0000");
+        themeProps.put("InvalidEmblem.transparency", "0");
+
+        themeProps.put("TextField.sel#derive", "TextField");
+        themeProps.put("TextField.dis#derive", "TextField");
+        if (installedTheme == null || !installedTheme.containsKey("TextFieldInvalid.derive")) {
+            themeProps.put("TextFieldInvalid.derive", "TextField");
+            themeProps.put("TextFieldInvalid.fgColor", "ff0000");
+            themeProps.put("TextFieldInvalid.sel#fgColor", "ff0000");
+            themeProps.put("TextFieldInvalid.sel#fgColor", "ff0000");
+            themeProps.put("TextFieldInvalid.sel#derive", "TextField");
+            themeProps.put("TextFieldInvalid.dis#derive", "TextField");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("TextAreaInvalid.derive")) {
+            themeProps.put("TextAreaInvalid.derive", "TextArea");
+            themeProps.put("TextAreaInvalid.fgColor", "ff0000");
+            themeProps.put("TextAreaInvalid.sel#fgColor", "ff0000");
+            themeProps.put("TextAreaInvalid.sel#fgColor", "ff0000");
+            themeProps.put("TextAreaInvalid.sel#derive", "TextArea");
+            themeProps.put("TextAreaInvalid.dis#derive", "TextArea");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("TextHint.derive")) {
+            themeProps.put("TextHint.transparency", "0");
+            themeProps.put("TextHint.fgColor", "cccccc");
+            themeProps.put("TextHint.font", italic);
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("Title.derive")) {
+            themeProps.put("Title.margin", "0,0,0,0");
+            themeProps.put("Title.transparency", "255");
+            themeProps.put("Title.align", centerAlign);
+        }
+        themeProps.put("Title.sel#derive", "Title");
+
+        if (installedTheme == null || !installedTheme.containsKey("TitleArea.derive")) {
+            themeProps.put("TitleArea.transparency", "0");
+            themeProps.put("TitleArea.margin", "0,0,0,0");
+            themeProps.put("TitleArea.padding", "0,0,0,0");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("TouchCommand.derive")) {
+            themeProps.put("TouchCommand.border", Border.getDefaultBorder());
+            themeProps.put("TouchCommand.padding", "10,10,10,10");
+            themeProps.put("TouchCommand.margin", "0,0,0,0");
+            themeProps.put("TouchCommand.align", centerAlign);
+        }
+        if (installedTheme == null || !installedTheme.containsKey("TouchCommand.press#derive")) {
+            themeProps.put("TouchCommand.press#border", Border.getDefaultBorder().createPressedVersion());
+            themeProps.put("TouchCommand.press#derive", "TouchCommand");
+        }
+        themeProps.put("TouchCommand.sel#derive", "TouchCommand");
+        if (installedTheme == null || !installedTheme.containsKey("TouchCommand.dis#derive")) {
+            themeProps.put("TouchCommand.dis#derive", "TouchCommand");
+            themeProps.put("TouchCommand.dis#fgColor", disabledColor);
+        }
+
+
+        if (installedTheme == null || !installedTheme.containsKey("AdsComponent.sel#derive")) {
+            themeProps.put("AdsComponent.sel#border", Border.getDefaultBorder());
+            themeProps.put("AdsComponent.sel#padding", "2,2,2,2");
+            themeProps.put("AdsComponent.sel#transparency", "0");
+
+        }
+        themeProps.put("AdsComponent#derive", "Container");
+        themeProps.put("WebBrowser#derive", "Container");
+
+        if (installedTheme == null || !installedTheme.containsKey("MapZoomOut.derive")) {
+            themeProps.put("MapZoomOut.derive", "Button");
+        }
+        themeProps.put("MapZoomOut.sel#derive", "Button.sel");
+        themeProps.put("MapZoomOut.press#derive", "Button.press");
+
+        if (installedTheme == null || !installedTheme.containsKey("MapZoomIn.derive")) {
+            themeProps.put("MapZoomIn.derive", "Button");
+        }
+        themeProps.put("MapZoomIn.sel#derive", "Button.sel");
+        themeProps.put("MapZoomIn.press#derive", "Button.press");
+
+        if (installedTheme == null || !installedTheme.containsKey("SideCommand.derive")) {
+            themeProps.put("SideCommand.derive", "TouchCommand");
+            themeProps.put("SideCommand.align", leftAlign);
+        }
+        if (installedTheme == null || !installedTheme.containsKey("SideCommand.sel#.derive")) {
+            themeProps.put("SideCommand.sel#derive", "TouchCommand.sel");
+            themeProps.put("SideCommand.sel#align", leftAlign);
+        }
+        if (installedTheme == null || !installedTheme.containsKey("SideCommand.press#.derive")) {
+            themeProps.put("SideCommand.press#derive", "TouchCommand.press");
+            themeProps.put("SideCommand.press#align", leftAlign);
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("RightSideCommand.derive")) {
+            themeProps.put("RightSideCommand.derive", "SideCommand");
+            themeProps.put("RightSideCommand.align", rightAlign);
+        }
+        if (installedTheme == null || !installedTheme.containsKey("RightSideCommand.sel#.derive")) {
+            themeProps.put("RightSideCommand.sel#derive", "SideCommand.sel");
+            themeProps.put("RightSideCommand.sel#align", rightAlign);
+        }
+        if (installedTheme == null || !installedTheme.containsKey("RightSideCommand.press#.derive")) {
+            themeProps.put("RightSideCommand.press#derive", "SideCommand.press");
+            themeProps.put("RightSideCommand.press#align", rightAlign);
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("SideNavigationPanel.derive")) {
+            themeProps.put("SideNavigationPanel.padding", "0,0,0,0");
+            themeProps.put("SideNavigationPanel.margin", "0,0,0,0");
+            themeProps.put("SideNavigationPanel.bgColor", "343434");
+            themeProps.put("SideNavigationPanel.transparency", "255");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("RightSideNavigationPanel.derive")) {
+            themeProps.put("RightSideNavigationPanel.derive", "SideNavigationPanel");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("PullToRefresh.derive")) {
+            themeProps.put("PullToRefresh.padding", "0,0,0,0");
+            themeProps.put("PullToRefresh.margin", "0,0,0,0");
+            themeProps.put("PullToRefresh.align", centerAlign);
+            themeProps.put("PullToRefresh.transparency", "0");
+            themeProps.put("PullToRefresh.fgColor", foreground);
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("AutoCompletePopup.derive")) {
+            themeProps.put("AutoCompletePopup.transparency", "255");
+            themeProps.put("AutoCompletePopup.padding", "0,0,0,0");
+            themeProps.put("AutoCompletePopup.border", Border.createLineBorder(1));
+        }
+        if (installedTheme == null || !installedTheme.containsKey("AutoCompletePopup.sel#derive")) {
+            themeProps.put("AutoCompletePopup.sel#transparency", "255");
+            themeProps.put("AutoCompletePopup.sel#padding", "0,0,0,0");
+            themeProps.put("AutoCompletePopup.sel#border", Border.createLineBorder(1));
+        }
+        if (installedTheme == null || !installedTheme.containsKey("AutoCompleteList.derive")) {
+            themeProps.put("AutoCompleteList.margin", "1,1,1,1");
+            themeProps.put("AutoCompleteList.padding", "0,0,0,0");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("AutoCompleteList.sel#derive")) {
+            themeProps.put("AutoCompleteList.sel#margin", "1,1,1,1");
+            themeProps.put("AutoCompleteList.sel#padding", "0,0,0,0");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("AutoCompleteList.press#derive")) {
+            themeProps.put("AutoCompleteList.press#margin", "1,1,1,1");
+            themeProps.put("AutoCompleteList.press#padding", "0,0,0,0");
+        }
+
+
+        if (installedTheme == null || !installedTheme.containsKey("CommandList.derive")) {
+            themeProps.put("CommandList.transparency", "255");
+            themeProps.put("CommandList.border", Border.createLineBorder(1));
+        }
+        if (installedTheme == null || !installedTheme.containsKey("CommandList.sel#derive")) {
+            themeProps.put("CommandList.sel#transparency", "255");
+            themeProps.put("CommandList.sel#border", Border.createLineBorder(1));
+        }
+
+        // The default Toolbar.derive=TitleArea was historically added so
+        // legacy themes that styled TitleArea got the same look on Toolbar
+        // for free. The modern themes (and any user theme that wires
+        // TitleArea.derive=Toolbar) flips the relationship the other way -
+        // setting both directions creates a cycle that infinite-loops
+        // createStyle when the resolver follows derive recursively. Skip
+        // the legacy default in that case.
+        boolean userDeclaredTitleAreaDerivesToolbar = installedTheme != null
+                && "Toolbar".equals(installedTheme.get("TitleArea.derive"));
+        if (!userDeclaredTitleAreaDerivesToolbar
+                && (installedTheme == null || !installedTheme.containsKey("Toolbar.derive"))) {
+            themeProps.put("Toolbar.derive", "TitleArea");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("FloatingActionButton.derive")) {
+            themeProps.put("FloatingActionButton.fgColor", "ffffff");
+            themeProps.put("FloatingActionButton.bgColor", "d32f2f");
+            themeProps.put("FloatingActionButton.transparency", "0");
+            themeProps.put("FloatingActionButton.marUnit", new byte[]{Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS});
+            themeProps.put("FloatingActionButton.margin", "0,2,1,2");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("FloatingActionButton.press#derive")) {
+            themeProps.put("FloatingActionButton.press#fgColor", "ffffff");
+            themeProps.put("FloatingActionButton.press#bgColor", "b71c1c");
+            themeProps.put("FloatingActionButton.sel#transparency", "0");
+            themeProps.put("FloatingActionButton.press#marUnit", new byte[]{Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS});
+            themeProps.put("FloatingActionButton.press#margin", "0,2,1,2");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("FloatingActionButton.sel#derive")) {
+            themeProps.put("FloatingActionButton.sel#fgColor", "ffffff");
+            themeProps.put("FloatingActionButton.sel#transparency", "0");
+            themeProps.put("FloatingActionButton.sel#bgColor", "b71c1c");
+            themeProps.put("FloatingActionButton.sel#marUnit", new byte[]{Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS});
+            themeProps.put("FloatingActionButton.sel#margin", "0,2,1,2");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("RefreshLabel.derive")) {
+            themeProps.put("RefreshLabel.fgColor", "0");
+            themeProps.put("RefreshLabel.bgColor", "ffffff");
+            themeProps.put("RefreshLabel.transparency", "0");
+            themeProps.put("RefreshLabel.marUnit", new byte[]{Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS});
+            themeProps.put("RefreshLabel.padUnit", new byte[]{Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS});
+            themeProps.put("RefreshLabel.margin", "1,1,1,1");
+            themeProps.put("RefreshLabel.padding", "2,3,2,3");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("Badge.derive")) {
+            themeProps.put("Badge.fgColor", "ffffff");
+            themeProps.put("Badge.bgColor", "d32f2f");
+            themeProps.put("Badge.press#fgColor", "ffffff");
+            themeProps.put("Badge.press#bgColor", "b71c1c");
+            themeProps.put("Badge.sel#fgColor", "ffffff");
+            themeProps.put("Badge.sel#bgColor", "b71c1c");
+            themeProps.put("Badge#padUnit", new byte[]{Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS});
+            themeProps.put("Badge#padding", "0,0,0,0");
+            themeProps.put("Badge.sel#padUnit", new byte[]{Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS});
+            themeProps.put("Badge.sel#padding", "0,0,0,0");
+            themeProps.put("Badge.press#padUnit", new byte[]{Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS});
+            themeProps.put("Badge.press#padding", "0,0,0,0");
+            if (Font.isNativeFontSchemeSupported()) {
+                Font fnt = lightFont.derive(Display.getInstance().convertToPixels(1.5f), Font.STYLE_PLAIN);
+                themeProps.put("Badge.font", fnt);
+                themeProps.put("Badge.sel#font", fnt);
+                themeProps.put("Badge.press#font", fnt);
+            }
+            themeProps.put("Badge.align", centerAlign);
+            themeProps.put("Badge.sel#align", centerAlign);
+            themeProps.put("Badge.press#align", centerAlign);
+        }
+        if (installedTheme == null || !installedTheme.containsKey("FloatingActionText.derive")) {
+            themeProps.put("FloatingActionText.bgColor", background);
+            themeProps.put("FloatingActionText.fgColor", "a0a0a0");
+            themeProps.put("FloatingActionText.align", rightAlign);
+        }
+        if (installedTheme == null || !installedTheme.containsKey("ErrorLabel.derive")) {
+            themeProps.put("ErrorLabel.derive", "FloatingHint");
+            themeProps.put("ErrorLabel.sel#derive", "FloatingHint");
+            themeProps.put("ErrorLabel.press#derive", "FloatingHint");
+            themeProps.put("ErrorLabel.fgColor", "ff1744");
+            themeProps.put("ErrorLabel.sel#fgColor", "ff1744");
+            themeProps.put("ErrorLabel.press#fgColor", "ff1744");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("InputComponentAction.derive")) {
+            themeProps.put("InputComponentAction.derive", "FloatingHint");
+            themeProps.put("InputComponentAction.font", Font.createTrueTypeFont(Font.NATIVE_MAIN_LIGHT, 3f));
+        }
+        if (installedTheme == null || !installedTheme.containsKey("DescriptionLabel.derive")) {
+            themeProps.put("DescriptionLabel.derive", "FloatingHint");
+            themeProps.put("DescriptionLabel.sel#derive", "FloatingHint");
+            themeProps.put("DescriptionLabel.press#derive", "FloatingHint");
+            themeProps.put("DescriptionLabel.fgColor", "666666");
+            themeProps.put("DescriptionLabel.sel#fgColor", "666666");
+            themeProps.put("DescriptionLabel.press#fgColor", "666666");
+        }
+        if (installedTheme == null || !installedTheme.containsKey("TextComponent.derive")) {
+            themeProps.put("TextComponent.derive", "Container");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("Spinner3DRow.derive")) {
+            // For the rows of the Spinner3D widget
+            themeProps.put("Spinner3DRow.derive", "Label");
+            themeProps.put("Spinner3DRow.sel#derive", "Label");
+            themeProps.put("Spinner3DRow.fgColor", "878A93");
+            themeProps.put("Spinner3DRow.transparency", "0");
+            themeProps.put("Spinner3DRow.sel#fgColor", "2A2B2F");
+            themeProps.put("Spinner3DRow.border", Border.createEmpty());
+            themeProps.put("Spinner3DRow.align", centerAlign);
+            themeProps.put("Spinner3DRow.sel#align", centerAlign);
+            themeProps.put("Spinner3DRow.padding", "1.5,1.5,1,1");
+            themeProps.put("Spinner3DRow.sel#padding", "1.5,1.5,1,1");
+            themeProps.put("Spinner3DRow.padUnit", new byte[]{Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS});
+            themeProps.put("Spinner3DRow.sel#padUnit", new byte[]{Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS, Style.UNIT_TYPE_DIPS});
+
+            themeProps.put("Spinner3DRow.font", Font.createTrueTypeFont(Font.NATIVE_MAIN_LIGHT, 2.8f));
+            themeProps.put("Spinner3DRow.sel#font", Font.createTrueTypeFont(Font.NATIVE_MAIN_LIGHT, 2.8f));
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("Spinner3DOverlay.bgColor")) {
+            themeProps.put("Spinner3DOverlay.transparency", "255");
+            themeProps.put("Spinner3DOverlay.bgColor", "efeff4");
+            themeProps.put("Spinner3DOverlay.fgColor", "abb8b7");
+
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("PickerDialog.border")) {
+            // For the interaction dialog when showing a Picker in lightweight mode
+            themeProps.put("PickerDialog.padding", "0,0,0,0");
+            themeProps.put("PickerDialog.border", Border.createEmpty());
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("PickerDialogTablet.derive")) {
+            themeProps.put("PickerDialogTablet.derive", "Dialog");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("PickerDialogContent.bgColor")) {
+            // For the content pane of the interaction dialog when showing a Picker in lightweight mode
+            themeProps.put("PickerDialogContent.padding", "0,0,0,0");
+            themeProps.put("PickerDialogContent.margin", "0,0,0,0");
+            themeProps.put("PickerDialogContent.border", Border.createEmpty());
+            themeProps.put("PickerDialogContent.bgColor", "D1D4DD");
+            themeProps.put("PickerDialogContent.transparency", "255");
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("PicketDialogContentTablet.derive")) {
+            themeProps.put("PickerDialogContentTablet.derive", "PopupContentPane");
+        }
+
+
+        if (installedTheme == null || !installedTheme.containsKey("PickerButtonBarTablet")) {
+            if (installedTheme != null && installedTheme.containsKey("PickerButtonBarTabletNative")) {
+                themeProps.put("PickerButtonBarTablet.derive", "PickerButtonBarTabletNative");
+            } else {
+                themeProps.put("PickerButtonBarTablet.derive", "Container");
+            }
+        }
+
+        if (installedTheme == null || !installedTheme.containsKey("PickerButton")) {
+            // For the buttons of the picker in lightweight mode (the Cancel and Done buttons)
+            themeProps.put("PickerButton.derive", "Button");
+            themeProps.put("PickerButton.sel#derive", "Button.sel");
+            themeProps.put("PickerButton.press#derive", "Button.pres");
+        }
+
+
+        if (installedTheme == null || !installedTheme.containsKey("Picker.derive")) {
+            themeProps.put("Picker.derive", "TextField");
+            themeProps.put("Picker.sel#derive", "TextField.sel");
+            themeProps.put("Picker.press#derive", "TextField.press");
+            themeProps.put("Picker.dis#derive", "TextField.dis");
+            themeProps.put("Picker.sel#border", Border.createLineBorder(1, 0x206afb));
+        }
+
+
+    }
+
+    /// Adds the given theme properties on top of the existing properties without
+    /// clearing the existing theme first
+    ///
+    /// #### Parameters
+    ///
+    /// - `themeProps`: the properties of the given theme
+    public void addThemeProps(Hashtable themeProps) {
+        if (accessible) {
+            dropSupersededBindings(themeProps);
+            buildTheme(themeProps);
+            styles.clear();
+            selectedStyles.clear();
+            prefixedStyles.clear();
+            // styles.clear() above discarded the installed objects too.
+            programmaticStyleInstalled = false;
+            themeGeneration++;
+            imageCache.clear();
+            current.refreshTheme(false);
+        }
+    }
+
+    /// CSSWatcher's live-reload funnels every recompile through
+    /// [#addThemeProps], which never clears [#themeConstants]. When a user
+    /// replaces a `var()`-bound CSS rule with a literal, the recompiled
+    /// theme.res carries the new style value but no longer emits the
+    /// matching `@cn1-bind:<key>` entry. Without intervention the stale
+    /// binding left in `themeConstants` would let [#applyThemeBindings]
+    /// stomp the user's literal change back to the previous binding's
+    /// resolved value -- visibly hiding every CSS edit.
+    ///
+    /// This pre-pass runs only on the overlay entry point (`addThemeProps`),
+    /// not on the full reset path ([#setThemePropsImpl] -> [#buildTheme],
+    /// which clears `themeConstants` itself, and the `@includeNativeBool`
+    /// layered initial load whose existing screenshots depend on bindings
+    /// staying in place). For each style key being re-set by the incoming
+    /// load that does NOT re-assert its binding, drop the matching binding
+    /// from `themeConstants` so the new literal wins.
+    private void dropSupersededBindings(Hashtable themeProps) {
+        if (themeProps == null || themeConstants == null || themeConstants.isEmpty()) {
+            return;
+        }
+        Enumeration e = themeProps.keys();
+        while (e.hasMoreElements()) {
+            Object keyObj = e.nextElement();
+            if (!(keyObj instanceof String)) {
+                continue;
+            }
+            String key = (String) keyObj;
+            if (key.startsWith("@")) {
+                continue;
+            }
+            String boundConstant = "cn1-bind:" + key;
+            if (themeConstants.containsKey(boundConstant)
+                    && !themeProps.containsKey("@" + boundConstant)) {
+                themeConstants.remove(boundConstant);
+            }
+        }
+    }
+
+    /// Scales the font sizes of the current theme by the given factor, e.g.
+    /// a factor of 1.2 increases all font sizes by 20% and a factor of 0.8
+    /// decreases them by 20%. Only fonts that support scaling (TTF or native:
+    /// fonts, see [Font#isTTFNativeFont()]) are affected; system fonts are
+    /// skipped since their size is fixed by the underlying platform.
+    ///
+    /// The zoom is applied relative to the current state of the theme, so
+    /// calling this method repeatedly compounds the effect. To undo a zoom,
+    /// either reapply the theme or call this method with the reciprocal
+    /// factor.
+    ///
+    /// **Note:** this updates the theme definitions and clears the cached
+    /// styles, but components already shown on a form continue to render
+    /// with the Font instances they captured before the call. To apply the
+    /// new sizes to a live form, invoke `refreshTheme()` on it (typically
+    /// `CN.getCurrentForm().refreshTheme()`) after calling this method.
+    ///
+    /// #### Parameters
+    ///
+    /// - `factor`: the multiplier applied to every scalable font size. Must
+    ///   be greater than zero.
+    public void zoomFonts(float factor) {
+        if (factor <= 0f) {
+            throw new IllegalArgumentException("Zoom factor must be greater than zero");
+        }
+        if (factor == 1f) {
+            return;
+        }
+        for (Map.Entry<String, Object> entry : themeProps.entrySet()) {
+            if (!entry.getKey().endsWith(Style.FONT)) {
+                continue;
+            }
+            Object value = entry.getValue();
+            Font font = null;
+            if (value instanceof Font) {
+                font = (Font) value;
+            } else if (value instanceof String) {
+                Font parsed = parseFont((String) value);
+                if (parsed != null && parsed.isTTFNativeFont()) {
+                    font = parsed;
+                }
+            }
+            if (font == null || !font.isTTFNativeFont()) {
+                continue;
+            }
+            Font scaled = scaleFontByFactor(font, factor);
+            if (scaled != null && scaled != font) { //NOPMD CompareObjectsWithEquals
+                entry.setValue(scaled);
+            }
+        }
+        Font defFont = defaultStyle.getFont();
+        if (defFont != null && defFont.isTTFNativeFont()) {
+            Font scaled = scaleFontByFactor(defFont, factor);
+            if (scaled != null && scaled != defFont) { //NOPMD CompareObjectsWithEquals
+                defaultStyle.setFont(scaled);
+            }
+        }
+        Font defSelFont = defaultSelectedStyle.getFont();
+        if (defSelFont != null && defSelFont.isTTFNativeFont()) {
+            Font scaled = scaleFontByFactor(defSelFont, factor);
+            if (scaled != null && scaled != defSelFont) { //NOPMD CompareObjectsWithEquals
+                defaultSelectedStyle.setFont(scaled);
+            }
+        }
+        styles.clear();
+        selectedStyles.clear();
+        prefixedStyles.clear();
+        // styles.clear() above discarded the installed objects too.
+        programmaticStyleInstalled = false;
+        themeGeneration++;
+        imageCache.clear();
+        current.refreshTheme(false);
+    }
+
+    private Font scaleFontByFactor(Font font, float factor) {
+        if (font == null || !font.isTTFNativeFont()) {
+            return font;
+        }
+        float baseSize = font.getPixelSize();
+        if (baseSize <= 0) {
+            baseSize = font.getHeight();
+        }
+        if (baseSize <= 0) {
+            return font;
+        }
+        try {
+            return font.derive(baseSize * factor, font.getStyle());
+        } catch (Exception ex) {
+            Log.e(ex);
+            return font;
+        }
+    }
+
+    /// Invalidates the cached Style instances and re-runs the theme build pass
+    /// against the currently installed theme properties. Callers use this after
+    /// state changes that affect style resolution (notably `Display.setDarkMode`,
+    /// which makes `$Dark<UIID>` entries eligible) without reloading the theme
+    /// from a resource file. Components styled after this call resolve against
+    /// the refreshed theme; already-resolved Style references on existing
+    /// components keep their old values until those components re-fetch their
+    /// styles.
+    public void refreshTheme() {
+        if (!accessible || themeProps == null) {
+            return;
+        }
+        Hashtable props = new Hashtable();
+        for (Map.Entry<String, Object> e : themeProps.entrySet()) {
+            props.put(e.getKey(), e.getValue());
+        }
+        // buildTheme strips `@`-prefixed constants into themeConstants and
+        // drops them from the main themeProps map. Round-tripping through
+        // setThemePropsImpl would therefore lose every constant - so
+        // re-add them from themeConstants with the `@` restored, matching
+        // the shape buildTheme expects on input.
+        if (themeConstants != null) {
+            for (Map.Entry<String, Object> e : themeConstants.entrySet()) {
+                props.put("@" + e.getKey(), e.getValue());
+            }
+        }
+        setThemePropsImpl(props);
+    }
+
+    /// Returns a theme constant defined in the resource editor
+    ///
+    /// #### Parameters
+    ///
+    /// - `constantName`: the name of the constant
+    ///
+    /// - `def`: default value
+    ///
+    /// #### Returns
+    ///
+    /// the value of the constant or the default if the constant isn't in the theme
+    public int getThemeConstant(String constantName, int def) {
+        String v = (String) themeConstants.get(constantName);
+        if (v != null) {
+            try {
+                return Integer.parseInt(v);
+            } catch (NumberFormatException err) {
+                Log.e(err);
+            }
+        }
+        return def;
+    }
+
+    /// Returns a theme constant defined in the resource editor
+    ///
+    /// #### Parameters
+    ///
+    /// - `constantName`: the name of the constant
+    ///
+    /// - `def`: default value
+    ///
+    /// #### Returns
+    ///
+    /// the value of the constant or the default if the constant isn't in the theme
+    public final String getThemeConstant(String constantName, String def) {
+        String v = (String) themeConstants.get(constantName);
+        if (v != null) {
+            return v;
+        }
+        return def;
+    }
+
+    /// Returns a theme constant defined in the resource editor as a boolean value
+    ///
+    /// #### Parameters
+    ///
+    /// - `constantName`: the name of the constant
+    ///
+    /// - `def`: default value
+    ///
+    /// #### Returns
+    ///
+    /// the value of the constant or the default if the constant isn't in the theme
+    public final boolean isThemeConstant(String constantName, boolean def) {
+        String c = getThemeConstant(constantName, null);
+        if (c == null) {
+            return def;
+        }
+        return "true".equalsIgnoreCase(c) || "1".equals(c);
+    }
+
+    /// Returns a theme constant defined in the resource editor as a boolean value or null if the constant isn't defined
+    ///
+    /// #### Parameters
+    ///
+    /// - `constantName`: the name of the constant
+    ///
+    /// #### Returns
+    ///
+    /// the value of the constant or null if the constant isn't in the theme
+    public Boolean isThemeConstant(String constantName) {
+        String c = getThemeConstant(constantName, null);
+        if (c == null) {
+            return null;
+        }
+        if ("true".equalsIgnoreCase(c) || "1".equals(c)) {
+            return Boolean.TRUE;
+        }
+        return Boolean.FALSE;
+    }
+
+    /// Returns a theme constant defined in the resource editor
+    ///
+    /// #### Parameters
+    ///
+    /// - `constantName`: the name of the constant
+    ///
+    /// #### Returns
+    ///
+    /// the image if defined
+    public Image getThemeImageConstant(String constantName) {
+        return (Image) themeConstants.get(constantName);
+    }
+
+    /// Returns a theme mask constant
+    ///
+    /// #### Parameters
+    ///
+    /// - `constantName`: the name of the constant
+    ///
+    /// #### Returns
+    ///
+    /// the mask if defined
+    public Object getThemeMaskConstant(String constantName) {
+        Object o = themeConstants.get(constantName + "Mask");
+        if (o != null) {
+            return o;
+        }
+        Image i = (Image) themeConstants.get(constantName);
+        if (i == null) {
+            return null;
+        }
+        o = i.createMask();
+        themeConstants.put(constantName + "Mask", o);
+        return o;
+    }
+
+    void setThemePropsImpl(Hashtable themeProps) {
+        resetThemeProps(themeProps);
+        styles.clear();
+        themeConstants.clear();
+        selectedStyles.clear();
+        prefixedStyles.clear();
+        // styles.clear() above discarded the installed objects too.
+        programmaticStyleInstalled = false;
+        themeGeneration++;
+        imageCache.clear();
+        if (themelisteners != null) {
+            themelisteners.fireActionEvent(new ActionEvent(themeProps, ActionEvent.Type.Theme));
+        }
+        buildTheme(themeProps);
+        breakTitleAreaToolbarDeriveCycle();
+        // Only the OUTERMOST application refreshes the look and feel.
+        //
+        // A theme carrying @includeNativeBool re-enters this method: buildTheme
+        // calls Display.installNativeTheme(), which loads the platform theme and
+        // applies it through here before the outer call merges the user theme on
+        // top. Refreshing on the way out of that inner application rebuilt every
+        // style for a theme that is about to be superseded, and the outer refresh
+        // then rebuilt them all again. Measured at 55-134ms of pure duplicate
+        // work inside Lifecycle.init, on the event dispatch thread, before any
+        // application code runs.
+        //
+        // buildThemeDepth is non-zero exactly while an enclosing buildTheme is
+        // running, which is the only way this method re-enters, and that
+        // enclosing call refreshes when it finishes. Nothing observes the theme
+        // in between: installNativeTheme returns straight into buildThemeImpl's
+        // merge loop.
+        if (buildThemeDepth == 0) {
+            current.refreshTheme(true);
+        }
+    }
+
+    /// resetThemeProps decides whether to install the legacy
+    /// `Toolbar.derive=TitleArea` default by inspecting only the *immediate*
+    /// installedTheme it was handed. When a user theme has
+    /// `@includeNativeBool: true`, buildTheme later layers in a native theme
+    /// (e.g. iOS Modern's `TitleArea.derive=Toolbar`) and the user theme on
+    /// top - and those layers can flip the derive direction without the
+    /// outer reset noticing. Once both `Toolbar.derive=TitleArea` and
+    /// `TitleArea.derive=Toolbar` exist in the merged themeProps,
+    /// `createStyle` recurses indefinitely and Logs `Error creating style
+    /// TitleArea` (the catch returns a default style, but the cycle leaves
+    /// the chrome unstyled and the app effectively stuck). Drop the legacy
+    /// default once we can see the merged state.
+    private void breakTitleAreaToolbarDeriveCycle() {
+        if (themeProps == null) {
+            return;
+        }
+        Object titleAreaDerive = themeProps.get("TitleArea.derive");
+        if ("Toolbar".equals(titleAreaDerive)) {
+            Object toolbarDerive = themeProps.get("Toolbar.derive");
+            if ("TitleArea".equals(toolbarDerive)) {
+                themeProps.remove("Toolbar.derive");
+            }
+        }
+    }
+
+    private void buildTheme(Hashtable themeProps) {
+        buildThemeDepth++;
+        try {
+            buildThemeImpl(themeProps);
+        } finally {
+            buildThemeDepth--;
+        }
+    }
+
+    private void buildThemeImpl(Hashtable themeProps) {
+        // A new theme may change constants that the platform consults while deriving
+        // fonts (e.g. a native theme's text letter spacing). Flush the derived-font
+        // cache so those fonts are rebuilt against the incoming constants rather than
+        // returning a paint derived under the previous (or no) theme.
+        Font.clearDerivedFontCache();
+        String con = (String) themeProps.get("@includeNativeBool");
+        if (con != null && "true".equalsIgnoreCase(con) && Display.getInstance().hasNativeTheme()) {
+            boolean a = accessible;
+            accessible = true;
+            Display.getInstance().installNativeTheme();
+            accessible = a;
+        }
+        Enumeration e = themeProps.keys();
+        while (e.hasMoreElements()) {
+            String key = (String) e.nextElement();
+
+            // this is a constant not a theme entry
+            if (key.startsWith("@")) {
+                themeConstants.put(key.substring(1), themeProps.get(key));
+                continue;
+            }
+            this.themeProps.put(key, themeProps.get(key));
+        }
+
+        applyThemeBindings();
+
+        updateLargerTextScaleSettingFromTheme();
+
+        if (!this.themeProps.containsKey("PickerButtonBar.derive")) {
+            // For the button bar (with Cancel and Done) of the Picker interaction dialog in lightweight mode
+            if (this.themeProps.containsKey("PickerButtonBarNative.derive")) {
+                this.themeProps.put("PickerButtonBar.derive", "PickerButtonBarNative");
+            } else {
+                this.themeProps.put("PickerButtonBar.margin", "0,0,0,0");
+                this.themeProps.put("PickerButtonBar.border", Border.createCompoundBorder(Border.createLineBorder(1, ColorUtil.rgb(148, 150, 151)), Border.createEmpty(), Border.createEmpty(), Border.createEmpty()));
+                this.themeProps.put("PickerButtonBar.bgColor", "F0F1F3");
+                this.themeProps.put("PickerButtonBar.transparency", "255");
+            }
+        }
+
+        if (!this.themeProps.containsKey("PickerButtonTablet.derive")) {
+            // For the buttons of the picker in lightweight mode (the Cancel and Done buttons)
+            if (this.themeProps.containsKey("PickerButtonTabletNative.derive")) {
+                this.themeProps.put("PickerButtonTablet.derive", "PickerButtonTabletNative");
+                this.themeProps.put("PickerButtonTablet.sel#derive", "PickerButtonTabletNative.sel");
+                this.themeProps.put("PickerButtonTablet.press#derive", "PickerButtonTabletNative.press");
+            } else {
+                this.themeProps.put("PickerButtonTablet.derive", "Button");
+                this.themeProps.put("PickerButtonTablet.sel#derive", "Button");
+                this.themeProps.put("PickerButtonTablet.press#derive", "Button");
+            }
+        }
+
+        if (buildThemeDepth == 1) {
+            applyLargerTextScaleToThemeFonts();
+        }
+
+        // necessary to clear up the style so we don't get resedue from the previous UI
+        defaultStyle = new Style();
+
+        //create's the default style
+        defaultStyle = createStyle("", "", false);
+        defaultSelectedStyle = new Style(defaultStyle);
+        defaultSelectedStyle = createStyle("", "sel#", true);
+        if (buildThemeDepth == 1) {
+            applyLargerTextScaleToDefaultStyles();
+        }
+
+        String overlayThemes = (String) themeProps.get("@OverlayThemes");
+        if (overlayThemes != null) {
+            java.util.List<String> overlayThemesArr = StringUtil.tokenize(overlayThemes, ',');
+            for (String th : overlayThemesArr) {
+                th = th.trim();
+                if (th.length() == 0) {
+                    continue;
+                }
+                try {
+                    Resources res = Resources.openLayered("/" + th);
+                    boolean a = accessible;
+                    accessible = true;
+                    addThemeProps(res.getTheme(res.getThemeResourceNames()[0]));
+                    accessible = a;
+                } catch (Exception ex) {
+                    System.err.println("Failed to load overlay theme file specified by @overlayThemes theme constant: " + th);
+                    Log.e(ex);
+                }
+            }
+        }
+
+        // Everything above merged into themeProps, so the style-definition index
+        // and the $Dark key list it carries describe the theme as it was BEFORE
+        // this call and have to go.
+        //
+        // themeGeneration does not cover this. A theme carrying
+        // @includeNativeBool re-enters here through installNativeTheme, and that
+        // nested install bumps the generation while only the native properties
+        // are loaded -- then this outer call merges the application's own keys,
+        // including its $Dark ones, on top without bumping anything. An index
+        // built during the nested window therefore knew only the native theme's
+        // dark keys, and every application dark style resolved afterwards was
+        // reported as having no dark definition and built light. The same is
+        // true of the @overlayThemes merges just above.
+        styleDefinitionCache = null;
+    }
+
+    /// Theme entries can be bound to a named theme constant via a
+    /// `@cn1-bind:&lt;themeKey&gt;=&lt;varName&gt;` pseudo-constant emitted by the CSS
+    /// compiler when it expands a `var(--name, fallback)` reference. The
+    /// compiler still inlines `fallback` as the baked-in default (so themes
+    /// load correctly with no override), but additionally records that the
+    /// resolved style property tracks `--name`.
+    ///
+    /// At runtime, callers tune the palette by injecting an `@&lt;varName&gt;`
+    /// constant via [#addThemeProps]. This method walks the binding entries
+    /// and overlays the override value onto every bound style key, so a
+    /// single `addThemeProps({"@accent-color": "ff2d95"})` call retunes
+    /// every UIID whose CSS rule referenced `var(--accent-color, ...)`.
+    /// Bindings without a matching override are left at their baked-in
+    /// default (whatever was already in themeProps from the initial load).
+    private void applyThemeBindings() {
+        if (themeConstants == null || themeConstants.isEmpty() || themeProps == null) {
+            return;
+        }
+        final String prefix = "cn1-bind:";
+        for (Map.Entry<String, Object> entry : themeConstants.entrySet()) {
+            String constantKey = entry.getKey();
+            if (constantKey == null || !constantKey.startsWith(prefix)) {
+                continue;
+            }
+            Object varNameObj = entry.getValue();
+            if (!(varNameObj instanceof String)) {
+                continue;
+            }
+            String varName = ((String) varNameObj).trim();
+            if (varName.length() == 0) {
+                continue;
+            }
+            Object override = themeConstants.get(varName);
+            if (!(override instanceof String)) {
+                continue;
+            }
+            String themeKey = constantKey.substring(prefix.length());
+            if (themeKey.length() == 0) {
+                continue;
+            }
+            // Only retune keys that are already present in themeProps so a
+            // stale binding entry (left over after the bound rule was
+            // dropped from the source CSS) can't materialize a phantom
+            // style key from the user's override value.
+            if (!themeProps.containsKey(themeKey)) {
+                continue;
+            }
+            String overrideValue = (String) override;
+            if (themeKey.endsWith("Color")) {
+                overrideValue = normalizeBoundColorValue(overrideValue);
+                if (overrideValue == null) {
+                    continue;
+                }
+            }
+            themeProps.put(themeKey, overrideValue);
+            syncBoundRoundBorderColor(themeKey, overrideValue);
+        }
+    }
+
+    /// A RoundBorder paints its own serialized color rather than Style.bgColor.
+    /// Keep that legacy representation and geometry intact, but synchronize the
+    /// border when a compiler-emitted background-color binding is applied.
+    /// This avoids switching the border into UIID painter mode, which is not
+    /// supported consistently across ports and can change circle/pill geometry.
+    private void syncBoundRoundBorderColor(String themeKey, String colorValue) {
+        final String suffix = "bgColor";
+        if (!themeKey.endsWith(suffix)) {
+            return;
+        }
+        String borderKey = themeKey.substring(0, themeKey.length() - suffix.length()) + "border";
+        Object border = themeProps.get(borderKey);
+        if (border instanceof RoundBorder) {
+            ((RoundBorder) border).color(Integer.parseInt(colorValue, 16));
+        }
+    }
+
+    /// `loadTheme` stores color theme entries as plain hex strings (no `#`,
+    /// lowercase). User-supplied overrides may use either form, so trim a
+    /// leading `#` and lowercase the value before assigning it to a bound
+    /// color key. Returns null when the value can't be parsed as a 3- or
+    /// 6-digit hex color so the binding falls through to its default.
+    private static String normalizeBoundColorValue(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String value = raw.trim();
+        if (value.length() == 0) {
+            return null;
+        }
+        if (value.charAt(0) == '#') {
+            value = value.substring(1);
+        }
+        if (value.length() == 3) {
+            char r = value.charAt(0);
+            char g = value.charAt(1);
+            char b = value.charAt(2);
+            value = "" + r + r + g + g + b + b;
+        }
+        if (value.length() != 6) {
+            return null;
+        }
+        for (int i = 0; i < 6; i++) {
+            char c = value.charAt(i);
+            boolean hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+            if (!hex) {
+                return null;
+            }
+        }
+        return value.toLowerCase();
+    }
+
+    private Map<String, String> parseCache() {
+        if (parseCache == null) {
+            parseCache = new HashMap<String, String>();
+        }
+        return parseCache;
+    }
+
+    private void updateLargerTextScaleSettingFromTheme() {
+        Boolean useScale = isThemeConstant("useLargerTextScaleBool");
+        if (useScale != null) {
+            useLargerTextScale = useScale.booleanValue();
+        }
+    }
+
+    private float getEffectiveLargerTextScale() {
+        if (!useLargerTextScale) {
+            return 1f;
+        }
+        Display display = Display.getInstance();
+        if (!display.isLargerTextEnabled()) {
+            return 1f;
+        }
+        return display.getLargerTextScale();
+    }
+
+    private Font scaleFontForLargerText(Font font, float scale) {
+        if (font == null || !font.isTTFNativeFont() || scale <= 1f) {
+            return font;
+        }
+        float baseSize = font.getPixelSize();
+        if (baseSize <= 0) {
+            baseSize = font.getHeight();
+        }
+        if (baseSize <= 0) {
+            return font;
+        }
+        try {
+            return font.derive(baseSize * scale, font.getStyle());
+        } catch (Exception ex) {
+            Log.e(ex);
+            return font;
+        }
+    }
+
+    /// Only [#buildTheme] at depth 1 may call this: the bookkeeping below spans
+    /// the whole merged theme, and a nested `@includeNativeBool` install sees
+    /// only the native theme's half of it. See [#buildThemeDepth].
+    private void applyLargerTextScaleToThemeFonts() {
+        // Roll back any prior scaling we applied so this pass always derives
+        // from the original installed font. Without the rollback, repeated
+        // refreshes compound (each scale multiplies the previously-derived
+        // pixel size) and a return to scale 1.0 never actually shrinks fonts.
+        if (!scaledFontOriginals.isEmpty()) {
+            for (Map.Entry<String, Font> entry : scaledFontOriginals.entrySet()) {
+                String key = entry.getKey();
+                Object current = themeProps.get(key);
+                Font derived = scaledFontDerived.get(key);
+                // Only restore when the theme still holds the Font we wrote;
+                // an intervening setThemeProps/addThemeProps may have replaced
+                // it with a new original we must keep.
+                if (current == derived) { //NOPMD CompareObjectsWithEquals
+                    themeProps.put(key, entry.getValue());
+                }
+            }
+            scaledFontOriginals.clear();
+            scaledFontDerived.clear();
+        }
+
+        float scale = getEffectiveLargerTextScale();
+        if (scale <= 1f) {
+            return;
+        }
+        for (Map.Entry<String, Object> entry : themeProps.entrySet()) {
+            if (!entry.getKey().endsWith(Style.FONT)) {
+                continue;
+            }
+            Object value = entry.getValue();
+            if (value instanceof Font) {
+                Font original = (Font) value;
+                Font scaled = scaleFontForLargerText(original, scale);
+                if (scaled != original) { //NOPMD CompareObjectsWithEquals
+                    scaledFontOriginals.put(entry.getKey(), original);
+                    scaledFontDerived.put(entry.getKey(), scaled);
+                    entry.setValue(scaled);
+                }
+            }
+        }
+    }
+
+    private void applyLargerTextScaleToDefaultStyles() {
+        float scale = getEffectiveLargerTextScale();
+        if (scale <= 1f) {
+            return;
+        }
+        if (!themeProps.containsKey(Style.FONT)) {
+            defaultStyle.setFont(scaleFontForLargerText(defaultStyle.getFont(), scale));
+        }
+        if (!themeProps.containsKey("sel#" + Style.FONT)) {
+            defaultSelectedStyle.setFont(scaleFontForLargerText(defaultSelectedStyle.getFont(), scale));
+        }
+    }
+
+    /// Creates a style by providing style strings in a specific format. This method allows for the use of inline styles
+    /// to override the styles in `com.codename1.ui.Component`
+    ///
+    /// #### Parameters
+    ///
+    /// - `theme`: Theme used to retrieve images referenced in the style strings.
+    ///
+    /// - `id`: The style ID (UIID) to use to cache the style inside the theme.
+    ///
+    /// - `prefix`: Prefix to use for styles.  Corresponds to the prefix argument in `boolean, java.lang.String) @param baseStyle The style class from which this new style should derive. @param selected True if this is for a selected style. @param styleString Array of style strings to be parsed. The format is key1:value1; key2:value2; etc.... While this looks similar to CSS, it is important to note that it is NOT CSS. The keys and values correspond to the properties of {@link com.codename1.ui.plaf.Style` and their associated values.
+    ///
+    /// #### Returns
+    ///
+    /// @return A style object representing the styles that were provided in the styleString.
+    ///
+    /// Example Usage
+    ///
+    /// `Style s = parseStyle(theme, "Button[MyCustomButton]", "", "Button", false,
+    /// "fgColor:ff0000; font:18mm; border: 1px solid ff0000; bgType:none; padding: 3mm; margin: 1mm");
+    ///
+    /// // Create a 9-piece image border on the fly:
+    /// Style s = parseStyle(theme, "Button[MyCustomButton]", "", "Button", false,
+    /// "border:splicedImage /notes.png 0.3 0.4 0.3 0.4");
+    /// // This splices the image found at /notes.png into 9 pieces.  Splice insets are specified by the 4 floating point values
+    /// // at the end of the border directive:  [top] [right] [bottom] [left].`
+    Style parseStyle(Resources theme, String id, String prefix, String baseStyle, boolean selected, String... styleString) {
+        String cacheKey = selected ? id + ".sel" : id + "." + prefix;
+        String originalId = id;
+        if (id == null || id.length() == 0) {
+            //if no id return the default style
+            id = "";
+        } else {
+            id = id + ".";
+        }
+        // A cached normal style does not prove a custom state survived theme refresh.
+        // Check the same cache that getComponentStyleImpl reads for this prefix.
+        boolean cachedStyle = selected ? selectedStyles.containsKey(id)
+                : ((prefix == null || prefix.length() == 0) ? this.styles.containsKey(id)
+                : prefixedStyles.containsKey(prefixedKey(prefix, id)));
+        if (Arrays.toString(styleString).equals(parseCache().get(cacheKey)) && cachedStyle) {
+            return getComponentStyleImpl(originalId, selected, prefix);
+        }
+        parseCache().put(cacheKey, Arrays.toString(styleString));
+        Style base = baseStyle != null ? getComponentStyleImpl(baseStyle, selected, prefix) : null;
+        Map<String, String> styles = new HashMap<String, String>();
+        for (String str : styleString) {
+            StyleParser.parseString(styles, str);
+        }
+        StyleInfo styleInfo = new StyleInfo(styles);
+
+
+        if (prefix != null && prefix.length() > 0) {
+            id += prefix;
+        }
+        if (themeProps == null) {
+            resetThemeProps(null);
+        }
+        if (baseStyle != null) {
+            // Hover inline overrides inherit the hover state itself. Deriving from the
+            // bare UIID would discard unspecified hover colors, padding and borders.
+            themeProps.put(id + "derive", "hover#".equals(prefix) ? baseStyle + ".hover" : baseStyle);
+        } else {
+            themeProps.remove(id + "derive");
+        }
+        Integer bgColor = styleInfo.getBgColor();
+        if (bgColor != null) {
+            themeProps.put(id + Style.BG_COLOR, Integer.toHexString(bgColor));
+        } else {
+            themeProps.remove(id + Style.BG_COLOR);
+        }
+        Integer fgColor = styleInfo.getFgColor();
+        if (fgColor != null) {
+            themeProps.put(id + Style.FG_COLOR, Integer.toHexString(fgColor));
+        } else {
+            themeProps.remove(id + Style.FG_COLOR);
+        }
+        BorderInfo border = styleInfo.getBorder();
+        if (border != null) {
+            themeProps.put(id + Style.BORDER, border.createBorder(theme));
+        } else {
+            themeProps.remove(id + Style.BORDER);
+        }
+        Integer bgType = styleInfo.getBgType();
+        if (bgType != null) {
+            themeProps.put(id + Style.BACKGROUND_TYPE, bgType.byteValue());
+        } else {
+            themeProps.remove(id + Style.BACKGROUND_TYPE);
+        }
+        ImageInfo bgImage = styleInfo.getBgImage();
+        if (bgImage != null) {
+            themeProps.put(id + Style.BG_IMAGE, bgImage.getImage(theme));
+        } else {
+            themeProps.remove(id + Style.BG_IMAGE);
+        }
+
+        MarginInfo margin = styleInfo.getMargin();
+        if (margin != null) {
+            float[] marginArr = margin.createMargin(base);
+            themeProps.put(id + Style.MARGIN, marginArr[Component.TOP] + "," + marginArr[Component.BOTTOM] + "," + marginArr[Component.LEFT] + "," + marginArr[Component.RIGHT]);
+            byte[] unitArr = margin.createMarginUnit(base);
+            themeProps.put(id + Style.MARGIN_UNIT, new byte[]{unitArr[Component.TOP], unitArr[Component.BOTTOM], unitArr[Component.LEFT], unitArr[Component.RIGHT]});
+        } else {
+            themeProps.remove(id + Style.MARGIN);
+            themeProps.remove(id + Style.MARGIN_UNIT);
+        }
+        PaddingInfo padding = styleInfo.getPadding();
+        if (padding != null) {
+            float[] paddingArr = padding.createPadding(base);
+            themeProps.put(id + Style.PADDING, paddingArr[Component.TOP] + "," + paddingArr[Component.BOTTOM] + "," + paddingArr[Component.LEFT] + "," + paddingArr[Component.RIGHT]);
+            byte[] unitArr = padding.createPaddingUnit(base);
+            themeProps.put(id + Style.PADDING_UNIT, new byte[]{unitArr[Component.TOP], unitArr[Component.BOTTOM], unitArr[Component.LEFT], unitArr[Component.RIGHT]});
+        } else {
+            themeProps.remove(id + Style.PADDING);
+            themeProps.remove(id + Style.PADDING_UNIT);
+        }
+
+        Integer transparency = styleInfo.getTransparency();
+        if (transparency != null) {
+            themeProps.put(id + Style.TRANSPARENCY, String.valueOf(transparency.intValue()));
+        } else {
+            themeProps.remove(id + Style.TRANSPARENCY);
+        }
+        Integer opacity = styleInfo.getOpacity();
+        if (opacity != null) {
+            themeProps.put(id + Style.OPACITY, String.valueOf(opacity.intValue()));
+        } else {
+            themeProps.remove(id + Style.OPACITY);
+        }
+        Integer alignment = styleInfo.getAlignment();
+        if (alignment != null) {
+            themeProps.put(id + Style.ALIGNMENT, alignment);
+        } else {
+            themeProps.remove(id + Style.ALIGNMENT);
+        }
+        Integer textDecoration = styleInfo.getTextDecoration();
+        if (textDecoration != null) {
+            themeProps.put(id + Style.TEXT_DECORATION, textDecoration);
+        } else {
+            themeProps.remove(id + Style.TEXT_DECORATION);
+        }
+
+        FontInfo font = styleInfo.getFont();
+        if (font != null) {
+            themeProps.put(id + Style.FONT, font.createFont(base));
+        } else {
+            themeProps.remove(id + Style.FONT);
+        }
+
+        if (selected) {
+            selectedStyles.remove(id);
+        } else {
+            this.styles.remove(id);
+        }
+        // The prefixed cache too, or a re-parse of the same id is ignored.
+        //
+        // Parsing writes new values into themeProps and drops the plain entry so
+        // it rebuilds, but a prefixed style (pressed, disabled, a custom prefix)
+        // is cached under prefix + id and would keep answering with the prototype
+        // built from the PREVIOUS parse -- the replacement silently discarded.
+        // Cleared wholesale rather than per prefix: the key mixes the two, so
+        // there is no cheap way to select the affected ones, and this runs only
+        // when a style is actually parsed, not while styles are being read.
+        prefixedStyles.clear();
+
+        // The style-definition index too. It answers "does the theme define
+        // this id", is memoised for a whole theme, and is keyed on
+        // themeGeneration -- which only setThemePropsImpl bumps. Parsing writes
+        // straight into themeProps without bumping it, so a $Dark override
+        // added through the public parseComponentStyle API was invisible to
+        // every id resolved for the first time afterwards, and the light style
+        // was built instead. Dropping the map rebuilds both it and the $Dark
+        // key index on the next question.
+        styleDefinitionCache = null;
+
+        return getComponentStyleImpl(originalId, selected, prefix);
+
+    }
+
+    Style createStyle(String id, String prefix, boolean selected) {
+        return createStyle(id, prefix, selected, true);
+    }
+
+    private Style createStyle(String id, String prefix, boolean selected, boolean allowDarkStyle) {
+        Style style;
+        String originalId = id;
+        if (prefix != null && prefix.length() > 0) {
+            id += prefix;
+        }
+        boolean useDarkStyle = allowDarkStyle && shouldUseDarkStyle(id);
+        if (useDarkStyle) {
+            id = "$Dark" + id;
+        }
+
+        String baseStyle = (String) themeProps.get(id + "derive");
+        if (baseStyle == null && useDarkStyle) {
+            style = new Style(createStyle(originalId, prefix, selected, false));
+        } else {
+            style = null;
+        }
+        if (style == null && baseStyle != null) {
+            if (baseStyle.indexOf('.') > -1 && baseStyle.indexOf('#') < 0) {
+                baseStyle += "#";
+            }
+            // probably a theme mistake ignore
+            if (!(baseStyle + ".").equals(id)) {
+                int pos = baseStyle.indexOf('.');
+                if (pos > -1) {
+                    String baseId = baseStyle.substring(0, pos);
+                    String basePrefix = baseStyle.substring(pos + 1);
+                    style = new Style(getComponentStyleImpl(baseId, basePrefix.indexOf("sel") > -1, basePrefix));
+                } else {
+                    style = new Style(getComponentStyle(baseStyle));
+                }
+            } else {
+                if (selected) {
+                    style = new Style(defaultSelectedStyle);
+                } else {
+                    style = new Style(defaultStyle);
+                }
+            }
+        } else if (style == null) {
+            if (selected) {
+                style = new Style(defaultSelectedStyle);
+            } else {
+                style = new Style(defaultStyle);
+            }
+        }
+        if (themeProps != null) {
+            String bgColor;
+            String fgColor;
+            Object border;
+
+            bgColor = (String) themeProps.get(id + Style.BG_COLOR);
+            fgColor = (String) themeProps.get(id + Style.FG_COLOR);
+            border = themeProps.get(id + Style.BORDER);
+            Object bgImage = themeProps.get(id + Style.BG_IMAGE);
+            String transperency = (String) themeProps.get(id + Style.TRANSPARENCY);
+            String opacity = (String) themeProps.get(id + Style.OPACITY);
+            String margin = (String) themeProps.get(id + Style.MARGIN);
+            String padding = (String) themeProps.get(id + Style.PADDING);
+            Object font = themeProps.get(id + Style.FONT);
+            Integer alignment = (Integer) themeProps.get(id + Style.ALIGNMENT);
+
+            Integer textDecoration = (Integer) themeProps.get(id + Style.TEXT_DECORATION);
+            Byte backgroundType = (Byte) themeProps.get(id + Style.BACKGROUND_TYPE);
+            Object[] backgroundGradient = (Object[]) themeProps.get(id + Style.BACKGROUND_GRADIENT);
+            byte[] paddingUnit = (byte[]) themeProps.get(id + Style.PADDING_UNIT);
+            byte[] marginUnit = (byte[]) themeProps.get(id + Style.MARGIN_UNIT);
+            if (themeProps.containsKey(id + Style.ELEVATION)) {
+                style.setElevation((Integer) themeProps.get(id + Style.ELEVATION));
+            }
+            if (themeProps.containsKey(id + Style.ICON_GAP)) {
+                if (themeProps.containsKey(id + Style.ICON_GAP_UNIT)) {
+                    style.setIconGapUnit((Byte) themeProps.get(id + Style.ICON_GAP_UNIT));
+                } else {
+                    style.setIconGapUnit(Style.UNIT_TYPE_PIXELS);
+                }
+                style.setIconGap((Float) themeProps.get(id + Style.ICON_GAP));
+            }
+            if (themeProps.containsKey(id + Style.FG_ALPHA)) {
+                style.setFgAlpha((Integer) themeProps.get(id + Style.FG_ALPHA));
+            }
+            if (themeProps.containsKey(id + Style.SURFACE)) {
+                style.setSurface((Boolean) themeProps.get(id + Style.SURFACE));
+            }
+            if (bgColor != null) {
+                style.setBgColor(Integer.parseInt(bgColor, 16));
+            }
+            if (fgColor != null) {
+                style.setFgColor(Integer.parseInt(fgColor, 16));
+            }
+            if (transperency != null) {
+                style.setBgTransparency(Integer.parseInt(transperency));
+            } else {
+                if (selected) {
+                    transperency = (String) themeProps.get(originalId + Style.TRANSPARENCY);
+                    if (transperency != null) {
+                        style.setBgTransparency(Integer.parseInt(transperency));
+                    }
+                }
+            }
+            if (opacity != null) {
+                style.setOpacity(Integer.parseInt(opacity));
+            } else {
+                if (selected) {
+                    opacity = (String) themeProps.get(originalId + Style.OPACITY);
+                    if (opacity != null) {
+                        style.setBgTransparency(Integer.parseInt(opacity));
+                    }
+                }
+            }
+            if (margin != null) {
+                float[] marginArr = toFloatArray(margin.trim());
+                style.setMargin(marginArr[0], marginArr[1], marginArr[2], marginArr[3]);
+            }
+            if (padding != null) {
+                float[] paddingArr = toFloatArray(padding.trim());
+                style.setPadding(paddingArr[0], paddingArr[1], paddingArr[2], paddingArr[3]);
+            }
+            if (paddingUnit != null) {
+                style.setPaddingUnit(paddingUnit);
+            } else {
+                // special case for pixel based padding
+                if (padding != null) {
+                    style.setPaddingUnit(null);
+                }
+            }
+            if (marginUnit != null) {
+                style.setMarginUnit(marginUnit);
+            } else {
+                // special case for pixel based margin
+                if (margin != null) {
+                    style.setMarginUnit(null);
+                }
+            }
+            if (alignment != null) {
+                style.setAlignment(alignment.intValue());
+            }
+            if (textDecoration != null) {
+                style.setTextDecoration(textDecoration.intValue());
+            }
+            if (backgroundType != null) {
+                style.setBackgroundType(backgroundType.byteValue());
+            }
+            if (backgroundGradient != null) {
+                if (backgroundGradient.length < 5) {
+                    Object[] a = new Object[5];
+                    System.arraycopy(backgroundGradient, 0, a, 0, backgroundGradient.length);
+                    backgroundGradient = a;
+                    backgroundGradient[4] = Float.valueOf(1);
+                }
+                style.setBackgroundGradient(backgroundGradient);
+            }
+            Object gradient = themeProps.get(id + Style.GRADIENT);
+            if (gradient instanceof com.codename1.ui.Gradient) {
+                style.setGradient((com.codename1.ui.Gradient) gradient);
+            }
+            Object filterBlur = themeProps.get(id + Style.FILTER_BLUR);
+            if (filterBlur instanceof Number) {
+                style.setFilterBlurRadius(((Number) filterBlur).floatValue());
+            }
+            Object backdropFilterBlur = themeProps.get(id + Style.BACKDROP_FILTER_BLUR);
+            if (backdropFilterBlur instanceof Number) {
+                style.setBackdropFilterBlurRadius(((Number) backdropFilterBlur).floatValue());
+            }
+            Object filterMatrix = themeProps.get(id + Style.FILTER_COLOR_MATRIX);
+            if (filterMatrix instanceof float[]) {
+                style.setFilterColorMatrix((float[]) filterMatrix);
+            }
+            Object backdropFilterMatrix = themeProps.get(id + Style.BACKDROP_FILTER_COLOR_MATRIX);
+            if (backdropFilterMatrix instanceof float[]) {
+                style.setBackdropFilterColorMatrix((float[]) backdropFilterMatrix);
+            }
+            if (bgImage != null) {
+                Image im = null;
+                if (bgImage instanceof String) {
+                    try {
+                        String bgImageStr = (String) bgImage;
+                        if (imageCache.containsKey(bgImageStr)) {
+                            im = imageCache.get(bgImageStr);
+                        } else {
+                            if (bgImageStr.startsWith("/")) {
+                                im = Image.createImage(bgImageStr);
+                            } else {
+                                im = parseImage((String) bgImage);
+                            }
+                            imageCache.put(bgImageStr, im);
+                        }
+                        themeProps.put(id + Style.BG_IMAGE, im);
+                    } catch (IOException ex) {
+                        Log.p("failed to parse image for id = " + id + Style.BG_IMAGE);
+                    }
+                } else {
+                    // we shouldn't normally but we might get a multi-image from the resource editor
+                    if (bgImage instanceof Image) {
+                        im = (Image) bgImage;
+                    }
+                }
+                // this code should not excute in the resource editor!
+                if (id.indexOf("Form") > -1) {
+                    if ((im.getWidth() != Display.getInstance().getDisplayWidth() ||
+                            im.getHeight() != Display.getInstance().getDisplayHeight()) && style.getBackgroundType() == Style.BACKGROUND_IMAGE_SCALED && accessible) {
+                        im.scale(Display.getInstance().getDisplayWidth(),
+                                Display.getInstance().getDisplayHeight());
+                    }
+                }
+                style.setBgImage(im);
+            }
+            if (font != null) {
+                if (font instanceof String) {
+                    style.setFont(parseFont((String) font));
+                } else {
+                    style.setFont((Font) font);
+                }
+            }
+            if (themeProps.containsKey(id + Style.LETTER_SPACING)) {
+                float ls = ((Number) themeProps.get(id + Style.LETTER_SPACING)).floatValue();
+                style.setLetterSpacing(ls);
+                // Bake the spacing into the style's font so it is applied
+                // consistently for both text measurement and rendering.
+                Font lsFont = style.getFont();
+                if (ls != 0 && lsFont != null) {
+                    style.setFont(lsFont.deriveLetterSpacing(ls));
+                }
+            }
+            if (border != null) {
+                style.setBorder((Border) border);
+            }
+            style.resetModifiedFlag();
+        }
+
+        return style;
+    }
+
+    private boolean shouldUseDarkStyle(String id) {
+        if (themeProps == null || id == null || id.length() == 0 || id.startsWith("$Dark")) {
+            return false;
+        }
+        Boolean darkMode = CN.isDarkMode();
+        return darkMode != null && darkMode.booleanValue() && hasStyleDefinition("$Dark" + id);
+    }
+
+    /// Whether any theme entry begins with this id, MEMOISED for the current theme.
+    ///
+    /// The answer cannot change while the theme does not, and the scan behind it
+    /// is linear in the whole theme: 448 defaults before a native theme and the
+    /// application's own are layered on top. createStyle asks this for every
+    /// style it builds -- through shouldUseDarkStyle, once per UIID -- so a dark
+    /// mode start-up walked the entire property table hundreds of times over.
+    /// Profiled on the native port, hasStyleDefinition and its caller were 5% of
+    /// the sampled start-up.
+    ///
+    /// Keyed on themeGeneration, which setThemePropsImpl already bumps whenever
+    /// the properties are replaced, so a theme change discards this by
+    /// construction rather than by remembering to.
+    private boolean hasStyleDefinition(String styleId) {
+        if (styleDefinitionCache == null || styleDefinitionCacheGeneration != themeGeneration) {
+            styleDefinitionCache = new HashMap<String, Boolean>();
+            styleDefinitionCacheGeneration = themeGeneration;
+            darkStyleKeys = indexDarkKeys();
+        }
+        Boolean cached = styleDefinitionCache.get(styleId);
+        if (cached != null) {
+            return cached.booleanValue();
+        }
+        boolean found = false;
+        // The memoisation above is per styleId, so a screen with hundreds of
+        // distinct uiids still walked the whole property table hundreds of
+        // times -- once for each uiid's first use. Profiled on the native port,
+        // that loop (String.startsWith plus the HashMap iterator) was the top
+        // non-GC cost of building a screen, and the first use of a uiid cost
+        // 112us against 800ns for every later use.
+        //
+        // Every caller asks the same question -- "does the theme define a $Dark
+        // override for this style" -- so only keys beginning with $Dark can
+        // ever match, and a theme that defines none (which is the normal case
+        // for an application that draws its own visuals) answers in constant
+        // time instead of scanning everything to find nothing.
+        String[] dark = darkStyleKeys;
+        if (styleId.startsWith("$Dark") && dark != null) {
+            for (String darkKey : dark) {
+                if (darkKey.startsWith(styleId)) {
+                    found = true;
+                    break;
+                }
+            }
+        } else {
+            for (String key : themeProps.keySet()) {
+                if (key.startsWith(styleId)) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        styleDefinitionCache.put(styleId, Boolean.valueOf(found));
+        return found;
+    }
+
+    /// The theme's $Dark keys, extracted once per theme generation. Usually
+    /// empty: an application that supplies its own visuals defines no dark
+    /// overrides at all, and then the query above never inspects a key.
+    private String[] indexDarkKeys() {
+        if (themeProps == null) {
+            return new String[0];
+        }
+        int n = 0;
+        for (String key : themeProps.keySet()) {
+            if (key.startsWith("$Dark")) {
+                n++;
+            }
+        }
+        String[] out = new String[n];
+        if (n == 0) {
+            return out;
+        }
+        int i = 0;
+        for (String key : themeProps.keySet()) {
+            if (key.startsWith("$Dark")) {
+                out[i++] = key;
+            }
+        }
+        return out;
+    }
+
+    private HashMap<String, Boolean> styleDefinitionCache;
+    private String[] darkStyleKeys;
+    private int styleDefinitionCacheGeneration = -1;
+
+    /// This method is used to parse the margin and the padding
+    ///
+    /// #### Parameters
+    ///
+    /// - `str`
+    private float[] toFloatArray(String str) {
+        // Called twice for every style built -- once for margin, once for
+        // padding -- and the straightforward version below is an allocation
+        // factory: one concatenation plus EIGHT substrings (a String and a
+        // char[] each), and four Float.parseFloat calls that each allocate a
+        // StringToReal.StringExponentPair. An allocation census of one screen
+        // counted 28,486 Strings, 13,946 char[] and 1,398 StringExponentPair,
+        // with this method among the largest single contributors.
+        //
+        // The fast path parses the shape theme metrics actually use -- four
+        // comma-separated plain decimals such as "0,0,0,0" or "1.5,2,1.5,2" --
+        // straight out of the original String with no substring and no
+        // StringToReal. ANYTHING it does not recognise falls through to the
+        // original implementation unchanged, so exotic input keeps its exact
+        // behaviour, including which exception it throws.
+        float[] fast = toFloatArrayFast(str);
+        if (fast != null) {
+            return fast;
+        }
+        return toFloatArrayFallback(str);
+    }
+
+    /// The original parse, kept verbatim as the fallback so anything the fast
+    /// path declines behaves exactly as it always did.
+    static float[] toFloatArrayFallback(String str) {
+        float[] retVal = new float[4];
+        str = str + ",";
+        int rlen = retVal.length;
+        for (int i = 0; i < rlen; i++) {
+            retVal[i] = Float.parseFloat(str.substring(0, str.indexOf(",")));
+            str = str.substring(str.indexOf(",") + 1);
+        }
+        return retVal;
+    }
+
+    /// Four comma-separated plain decimals, parsed without allocating anything
+    /// but the result. Returns null -- never a partial answer and never an
+    /// exception -- when the input is not exactly that shape, so the caller can
+    /// fall back.
+    static float[] toFloatArrayFast(String str) {
+        if (str == null) {
+            return null;
+        }
+        int len = str.length();
+        float[] out = new float[4];
+        int pos = 0;
+        for (int i = 0; i < 4; i++) {
+            int end = str.indexOf(',', pos);
+            if (end < 0) {
+                // The last field runs to the end of the string; a missing comma
+                // anywhere earlier means this is not the expected shape.
+                if (i != 3) {
+                    return null;
+                }
+                end = len;
+            }
+            if (end == pos) {
+                return null;
+            }
+            int p = pos;
+            boolean neg = false;
+            char c = str.charAt(p);
+            if (c == '-' || c == '+') {
+                neg = (c == '-');
+                p++;
+                if (p == end) {
+                    return null;
+                }
+            }
+            long whole = 0;
+            int digits = 0;
+            while (p < end) {
+                c = str.charAt(p);
+                if (c < '0' || c > '9') {
+                    break;
+                }
+                // Bail out rather than silently wrapping: the fallback can
+                // still parse a value this large correctly.
+                if (whole > 99999999L) {
+                    return null;
+                }
+                whole = whole * 10 + (c - '0');
+                digits++;
+                p++;
+            }
+            float value = whole;
+            if (p < end && str.charAt(p) == '.') {
+                p++;
+                long frac = 0;
+                int fracDigits = 0;
+                while (p < end) {
+                    c = str.charAt(p);
+                    if (c < '0' || c > '9') {
+                        break;
+                    }
+                    if (fracDigits == 7) {
+                        // Past what this path can carry exactly. DECLINING is not
+                        // the same as truncating: accepting the field and dropping
+                        // the rest of the digits returned the float for 0.1234567
+                        // where 0.123456789 was written, which is a different
+                        // float and a different margin. The fallback parses it
+                        // properly, and a value this precise is rare enough that
+                        // paying for the slow path is the right trade.
+                        return null;
+                    }
+                    frac = frac * 10 + (c - '0');
+                    fracDigits++;
+                    digits++;
+                    p++;
+                }
+                if (fracDigits > 0) {
+                    value = (float) (whole + (double) frac / POW10[fracDigits]);
+                }
+            }
+            if (digits == 0 || p != end) {
+                // Trailing junk, an exponent, whitespace, NaN, a hex literal --
+                // not this method's business.
+                return null;
+            }
+            out[i] = neg ? -value : value;
+            pos = end + 1;
+        }
+        // Anything after the fourth field means the input was not four fields.
+        if (pos <= len) {
+            return null;
+        }
+        return out;
+    }
+
+    private static final double[] POW10 = {
+        1d, 10d, 100d, 1000d, 10000d, 100000d, 1000000d, 10000000d
+    };
+
+    /// The resource bundle allows us to implicitly localize the UI on the fly, once its
+    /// installed all internal application strings query the resource bundle and extract
+    /// their values from this table if applicable.
+    ///
+    /// #### Returns
+    ///
+    /// the localization bundle
+    ///
+    /// #### Deprecated
+    ///
+    /// this method uses the old resource bundle hashtable, use the new getBundle() method
+    public Hashtable getResourceBundle() {
+        if (resourceBundle == null && bundle != null) {
+            resourceBundle = new Hashtable(bundle);
+        }
+        return resourceBundle;
+    }
+
+    /// The resource bundle allows us to implicitly localize the UI on the fly, once its
+    /// installed all internal application strings query the resource bundle and extract
+    /// their values from this table if applicable.
+    ///
+    /// #### Parameters
+    ///
+    /// - `resourceBundle`: the localization bundle
+    ///
+    /// #### Deprecated
+    ///
+    /// this method uses the old resource bundle hashtable, use the new setBundle() method
+    public void setResourceBundle(Hashtable resourceBundle) {
+        if (localeAccessible) {
+            this.resourceBundle = resourceBundle;
+            if (resourceBundle != null) {
+                String v = (String) resourceBundle.get("@rtl");
+                if (v != null) {
+                    getLookAndFeel().setRTL("true".equalsIgnoreCase(v));
+
+                    // update some "bidi sensitive" variables in the LaF
+                    current.refreshTheme(false);
+                }
+                bundle = new HashMap<String, String>((Hashtable<String, String>) resourceBundle);
+            } else {
+                bundle = null;
+            }
+        }
+    }
+
+    /// The resource bundle allows us to implicitly localize the UI on the fly, once its
+    /// installed all internal application strings query the resource bundle and extract
+    /// their values from this table if applicable.
+    ///
+    /// #### Returns
+    ///
+    /// the localization bundle
+    public Map<String, String> getBundle() {
+        return bundle;
+    }
+
+    /// The resource bundle allows us to implicitly localize the UI on the fly, once its
+    /// installed all internal application strings query the resource bundle and extract
+    /// their values from this table if applicable.
+    ///
+    /// #### Parameters
+    ///
+    /// - `resourceBundle`: the localization bundle
+    public void setBundle(Map<String, String> bundle) {
+        if (localeAccessible) {
+            this.bundle = bundle;
+            if (bundle != null) {
+                String v = bundle.get("@rtl");
+                if (v != null) {
+                    getLookAndFeel().setRTL("true".equalsIgnoreCase(v));
+
+                    // update some "bidi sensitive" variables in the LaF
+                    current.refreshTheme(false);
+                }
+                String textFieldInputMode = bundle.get("@im");
+                if (textFieldInputMode != null && textFieldInputMode.length() > 0) {
+                    String[] tokenized = toStringArray(StringUtil.tokenizeString(textFieldInputMode, '|'));
+                    TextField.setDefaultInputModeOrder(tokenized);
+                    int tlen = tokenized.length;
+                    for (int iter = 0; iter < tlen; iter++) {
+                        String val = tokenized[iter];
+                        String actual = bundle.get("@im-" + val);
+                        // val can be null for builtin input mode types...
+                        if (actual != null) {
+                            TextField.addInputMode(val, parseTextFieldInputMode(actual), Character.isUpperCase(val.charAt(0)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private Hashtable parseTextFieldInputMode(String s) {
+        Vector tokens = StringUtil.tokenizeString(s, '|');
+        Hashtable response = new Hashtable();
+        int count = tokens.size();
+        for (int iter = 0; iter < count; iter++) {
+            String t = (String) tokens.elementAt(iter);
+            int pos = t.indexOf('=');
+            String key = t.substring(0, pos);
+            String val = t.substring(pos + 1);
+            response.put(Integer.valueOf(key), val);
+        }
+        return response;
+    }
+
+    private String[] toStringArray(Vector v) {
+        String[] arr = new String[v.size()];
+        int alen = arr.length;
+        for (int iter = 0; iter < alen; iter++) {
+            arr[iter] = (String) v.elementAt(iter);
+        }
+        return arr;
+    }
+
+    /// Localizes the given string from the resource bundle if such a String exists in the
+    /// resource bundle. If no key exists in the bundle then or a bundle is not installed
+    /// the default value is returned.
+    ///
+    /// #### Parameters
+    ///
+    /// - `key`: The key used to lookup in the resource bundle
+    ///
+    /// - `defaultValue`: the value returned if no such key exists
+    ///
+    /// #### Returns
+    ///
+    /// either default value or the appropriate value
+    public final String localize(String key, String defaultValue) {
+        onLocalize(key, defaultValue);
+        if (bundle != null && key != null) {
+            Object o = bundle.get(key);
+            if (o != null) {
+                return (String) o;
+            }
+        }
+        return defaultValue;
+    }
+
+    /// Callback for subclasses that wish to track localization invocations.
+    ///
+    /// #### Parameters
+    ///
+    /// - `key`: The key used to lookup in the resource bundle
+    ///
+    /// - `defaultValue`: the value returned if no such key exists
+    protected void onLocalize(String key, String defaultValue) {
+    }
+
+    /// Adds a Theme refresh listener.
+    /// The listenres will get a callback when setThemeProps method is invoked.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: an ActionListener to be added
+    public void addThemeRefreshListener(ActionListener l) {
+
+        if (themelisteners == null) {
+            themelisteners = new EventDispatcher();
+        }
+        themelisteners.addListener(l);
+    }
+
+    /// Removes a Theme refresh listener.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: an ActionListener to be removed
+    public void removeThemeRefreshListener(ActionListener l) {
+
+        if (themelisteners == null) {
+            return;
+        }
+        themelisteners.removeListener(l);
+    }
+
+    private static class UIManagerHolder {
+        private static final UIManager INSTANCE = new UIManager();
+    }
+}

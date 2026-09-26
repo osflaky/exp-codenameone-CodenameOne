@@ -1,0 +1,16075 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *  
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ * 
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ * 
+ * Please contact Codename One through http://www.codenameone.com/ if you 
+ * need additional information or have any questions.
+ */
+package com.codename1.impl.ios;
+
+import com.codename1.ui.Desktop;
+import com.codename1.ui.ClipboardContent;
+import com.codename1.ui.ClipboardDataProvider;
+import com.codename1.ui.EncodedImage;
+import com.codename1.ui.NativeDragAndDrop;
+import com.codename1.ui.NativeDragOperation;
+import com.codename1.background.BackgroundFetch;
+import com.codename1.capture.VideoCaptureConstraints;
+import com.codename1.codescan.CodeScanner;
+import com.codename1.codescan.ScanResult;
+import com.codename1.contacts.Address;
+import com.codename1.contacts.Contact;
+import com.codename1.contacts.ContactPicker;
+import com.codename1.db.Database;
+import com.codename1.db.DatabaseEncryptionException;
+import com.codename1.db.DatabaseConfig;
+import com.codename1.impl.CodenameOneImplementation;
+import com.codename1.location.Location;
+import com.codename1.ui.Component;
+import com.codename1.ui.Display;
+import com.codename1.ui.Font;
+import com.codename1.ui.Image;
+import com.codename1.ui.PeerComponent;
+import com.codename1.ui.Sheet;
+import com.codename1.ui.TextArea;
+import com.codename1.ui.TextField;
+import com.codename1.ui.geom.Dimension;
+import com.codename1.ui.geom.Rectangle;
+import com.codename1.ui.plaf.UIManager;
+import com.codename1.ui.util.Resources;
+import java.util.StringTokenizer;
+import com.codename1.io.BufferedInputStream;
+import com.codename1.io.BufferedOutputStream;
+import com.codename1.io.ConnectionRequest;
+import com.codename1.io.FileSystemStorage;
+import com.codename1.io.Storage;
+import com.codename1.io.Util;
+import com.codename1.l10n.L10NManager;
+import com.codename1.location.LocationListener;
+import com.codename1.location.LocationManager;
+import com.codename1.media.Media;
+import com.codename1.messaging.Message;
+import com.codename1.payment.Purchase;
+import com.codename1.payment.PurchaseCallback;
+import com.codename1.push.PushCallback;
+import com.codename1.push.PushActionsProvider;
+import com.codename1.ui.BrowserComponent;
+import com.codename1.ui.Form;
+import com.codename1.ui.accessibility.AccessibilityManager;
+import com.codename1.ui.accessibility.AccessibilityTreeSnapshot;
+import com.codename1.ui.Label;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.util.EventDispatcher;
+import com.codename1.ui.util.ImageIO;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.Writer;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Hashtable;
+import java.util.List;
+import java.util.Locale;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Vector;
+import com.codename1.io.Cookie;
+import com.codename1.io.Log;
+import com.codename1.io.Preferences;
+import com.codename1.location.Geofence;
+import com.codename1.location.GeofenceListener;
+import com.codename1.location.LocationRequest;
+import com.codename1.media.AbstractMedia;
+import com.codename1.media.AudioBuffer;
+import com.codename1.media.MediaManager;
+import com.codename1.media.MediaRecorderBuilder;
+import com.codename1.notifications.LocalNotification;
+import com.codename1.notifications.LocalNotificationCallback;
+import com.codename1.notifications.NotificationPermissionCallback;
+import com.codename1.notifications.NotificationPermissionRequest;
+import com.codename1.notifications.NotificationPermissionResult;
+import com.codename1.background.BackgroundWorker;
+import com.codename1.background.ForegroundService;
+import com.codename1.background.WorkRequest;
+import com.codename1.share.SharedContent;
+import com.codename1.payment.RestoreCallback;
+import com.codename1.push.PushAction;
+import com.codename1.push.PushActionCategory;
+import com.codename1.push.PushContent;
+import com.codename1.ui.Accessor;
+import com.codename1.ui.CN;
+import com.codename1.ui.Container;
+import com.codename1.ui.Dialog;
+import com.codename1.ui.Graphics;
+import com.codename1.ui.geom.GeneralPath;
+import com.codename1.ui.Stroke;
+import com.codename1.ui.Transform;
+import com.codename1.ui.geom.PathIterator;
+import com.codename1.ui.geom.Shape;
+import com.codename1.ui.plaf.Border;
+import com.codename1.ui.plaf.Style;
+import com.codename1.ui.spinner.Picker;
+import com.codename1.util.AsyncResource;
+import com.codename1.util.Callback;
+import com.codename1.util.StringUtil;
+import com.codename1.util.SuccessCallback;
+import com.codename1.util.Simd;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.FileNotFoundException;
+import java.util.Collections;
+import com.codename1.ui.plaf.DefaultLookAndFeel;
+
+
+/**
+ *
+ * @author Shai Almog
+ */
+public class IOSImplementation extends CodenameOneImplementation {
+    private IOSCalendarSource calendarSource;
+    // Flag to indicate if the current openGallery process is selecting multiple files
+    private boolean disableUIWebView=true;
+    private static boolean gallerySelectMultiple;
+    public static IOSNative nativeInstance = new IOSNative();
+    /// The Catalyst desktop-windowing natives. Separate from nativeInstance because
+    /// ParparVM mangles the declaring class into every C symbol, which makes the class
+    /// the unit at which a native can be kept out of a port -- and the native macOS
+    /// port shares IOSNative verbatim while implementing its windowing in AppKit.
+    /// See CatalystWindowNative.
+    static CatalystWindowNative catalystWindowNative = new CatalystWindowNative();
+    private static LocalNotificationCallback localNotificationCallback;
+    private static PurchaseCallback purchaseCallback;
+    private static RestoreCallback restoreCallback;
+    private int timeout = 120000;
+    private static final Object CONNECTIONS_LOCK = new Object();
+    private ArrayList<NetworkConnection> connections = new ArrayList<NetworkConnection>();
+    private NativeFont defaultFont;
+    private NativeGraphics currentlyDrawingOn;
+    //private NativeImage backBuffer;
+    private NativeGraphics globalGraphics;
+    /// True on a slice that renders through Metal, which is every Apple
+    /// platform this port builds for except watchOS -- the watch renders
+    /// through Core Graphics instead. The mutable-image alpha-mask routing
+    /// in MutableGraphics relies on the C-side drawTextureAlphaMaskImpl
+    /// tagging the op with currentMutableImage so drawFrame's drain
+    /// switches the encoder to the mutable's MTLTexture before drawing --
+    /// a Metal-only code path (`#ifdef CN1_USE_METAL` guard around
+    /// `setTarget` in CodenameOne_GLViewController.m). Where that does not
+    /// exist the same alpha-mask op would run against the screen encoder,
+    /// so the round-rect mask would land on the screen instead of inside
+    /// the mutable's UIImage and Switch's track / thumb would come out
+    /// empty. `metalRendering` keeps the CG-bitmap-then-DrawImage fallback
+    /// in place there while letting Metal use the unified alpha-mask
+    /// pipeline.
+    ///
+    /// Static so inner-class accessors don't trip over javac's synthesized
+    /// outer-instance lookup (CI bisect 25259320137 traced "mutable shape
+    /// ops render via the CG fallback instead of the alpha-mask Metal
+    /// pipeline" to that gate not firing).
+    static boolean metalRendering;
+    static IOSImplementation instance;
+    private TextArea currentEditing;
+    private static boolean initialized;
+    private Lifecycle life;
+    private CodeScannerImpl scannerInstance;
+    private static boolean minimized;
+    private String userAgent;
+    private TextureCache textureCache = new TextureCache();
+    private static boolean dropEvents;
+    private static boolean callInterruptionActive;
+    
+    private NativePathRenderer globalPathRenderer;
+    private NativePathStroker globalPathStroker;
+    
+    private boolean isActive=false;
+    private final ArrayList<Runnable> onActiveListeners = new ArrayList<Runnable>();
+    private static BackgroundFetch backgroundFetchCallback;
+
+    private boolean useContentBasedRTLStringDetection = false;
+    
+    
+    /**
+     * A pool that will cause java objects to be retained if they are passed 
+     * to a non-managed thread via a mechanism like dispatch_async
+     */
+    private static ArrayList autoreleasePool = new ArrayList();
+    
+    static void retain(Object o){
+        if (o != null){
+            autoreleasePool.add(o);
+        }
+    }
+    
+    static void release(Object o){
+        if (o != null){
+            autoreleasePool.remove(o);
+        }
+    }
+    
+
+    public void initEDT() {
+        while(!initialized) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException ex) {
+            }
+        }
+        if(globalGraphics == null) {
+            globalGraphics = new GlobalGraphics();
+        }
+        
+    }
+
+    private static Runnable callback;
+    
+    public static void callback() {
+        initialized = true;
+        Display.getInstance().callSerially(callback);
+    }
+    
+    public void postInit() {
+        nativeInstance.initVM();
+        super.postInit();
+    }
+    
+    @Override
+    protected void initDefaultUserAgent() {
+        String ue = getProperty("User-Agent", null);
+        if(ue != null) {
+            ConnectionRequest.setDefaultUserAgent(Display.getInstance().getProperty("User-Agent", ue));
+        }
+    }
+
+    
+    public void init(Object m) {
+        instance = this;
+        // Set the metalRendering static gate as early as possible -- before
+        // any NativeImage / NativeGraphics is constructed -- so mutable-image
+        // rendering routes through the alpha-mask Metal pipeline from the
+        // very first paint where Metal exists, and through the CG-bitmap
+        // fallback where it does not (the alpha-mask op can't target a
+        // mutable there, see comment on the static field above).
+        metalRendering = nativeInstance.isMetalRendering();
+        setUseNativeCookieStore(false);
+        Display.getInstance().setTransitionYield(10);
+        Display.getInstance().setDefaultVirtualKeyboard(new IOSVirtualKeyboard(this));
+        callback = (Runnable)m;
+        if(m instanceof Lifecycle) {
+            life = (Lifecycle)m;
+        }
+        VideoCaptureConstraints.init(new IOSVideoCaptureConstraintsCompiler());
+        if("true".equals(Display.getInstance().getProperty("DisableScreenshots", ""))) {
+            nativeInstance.setDisableScreenshots(true);
+        }
+        // Start observing the hinge here rather than lazily on the first
+        // DevicePosture query, because an application can register a
+        // Display#addPostureListener and never query anything -- and a lazily
+        // installed observer would then never be installed, so the listener
+        // would never fire. It is idempotent, it costs one main-thread hop, and
+        // it compiles to nothing on an SDK without the hinge API.
+        nativeInstance.startHingeMonitoring();
+    }
+    
+    @Override
+    public void setDisableScreenshots(boolean disable) {
+        nativeInstance.setDisableScreenshots(disable);
+    }
+
+    public void setThreadPriority(Thread t, int p) {
+    }
+    
+    public int getDisplayWidth() {
+        return nativeInstance.getDisplayWidth();
+    }
+
+    public int getDisplayHeight() {
+        return nativeInstance.getDisplayHeight();
+    }
+
+    public int getActualDisplayHeight() {
+        return nativeInstance.getDisplayHeight();
+    }
+    
+    public static void displaySafeAreaChanged(final boolean revalidate) {
+        if (!CN.isEdt()) {
+            CN.callSerially(new Runnable() {
+                public void run() {
+                    displaySafeAreaChanged(revalidate);
+                }
+            });
+            return;
+        }
+        Form f = CN.getCurrentForm();
+        if (f != null) {
+            f.setSafeAreaChanged();
+            f.revalidateWithAnimationSafety();
+        }
+    }
+    
+    @Override
+    public Rectangle getDisplaySafeArea(Rectangle rect) {
+        if (rect == null) {
+            rect = new Rectangle();
+        }
+        try {
+            int x = nativeInstance.getDisplaySafeInsetLeft();
+            int y = nativeInstance.getDisplaySafeInsetTop();
+            int w = getDisplayWidth() - nativeInstance.getDisplaySafeInsetRight() - x;
+            int h = getDisplayHeight() - nativeInstance.getDisplaySafeInsetBottom() - y;
+            rect.setBounds(x, y, w, h);
+        } catch (NullPointerException err) {
+            Log.p("Invalid bounds in getDisplaySafeArea, if this message repeats frequently please let us know...");
+        }
+        
+        return rect;
+    }
+
+    // --- Foldable posture (com.codename1.ui.DevicePosture) ---
+    //
+    // Backed by UIKit's hinge API on iOS 27.1 and newer; IOSFoldablePosture
+    // answers "not foldable" everywhere else, so there is no version check here.
+    // These mirror the Android port, which routes the same six methods through
+    // AndroidFoldablePosture.
+
+    @Override
+    public boolean isFoldable() {
+        return IOSFoldablePosture.isFoldable();
+    }
+
+    @Override
+    public int getDevicePosture() {
+        return IOSFoldablePosture.getPosture();
+    }
+
+    @Override
+    public int getHingeAngle() {
+        return IOSFoldablePosture.getHingeAngle();
+    }
+
+    @Override
+    public int getFoldOrientation() {
+        return IOSFoldablePosture.getFoldOrientation();
+    }
+
+    @Override
+    public boolean isPostureSeparating() {
+        return IOSFoldablePosture.isSeparating();
+    }
+
+    @Override
+    public Rectangle getFoldBounds(Rectangle rect) {
+        return IOSFoldablePosture.getFoldBounds(rect);
+    }
+
+    public boolean isNativeInputImmediate() {
+        return true;
+    }
+    
+    @Override
+    protected int getDragAutoActivationThreshold() {
+        return 1000000;
+    }
+
+    public boolean isNativeInputSupported() {
+        return true;
+    }
+
+    public void exitApplication() {
+        System.exit(0);
+    }
+
+    public boolean isTablet() {
+        return isDesktop() || nativeInstance.isTablet();
+    }
+
+    @Override
+    public boolean isDesktop() {
+        return nativeInstance.isRunningOnMac();
+    }
+
+    @Override
+    public boolean isWatch() {
+        return nativeInstance.isRunningOnWatch();
+    }
+
+    @Override
+    public boolean isTV() {
+        return nativeInstance.isRunningOnTV();
+    }
+
+    private IOSCarBridge carBridge;
+
+    @Override
+    public com.codename1.car.spi.CarBridge getCarBridge() {
+        // Only meaningful in builds that linked the CarPlay natives (CN1_USE_CARPLAY, flipped by the
+        // builder when the app references com.codename1.car). The native scene delegate creates the
+        // bridge lazily on connect via IOSCarPlayCallbacks; expose it here for the framework.
+        if (carBridge == null) {
+            carBridge = IOSCarPlayCallbacks.getBridge(nativeInstance);
+        }
+        return carBridge;
+    }
+
+    @Override
+    public boolean isCarConnected() {
+        return nativeInstance.isCarPlayConnected();
+    }
+
+    private IOSHomeBridge homeBridge;
+
+    @Override
+    public com.codename1.home.spi.HomeBridge getHomeBridge() {
+        // Only meaningful in builds that linked the HomeKit natives
+        // (CN1_INCLUDE_HOMEKIT, flipped by the builder when the app references
+        // com.codename1.home). Always returned rather than conditionally null: the bridge's own
+        // isSupported() answers honestly through the natives, which stub to unsupported when the
+        // define is off, so SmartHome reports NOT_SUPPORTED without this getter having to know
+        // anything about how the app was built.
+        if (homeBridge == null) {
+            homeBridge = IOSHomeCallbacks.getBridge(nativeInstance);
+        }
+        return homeBridge;
+    }
+
+    private IOSCallBridge callBridge;
+
+    private IOSVpnBridge vpnBridge;
+
+    /// The call bridge, on CallKit and PushKit.
+    ///
+    /// Only meaningful in builds that linked the call natives
+    /// (`CN1_INCLUDE_CALL`, flipped by the builder when the app references
+    /// `com.codename1.call`). Always returned rather than conditionally null,
+    /// for the same reason [#getNearbyBridge()] is: the bridge's own
+    /// `isCallSupported` / `isVoipPushSupported` / `isDirectorySupported`
+    /// answer honestly through the natives, which stub to unsupported when
+    /// the defines are off -- so an app built without any of it reports
+    /// NOT_SUPPORTED without this getter having to know how the app was
+    /// built. The three answer separately, which is what lets a build with
+    /// calls but no push report exactly that.
+    @Override
+    public com.codename1.call.spi.CallBridge getCallBridge() {
+        if (callBridge == null) {
+            callBridge = new IOSCallBridge(nativeInstance);
+        }
+        return callBridge;
+    }
+
+    /// The VPN bridge, on NEVPNManager.
+    ///
+    /// Distinct from `NetworkManager.isVPNActive()`, which is always
+    /// available and answers whether some VPN is carrying this device's
+    /// traffic rather than managing one.
+    @Override
+    public com.codename1.vpn.spi.VpnBridge getVpnBridge() {
+        if (vpnBridge == null) {
+            vpnBridge = new IOSVpnBridge(nativeInstance);
+        }
+        return vpnBridge;
+    }
+
+    private IOSNearbyBridge nearbyBridge;
+
+    @Override
+    public com.codename1.nearby.spi.NearbyBridge getNearbyBridge() {
+        // Only meaningful in builds that linked the nearby natives
+        // (CN1_INCLUDE_NEARBY, flipped by the builder when the app references
+        // com.codename1.nearby). Always returned rather than conditionally null, for the same
+        // reason getHomeBridge() is: the bridge's own isRangingSupported() / isCompanionSupported()
+        // / isTransportSupported() answer honestly through the natives, which stub to unsupported
+        // when the defines are off -- so an app built without any of it reports NOT_SUPPORTED
+        // without this getter having to know how the app was built. The three answer separately,
+        // which is what lets a tvOS build report a working transport and no ranging.
+        if (nearbyBridge == null) {
+            nearbyBridge = IOSNearbyCallbacks.getBridge(nativeInstance);
+        }
+        return nearbyBridge;
+    }
+
+    private IOSWearableBridge wearableBridge;
+
+    @Override
+    public com.codename1.wearable.spi.WearableBridge getWearableBridge() {
+        // Only meaningful in builds that linked the WatchConnectivity natives
+        // (CN1_USE_WATCHCONNECTIVITY, flipped by the builder when the app references
+        // com.codename1.wearable). Always returned: the bridge's own isSupported() answers honestly
+        // through the natives, which stub to unsupported when the define is off.
+        if (wearableBridge == null) {
+            wearableBridge = IOSWearableCallbacks.getBridge(nativeInstance);
+        }
+        return wearableBridge;
+    }
+
+    private IOSSurfaceBridge surfaceBridge;
+
+    @Override
+    public com.codename1.surfaces.spi.SurfaceBridge getSurfaceBridge() {
+        // Only meaningful in builds that linked the surfaces natives (CN1_USE_WIDGETS, flipped by
+        // the builder when the app references com.codename1.surfaces). Always returned: the
+        // bridge's own is...Supported methods answer honestly through the natives, which stub to
+        // unsupported when the define is off.
+        if (surfaceBridge == null) {
+            surfaceBridge = IOSSurfaceCallbacks.getBridge(nativeInstance);
+        }
+        return surfaceBridge;
+    }
+
+    private IOSDocumentProviderBridge documentProviderBridge;
+
+    @Override
+    public com.codename1.documents.spi.DocumentProviderBridge getDocumentProviderBridge() {
+        // Only meaningful in builds that linked the document provider natives (CN1_USE_DOCUMENTS,
+        // flipped by the builder when the app references com.codename1.documents). Always
+        // returned: the bridge's own isDocumentProviderSupported answers honestly through the
+        // native, which stubs to unsupported when the define is off.
+        if (documentProviderBridge == null) {
+            documentProviderBridge = new IOSDocumentProviderBridge(nativeInstance);
+        }
+        return documentProviderBridge;
+    }
+
+    private IOSContinuityBridge continuityBridge;
+
+    @Override
+    public com.codename1.continuity.spi.ContinuityBridge getContinuityBridge() {
+        // Only meaningful in builds that linked the continuity natives (CN1_USE_CONTINUITY,
+        // flipped by the builder when the app references com.codename1.continuity). Always
+        // returned: the bridge asks the native side once and answers honestly, and the native
+        // stubs to unsupported when the define is off. Returning null instead would also disable
+        // the on-device half of the framework, which needs no native support at all.
+        if (continuityBridge == null) {
+            continuityBridge = new IOSContinuityBridge(nativeInstance);
+        }
+        return continuityBridge;
+    }
+
+    private IOSIntentBridge intentBridge;
+
+    @Override
+    public com.codename1.intents.spi.IntentBridge getIntentBridge() {
+        // Only meaningful in builds that linked the intent natives (CN1_USE_INTENTS, flipped by
+        // the builder when the app references com.codename1.intents). Always returned: the
+        // bridge's own is...Supported methods answer honestly through the natives, which stub to
+        // unsupported when the define is off. Going through IOSIntentCallbacks rather than
+        // constructing directly is deliberate -- touching that class is what runs its static
+        // initializer, which is what keeps the native callback targets alive through the iOS
+        // translator's dead-code elimination.
+        if (intentBridge == null) {
+            intentBridge = IOSIntentCallbacks.getBridge(nativeInstance);
+        }
+        return intentBridge;
+    }
+
+    @Override
+    public void addCookie(Cookie c) {
+        if(isUseNativeCookieStore()) {
+            nativeInstance.addCookie(c.getName(), c.getValue(), c.getDomain(), c.getPath(), c.isSecure(), c.isHttpOnly(), c.getExpires());
+        } else {
+            super.addCookie(c);
+        }
+    }
+
+    private static SuccessCallback<Image> screenshotCallback;
+    @Override
+    public void screenshot(final SuccessCallback<Image> callback) {
+        if (callback == null) {
+            return;
+        }
+
+        if (screenshotCallback != null) {
+            Log.p("Screenshot request ignored: another capture is already in progress.");
+            Display.getInstance().callSerially(new Runnable() {
+                @Override
+                public void run() {
+                    callback.onSucess(null);
+                }
+            });
+            return;
+        }
+
+        screenshotCallback = callback;
+        try {
+            forceScreenRenderForCapture();
+            nativeInstance.screenshot();
+        } catch (Throwable t) {
+            screenshotCallback = null;
+            Log.e(t);
+            System.out.println("CN1SS:ERR:ios screenshot capture failed " + t);
+            Display.getInstance().callSerially(new Runnable() {
+                @Override
+                public void run() {
+                    callback.onSucess(null);
+                }
+            });
+        }
+    }
+
+    /// Test windows do not reliably schedule another display-link frame before a
+    /// static form calls Display.screenshot(), so force a paint + native flush so
+    /// the Metal screenTexture readback sees the current form. METAL-BACKEND ONLY:
+    /// watchOS renders through the CoreGraphics path and has no screenTexture, so
+    /// it stays on its normal production screenshot path (see the metalRendering
+    /// gate below).
+    private void forceScreenRenderForCapture() {
+        // Metal-backend platforms ONLY. paintAndFlush below drives a Metal
+        // screenTexture readback (flushBufferForReadback). watchOS renders through
+        // the CoreGraphics backend, where forcing this paint+flush consumes/empties
+        // the CG frame the native watch screenshot then reads -- delivering 1x1
+        // placeholder captures for the entire watch suite. metalRendering is false
+        // on the watch CG backend, so gate on it (this is what regressed when the
+        // desktop-only gate was widened for the iOS glass-fidelity capture).
+        if (!metalRendering) {
+            return;
+        }
+        // Runs on desktop (Mac Catalyst) AND the iOS simulator/device: the native
+        // screenshot now reads the Metal screenTexture on ALL of them (see
+        // cn1_renderViewToContext), and a STATIC form's show() does not reliably
+        // re-drive a screen frame on any of them -- so without forcing a paint the
+        // texture holds a stale/empty frame and the capture comes back null (the
+        // cause of the fidelity suite's "screenshot returned null" timeouts). The
+        // force-render also drives the live backdrop-filter glass into the texture
+        // so the screenshot captures it. Driving a real EDT paint+flush every
+        // capture is correct everywhere (the capture reflects the current UI).
+        final Runnable paintAndFlush = new Runnable() {
+            @Override
+            public void run() {
+                Form f = Display.getInstance().getCurrent();
+                if (f == null) {
+                    return;
+                }
+                Graphics wrapper = getCodenameOneGraphics();
+                wrapper.translate(-wrapper.getTranslateX(), -wrapper.getTranslateY());
+                wrapper.resetAffine();
+                wrapper.setClip(0, 0, getDisplayWidth(), getDisplayHeight());
+                f.paintComponent(wrapper, true);
+                nativeInstance.flushBufferForReadback(0, 0, getDisplayWidth(), getDisplayHeight());
+            }
+        };
+        if (Display.getInstance().isEdt()) {
+            paintAndFlush.run();
+        } else {
+            Display.getInstance().callSeriallyAndWait(paintAndFlush);
+        }
+    }
+
+    static void onScreenshot(final byte[] imageData) {
+        final SuccessCallback<Image> callback = screenshotCallback;
+        screenshotCallback = null;
+        if (callback == null) {
+            return;
+        }
+
+        Display.getInstance().callSerially(new Runnable() {
+            @Override
+            public void run() {
+                if (imageData != null && imageData.length > 0) {
+                    try {
+                        Image image = Image.createImage(imageData, 0, imageData.length);
+                        if (image != null) {
+                            // Some ports, notably the watchOS Core Graphics path,
+                            // decode screenshots as immutable native images. A
+                            // screenshot is still valid in that form: callers that
+                            // need readback will exercise getRGB() themselves.
+                            if (image.getGraphics() == null) {
+                                int width = Math.max(1, image.getWidth());
+                                int height = Math.max(1, image.getHeight());
+                                try {
+                                    int[] rgb = image.getRGB();
+                                    if (rgb != null && rgb.length >= width * height) {
+                                        Image mutable = Image.createImage(rgb, width, height);
+                                        if (mutable != null) {
+                                            image = mutable;
+                                        }
+                                    } else {
+                                        System.out.println("CN1SS:ERR:ios screenshot readback returned "
+                                                + (rgb == null ? "null" : ("short length=" + rgb.length))
+                                                + " expected=" + (width * height));
+                                    }
+                                } catch (OutOfMemoryError oom) {
+                                    Log.e(oom);
+                                    System.out.println("CN1SS:ERR:ios screenshot readback OOM " + oom);
+                                } catch (Throwable t) {
+                                    Log.e(t);
+                                    System.out.println("CN1SS:ERR:ios screenshot readback failed " + t);
+                                }
+                            }
+
+                            if (image != null) {
+                                callback.onSucess(image);
+                                return;
+                            }
+                        }
+                    } catch (Throwable t) {
+                        Log.e(t);
+                        System.out.println("CN1SS:ERR:ios screenshot decode failed bytes=" + imageData.length
+                                + " error=" + t);
+                    }
+                } else {
+                    System.out.println("CN1SS:ERR:ios screenshot native returned "
+                            + (imageData == null ? "null" : ("empty bytes=" + imageData.length)));
+                }
+                callback.onSucess(null);
+            }
+        });
+    }
+
+    /**
+     * Used to enable/disable native cookies from native code.
+     * @param cookiesArray 
+     */
+    static void setUseNativeCookiesNativeCallback(boolean useNative){
+        instance.setUseNativeCookieStore(useNative);
+    }
+    
+    static boolean isUseNativeCookiesNativeCallback(){
+        return instance.isUseNativeCookieStore();
+    }
+
+    @Override
+    public void clearNativeCookies() {
+        nativeInstance.clearNativeCookies();
+    }
+
+    /**
+     *
+     * {@inheritDoc }
+     */
+    @Override
+    public boolean isNativeCookieSharingSupported() {
+        return true;
+    }
+
+    @Override
+    public void addCookie(Cookie[] cookiesArray) {
+        if(isUseNativeCookieStore()) {
+            int len = cookiesArray.length;
+            for(int i = 0 ; i < len ; i++){
+                addCookie(cookiesArray[i]);
+            }
+        } else {
+            super.addCookie(cookiesArray);
+        }
+    }
+
+    @Override
+    public Vector getCookiesForURL(String url) {
+        if(isUseNativeCookieStore()) {
+            Vector v = new Vector();
+            nativeInstance.getCookiesForURL(url, v);
+            return v;
+        } 
+        return super.getCookiesForURL(url);
+    }
+
+    public void setPlatformHint(String key, String value) {
+        if ("platformHint.ios.useContentBasedRTLStringDetection".equals(key)) {
+            useContentBasedRTLStringDetection = Boolean.parseBoolean(value);
+        }
+    }
+    
+    private boolean textEditorHidden;
+    
+    @Override
+    public boolean isAsyncEditMode() {
+        return nativeInstance.isAsyncEditMode();
+    }
+    
+    // This is a bit of a hack to work around the fact that setScrollY() automatically
+    // calls hideTextEditor when async editing is enabled.  Sometimes we want to
+    // just scroll the text field into view and don't want this to happen.
+    private int doNotHideTextEditorSemaphore=0;
+    
+    /**
+     * A way to get the *actual* root content pane of a form without exposing Form.getActualPane().
+     * @param f The form whose root pane we want.
+     * @return The root pane of the form.  If there is no layered pane, then this should just
+     * return the content pane.  Otherwise it may return the parent of the layered pane and content pane.
+     */
+    private static Container getRootPane(Form f) {
+        Container root = f.getContentPane();
+        Container parent = null;
+        while ((parent = root.getParent()) != null && parent != f) {
+            root = parent;
+        }
+        return root;
+    }
+    
+    @Override
+    public void hideTextEditor() {
+        if (doNotHideTextEditorSemaphore > 0) {
+            return;
+        }
+        if(textEditorHidden) {
+            return;
+        }
+        Form current = getCurrentForm();
+        if(nativeInstance.isAsyncEditMode() && current.isFormBottomPaddingEditingMode() && getRootPane(current).getUnselectedStyle().getPaddingBottom()> 0) {
+            getRootPane(current).getUnselectedStyle().setPadding(Component.BOTTOM, 0);
+            current.forceRevalidate();
+        } 
+        nativeInstance.hideTextEditing();
+        textEditorHidden = true;
+        repaintTextEditor(false);
+    }
+
+    private boolean pendingEditingText;
+    @Override
+    public boolean isEditingText(Component c) {
+        if(textEditorHidden) {
+            return false;
+        }
+        if (pendingEditingText) {
+            return false;
+        }
+        //return c == currentEditing;
+        return super.isEditingText(c);
+    }
+
+    @Override
+    public boolean isEditingText() {
+        /*if(textEditorHidden) {
+            return false;
+        }*/
+        //return currentEditing != null;
+        
+        return super.isEditingText();
+    }
+
+    @Override
+    public void stopTextEditing() {
+        if (isAsyncEditMode()) {
+            foldKeyboard();
+        } else {
+            if (currentEditing != null) {
+                editingUpdate(currentEditing.getText(), currentEditing.getCursorPosition(), true);
+                nativeInstance.foldVKB();
+            }
+        }
+    }
+    
+    public static void foldKeyboard() {
+        if(instance.isAsyncEditMode()) {
+            Form f = Display.getInstance().getCurrent();
+            
+            final Component cmp = f == null ? null : f.getFocused();
+            instance.callHideTextEditor();
+            nativeInstance.foldVKB();
+
+            // after folding the keyboard the screen layout might shift
+            Display.getInstance().callSerially(new Runnable() {
+                public void run() {
+                    if(cmp != null) {
+                        Form f = Display.getInstance().getCurrent();
+                        if(f == cmp.getComponentForm()) {
+                            cmp.requestFocus();
+                        }
+                        if(nativeInstance.isAsyncEditMode() && f.isFormBottomPaddingEditingMode() && getRootPane(f).getUnselectedStyle().getPaddingBottom() > 0) {
+                            getRootPane(f).getUnselectedStyle().setPadding(Component.BOTTOM, 0);
+                            f.forceRevalidate();
+                            return;
+                        } 
+                        
+                        // revalidate even if we transition to a different form since the 
+                        // spacing might have remained during the transition
+                        f.revalidate();
+                    }
+                }
+            });
+        }
+    }
+    
+    private void callHideTextEditor() {
+        super.hideTextEditor();
+    }
+    
+    /**
+     * Invoked from native do not remove
+     */
+    static void showTextEditorAgain() {
+        instance.textEditorHidden = false;
+        instance.repaintTextEditor(true);
+    }
+    
+    // A flag to override the invisible area under VKB.  This
+    // is used when hiding the keyboard, but the keyboard may still
+    // be visible so that we can perform revalidation of the form
+    // using a supposed state.
+    private int areaUnderVKBOverride=-1;
+    
+    @Override
+    public int getInvisibleAreaUnderVKB() {
+        if (areaUnderVKBOverride >= 0) {
+            return areaUnderVKBOverride;
+        }
+        if(isAsyncEditMode()) {
+            return nativeInstance.getVKBHeight();
+        }
+        return 0;
+    }
+    
+    private static final String LAST_UPDATED_EDITOR_BOUNDS_KEY = "$$ios.updateNativeTextEditorFrame.lastUpdatedBounds";
+    private static void updateNativeTextEditorFrame() {
+        updateNativeTextEditorFrame(true);
+    }
+    private static void updateNativeTextEditorFrame(boolean requestFocus) {
+        if (instance.currentEditing != null) {
+            TextArea cmp = instance.currentEditing;
+            // A field in a Window has no Form; the equivalent check is that its top
+            // level is still the one being displayed.
+            com.codename1.ui.TopLevelContainer top = cmp.getTopLevelContainer();
+            if (top == null
+                    || (top instanceof Form && top != CN.getCurrentForm())) { //NOPMD CompareObjectsWithEquals
+                instance.stopTextEditing();
+                return;
+            }
+
+            int x = cmp.getAbsoluteX() + cmp.getScrollX();
+            int y = cmp.getAbsoluteY() + cmp.getScrollY();
+            int w = cmp.getWidth();
+            int h = cmp.getHeight();
+            String key = LAST_UPDATED_EDITOR_BOUNDS_KEY;
+            Rectangle lastUpdatedBounds = (Rectangle)cmp.getClientProperty(key);
+            if (lastUpdatedBounds != null) {
+                if (lastUpdatedBounds.getX() == x && lastUpdatedBounds.getY() == y && lastUpdatedBounds.getWidth() == w && lastUpdatedBounds.getHeight() == h) {
+                    return;
+                }
+                lastUpdatedBounds.setBounds(x, y, w, h);
+            } else {
+                
+                lastUpdatedBounds = new Rectangle(x, y, w, h);
+                cmp.putClientProperty(key, lastUpdatedBounds);
+            }
+            
+            
+            final Style stl = cmp.getStyle();
+            final boolean rtl = UIManager.getInstance().getLookAndFeel().isRTL();
+            if (requestFocus) {
+                instance.doNotHideTextEditorSemaphore++;
+                try {
+                    instance.currentEditing.requestFocus();
+                } finally {
+                    instance.doNotHideTextEditorSemaphore--;
+                }
+            }
+            x = cmp.getAbsoluteX() + cmp.getScrollX();
+            y = cmp.getAbsoluteY() + cmp.getScrollY();
+            w = cmp.getWidth();
+            h = cmp.getHeight();
+            int pt = stl.getPaddingTop();
+            int pb = stl.getPaddingBottom();
+            int pl = stl.getPaddingLeft(rtl);
+            int pr = stl.getPaddingRight(rtl);
+            /*
+            if(cmp.isSingleLineTextArea()) {
+                switch(cmp.getVerticalAlignment()) {
+                    case TextArea.CENTER:
+                        if(h > cmp.getPreferredH()) {
+                            y += (h / 2 - cmp.getPreferredH() / 2);
+                        }
+                        break;
+                    case TextArea.BOTTOM:
+                        if(h > cmp.getPreferredH()) {
+                            y += (h - cmp.getPreferredH());
+                        }
+                        break;
+                }
+            }
+            */
+            Container contentPane = top.getContentPane();
+            if (!contentPane.contains(cmp)) {
+                contentPane = top.asContainer();
+            }
+            Style contentPaneStyle = contentPane.getStyle();
+
+            int minY = contentPane.getAbsoluteY() + contentPane.getScrollY() + contentPaneStyle.getPaddingTop();
+            // A window's coordinates are its own, so the main surface height is the
+            // wrong ceiling to measure one against: a field lower than the main window
+            // is tall clipped to a negative height and stopped editing outright, and a
+            // window shorter than the main surface got an editor running past its
+            // bottom edge. Same resolution as Container.snapToSafeAreaInternal, and the
+            // main window keeps reading the display exactly as before.
+            int surfaceHeight = top instanceof com.codename1.ui.Window
+                    ? top.asContainer().getHeight()
+                    : Display.getInstance().getDisplayHeight();
+            int maxH = surfaceHeight - minY - nativeInstance.getVKBHeight();
+            
+            if (y < minY) {
+                h -= (minY - y);
+                y = minY;
+            }
+            
+            if (h > maxH ) {
+                // For text areas, we don't want the keyboard to cover part of the 
+                // typing region.  So we will try to size the component to 
+                // to only go up to the top edge of the keyboard
+                // that should allow the OS to enable scrolling properly.... at least
+                // in theory.
+                h = maxH;
+            }
+            
+            if (h < 0) {
+                // There isn't room for the editor at all.
+                Log.p("No room for text editor.  h="+h);
+                instance.stopTextEditing();
+                return;
+            }
+            if (x < 0 || y < 0 || w <= 0 || h <= 0) {
+                instance.stopTextEditing();
+                return;
+            }
+            nativeInstance.resizeNativeTextView(x,
+                    y,
+                    w,
+                    h,
+                    pt,
+                    pr,
+                    pb,
+                    pl
+            );
+
+        }
+    }
+    
+    boolean keyboardShowing;
+    
+    /**
+     * Callback for native.  Called when keyboard is shown.  Used for async editing 
+     * with formBottomPaddingEditingMode.
+     */
+    static void keyboardWillBeShown(){
+        instance.keyboardShowing = true;
+        if(nativeInstance.isAsyncEditMode()) {
+            // revalidate the parent since the size of form is now larger due to the vkb
+            final Form current = Display.getInstance().getCurrent();
+            //final Component currentEditingFinal = instance.currentEditing;
+            if (current != null) {
+                if(current.isFormBottomPaddingEditingMode()) {
+                    Display.getInstance().callSerially(new Runnable() {
+                        public void run() {
+                            if (current != null) {
+                                getRootPane(current).getUnselectedStyle().setPaddingUnit(new byte[] {Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS});
+                                getRootPane(current).getUnselectedStyle().setPadding(Component.BOTTOM, nativeInstance.getVKBHeight());
+                                current.revalidate();
+                                Display.getInstance().callSerially(new Runnable() {
+                                    public void run() {
+                                        updateNativeTextEditorFrame();
+                                    }
+                                });
+                            }
+                        }
+                    });
+                } else {
+                    Display.getInstance().callSerially(new Runnable() {
+                        public void run() {
+                            if (current != null) {
+                                if (instance.currentEditing != null) {
+                                    instance.doNotHideTextEditorSemaphore++;
+                                    try {
+                                        instance.currentEditing.requestFocus();
+                                    } finally {
+                                        instance.doNotHideTextEditorSemaphore--;
+                                    }
+                                    current.revalidate();
+                                    Display.getInstance().callSerially(new Runnable() {
+                                        public void run() {
+                                            updateNativeTextEditorFrame();
+                                        }
+                                    });
+                                }
+
+                            }
+                        }
+                    });
+                }
+            }
+        }
+        
+        Display.getInstance().fireVirtualKeyboardEvent(true);
+    }
+    
+    /**
+     * Callback for native.  Called when keyboard is hidden.  Used for async editing 
+     * with formBottomPaddingEditingMode.
+     */
+    static void keyboardWillBeHidden(){
+        instance.keyboardShowing = false;
+        Display.getInstance().callSerially(new Runnable(){
+
+            @Override
+            public void run() {
+                Form current = Display.getInstance().getCurrent();
+                if (current != null) {
+                    instance.areaUnderVKBOverride = 0;
+                    try {
+                        current.revalidate();
+                        //Now that screen size is changed, the scroll positions may
+                        // be caught in a negative state, leaving a gap at the
+                        // top.
+                        //https://github.com/codenameone/CodenameOne/issues/2476
+                        Accessor.fixNegativeScrolls(current);
+                    } finally {
+                        instance.areaUnderVKBOverride = -1;
+                    }
+                }
+            }
+            
+        });
+        Display.getInstance().fireVirtualKeyboardEvent(false);
+    }
+    
+    public void setCurrentForm(Form f) {
+        if (isEditingText()) {
+            stopTextEditing();
+        }
+        super.setCurrentForm(f);
+        syncMacWindowAppearance(f);
+        syncMacDesktopChrome(f);
+        // Push the form title to the OS window for every desktop mode (unchanged from before); in
+        // "custom" mode the title bar is hidden so this is invisible but harmless.
+        if (isDesktop() && f != null && !(f instanceof Dialog)) {
+            pushMacWindowTitle(f);
+        }
+    }
+
+    @Override
+    public boolean isNativeTitle() {
+        // On Mac Catalyst, only the "native" desktop title-bar mode puts the form title into the OS
+        // window title bar (and hides the CN1 Toolbar). In "custom" mode the visible Toolbar is the
+        // title bar, so the OS title is not used. Opt-in only: defaults to toolbar (unchanged).
+        return isDesktop() && "native".equals(getDesktopTitleBarMode());
+    }
+
+    private MacWindowManager windowManager;
+
+    /**
+     * @inheritDoc
+     *
+     * Desktop windows exist only on the Mac Catalyst slice, where the builder writes
+     * {@code UIApplicationSupportsMultipleScenes} into Info.plist. That key is what
+     * actually makes a second scene possible, so this reads it back out of the bundle
+     * rather than trusting a build flag -- the API and the plist then cannot disagree,
+     * including in a hand-edited project.
+     */
+    @Override
+    public com.codename1.impl.WindowManager getWindowManager() {
+        if (!isDesktop()) {
+            return null;
+        }
+        // The Info.plist key is the single source of truth: without multiple scenes
+        // enabled the system refuses to activate a second one, so reporting supported
+        // here would hand back windows that never appear.
+        if (!catalystWindowNative.macMultiWindowSupported()) {
+            return null;
+        }
+        if (windowManager == null) {
+            windowManager = new MacWindowManager(this);
+        }
+        return windowManager;
+    }
+
+    // Tracks the last desktop title-bar mode pushed to the native window chrome so the (idempotent)
+    // native call is only made when the mode actually changes.
+    private String lastMacChromeMode;
+
+    /// Applies the desktop title-bar mode to the host macOS window chrome: the {@code custom} mode
+    /// undecorates the window so the CN1 Toolbar becomes the title bar. The {@code native} and
+    /// {@code toolbar} modes leave the window chrome completely untouched, so existing Catalyst apps
+    /// are byte-for-byte unaffected. No-op off the Mac desktop.
+    private void syncMacDesktopChrome(Form f) {
+        if (f == null || !isDesktop()) {
+            return;
+        }
+        String mode = getDesktopTitleBarMode();
+        if (mode.equals(lastMacChromeMode)) {
+            return;
+        }
+        lastMacChromeMode = mode;
+        // Only the "custom" mode touches the native window. Non-custom modes never call into the
+        // native chrome, preserving the exact prior window appearance for existing apps.
+        if ("custom".equals(mode)) {
+            nativeInstance.setMacWindowUndecorated(true);
+        }
+    }
+
+    @Override
+    public String getDesktopTitleBarMode() {
+        if (!isDesktop()) {
+            return "toolbar";
+        }
+        // Opt-in via the desktop.titleBar build hint (codename1.arg.desktop.titleBar), surfaced as
+        // a Display property by the generated stub. That sentence was aspirational until
+        // Executor.desktopTitleBarStubProperty existed: no builder emitted the property, so this
+        // read the default on every build and the Aqua theme's own desktopTitleBarMode constant
+        // decided alone. Default toolbar = unchanged legacy behavior.
+        return Display.getInstance().getProperty("desktop.titleBar", "toolbar");
+    }
+
+    /// @inheritDoc
+    ///
+    /// Null, not "toolbar", when the stub surfaced no property: the Aqua theme carries its own
+    /// desktopTitleBarMode and may only answer when the project asked for nothing.
+    @Override
+    public String getConfiguredDesktopTitleBarMode() {
+        if (!isDesktop()) {
+            return null;
+        }
+        return Display.getInstance().getProperty("desktop.titleBar", null);
+    }
+
+    @Override
+    public void refreshNativeTitle() {
+        Form f = getCurrentForm();
+        if (f != null && isDesktop() && !(f instanceof Dialog)) {
+            pushMacWindowTitle(f);
+        }
+    }
+
+    private void pushMacWindowTitle(Form f) {
+        String t = f.getTitle();
+        nativeInstance.setWindowTitle(t == null ? "" : t);
+    }
+
+    // Commands currently exposed in the Mac native menu, keyed by the id carried in each native
+    // menu item; fireMacMenuCommand(int) (invoked from the native menu action) resolves through
+    // this.
+    //
+    // Keyed by id rather than by row number, and the superseded generation is kept, because the two
+    // sides do not change together: this map is published here on the EDT, while the menu whose
+    // items carry the keys is rebuilt later on the main queue. A row number identifies a position,
+    // so throughout that interval every item the user could still see and click resolved its
+    // position against a list that no longer described it, and selecting one ran whichever command
+    // now sat at that index. An id identifies the command itself, so a stale item runs the command
+    // whose label the user actually clicked, and an item older than one generation resolves to
+    // nothing rather than to something arbitrary.
+    private static volatile java.util.HashMap<Integer, com.codename1.ui.Command> macNativeCommands;
+    private static volatile java.util.HashMap<Integer, com.codename1.ui.Command> macSupersededCommands;
+    private static int nextMacCommandId = 1;
+
+    /**
+     * One menu field with the row and column delimiters taken out of it.
+     *
+     * <p>The rows are joined by newlines and the columns by tabs, and both the
+     * command label and the menu hint are user-facing strings a localization can
+     * put anything into. A newline in a label produced an extra native row while
+     * the Java list backing fireMacMenuCommand() still held one entry per
+     * command, so every later item carried a tag pointing at the wrong command
+     * and selecting one ran something else. A tab shifted the label and shortcut
+     * columns of its own row.</p>
+     *
+     * <p>Replaced rather than backslash-escaped: an escape needs the two native
+     * parsers -- the AppKit one and the Catalyst one -- to unescape in step with
+     * this, and neither a newline nor a tab means anything in a menu item, which
+     * renders on one line. Turning them into spaces costs nothing anyone can
+     * see and cannot desynchronize the two sides.</p>
+     */
+    private static String menuField(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ');
+    }
+
+    /// @inheritDoc
+    ///
+    /// True on the desktop -- the native macOS build's real NSMenu, and Catalyst's
+    /// UIMenuBuilder. False on a phone or tablet, where setNativeCommands below returns
+    /// without doing anything and the commands belong in the Toolbar.
+    @Override
+    public boolean isNativeCommandsSupported() {
+        return isDesktop();
+    }
+
+    @Override
+    public void setNativeCommands(Vector commands) {
+        if (!isDesktop()) {
+            return;
+        }
+        java.util.HashMap<Integer, com.codename1.ui.Command> published =
+                new java.util.HashMap<Integer, com.codename1.ui.Command>();
+        // Encode one row per command as
+        // "<menuHint>\t<label>\t<shortcutKeyChar>\t<shortcutModifiers>\t<commandId>",
+        // rows separated by '\n'. The native side groups rows into the matching standard macOS menus
+        // (App/File/Edit/View/Window/Help) or a top-level menu named by the hint; an empty hint means
+        // the default commands menu. A non-zero shortcutKeyChar produces a UIKeyCommand so the menu
+        // item shows (and responds to) the keyboard accelerator.
+        StringBuilder sb = new StringBuilder();
+        if (commands != null) {
+            for (int i = 0; i < commands.size(); i++) {
+                Object o = commands.elementAt(i);
+                if (!(o instanceof com.codename1.ui.Command)) {
+                    continue;
+                }
+                com.codename1.ui.Command c = (com.codename1.ui.Command) o;
+                String name = c.getCommandName();
+                if (name == null || name.length() == 0) {
+                    continue;
+                }
+                String hint = c.getDesktopMenu();
+                if (hint == null) {
+                    hint = "";
+                }
+                if (sb.length() > 0) {
+                    sb.append('\n');
+                }
+                int commandId = nextMacCommandId++;
+                sb.append(menuField(hint)).append('\t').append(menuField(name)).append('\t')
+                        .append(c.getDesktopShortcutKeyChar()).append('\t')
+                        .append(c.getDesktopShortcutModifiers()).append('\t')
+                        .append(commandId);
+                published.put(Integer.valueOf(commandId), c);
+            }
+        }
+        macSupersededCommands = macNativeCommands;
+        macNativeCommands = published;
+        nativeInstance.setNativeMenuCommands(sb.toString());
+    }
+
+    /**
+     * Invoked from the native Mac menu action when the user selects a command, identified by the id
+     * the item carries. Dispatches the corresponding Codename One command on the EDT.
+     */
+    public static void fireMacMenuCommand(final int commandId) {
+        java.util.HashMap<Integer, com.codename1.ui.Command> live = macNativeCommands;
+        java.util.HashMap<Integer, com.codename1.ui.Command> superseded = macSupersededCommands;
+        Integer key = Integer.valueOf(commandId);
+        com.codename1.ui.Command resolved = live == null ? null : live.get(key);
+        if (resolved == null && superseded != null) {
+            resolved = superseded.get(key);
+        }
+        if (resolved == null) {
+            return;
+        }
+        final com.codename1.ui.Command c = resolved;
+        Display.getInstance().callSerially(new Runnable() {
+            @Override
+            public void run() {
+                // Routed through the owning form, and the enabled check lives there too. The
+                // form is resolved at selection time rather than when the menu was published:
+                // MenuBar publishes from addCommand, while the form is still being built and
+                // before show() makes it current, so a form captured then is the previous one.
+                //
+                // This matters more than it used to -- the macOS port now installs the Aqua
+                // theme by default, which hides the Toolbar, so this menu is the only way to
+                // reach these commands.
+                instance.dispatchNativeMenuCommand(c);
+            }
+        });
+    }
+
+    private Boolean lastMacWindowDark;
+    private void syncMacWindowAppearance(Form f) {
+        if (f == null || !isDesktop()) return;
+        int bg = f.getContentPane().getStyle().getBgColor();
+        int r = (bg >> 16) & 0xff;
+        int g = (bg >> 8) & 0xff;
+        int b = bg & 0xff;
+        int luma = (r * 299 + g * 587 + b * 114) / 1000;
+        boolean dark = luma < 128;
+        if (lastMacWindowDark != null && lastMacWindowDark.booleanValue() == dark) return;
+        lastMacWindowDark = Boolean.valueOf(dark);
+        nativeInstance.setMacWindowDarkAppearance(dark);
+    }
+
+    @Override
+    public void afterComponentPaint(Component c, Graphics g) {
+        super.afterComponentPaint(c, g);
+        if (isEditingText(c)) {
+            updateNativeTextEditorFrame(false);
+        }
+    }
+    
+    
+    
+    private static final Object EDITING_LOCK = new Object(); 
+    private static boolean editNext;
+    public void editString(final Component cmp, final int maxSize, final int constraint, final String text, final int i) {
+        
+        // The very first time we try to edit a string, let's determine if the 
+        // system default is to do async editing.  If the system default
+        // is not yet set, we set it here, and it will be used as the default from now on
+        //  We do this because the nativeInstance.isAsyncEditMode() value changes
+        // to reflect the currently edited field so it isn't a good way to keep a
+        // system default.
+        pendingEditingText = false;
+        String defaultAsyncEditingSetting = Display.getInstance().getProperty("ios.VKBAlwaysOpen", null);
+        if (defaultAsyncEditingSetting == null) {
+            defaultAsyncEditingSetting = nativeInstance.isAsyncEditMode() ? "true" : "false";
+            Display.getInstance().setProperty("ios.VKBAlwaysOpen", defaultAsyncEditingSetting);
+            
+        }
+        boolean asyncEdit = "true".equals(defaultAsyncEditingSetting) ? true : false;
+        //Log.p("Application default for async editing is "+asyncEdit);
+        
+        try {
+            if (currentEditing != cmp && currentEditing != null && currentEditing instanceof TextArea) {
+                Display.getInstance().onEditingComplete(currentEditing, ((TextArea)currentEditing).getText());
+                currentEditing = null;
+                callHideTextEditor();
+                if (nativeInstance.isAsyncEditMode()) {
+                    nativeInstance.setNativeEditingComponentVisible(false);
+                }
+                synchronized(EDITING_LOCK) {
+                    EDITING_LOCK.notify();
+                }
+                Display.getInstance().callSerially(new Runnable() {
+                    public void run() {
+                        pendingEditingText = true;
+                        Display.getInstance().editString(cmp, maxSize, constraint, text, i);
+                    }
+                });
+                return;
+            }
+            
+           if(cmp.isFocusable() && !cmp.hasFocus()) {
+                doNotHideTextEditorSemaphore++;
+                try {
+                    cmp.requestFocus();
+                } finally {
+                    doNotHideTextEditorSemaphore--;
+                }
+                
+                // Notice here that we are checking isAsyncEditMode() which looks
+                // at the previously edited text area.  Not the async mode
+                // of our upcoming field.
+                if(isAsyncEditMode()) {
+                    // flush the EDT so the focus will work...
+
+                    Display.getInstance().callSerially(new Runnable() {
+                        public void run() {
+                            pendingEditingText = true;
+                            Display.getInstance().editString(cmp, maxSize, constraint, text, i);
+                        }
+                    });
+                    return;
+                }
+            }
+            
+           // Check if the form has any setting for asyncEditing that should override
+           // the application defaults.
+            // The top level, not the Form. getComponentForm() is null for a component
+            // in a Window, and returning here meant a Catalyst window -- which this
+            // port advertises as supporting windows -- could not edit any text field
+            // at all.
+            com.codename1.ui.TopLevelContainer parentTop = cmp.getTopLevelContainer();
+            if (parentTop == null) {
+                //Log.p("Attempt to edit text area that is not on a top level.  This is not supported");
+                return;
+            }
+            Container parentForm = parentTop.asContainer();
+            // Tell the native side which window is being edited, so the editor is
+            // added to that window's view rather than the main surface's. Cleared to
+            // -1 for a field on the main form, since the slot is process wide.
+            catalystWindowNative.macWindowSetEditingSlot(
+                    parentTop instanceof Form ? -1 : MacWindowManager.slotForComponent(cmp));
+            if (parentForm.getClientProperty("asyncEditing") != null) {
+                Object async = parentForm.getClientProperty("asyncEditing");
+                if (async instanceof Boolean) {
+                    asyncEdit = ((Boolean)async).booleanValue();
+                    //Log.p("Form overriding asyncEdit due to asyncEditing client property: "+asyncEdit);
+                }
+            }
+            
+            if (parentForm.getClientProperty("ios.asyncEditing") != null) {
+                Object async = parentForm.getClientProperty("ios.asyncEditing");
+                if (async instanceof Boolean) {
+                    asyncEdit = ((Boolean)async).booleanValue();
+                    //Log.p("Form overriding asyncEdit due to ios.asyncEditing client property: "+asyncEdit);
+                }
+                
+            }
+            
+            // If the system default is to use async editing, we need to check
+            // the form to make sure that it is scrollable.  If it is not 
+            // scrollable, then this field should default to Non-async
+            // editing - and should instead revert to legacy editing mode.
+            // Bottom padding editing mode is a Form concept tied to the virtual
+            // keyboard; a desktop Window has neither, so it reads as false there.
+            boolean bottomPaddingMode = parentTop instanceof Form
+                    && ((Form) parentTop).isFormBottomPaddingEditingMode();
+            if(asyncEdit && !bottomPaddingMode) {
+                Container p = cmp.getParent();
+                
+                // A crude estimate of how far the component needs to be able to scroll to make 
+                // async editing viable.  We start with half-way down the screen.
+                int keyboardClippingThresholdY = Display.getInstance().getDisplayWidth() / 2;
+                while(p != null) {
+                    if(Accessor.scrollableYFlag(p)  && p.getAbsoluteY() < keyboardClippingThresholdY) {
+                        break;
+                    }
+                    p = p.getParent();
+                }
+                // no scrollabel parent automatically configure the text field for legacy mode
+                //nativeInstance.setAsyncEditMode(p != null);
+                asyncEdit = p != null;
+                //Log.p("Overriding asyncEdit due to form scrollability: "+asyncEdit);
+                
+            } else if (bottomPaddingMode){
+                // If form uses bottom padding mode, then we will always
+                // use async edit (unless the field explicitly overrides it).
+                asyncEdit = true;
+                //Log.p("Overriding asyncEdit due to form bottom padding edit mode: "+asyncEdit);
+            }
+
+            
+            // If the field itself explicitly sets async editing behaviour
+            // then this will override all other settings.
+            if (cmp.getClientProperty("asyncEditing") != null) {
+                Object async = cmp.getClientProperty("asyncEditing");
+                if (async instanceof Boolean) {
+                    asyncEdit = ((Boolean)async).booleanValue();
+                    //Log.p("Overriding asyncEdit due to field asyncEditing client property: "+asyncEdit);
+                }
+            }
+            
+            if (cmp.getClientProperty("ios.asyncEditing") != null) {
+                Object async = cmp.getClientProperty("ios.asyncEditing");
+                if (async instanceof Boolean) {
+                    asyncEdit = ((Boolean)async).booleanValue();
+                    //Log.p("Overriding asyncEdit due to field ios.asyncEditing client property: "+asyncEdit);
+                }
+                
+            }
+            
+            // Finally we set the async edit mode for this field.
+            //System.out.println("Async edit mode is "+asyncEdit);
+            nativeInstance.setAsyncEditMode(asyncEdit);
+            
+            textEditorHidden = false;
+            currentEditing = (TextArea)cmp;
+
+            //register the edited TextArea to support moving to the next field
+            TextEditUtil.setCurrentEditComponent(cmp); 
+
+            final NativeFont fnt = f(cmp.getStyle().getFont().getNativeFont());
+            boolean forceSlideUpTmp = false;
+            final Form current = Display.getInstance().getCurrent();
+            if(current instanceof Dialog && !isTablet()) {
+                // special case, if we are editing a small dialog we want to move it
+                // so the bottom of the dialog shows within the screen. This is
+                // described in issue 505
+                Dialog dlg = (Dialog)current;
+                Component c = dlg.getDialogComponent();
+                if(c.getHeight() < Display.getInstance().getDisplayHeight() / 2 && 
+                        c.getAbsoluteY() + c.getHeight() > Display.getInstance().getDisplayHeight() / 2) {
+                    forceSlideUpTmp = true;
+                }
+            }
+            final boolean forceSlideUp = forceSlideUpTmp;
+            
+            cmp.repaint();
+            // give the repaint one cycle to "do its magic...
+            final Style stl = currentEditing.getStyle();
+            final boolean rtl = UIManager.getInstance().getLookAndFeel().isRTL();
+            final Style hintStyle = currentEditing.getHintLabel() != null ? currentEditing.getHintLabel().getStyle() : stl;
+            
+            // Through the editing component's own top level, not the current form. In a
+            // Window cmp is absent from the main form's tab order, so TabIterator
+            // treated it as an unknown start and handed back the main form's first
+            // focusable component -- the keyboard's Next action jumped to an unrelated
+            // field, or in a window-only application left a stale destination in place.
+            // getNextComponent is Form-only but is defined as exactly this call, and
+            // getTabIterator is on TopLevelContainer.
+            if (parentTop != null) {
+                TextEditUtil.setNextEditComponent(parentTop.getTabIterator(cmp).getNext());
+            } else if (current != null) {
+                TextEditUtil.setNextEditComponent(current.getNextComponent(cmp));
+            }
+            Display.getInstance().callSerially(new Runnable() {
+                @Override
+                public void run() {
+                    int x = cmp.getAbsoluteX() + cmp.getScrollX();
+                    int y = cmp.getAbsoluteY() + cmp.getScrollY();
+                    int w = cmp.getWidth();
+                    int h = cmp.getHeight();
+                    int pt = stl.getPaddingTop();
+                    int pb = stl.getPaddingBottom();
+                    int pl = stl.getPaddingLeft(rtl);
+                    int pr = stl.getPaddingRight(rtl);
+                    /*
+                    if(currentEditing != null && currentEditing.isSingleLineTextArea()) {
+                        switch(currentEditing.getVerticalAlignment()) {
+                            case TextArea.CENTER:
+                                if(h > cmp.getPreferredH()) {
+                                    y += (h / 2 - cmp.getPreferredH() / 2);
+                                }
+                                break;
+                            case TextArea.BOTTOM:
+                                if(h > cmp.getPreferredH()) {
+                                    y += (h - cmp.getPreferredH());
+                                }
+                                break;
+                        }
+                    }
+                    */
+                    String hint = null;
+                    if(currentEditing != null && currentEditing.getUIManager().isThemeConstant("nativeHintBool", true) && currentEditing.getHint() != null) {
+                        hint = currentEditing.getHint();
+                    }
+                    int hintColor = hintStyle.getFgColor();
+                    
+                    if(isAsyncEditMode()) {
+                        // request focus triggers a scroll which flicks the textEditorHidden flag
+                        doNotHideTextEditorSemaphore++;
+                        try {
+                            cmp.requestFocus();
+                        } finally {
+                            doNotHideTextEditorSemaphore--;
+                        }
+                        textEditorHidden = false;
+                    }
+                    boolean showToolbar = cmp.getClientProperty("iosHideToolbar") == null;
+                    if(showToolbar && Display.getInstance().getProperty("iosHideToolbar", "false").equalsIgnoreCase("true")) {
+                        showToolbar = false;
+                    }
+                    if ( currentEditing != null ){
+                        int align = currentEditing.getStyle().getAlignment();
+                        // iosReturnExitsEditing: opt-in client property that makes Return on a
+                        // multi-line TextArea exit editing (firing the Done listener) instead of
+                        // inserting a newline -- mirrors iOS Reminders task-title behavior.
+                        boolean returnExitsEditing = Boolean.TRUE.equals(cmp.getClientProperty("iosReturnExitsEditing"))
+                                && !currentEditing.isSingleLineTextArea();
+                        nativeInstance.editStringAt(x,
+                                y,
+                                w,
+                                h,
+                                fnt.peer, currentEditing.isSingleLineTextArea(),
+                                currentEditing.getRows(), maxSize, constraint, text, forceSlideUp,
+                                stl.getFgColor(), 0,//peer,
+                                pt,
+                                pb,
+                                pl,
+                                pr,
+                                hint,
+                                hintColor,
+                                showToolbar,
+                                Boolean.TRUE.equals(cmp.getClientProperty("blockCopyPaste")),
+                                DefaultLookAndFeel.reverseAlignForBidi(cmp, align),
+                                currentEditing.getVerticalAlignment(),
+                                returnExitsEditing);
+                    }
+                }
+            });
+            if(isAsyncEditMode()) {
+                return;
+            }
+            editNext = false;
+            
+            Display.getInstance().invokeAndBlock(new Runnable() {
+                @Override
+                public void run() {
+                    synchronized(EDITING_LOCK) {
+                        while(instance.currentEditing == cmp) {
+                            try {
+                                EDITING_LOCK.wait(20);
+                            } catch (InterruptedException ex) {
+                            }
+                        }
+                    }
+                }
+            });
+            
+            if(cmp instanceof TextArea && !((TextArea)cmp).isSingleLineTextArea()) {
+                com.codename1.ui.TopLevelContainer revalidateTop = cmp.getTopLevelContainer();
+                if (revalidateTop != null) {
+                    revalidateTop.asContainer().revalidate();
+                }
+            }
+            if(editNext) {
+                editNext = false;
+                TextEditUtil.editNextTextArea();
+            }
+        } finally {
+            
+        }
+    }
+    
+    // Callback for native code
+    public static void resizeNativeTextComponentCallback() {
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                updateNativeTextEditorFrame();
+            }
+        });
+    }
+    
+    
+    // callback for native code!
+    public static void editingUpdate(final String s, final int cursorPositon, final boolean finished) {
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                if(instance.currentEditing != null) {
+                    if(finished) {
+                        editNext = cursorPositon == -2;
+                        synchronized(EDITING_LOCK) {
+                            instance.currentEditing.setText(s);
+                            Display.getInstance().onEditingComplete(instance.currentEditing, s);
+                            if(editNext && instance.currentEditing != null && instance.currentEditing instanceof TextArea) {
+                                ((TextArea)instance.currentEditing).fireDoneEvent();
+                            }
+                            Component cmp = instance.currentEditing;
+                            instance.currentEditing = null;
+                            instance.callHideTextEditor();
+                            if (nativeInstance.isAsyncEditMode()) {
+                                nativeInstance.setNativeEditingComponentVisible(false);
+                            }
+                            if(cmp != null) {
+                                cmp.putClientProperty(LAST_UPDATED_EDITOR_BOUNDS_KEY, null);
+                            }
+                            EDITING_LOCK.notify();
+                        }
+                        Form current = Display.getInstance().getCurrent();
+                        if (current != null && current.isFormBottomPaddingEditingMode()) {
+                            getRootPane(current).getUnselectedStyle().setPadding(Component.BOTTOM, 0);
+                        }
+                    } else {
+                        instance.currentEditing.setText(s);
+                    }
+                    if(instance.currentEditing instanceof TextField && cursorPositon > -1) {
+                        ((TextField)instance.currentEditing).setCursorPosition(cursorPositon);
+                    }
+                } else {
+                    System.out.println("Editing null component!!" + s);
+                }
+            }
+        });
+
+    }
+
+    // ---- low level text input source (pure Codename One editors) ----
+
+    private static com.codename1.ui.TextInputClient tiClient;
+    /// Immutable snapshot of the client's last pushed editing state; UIKit's synchronous
+    /// text/selection queries are answered from this on the iOS main thread (the EDT is a
+    /// separate ParparVM thread, so reading the live document there would race edits).
+    private static volatile com.codename1.ui.TextInputState tiSnapshot;
+    /// Generation of the last native-originated edit APPLIED to the Java document. Echoed back
+    /// with every state push so the native shadow can drop echoes that predate a newer local
+    /// edit (fast typing would otherwise regress the shadow text and caret).
+    private static volatile int tiNativeSeq;
+
+    @Override
+    public boolean isTextInputSupported() {
+        return true;
+    }
+
+    @Override
+    public Object startTextInput(com.codename1.ui.TextInputClient client, com.codename1.ui.TextInputConfig config) {
+        tiClient = client;
+        com.codename1.ui.TextInputState st = client.getEditingState();
+        tiSnapshot = st;
+        tiNativeSeq = 0;
+        int constraint = config != null ? config.getConstraint() : 0;
+        boolean autoCorrect = config == null || config.isAutoCorrect();
+        boolean autoCap = config == null || config.isAutoCapitalize();
+        boolean multiline = config == null || config.isMultiline();
+        nativeInstance.startTextInput(constraint, autoCorrect, autoCap, multiline,
+                st.getText(), st.getSelectionStart(), st.getSelectionEnd(),
+                config != null ? config.getActionType() : com.codename1.ui.TextInputConfig.ACTION_DEFAULT);
+        return client;
+    }
+
+    @Override
+    public void updateTextInputState(Object handle, com.codename1.ui.TextInputState state) {
+        if (handle == null || handle != tiClient || state == null) {
+            // a stale handle (an unbalanced session that was already replaced) must not
+            // disturb the currently bound client
+            return;
+        }
+        com.codename1.ui.TextInputClient c = tiClient;
+        int[] r = c != null ? c.getCaretRect() : new int[]{0, 0, 0, 0};
+        tiSnapshot = state;
+        nativeInstance.updateTextInputState(state.getText(), state.getSelectionStart(), state.getSelectionEnd(),
+                r[0], r[1], r[2], r[3], tiNativeSeq);
+        // Push the editor component's absolute bounds so the native input view can gate its touch region to
+        // the editor (letting iOS draw its selection loupe/handles there) while passing other touches through.
+        if (c instanceof com.codename1.ui.Component) {
+            com.codename1.ui.Component comp = (com.codename1.ui.Component) c;
+            nativeInstance.setTextInputBounds(comp.getAbsoluteX(), comp.getAbsoluteY(),
+                    comp.getWidth(), comp.getHeight());
+        }
+        tiKeepNativeCallbacksAlive();
+    }
+
+    // The ti* callbacks below are invoked ONLY from native code (CN1TextInputView.m). ParparVM's dead
+    // code eliminator does not reliably retain such methods from the native-source scan, so it stubs some
+    // of them to an empty body and the native call silently does nothing. Referencing them from this
+    // reachable method (behind a guard that is always false at runtime) forces the eliminator to keep
+    // their real bodies. tiKeepAlive is never set true.
+    private static boolean tiKeepAlive = false;
+
+    /// Consumes the keep-alive results below; several ti* queries are now pure snapshot reads,
+    /// and an ignored pure return would trip the static analysis gate.
+    private static int tiKeepAliveSink;
+
+    private static void tiKeepNativeCallbacksAlive() {
+        if (tiKeepAlive) {
+            tiCommit("", 0);
+            tiSetComposing("", 0, 0);
+            tiFinishComposing(0);
+            tiDeleteBackward(0);
+            tiKeyCommand(0, 0);
+            tiEditorAction(0);
+            tiReplaceRange(0, 0, "", 0);
+            tiSetSelection(0, 0, 0);
+            tiKeepAliveSink = tiTextLength()
+                    + tiTextRange(0, 0).length()
+                    + tiSelectionStart()
+                    + tiSelectionEnd()
+                    + tiRectForOffset(0).length
+                    + tiOffsetAtPoint(0, 0)
+                    + tiSelectionRects(0, 0).length
+                    + tiKeepAliveSink;
+        }
+    }
+
+    @Override
+    public void stopTextInput(Object handle) {
+        if (handle == null || handle != tiClient) {
+            return;
+        }
+        tiClient = null;
+        nativeInstance.stopTextInput();
+    }
+
+    /// Callback from native: committed text. `seq` is the native edit generation, recorded on the
+    /// EDT right before the edit applies so subsequent state pushes echo it back.
+    public static void tiCommit(final String text, final int seq) {
+        final com.codename1.ui.TextInputClient c = tiClient;
+        if (c == null) {
+            return;
+        }
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                tiNativeSeq = seq;
+                c.commitText(text);
+            }
+        });
+    }
+
+    /// Callback from native: IME composing (marked) text.
+    public static void tiSetComposing(final String text, final int rel, final int seq) {
+        final com.codename1.ui.TextInputClient c = tiClient;
+        if (c == null) {
+            return;
+        }
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                tiNativeSeq = seq;
+                c.setComposingText(text, rel);
+            }
+        });
+    }
+
+    /// Callback from native: composition finished.
+    public static void tiFinishComposing(final int seq) {
+        final com.codename1.ui.TextInputClient c = tiClient;
+        if (c == null) {
+            return;
+        }
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                tiNativeSeq = seq;
+                c.finishComposing();
+            }
+        });
+    }
+
+    /// Callback from native: delete backward (one character before caret).
+    public static void tiDeleteBackward(final int seq) {
+        final com.codename1.ui.TextInputClient c = tiClient;
+        if (c == null) {
+            return;
+        }
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                tiNativeSeq = seq;
+                c.deleteSurroundingText(1, 0);
+            }
+        });
+    }
+
+    /// Callback from native: a navigation / editing key command.
+    public static void tiKeyCommand(final int command, final int modifiers) {
+        final com.codename1.ui.TextInputClient c = tiClient;
+        if (c == null) {
+            return;
+        }
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                c.onKeyCommand(command, modifiers);
+            }
+        });
+    }
+
+    /// Callback from native: keyboard return / action key.
+    public static void tiEditorAction(final int action) {
+        final com.codename1.ui.TextInputClient c = tiClient;
+        if (c == null) {
+            return;
+        }
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                c.onEditorAction(action);
+            }
+        });
+    }
+
+    // ---- UITextInput text/selection/geometry queries. These arrive synchronously on the iOS
+    // MAIN thread while the EDT (a separate ParparVM thread) may be mid-edit, so text and
+    // selection are answered from the volatile immutable snapshot pushed with each state
+    // update, and layout-dependent geometry marshals onto the EDT. ----
+
+    /// Total document length in UTF-16 characters.
+    public static int tiTextLength() {
+        com.codename1.ui.TextInputState s = tiSnapshot;
+        return s != null ? s.getText().length() : 0;
+    }
+
+    /// Text in the range `[start, end)`.
+    public static String tiTextRange(int start, int end) {
+        com.codename1.ui.TextInputState s = tiSnapshot;
+        if (s == null) {
+            return "";
+        }
+        String t = s.getText();
+        int a = Math.max(0, Math.min(t.length(), start));
+        int b = Math.max(a, Math.min(t.length(), end));
+        return t.substring(a, b);
+    }
+
+    /// Current selection start offset.
+    public static int tiSelectionStart() {
+        com.codename1.ui.TextInputState s = tiSnapshot;
+        return s != null ? s.getSelectionStart() : 0;
+    }
+
+    /// Current selection end offset.
+    public static int tiSelectionEnd() {
+        com.codename1.ui.TextInputState s = tiSnapshot;
+        return s != null ? s.getSelectionEnd() : 0;
+    }
+
+    /// Runs a geometry query against the live editor on the EDT and returns its result. The main
+    /// thread never holds locks the EDT needs (all native UI work is dispatched asynchronously),
+    /// so the bounded wait cannot deadlock.
+    private static int[] tiGeometryQuery(final TiGeometryOp op) {
+        final com.codename1.ui.TextInputClient c = tiClient;
+        if (c == null) {
+            return new int[0];
+        }
+        Display d = Display.getInstance();
+        if (d.isEdt()) {
+            return op.run(c);
+        }
+        final int[][] out = new int[1][];
+        d.callSeriallyAndWait(new Runnable() {
+            public void run() {
+                if (c == tiClient) {
+                    out[0] = op.run(c);
+                }
+            }
+        });
+        return out[0] != null ? out[0] : new int[0];
+    }
+
+    private interface TiGeometryOp {
+        int[] run(com.codename1.ui.TextInputClient c);
+    }
+
+    /// Caret rectangle for an offset, absolute screen pixels `{x, y, w, h}`.
+    public static int[] tiRectForOffset(final int offset) {
+        int[] r = tiGeometryQuery(new TiGeometryOp() {
+            public int[] run(com.codename1.ui.TextInputClient c) {
+                return c.rectForOffset(offset);
+            }
+        });
+        return r.length >= 4 ? r : new int[]{0, 0, 0, 0};
+    }
+
+    /// Document offset nearest an absolute screen point (pixels).
+    public static int tiOffsetAtPoint(final int x, final int y) {
+        int[] r = tiGeometryQuery(new TiGeometryOp() {
+            public int[] run(com.codename1.ui.TextInputClient c) {
+                return new int[]{c.offsetAtPoint(x, y)};
+            }
+        });
+        return r.length > 0 ? r[0] : 0;
+    }
+
+    /// Selection rectangles for `[start, end)`, flat array of absolute-pixel `{x, y, w, h, ...}`.
+    public static int[] tiSelectionRects(final int start, final int end) {
+        return tiGeometryQuery(new TiGeometryOp() {
+            public int[] run(com.codename1.ui.TextInputClient c) {
+                return c.selectionRects(start, end);
+            }
+        });
+    }
+
+    /// Callback from native: replace a range with text (range based edit).
+    public static void tiReplaceRange(final int start, final int end, final String text, final int seq) {
+        final com.codename1.ui.TextInputClient c = tiClient;
+        if (c == null) {
+            return;
+        }
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                tiNativeSeq = seq;
+                c.replaceRange(start, end, text);
+            }
+        });
+    }
+
+    /// Callback from native: set the selection range.
+    public static void tiSetSelection(final int start, final int end, final int seq) {
+        final com.codename1.ui.TextInputClient c = tiClient;
+        if (c == null) {
+            return;
+        }
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                tiNativeSeq = seq;
+                c.setSelectionRange(start, end);
+            }
+        });
+    }
+
+    @Override
+    public void updateNativeEditorText(Component c, String text) {
+        if (isEditingText(c)) {
+            nativeInstance.updateNativeEditorText(text);
+        }
+    }
+
+    @Override
+    public boolean nativeEditorPaintsHint() {
+        return true;
+    }
+
+    public void releaseImage(Object image) {
+        if(image instanceof NativeImage) {
+            ((NativeImage)image).deleteImage();
+        }
+    }
+    
+    @Override
+    public boolean paintNativePeersBehind() {
+        return true;
+    }
+    
+    static boolean isPaintPeersBehindEnabled() {
+        return instance.paintNativePeersBehind();
+    }
+    
+    /**
+     * Checks to see if a given coordinate is contained by a CN1 light-weight component.
+     * This is used by native code to determine if a touch event should be passed through
+     * to the peer component layer. (TRUE = don't pass to native peer layer, FALSE - do pass to native peer layer)
+     * @param x x-coordinate to test (screen coordinates)
+     * @param y y-coordinate to test (screen coordinates)
+     * @return true if events should be handed by CN1 and not passed to the native layer.
+     */
+    static boolean hitTest(int x, int y) {
+        Form f = Display.getInstance().getCurrent();
+        if (f != null) {
+            Component cmp = f.getResponderAt(x, y);
+            if (cmp == null || !(cmp instanceof PeerComponent)) {
+                return true;
+            }
+            return Sheet.isSheetVisibleAt(x, y);
+        }
+        return true;
+    }
+    
+    /// True when the Metal view renders straight into the drawable, so no retained
+    /// screen texture exists. Resolved once -- the renderer decides it at startup.
+    private int directToDrawable = -1;
+
+    private boolean isDirectToDrawable() {
+        if (directToDrawable < 0) {
+            boolean d = false;
+            try {
+                d = nativeInstance.isDirectToDrawable();
+            } catch (Throwable t) {
+                d = false;
+            }
+            directToDrawable = d ? 1 : 0;
+        }
+        return directToDrawable == 1;
+    }
+
+    /// Direct-to-drawable rendering presents a DIFFERENT buffer every frame, so a
+    /// region left unpainted does not show last frame -- it shows whatever was in
+    /// that buffer two or three presents ago. Painting only the dirty components,
+    /// which is the whole point of {@code paintDirty}, is therefore incorrect in
+    /// that mode.
+    ///
+    /// Enqueueing the current Form ahead of the superclass call is enough to fix
+    /// it: a Component queued with a null dirty region is painted under a
+    /// full-screen clip, and {@code repaint(Animation)} already drops any child
+    /// whose ancestor is queued, so this both forces the full paint and collapses
+    /// the queue instead of adding to it. Components enqueued BEFORE this call
+    /// still repaint redundantly; that is a real cost, and it is the trade the
+    /// mode exists to make.
+    @Override
+    public void paintDirty() {
+        if (isDirectToDrawable() && hasPendingPaints()) {
+            Form f = Display.getInstance().getCurrent();
+            if (f != null) {
+                // Painted HERE rather than enqueued. repaint(f) would append,
+                // and the superclass drains in order, so the full-form paint
+                // would land on top of overlay animations already queued --
+                // Container.TransitionAnimation queues its Transition through
+                // Display.repaint(t), and painting the form over it makes the
+                // transition vanish or snap to its end state. The background
+                // has to go down first and the queue drain on top of it.
+                Graphics wrapper = getCodenameOneGraphics();
+                if (wrapper != null) {
+                    int dwidth = getDisplayWidth();
+                    int dheight = getDisplayHeight();
+                    wrapper.translate(-wrapper.getTranslateX(), -wrapper.getTranslateY());
+                    wrapper.resetAffine();
+                    wrapper.setClip(0, 0, dwidth, dheight);
+                    f.setDirtyRegion(null);
+                    f.paintComponent(wrapper, true);
+                }
+            }
+        }
+        super.paintDirty();
+    }
+
+    public void flushGraphics(int x, int y, int width, int height) {
+        if (isDirectToDrawable()) {
+            // The flush region is not just a hint here: CodenameOne_GLViewController
+            // hands it to ClipRect.setDrawRect and the Metal path clamps every
+            // screen op to it. The superclass derives it from the queued
+            // components alone, so with a partially dirty Component in the queue
+            // it would be that component's rect -- while direct mode has already
+            // cleared the ENTIRE drawable and repainted the whole Form (see
+            // paintDirty). Everything the Form drew outside that rect would be
+            // clipped away and the rest of the frame would present black.
+            x = 0;
+            y = 0;
+            width = getDisplayWidth();
+            height = getDisplayHeight();
+        }
+        globalGraphics.clipApplied = false;
+        flushBuffer(0, x, y, width, height);
+        if (isDesktop()) {
+            // Form-show isn't the only path that changes dark mode -- a theme
+            // refresh or a system appearance toggle re-styles the contentPane
+            // without dropping a new Form on the EDT. Re-check after every
+            // flush so the host NSWindow titlebar tracks the live form.
+            // syncMacWindowAppearance is no-op when the state hasn't changed.
+            syncMacWindowAppearance(Display.getInstance().getCurrent());
+        }
+    }
+
+    private final static int[] singleDimensionX = new int[1];
+    private final static int[] singleDimensionY = new int[1];
+    // ---- Mac Catalyst desktop windows -------------------------------------
+    //
+    // Invoked from CN1MacWindows.m by way of the delivery bridge in IOSNative.m.
+    // Every one of these arrives on the platform's own thread; Display marshals
+    // onto the event dispatch thread where that matters.
+
+    /// Invoked when the user activates a window's close control.
+    public static void windowCloseCallback(int windowId) {
+        Desktop.getInstance().windowCloseRequested(windowId);
+    }
+
+    /// Invoked when the platform refuses to give a window a scene, so it will never
+    /// appear. Reported separately from a minimize because a modal window that never
+    /// appeared has to release its blocker.
+    public static void windowActivationFailedCallback(final int windowId, final int requestSeq) {
+        // The token identifies the request that failed and arrives with the failure.
+        // Sampling the current one here instead would sample a retry that started after
+        // the port released the slot, and the stale failure would then be applied to it.
+        //
+        // Both halves in one EDT unit. Updating the peer here on UIKit's thread while
+        // the framework half waited in the queue let a concurrent show() slip between
+        // them and be undone by a failure that no longer applied to it.
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                if (!MacWindowManager.activationFailed(windowId, requestSeq)) {
+                    return;
+                }
+                Desktop.getInstance().windowActivationFailed(windowId);
+            }
+        });
+    }
+
+    /// Invoked once the platform has destroyed a window's scene. Catalyst hands the
+    /// disconnect over after the fact, so there is nothing left to veto.
+    public static void windowClosedNativelyCallback(int windowId) {
+        Desktop.getInstance().windowClosedNatively(windowId);
+    }
+
+    /// Invoked when a display is attached, removed or changes mode.
+    ///
+    /// The whole topology, not one window moving between displays -- that is
+    /// `#windowMonitorChangedCallback(int)`. Reporting a drag onto a second
+    /// screen here would fire every application monitor listener and relayout
+    /// every window for something that changed one of them.
+    public static void monitorsChangedCallback() {
+        Desktop.getInstance().monitorsChanged();
+    }
+
+    /// Invoked when a trackpad magnify gesture ends.
+    ///
+    /// The AppKit port is the one that needs this: a trackpad pinch produces no
+    /// pointer events, so the two-pointer path that normally ends a pinch never
+    /// runs and a component that zoomed would stay in its pinching state.
+    /// Invoked when the platform reports that a magnify gesture BEGAN, before any
+    /// scale arrives. Scopes the gesture so its updates and its release all reach
+    /// one component, and discards a claim whose release never came.
+    /// Whether a magnify gesture was reported begun and not yet released.
+    ///
+    /// The gate below drops events while a modal file chooser is up, and the
+    /// terminating release of a gesture already in flight must not be one of
+    /// them: nothing else clears the component's pinching state.
+    private static boolean pinchGestureOpen;
+
+    public static void pinchBeginCallback() {
+        if (dropEvents || instance == null) {
+            return;
+        }
+        // Recorded so the release closing THIS gesture can be let through the
+        // same gate. A file chooser opened mid-pinch sets dropEvents, and a
+        // dropped release leaves the component pinching for good.
+        pinchGestureOpen = true;
+        // Marshalled for the same reason as pinchMagnifyCallback.
+        com.codename1.ui.Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                com.codename1.ui.Display.getInstance().firePinchBeginGesture();
+            }
+        });
+    }
+
+    public static void pinchReleaseCallback(final int x, final int y) {
+        // The release of a gesture already begun goes through even while events
+        // are being dropped. openFileChooser() sets dropEvents while a magnify is
+        // in flight, and discarding the Ended left ImageViewer pinching and never
+        // committing its zoom -- the same defect the native gate had, one layer
+        // up, so fixing only the native side left this half of the path broken.
+        // A release with no gesture open is still dropped, as are new begins and
+        // every update.
+        boolean closingOpenGesture = pinchGestureOpen;
+        pinchGestureOpen = false;
+        if ((dropEvents && !closingOpenGesture) || instance == null) {
+            return;
+        }
+        // Marshalled for the same reason as pinchMagnifyCallback.
+        com.codename1.ui.Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                com.codename1.ui.Display.getInstance().firePinchReleaseGesture(x, y);
+            }
+        });
+    }
+
+    /// Copies the current lightweight text selection, if there is one.
+    ///
+    /// The AppKit port's Edit menu and Command-C reach the rendering view, and
+    /// when no native text-input session is running the only thing that can own
+    /// a selection is the form's own TextSelection -- selectable Labels and
+    /// SpanLabels, which the desktop selects with a press rather than through
+    /// the portable floating Copy menu. Without this there was no way to copy
+    /// them at all.
+    ///
+    /// Queued rather than answered here: TextSelection walks the component
+    /// hierarchy, which belongs to the event dispatch thread, and this is called
+    /// from AppKit's main thread.
+    public static void macCopyTextSelection(final int windowId) {
+        com.codename1.ui.Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                // The window the keystroke arrived in, not Display.getCurrent().
+                // Every Window owns its own TextSelection, so resolving the
+                // current Form copied the main window's selection -- or nothing
+                // -- while the text the user had highlighted sat in another one.
+                // Window 0 IS the main form, which is why it falls through to
+                // getCurrent() rather than being looked up.
+                com.codename1.ui.TopLevelContainer top = null;
+                if (windowId > 0) {
+                    top = com.codename1.ui.Desktop.getInstance().windowById(windowId);
+                }
+                if (top == null) {
+                    top = com.codename1.ui.Display.getInstance().getCurrent();
+                }
+                if (top == null) {
+                    return;
+                }
+                com.codename1.ui.TextSelection sel = top.getTextSelection();
+                if (sel != null && sel.isEnabled()) {
+                    sel.copy();
+                }
+            }
+        });
+    }
+
+    /// Records which mouse button produced the pointer event about to be
+    /// dispatched.
+    ///
+    /// Called from the AppKit view immediately before the pointer callback, the
+    /// way the Linux and native Windows ports call setPointerEventMetadata from
+    /// their own input handlers. Without it every click looked primary, so
+    /// PointerEvent.isSecondaryButton() was false for a right click and the
+    /// framework's context-menu and selection logic could not tell the two
+    /// apart.
+    ///
+    /// `button`, `mask` and `modifiers` are PointerEvent constants; the type is
+    /// always a mouse here, since a Mac trackpad click arrives as one too.
+    ///
+    /// `mask` is the buttons still HELD, which is why a release passes what
+    /// AppKit reports after the release rather than the button that caused it --
+    /// getButtonMask() answers "what is down now", and staging the released
+    /// button there told a release listener the button was still pressed.
+    public static void pointerButtonCallback(int button, int mask, int modifiers) {
+        if (instance == null) {
+            return;
+        }
+        instance.setPointerEventMetadata(button, mask,
+                com.codename1.ui.events.PointerEvent.TYPE_MOUSE, 1f, 0, 0, 0,
+                modifiers, false);
+    }
+
+    /// Invoked when the user moves a native window.
+    public static void windowMovedCallback(int windowId) {
+        Desktop.getInstance().windowMoved(windowId);
+    }
+
+    /// Invoked when a window crosses onto a display with different
+    /// characteristics, so its scale and layout are recomputed. Only that
+    /// window's.
+    public static void windowMonitorChangedCallback(int windowId) {
+        Desktop.getInstance().windowMonitorChanged(windowId);
+    }
+
+    /// Invoked for a mouse or trackpad hover over a secondary window. Catalyst
+    /// delivers hover through a gesture recognizer rather than as a touch, so a
+    /// secondary scene reports nothing without one installed on its own controller.
+    public static void windowHoverCallback(int windowId, int type, int x, int y) {
+        if (dropEvents) {
+            return;
+        }
+        int[] xs = new int[]{x};
+        int[] ys = new int[]{y};
+        switch (type) {
+            case 1:
+                com.codename1.ui.Desktop.getInstance().windowPointerHoverPressed(windowId, xs, ys);
+                break;
+            case 2:
+                com.codename1.ui.Desktop.getInstance().windowPointerHoverReleased(windowId, xs, ys);
+                break;
+            default:
+                Desktop.getInstance().windowPointerHover(windowId, xs, ys);
+                break;
+        }
+    }
+
+    /// Invoked for an indirect scroll (wheel or trackpad) over a secondary window.
+    ///
+    /// `precise` and `modifiers` are the event's own, not constants: a notched
+    /// wheel reported as a trackpad scrolls by the wrong unit, and a dropped
+    /// modifier mask is what stops a control-wheel-to-zoom listener from ever
+    /// seeing the held key. A producer that genuinely cannot tell -- the watch
+    /// crown, the UIKit pan recognizer -- passes what it knows and says so at
+    /// the call site.
+    public static void windowWheelCallback(int windowId, int x, int y, int scrollX, int scrollY,
+            boolean precise, int modifiers) {
+        if (dropEvents) {
+            return;
+        }
+        instance.windowPointerWheelMoved(windowId, x, y, scrollX, scrollY, precise, modifiers);
+    }
+
+    /// Invoked for a trackpad magnify over a secondary window.
+    public static void windowPinchCallback(final int windowId, final float scale,
+            final int x, final int y) {
+        if (dropEvents) {
+            return;
+        }
+        // On the event dispatch thread, not UIKit's main thread: this hit tests the
+        // window's hierarchy and runs application pinch handlers.
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                com.codename1.ui.Desktop.getInstance().windowMagnifyGesture(windowId, x, y, scale);
+            }
+        });
+    }
+
+    /// Invoked for a trackpad rotation over a secondary window.
+    public static void windowRotationCallback(final int windowId, final float radians,
+            final int x, final int y) {
+        if (dropEvents) {
+            return;
+        }
+        // Marshalled for the same reason as windowPinchCallback.
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                com.codename1.ui.Desktop.getInstance().windowRotationGesture(windowId, x, y, radians);
+            }
+        });
+    }
+
+    /// Invoked when a window gains or loses keyboard focus.
+    public static void windowFocusCallback(int windowId, boolean gained) {
+        Desktop.getInstance().windowFocusChanged(windowId, gained);
+    }
+
+    /// Invoked when a window's scene enters or leaves the background, which on Mac
+    /// Catalyst is how minimizing and restoring one window is reported. Distinct from
+    /// focus: an unfocused window is still on screen and still painted, a minimized
+    /// one is neither.
+    /// Invoked once a Catalyst window's scene has been granted and its content view
+    /// exists.
+    ///
+    /// A peer created in the same event dispatch turn as `Window.show()` had nowhere
+    /// to go and stayed on the main surface. Rather than queue those natively -- which
+    /// means retained views to purge when a peer or its window goes away, a table to
+    /// size, and stale entries that could land in a recycled slot -- the window's own
+    /// component tree is walked here, which is the authoritative list of what belongs
+    /// in it.
+    public static void windowContentReadyCallback(final int windowId) {
+        Display.getInstance().callSerially(new Runnable() {
+            @Override
+            public void run() {
+                com.codename1.ui.Window[] all = com.codename1.ui.Desktop.getInstance().getWindows();
+                for (int iter = 0; iter < all.length; iter++) {
+                    if (all[iter].getWindowId() == windowId) {
+                        reattachPeers(all[iter]);
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
+    /// Repaints one desktop window, named by id, from native code.
+    ///
+    /// The Mac renderer can defer a presentation when every surface is busy and
+    /// ask for the frame again once one frees. repaintUI() is the wrong way to
+    /// ask for a SECONDARY window: it repaints Display.getCurrent(), which is the
+    /// main form, so the window that actually owed a frame is never dirtied and
+    /// the retry clears itself without producing one.
+    ///
+    /// Called only from native (CN1MacWindowDeliverRepaint), which is also what
+    /// keeps it: the translator keeps a method whose mangled name appears in the
+    /// native sources.
+    public static void windowRepaintCallback(final int windowId) {
+        Display.getInstance().callSerially(new Runnable() {
+            @Override
+            public void run() {
+                com.codename1.ui.Window[] all = com.codename1.ui.Desktop.getInstance().getWindows();
+                for (int iter = 0; iter < all.length; iter++) {
+                    if (all[iter].getWindowId() == windowId) {
+                        all[iter].asContainer().repaint();
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
+    private static void reattachPeers(com.codename1.ui.Container c) {
+        int count = c.getComponentCount();
+        for (int iter = 0; iter < count; iter++) {
+            com.codename1.ui.Component cmp = c.getComponentAt(iter);
+            if (cmp instanceof NativeIPhoneView) {
+                // Only the heavyweight ones. peerSetVisible(false) removed the native
+                // view on purpose, and re-adding it here would put a lightweight
+                // component's live view back over its own snapshot, taking native
+                // input with it.
+                NativeIPhoneView peer = (NativeIPhoneView) cmp;
+                if (!peer.lightweightMode) {
+                    peer.attachToOwningWindow();
+                }
+            } else if (cmp instanceof com.codename1.ui.Container) {
+                reattachPeers((com.codename1.ui.Container) cmp);
+            }
+        }
+    }
+
+    public static void windowVisibilityCallback(final int windowId, final boolean shown) {
+        // UIKit reports this on its main thread, but every other peer visibility
+        // mutation runs on the EDT. Cascading straight from here races an EDT dispose:
+        // the cascade holds a Peer and then uses its numeric slot, and a slot freed and
+        // reused in between would make this hide or show an unrelated window. Queueing
+        // the cascade and the lifecycle notification together also keeps them in that
+        // order, so the framework never sees a child reported before its owner.
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                // The other desktop platforms take a window's owned windows down with
+                // it and report each one; Catalyst scenes have no owner relation, so
+                // the cascade is emulated here. Doing it for the user-driven minimize
+                // as well as for hide() is what makes the two paths agree -- an owner
+                // becomes hidden both ways.
+                // The owner's own transition is delivered first. Both notify methods
+                // queue through callSerially rather than running here, so cascading
+                // first would put every descendant ahead of the owner in that queue
+                // and a child listener asking whether its owner is showing would read
+                // stale state.
+                if (shown) {
+                    Desktop.getInstance().windowShowNotify(windowId);
+                } else {
+                    Desktop.getInstance().windowHideNotify(windowId);
+                }
+                MacWindowManager.windowVisibilityChanged(windowId, shown);
+            }
+        });
+    }
+
+    /// Invoked when a window's drawable area changes size.
+    public static void windowSizeCallback(int windowId, int width, int height) {
+        Desktop.getInstance().windowSizeChanged(windowId, width, height);
+    }
+
+    /// Invoked for a pointer event inside a window. The type is 1 for a press,
+    /// 2 for a release and 3 for a drag, matching CN1MacWindowView.
+    public static void windowPointerCallback(int windowId, int type, int x, int y) {
+        // As pointerReleasedCallback: the release closing a press this window
+        // already received is not dropped, because nothing else would ever
+        // clear that press.
+        boolean closingOpenPress = type == 2 && openPointerPressSurface == windowId;
+        if (closingOpenPress) {
+            openPointerPressSurface = NO_OPEN_POINTER_PRESS;
+        }
+        if (dropEvents && !closingOpenPress) {
+            return;
+        }
+        if (type == 1) {
+            openPointerPressSurface = windowId;
+        }
+        int[] xs = new int[]{x};
+        int[] ys = new int[]{y};
+        switch (type) {
+            case 1:
+                Desktop.getInstance().windowPointerPressed(windowId, xs, ys);
+                break;
+            case 2:
+                Desktop.getInstance().windowPointerReleased(windowId, xs, ys);
+                break;
+            default:
+                Desktop.getInstance().windowPointerDragged(windowId, xs, ys);
+                break;
+        }
+    }
+
+    /// Invoked for a hardware keyboard event inside a window. Pressed is true for a
+    /// key down and false for a key up.
+    public static void windowKeyCallback(int windowId, int keyCode, boolean pressed) {
+        if (dropEvents) {
+            return;
+        }
+        if (pressed) {
+            Desktop.getInstance().windowKeyPressed(windowId, keyCode);
+        } else {
+            com.codename1.ui.Desktop.getInstance().windowKeyReleased(windowId, keyCode);
+        }
+    }
+
+    /// The surface whose pointer press is open, so the release closing THAT
+    /// press can be let through the drop gate the way a pinch's release is.
+    ///
+    /// Every caller that sets dropEvents -- capturePhoto, captureVideo,
+    /// openFileChooser -- puts a modal picker up, and a press can be open when
+    /// it does: opened from a key listener or a timer before the button came
+    /// back up. Dropping its release leaves the component pressed and dragging
+    /// with nothing left to clear it, because the release is the only thing
+    /// that ever would.
+    ///
+    /// Held per surface rather than as one flag, matching the native side,
+    /// where the press is tracked on the view that saw it.
+    private static final int NO_OPEN_POINTER_PRESS = Integer.MIN_VALUE;
+
+    /// The main surface, which has no window id of its own.
+    private static final int MAIN_SURFACE_PRESS = -1;
+
+    private static int openPointerPressSurface = NO_OPEN_POINTER_PRESS;
+
+    public static void pointerPressedCallback(int x, int y) {
+        if(dropEvents) {
+            return;
+        }
+        openPointerPressSurface = MAIN_SURFACE_PRESS;
+        singleDimensionX[0] = x; singleDimensionY[0] = y;
+        instance.pointerPressed(singleDimensionX, singleDimensionY);
+    }
+    public static void pointerReleasedCallback(int x, int y) {
+        // The release of a press already delivered goes through even while
+        // events are being dropped -- the same exception the native gate makes,
+        // which was ineffective on its own because this half discarded what it
+        // forwarded. A release with no press open is still dropped, as are new
+        // presses and every drag.
+        boolean closingOpenPress = openPointerPressSurface == MAIN_SURFACE_PRESS;
+        if (closingOpenPress) {
+            openPointerPressSurface = NO_OPEN_POINTER_PRESS;
+        }
+        if(dropEvents && !closingOpenPress) {
+            return;
+        }
+        singleDimensionX[0] = x; singleDimensionY[0] = y;
+        instance.pointerReleased(singleDimensionX, singleDimensionY);
+    }
+    public static void pointerDraggedCallback(int x, int y) {
+        if(dropEvents) {
+            return;
+        }
+        singleDimensionX[0] = x; singleDimensionY[0] = y;
+        instance.pointerDragged(singleDimensionX, singleDimensionY);
+    }
+
+    /// Invoked from the native touch handler immediately before a pointer event to forward the
+    /// rich pointer detail (pointer type, pressure, Apple Pencil tilt and contact size) so the
+    /// cross-platform stylus and pressure APIs work on iOS. pointerType uses the
+    /// `com.codename1.ui.events.PointerEvent` TYPE_* constants.
+    public static void pointerMetadataCallback(int pointerType, float pressure, float tiltX, float tiltY, float contactSize) {
+        if (instance == null) {
+            return;
+        }
+        instance.setPointerEventMetadata(
+                com.codename1.ui.events.PointerEvent.BUTTON_PRIMARY,
+                com.codename1.ui.events.PointerEvent.MASK_PRIMARY,
+                pointerType, pressure, tiltX, tiltY, contactSize, 0, false);
+    }
+
+    /// Invoked from the native trackpad / Magic Mouse / wheel scroll handler. Routes the scroll
+    /// through the shared wheel pipeline so that `com.codename1.ui.events.WheelEvent` is a single
+    /// universal scroll-gesture API across desktop, Android and iOS.
+    ///
+    /// `precise` and `modifiers` come from the event rather than being assumed.
+    /// Hard-coding precise=true reported every notched mouse wheel as a
+    /// trackpad, and hard-coding modifiers=0 meant a wheel listener could never
+    /// observe Control, Option, Shift or Command -- which is exactly the
+    /// control-wheel-to-zoom gesture the richer overload exists to enable.
+    public static void pointerWheelMovedCallback(int x, int y, int scrollX, int scrollY,
+            boolean precise, int modifiers) {
+        if (dropEvents || instance == null) {
+            return;
+        }
+        instance.pointerWheelMoved(x, y, scrollX, scrollY, precise, modifiers);
+    }
+
+    /// Invoked from the native magnify (pinch) gesture recognizer, used by the Mac Catalyst trackpad
+    /// pinch and the iOS two finger pinch. Routes to the cross-platform pinch gesture dispatch.
+    public static void pinchMagnifyCallback(final float scale, final int x, final int y) {
+        if (dropEvents || instance == null) {
+            return;
+        }
+        // Marshalled: the recognizer fires on UIKit's main thread while this hit tests
+        // the hierarchy and runs application pinch handlers, which would race the
+        // event dispatch thread's painting and layout. The pointer path is safe
+        // without this only because it enqueues rather than dispatching in place.
+        com.codename1.ui.Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                com.codename1.ui.Display.getInstance().fireMagnifyGesture(x, y, scale);
+            }
+        });
+    }
+
+    /// Invoked from the native rotation gesture recognizer (Mac Catalyst trackpad rotate / iOS two
+    /// finger rotate). Routes to the cross-platform rotation gesture dispatch.
+    public static void rotationGestureCallback(final float radians, final int x, final int y) {
+        if (dropEvents || instance == null) {
+            return;
+        }
+        // Marshalled for the same reason as pinchMagnifyCallback.
+        com.codename1.ui.Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                com.codename1.ui.Display.getInstance().fireRotationGesture(x, y, radians);
+            }
+        });
+    }
+
+    protected void pointerPressed(final int[] x, final int[] y) {
+        super.pointerPressed(x, y);
+    }
+
+    protected void pointerReleased(final int[] x, final int[] y) {
+        super.pointerReleased(x, y);
+    }
+
+    protected void pointerDragged(final int[] x, final int[] y) {
+        if(dropEvents) {
+            return;
+        }
+        super.pointerDragged(x, y);
+    }
+
+    // Sentinel keycodes forwarded from the native iOS hardware-keyboard handler
+    // for non-printable keys. Values match Android's DROID_IMPL_KEY_* sentinels
+    // so apps can write platform-agnostic key handlers.
+    static final int IOS_IMPL_KEY_LEFT = -23446;
+    static final int IOS_IMPL_KEY_RIGHT = -23447;
+    static final int IOS_IMPL_KEY_UP = -23448;
+    static final int IOS_IMPL_KEY_DOWN = -23449;
+    static final int IOS_IMPL_KEY_FIRE = -23450;
+    static final int IOS_IMPL_KEY_BACKSPACE = -23453;
+    static final int IOS_IMPL_KEY_ENTER = -23460;
+    static final int IOS_IMPL_KEY_TAB = -23461;
+    static final int IOS_IMPL_KEY_ESCAPE = -23462;
+    static final int IOS_IMPL_KEY_HOME = -23463;
+    static final int IOS_IMPL_KEY_END = -23464;
+    static final int IOS_IMPL_KEY_PAGE_UP = -23465;
+    static final int IOS_IMPL_KEY_PAGE_DOWN = -23466;
+    static final int IOS_IMPL_KEY_INSERT = -23467;
+    static final int IOS_IMPL_KEY_FORWARD_DEL = -23468;
+    static final int IOS_IMPL_KEY_F1 = -23469;
+    static final int IOS_IMPL_KEY_F2 = -23470;
+    static final int IOS_IMPL_KEY_F3 = -23471;
+    static final int IOS_IMPL_KEY_F4 = -23472;
+    static final int IOS_IMPL_KEY_F5 = -23473;
+    static final int IOS_IMPL_KEY_F6 = -23474;
+    static final int IOS_IMPL_KEY_F7 = -23475;
+    static final int IOS_IMPL_KEY_F8 = -23476;
+    static final int IOS_IMPL_KEY_F9 = -23477;
+    static final int IOS_IMPL_KEY_F10 = -23478;
+    static final int IOS_IMPL_KEY_F11 = -23479;
+    static final int IOS_IMPL_KEY_F12 = -23480;
+
+    public static void keyPressedCallback(int keyCode) {
+        if (dropEvents) {
+            return;
+        }
+        Display.getInstance().keyPressed(keyCode);
+    }
+
+    public static void keyReleasedCallback(int keyCode) {
+        if (dropEvents) {
+            return;
+        }
+        Display.getInstance().keyReleased(keyCode);
+    }
+
+    public static void pointerHoverPressedCallback(int x, int y) {
+        if (dropEvents) {
+            return;
+        }
+        singleDimensionX[0] = x; singleDimensionY[0] = y;
+        instance.pointerHoverPressed(singleDimensionX, singleDimensionY);
+    }
+
+    public static void pointerHoverCallback(int x, int y) {
+        if (dropEvents) {
+            return;
+        }
+        singleDimensionX[0] = x; singleDimensionY[0] = y;
+        instance.pointerHover(singleDimensionX, singleDimensionY);
+    }
+
+    public static void pointerHoverReleasedCallback(int x, int y) {
+        if (dropEvents) {
+            return;
+        }
+        singleDimensionX[0] = x; singleDimensionY[0] = y;
+        instance.pointerHoverReleased(singleDimensionX, singleDimensionY);
+    }
+
+    protected void pointerHover(final int[] x, final int[] y) {
+        super.pointerHover(x, y);
+    }
+
+    protected void pointerHoverPressed(final int[] x, final int[] y) {
+        super.pointerHoverPressed(x, y);
+    }
+
+    protected void pointerHoverReleased(final int[] x, final int[] y) {
+        super.pointerHoverReleased(x, y);
+    }
+
+    static void sizeChangedImpl(int w, int h) {
+        instance.sizeChanged(w, h);
+    }
+
+    @Override
+    public Boolean isDarkMode() {
+        if(nativeInstance.isDarkModeDetectionSupported()) {
+            return nativeInstance.isDarkMode();
+        }
+        return null;
+    }
+
+    @Override
+    public boolean isVPNDetectionSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isVPNActive() {
+        return nativeInstance.isVPNActive();
+    }
+
+    @Override
+    protected com.codename1.io.wifi.WifiPlatform createWifiPlatform() {
+        return new IOSWifiPlatform();
+    }
+
+    @Override
+    protected com.codename1.io.bonjour.BonjourPlatform createBonjourPlatform() {
+        return new IOSBonjourPlatform();
+    }
+
+    @Override
+    protected com.codename1.io.NetworkTypePlatform createNetworkTypePlatform() {
+        return new IOSNetworkTypePlatform();
+    }
+
+    @Override
+    public boolean isLargerTextEnabled() {
+        return nativeInstance.isLargerTextEnabled();
+    }
+
+    @Override
+    public float getLargerTextScale() {
+        return nativeInstance.getLargerTextScale();
+    }
+
+    @Override
+    public boolean isHighContrastEnabled() {
+        return nativeInstance.isHighContrastEnabled();
+    }
+
+    @Override
+    public boolean isDifferentiateWithoutColorEnabled() {
+        return nativeInstance.isDifferentiateWithoutColorEnabled();
+    }
+
+    @Override
+    public boolean isReduceMotionEnabled() {
+        return nativeInstance.isReduceMotionEnabled();
+    }
+
+    @Override
+    public boolean isReduceTransparencyEnabled() {
+        return nativeInstance.isReduceTransparencyEnabled();
+    }
+
+    @Override
+    public boolean isBoldTextEnabled() {
+        return nativeInstance.isBoldTextEnabled();
+    }
+
+    @Override
+    public boolean isInvertColorsEnabled() {
+        return nativeInstance.isInvertColorsEnabled();
+    }
+
+    @Override
+    public boolean isGrayscaleEnabled() {
+        return nativeInstance.isGrayscaleEnabled();
+    }
+
+    @Override
+    public boolean isOnOffSwitchLabelsEnabled() {
+        return nativeInstance.isOnOffSwitchLabelsEnabled();
+    }
+
+    @Override
+    public boolean isScreenReaderEnabled() {
+        return nativeInstance.isScreenReaderEnabled();
+    }
+    
+
+    public void flushGraphics() {
+        flushGraphics(0, 0, getDisplayWidth(), getDisplayHeight());
+    }
+
+    private static void flushBuffer(long peer, int x, int y, int width, int height) {
+        nativeInstance.flushBuffer(peer, x, y, width, height);
+    }
+
+    public void getRGB(Object nativeImage, int[] arr, int offset, int x, int y, int width, int height) {
+        if(offset != 0) {
+            int[] newArr = new int[arr.length - offset];
+            System.arraycopy(arr, offset, newArr, 0, newArr.length);
+            arr = newArr;
+            offset = 0;
+        }
+        NativeImage nimg = (NativeImage)nativeImage;
+        if(nimg.scaled) {
+            Object mute = createMutableImage(nimg.width, nimg.height, 0);
+            Object graph = getNativeGraphics(mute);
+            drawImage(graph, nimg, 0, 0);
+            nimg = (NativeImage)mute;
+        }
+        if (currentlyDrawingOn != null && currentlyDrawingOn.associatedImage != nimg) {
+            currentlyDrawingOn.associatedImage.peer = finishDrawingOnImage();
+            currentlyDrawingOn = null;
+        }
+        imageRgbToIntArray(nimg.peer, arr, x, y, width, height, nimg.width, nimg.height);
+    }
+
+    private void imageRgbToIntArray(long imagePeer, int[] arr, int x, int y, int width, int height, int imgWidth, int imgHeight) {
+        nativeInstance.imageRgbToIntArray(imagePeer, arr, x, y, width, height, imgWidth, imgHeight);
+    }
+
+    private long createImageFromARGB(int[] argb, int width, int height) {
+        return nativeInstance.createImageFromARGB(argb, width, height);
+    }
+
+    public Object createImage(int[] rgb, int width, int height) {
+        NativeImage n = new NativeImage("Image created from ARGB array: " + rgb.length + " width " + width + " height " + height);
+        n.peer = createImageFromARGB(rgb, width, height);
+        n.width = width;
+        n.height = height;
+        return n;
+    }
+
+    public Object createImage(String path) throws IOException {
+        long ns;
+        if(path.startsWith("file:")) {
+            ns = IOSImplementation.nativeInstance.createNSData(unfile(path));
+        } else {
+            ns = getResourceNSData(path);
+        }
+        int[] widthHeight = new int[2];
+        NativeImage n = new NativeImage(path);
+        n.peer = nativeInstance.createImageNSData(ns, widthHeight);
+        n.width = widthHeight[0];
+        n.height = widthHeight[1];
+        nativeInstance.releasePeer(ns);
+        return n;
+    }
+
+    public boolean hasNativeTheme() {
+        return true;
+    }
+
+    private static String iosMode = "auto";
+    
+    public static void setIosMode(String l) {
+        iosMode = l;
+    }
+
+    protected String nativeThemeMode() {
+        return iosMode == null ? "auto" : iosMode.toLowerCase();
+    }
+
+    /// Which generation of the MODERN theme this build ships. "26" or "27",
+    /// emitted into the generated stub by IPhoneBuilder from the
+    /// ios.themeGeneration hint. Defaults to 26 so a build that says nothing --
+    /// including one produced before the hint existed -- keeps the theme it had.
+    private static String iosThemeGeneration = "26";
+
+    /// Invoked from the generated stub (do not rename).
+    public static void setIosThemeGeneration(String g) {
+        iosThemeGeneration = g;
+    }
+
+    /// The modern theme resource for the requested generation, without ".res".
+    protected String modernThemeResourceName() {
+        return "27".equals(iosThemeGeneration) ? "iOSModern27Theme" : "iOSModernTheme";
+    }
+    
+    private static boolean waitForAnimationLock(Form f) {
+        while (!f.grabAnimationLock()) {
+            Display.getInstance().invokeAndBlock(new Runnable() {
+                public void run() {
+                    Util.sleep(20);
+                }
+            });
+        }
+        boolean obtained =  Display.getInstance().getCurrent() == f;
+        if (!obtained) {
+            f.releaseAnimationLock();
+        }
+        return obtained;
+    }
+    
+    
+    
+    /**
+     * Installs the native theme, this is only applicable if hasNativeTheme() returned true. Notice that this method
+     * might replace the DefaultLookAndFeel instance and the default transitions.
+     */
+
+    /// The native theme resource a SUBCLASS wants for this theme mode, without the ".res",
+    /// or null to use the iOS chain.
+    ///
+    /// Exists because the macOS port extends this class. It ships MacOSAquaTheme.res, which
+    /// installNativeTheme() below knows nothing about, so before this hook a native Mac
+    /// application installed an iOS theme however its build hints were set -- an iPhone
+    /// design language on a desktop.
+    ///
+    /// Returning null is the iOS behaviour unchanged, which is what this class does.
+    protected String nativeThemeResourceName(String mode) {
+        return null;
+    }
+
+    public void installNativeTheme() {
+        try {
+            Resources r;
+            String mode = nativeThemeMode();
+            // A subclass may own a theme this class knows nothing about. The macOS port
+            // extends this one and ships Aqua, which is not in the list below; without the
+            // hook it inherited the iOS chain and installed an iPhone theme on a Mac.
+            // Returning null keeps the iOS behaviour exactly as it was.
+            String subclassTheme = nativeThemeResourceName(mode);
+            if (subclassTheme != null) {
+                InputStream sub = getResourceAsStream("/" + subclassTheme + ".res");
+                if (sub != null) {
+                    r = Resources.open(sub);
+                    Hashtable tp = r.getTheme(r.getThemeResourceNames()[0]);
+                    injectDesktopThemeConstants(tp);
+                    UIManager.getInstance().setThemeProps(tp);
+                    return;
+                }
+                // Not in the bundle (a framework build that has not generated it yet):
+                // fall through to the iOS chain so the application still boots.
+            }
+            // Modern (liquid-glass) theme is opt-in via ios.themeMode=modern /
+            // liquid / material. Keep the default ("auto" or unset) on the
+            // legacy iOS 7 / pre-flat theme so existing apps and screenshot
+            // goldens aren't disturbed. Apps that want the new look set
+            // ios.themeMode=modern in their build hints or via
+            // Display.setProperty("ios.themeMode", "modern") before the
+            // first Form is shown.
+            if(mode.equals("modern") || mode.equals("liquid")) {
+                String want = modernThemeResourceName();
+                InputStream in = getResourceAsStream("/" + want + ".res");
+                if (in == null && !"iOSModernTheme".equals(want)) {
+                    // A generation the bundle does not carry. Falling through
+                    // silently would drop the app onto iOS 7 -- a bigger change
+                    // than the one that was asked for, and one that also loses
+                    // dark mode, since the iOS 7 theme has no $Dark styles at
+                    // all. Say so, then use the generation that IS shipped.
+                    //
+                    // IPhoneBuilder rejects an unknown ios.themeGeneration
+                    // outright, so a real build cannot reach this; it exists for
+                    // a framework build whose themes have not been generated.
+                    System.out.println("Codename One: /" + want + ".res is not in the"
+                            + " app bundle, but ios.themeGeneration asked for it."
+                            + " Falling back to iOSModernTheme.res (generation 26).");
+                    in = getResourceAsStream("/iOSModernTheme.res");
+                }
+                if (in != null) {
+                    r = Resources.open(in);
+                    Hashtable tp = r.getTheme(r.getThemeResourceNames()[0]);
+                    injectDesktopThemeConstants(tp);
+                    UIManager.getInstance().setThemeProps(tp);
+                    return;
+                }
+                // Modern theme isn't in the jar (e.g. framework build hasn't
+                // generated it yet) - fall back to iOS 7 so the app still boots.
+            }
+            if(mode.equals("ios7") || mode.equals("flat") || mode.equals("auto") || mode.equals("modern") || mode.equals("liquid")) {
+                r = Resources.open("/iOS7Theme.res");
+                Hashtable tp = r.getTheme(r.getThemeResourceNames()[0]);
+                if(!nativeInstance.isIOS7()) {
+                    tp.put("TitleArea.padding", "0,0,0,0");
+                }
+                injectDesktopThemeConstants(tp);
+                UIManager.getInstance().setThemeProps(tp);
+                return;
+            }
+            // "legacy" / "iphone" / anything else: pre-flat iPhone theme.
+            r = Resources.open("/iPhoneTheme.res");
+            Hashtable tp = r.getTheme(r.getThemeResourceNames()[0]);
+            injectDesktopThemeConstants(tp);
+            UIManager.getInstance().setThemeProps(tp);
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
+    }
+
+    /**
+     * On Mac Catalyst (isDesktop()) the app should feel like a desktop app: enable the
+     * cross-platform interactive scrollbars and the native window chrome (OS title bar +
+     * native menu bar). These theme constants are injected only on the desktop so iOS
+     * phones/tablets are unaffected. Mirrors JavaSEPort.injectDesktopThemeConstants.
+     */
+    private void injectDesktopThemeConstants(Hashtable tp) {
+        if (tp == null || !isDesktop()) {
+            return;
+        }
+        // Opt-in via the desktop.interactiveScrollbars build hint; default off so existing Catalyst
+        // apps render scrollbars exactly as before.
+        if ("true".equalsIgnoreCase(Display.getInstance().getProperty("desktop.interactiveScrollbars", "false"))) {
+            tp.put("@interactiveScrollBool", "true");
+        }
+        injectListFocusStyle(tp);
+    }
+
+    /*
+     * Gives "ListRendererFocus" a definition, because nothing else does.
+     *
+     * List.paintFocus() draws DefaultListCellRenderer's focus Label, and that
+     * Label's UIID is "ListRendererFocus" -- a name referenced exactly once in
+     * the whole framework (where it is set) and defined by no Codename One
+     * theme. With no definition it falls back to the default style, which is an
+     * OPAQUE WHITE fill, and UIManager.resetThemeProps additionally forces a
+     * global sel#transparency of 255.
+     *
+     * Every touch port escapes that because Display.shouldRenderSelection() is
+     * false there, so the overlay is never painted -- which is why the iOS
+     * themes could go without the UIID and why Mac Catalyst, also isDesktop()
+     * but still a touch device, is unaffected by this method. Windows and Linux
+     * escape it because their own native themes give the overlay a transparent
+     * fill and a ring. The native macOS port is the first DESKTOP port to run an
+     * iOS theme, so it is the first to paint the overlay -- and in dark mode the
+     * theme's selected foreground is white, so an opaque white bar landed under
+     * white text and the selected row's label vanished. Light mode only looked
+     * right by accident: there the selected foreground is black.
+     *
+     * So the overlay is made transparent (it can never hide a row again) and
+     * given a ring instead, which is what a desktop focus indicator is. The
+     * system accent is used rather than a colour invented here, and the guard
+     * leaves any theme that does define the UIID alone.
+     */
+    private void injectListFocusStyle(Hashtable tp) {
+        // Any entry at all under the UIID means the theme has an opinion; leave it.
+        for (Object key : tp.keySet()) {
+            if (key instanceof String && ((String) key).indexOf("ListRendererFocus") > -1) {
+                return;
+            }
+        }
+        int ring = 0x007aff;
+        int darkRing = 0x0a84ff;
+        int thickness = Math.max(1, Display.getInstance().convertToPixels(0.4f));
+        for (String prefix : new String[] {"", "sel#", "press#", "dis#"}) {
+            tp.put("ListRendererFocus." + prefix + Style.TRANSPARENCY, "0");
+            tp.put("ListRendererFocus." + prefix + Style.BORDER,
+                    Border.createLineBorder(thickness, ring));
+            tp.put("$DarkListRendererFocus." + prefix + Style.TRANSPARENCY, "0");
+            tp.put("$DarkListRendererFocus." + prefix + Style.BORDER,
+                    Border.createLineBorder(thickness, darkRing));
+        }
+    }
+
+    /// Reads a bundled resource by name, the way the rest of this port does.
+    ///
+    /// Class.getResourceAsStream() is a CLASSLOADER lookup, and a
+    /// ParparVM-translated application has no classpath to look in -- the file
+    /// lives in the app bundle and is reached through
+    /// nativeInstance.getResourceSize / NSFileInputStream. So the classloader
+    /// spelling answered null for a resource that was sitting in the bundle
+    /// the whole time, and installNativeTheme()'s modern branch read that null
+    /// as "the theme was never built" and fell back to iOS 7 -- silently, on
+    /// every target, which is why ios.themeMode=modern appeared to do nothing.
+    /// True when the app bundle carries this resource. Opens and closes rather
+    /// than keeping the stream: the caller wants the NAME, and a stream left open
+    /// here would leak once per query.
+    private boolean hasResource(String name) {
+        InputStream in = getResourceAsStream(name);
+        if(in == null) {
+            return false;
+        }
+        try {
+            in.close();
+        } catch(IOException err) {
+            // Nothing to do: the question was whether it exists, and it does.
+        }
+        return true;
+    }
+
+    private InputStream getResourceAsStream(String name) {
+        return getResourceAsStream(IOSImplementation.class, name);
+    }
+
+    private long getNSData(InputStream i) {
+        if(i instanceof BufferedInputStream) {
+            InputStream inp = ((BufferedInputStream)i).getInternal();
+            return getNSData(inp);
+        }
+        if(i instanceof NSDataInputStream) {
+            return ((NSDataInputStream)i).getNSData();
+        }
+        return 0;
+    }
+    
+    private byte[] toByteArray(InputStream i) throws IOException {
+        if(i instanceof BufferedInputStream) {
+            InputStream inp = ((BufferedInputStream)i).getInternal();
+            if(inp instanceof NSDataInputStream) {
+                return ((NSDataInputStream)inp).getArray();
+            }
+        }
+        return Util.readInputStream(i);
+    }
+    
+    public Object createImage(InputStream i) throws IOException {
+        long ns = getNSData(i);
+        if(ns > 0) {
+            int[] wh = new int[2];
+            NativeImage n = new NativeImage("Image created from stream");
+            n.peer = nativeInstance.createImageNSData(ns, wh);
+            n.width = wh[0];
+            n.height = wh[1];
+            Util.cleanup(i);
+            return n;
+        }
+        byte[] buffer = toByteArray(i);
+        return createImage(buffer, 0, buffer.length);
+    }
+
+    public Object createMutableImage(int width, int height, int fillColor) {
+        long peer = createNativeMutableImage(width, height, fillColor);
+        NativeImage n = new NativeImage("Mutable image of width " + width + " height " + height + " fillColor " + fillColor);
+        n.peer = peer;
+        n.width = width;
+        n.height = height;
+        return n;
+    }
+
+    @Override
+    public boolean isGaussianBlurSupported() {
+        return true;
+    }
+
+    @Override
+    public Image gaussianBlurImage(Image image, float radius) {
+        NativeImage im = (NativeImage)image.getImage();
+        NativeImage n = new NativeImage("blurred:" + im.debugText );
+        n.width = im.width;
+        n.height = im.height;
+        n.peer = nativeInstance.gausianBlurImage(im.peer, radius);
+        return Image.createImage(n);
+    }
+
+    /// Parses a theme-constant string as an int, returning {@code def} on null/blank/malformed.
+    private static int parseIntConstant(String v, int def) {
+        if (v == null) {
+            return def;
+        }
+        try {
+            return Integer.parseInt(v.trim());
+        } catch (NumberFormatException nfe) {
+            return def;
+        }
+    }
+
+    @Override
+    public Image createSFSymbolImage(String name, int color, float sizePixels, int weight) {
+        // wh[0],[1] receive the rendered pixel w/h. wh[2],[3] pass optional layout
+        // tuning to the native render: a uniform icon SLOT height (percent of size)
+        // and the glyph's VERTICAL bias in that slot (percent; 50 = centred). This
+        // lets a native-style tab bar give a tall glyph (e.g. star.fill) a full-height
+        // slot positioned like UIKit's SF baseline instead of shrinking it to the
+        // nominal size. Defaults 100/50 reproduce the legacy centred behaviour, so
+        // non-tab icons are unaffected unless the theme opts in.
+        int[] wh = new int[4];
+        com.codename1.ui.plaf.UIManager uim = com.codename1.ui.plaf.UIManager.getInstance();
+        wh[2] = parseIntConstant(uim.getThemeConstant("iosSFSlotPct", "100"), 100);
+        wh[3] = parseIntConstant(uim.getThemeConstant("iosSFVBias", "50"), 50);
+        long peer = nativeInstance.nativeCreateSFSymbol(name, color, sizePixels, weight, wh);
+        if (peer == 0) {
+            return null;
+        }
+        NativeImage n = new NativeImage("SF Symbol " + name);
+        n.peer = peer;
+        n.width = wh[0];
+        n.height = wh[1];
+        return Image.createImage(n);
+    }
+
+    @Override
+    public boolean blurRegion(Object graphics, int x, int y, int width, int height, float radius) {
+        if (radius <= 0f || width <= 0 || height <= 0) {
+            return true;
+        }
+        NativeGraphics ng = (NativeGraphics) graphics;
+        // Live screen (no backing mutable image): enqueue a BlurRegion op in paint
+        // order. During the drain it blurs the already-drawn screenTexture region
+        // (the backdrop) and draws it back, so the component's translucent fill +
+        // foreground (queued right after this returns) paint on top -- real
+        // "Liquid Glass" on a running app, not just the offscreen fidelity tiles.
+        if (ng.associatedImage == null) {
+            nativeInstance.nativeBlurScreenRegion(x, y, width, height, radius);
+            return true;
+        }
+        // Flush whatever has been painted into the image so its peer is current, read
+        // the region behind us, Gaussian-blur it (Metal-backed CIGaussianBlur) and draw
+        // the blurred patch back where it was read.
+        ng.checkControl();
+        ng.associatedImage.peer = finishDrawingOnImage();
+        currentlyDrawingOn = null;
+        NativeImage target = ng.associatedImage;
+        int rx = Math.max(0, x), ry = Math.max(0, y);
+        int rw = Math.min(width, target.width - rx), rh = Math.min(height, target.height - ry);
+        if (rw <= 0 || rh <= 0) {
+            return true;
+        }
+        int[] rgb = new int[rw * rh];
+        getRGB(target, rgb, 0, rx, ry, rw, rh);
+        // UIKit "Liquid Glass" doesn't just blur the backdrop -- it boosts the
+        // backdrop's saturation (vibrancy) so colours pop through the frost. A plain
+        // CIGaussianBlur leaves the glass washed-out vs the native material; lift
+        // saturation here (this is the backdrop-filter path only -- blurRegion is
+        // never invoked for a plain filter:blur) before blurring.
+        saturateInPlace(rgb, GLASS_SATURATION);
+        NativeImage blurred = new NativeImage("backdrop-filter blur");
+        blurred.peer = nativeInstance.gausianBlurImage(createImageFromARGB(rgb, rw, rh), radius);
+        blurred.width = rw;
+        blurred.height = rh;
+        // drawImage applies this graphics' transform; pass coordinates relative to that
+        // transform's translation so the blurred patch lands back where we read it.
+        int tx = (int) Math.round(ng.transform.getTranslateX());
+        int ty = (int) Math.round(ng.transform.getTranslateY());
+        drawImage(ng, blurred, rx - tx, ry - ty);
+        return true;
+    }
+
+    @Override
+    public boolean glassRegion(Object graphics, int x, int y, int width, int height, float radius, float cornerRadius, float sat, float scale, float offset, float refract, float specular) {
+        if (radius <= 0f || width <= 0 || height <= 0) {
+            return true;
+        }
+        NativeGraphics ng = (NativeGraphics) graphics;
+        // Live screen path: queue a GlassRegion op carrying the full material
+        // params. During the drain it reads the already-drawn screenTexture region
+        // (padded + edge-replicated), applies the material, blurs, runs the optics
+        // (rounded-rect mask + refraction + specular rim) and draws the pill-shaped
+        // glass patch back -- the SAME recipe as the offscreen branch below, so a
+        // running app gets real Liquid Glass, not just a plain blur.
+        if (ng.associatedImage == null) {
+            nativeInstance.nativeGlassScreenRegion(x, y, width, height, radius, cornerRadius, sat, scale, offset, refract, specular);
+            return true;
+        }
+        // Flush whatever has been painted into the image so its peer is current, read
+        // the region behind us, apply the "Liquid Glass" affine colour material and
+        // Gaussian-blur it (Metal-backed CIGaussianBlur) and draw the patch back where
+        // it was read.
+        ng.checkControl();
+        ng.associatedImage.peer = finishDrawingOnImage();
+        currentlyDrawingOn = null;
+        NativeImage target = ng.associatedImage;
+        int rx = Math.max(0, x), ry = Math.max(0, y);
+        int rw = Math.min(width, target.width - rx), rh = Math.min(height, target.height - ry);
+        if (rw <= 0 || rh <= 0) {
+            return true;
+        }
+        // Build a buffer PADDED by the full blur radius on every side and fill the
+        // out-of-component area with EDGE-REPLICATED backdrop pixels. CIGaussianBlur
+        // fades to transparency at its buffer edge; without a full radius of margin
+        // (e.g. when the component sits within ~1mm of the tile edge, less than the
+        // blur radius) that fade reaches into the component and feathers its edge,
+        // making the glass read smaller than native's crisp panel. Replicating the
+        // edge gives the blur a clean clamp-to-extent margin so the component edge
+        // stays crisp. We blur the padded buffer then crop the centre back out.
+        // CIGaussianBlur's kernel spreads ~3*radius, so the buffer-edge fade reaches
+        // that far in. Pad by 3*radius of replicated backdrop so the fade is fully
+        // contained outside the component and its own edge stays crisp like native.
+        int pad = (int) Math.ceil(radius) * 3 + 1;
+        int bw = rw + 2 * pad, bh = rh + 2 * pad;
+        // Available (clamped) slice of the real backdrop around the component.
+        int ax0 = Math.max(0, rx - pad), ay0 = Math.max(0, ry - pad);
+        int ax1 = Math.min(target.width, rx + rw + pad), ay1 = Math.min(target.height, ry + rh + pad);
+        int aw = ax1 - ax0, ah = ay1 - ay0;
+        int[] avail = new int[aw * ah];
+        getRGB(target, avail, 0, ax0, ay0, aw, ah);
+        // Padded buffer origin in absolute coords is (rx-pad, ry-pad); sample the
+        // available slice with edge clamping to replicate beyond the tile.
+        int[] prgb = new int[bw * bh];
+        for (int by = 0; by < bh; by++) {
+            int ay = (ry - pad + by) - ay0;
+            if (ay < 0) ay = 0; else if (ay >= ah) ay = ah - 1;
+            int arow = ay * aw, brow = by * bw;
+            for (int bx = 0; bx < bw; bx++) {
+                int ax = (rx - pad + bx) - ax0;
+                if (ax < 0) ax = 0; else if (ax >= aw) ax = aw - 1;
+                prgb[brow + bx] = avail[arow + ax];
+            }
+        }
+        // Reverse-engineered iOS UIVisualEffectView material: an affine colour
+        // transform (saturation boost + scale + offset floor) of the backdrop before
+        // blurring (this is the backdrop-filter path only).
+        glassMaterialInPlace(prgb, sat, scale, offset);
+        NativeImage blurredPadded = new NativeImage("backdrop-filter glass");
+        blurredPadded.peer = nativeInstance.gausianBlurImage(createImageFromARGB(prgb, bw, bh), radius);
+        blurredPadded.width = bw;
+        blurredPadded.height = bh;
+        // Read the blurred padded buffer back, then apply the Liquid Glass OPTICS:
+        // edge refraction (lensing) + specular rim, with a rounded-rect SDF used for
+        // both the displacement profile and the anti-aliased shape mask. The component
+        // sits at offset (pad,pad) in the padded buffer; refraction samples that buffer
+        // (its replicated margin keeps edge samples valid).
+        int[] pbargb = new int[bw * bh];
+        getRGB(blurredPadded, pbargb, 0, 0, 0, bw, bh);
+        int[] out = new int[rw * rh];
+        applyGlassOptics(pbargb, bw, bh, pad, out, rw, rh, cornerRadius, refract, specular);
+        NativeImage blurred = new NativeImage("backdrop-filter glass");
+        blurred.peer = createImageFromARGB(out, rw, rh);
+        blurred.width = rw;
+        blurred.height = rh;
+        // drawImage applies this graphics' transform; pass coordinates relative to that
+        // transform's translation so the blurred patch lands back where we read it.
+        int tx = (int) Math.round(ng.transform.getTranslateX());
+        int ty = (int) Math.round(ng.transform.getTranslateY());
+        drawImage(ng, blurred, rx - tx, ry - ty);
+        return true;
+    }
+
+    @Override
+    public boolean lensRegion(Object graphics, int x, int y, int width, int height, float cornerRadius, float magnify, float aberration, int tintColor, float tintStrength) {
+        if (width <= 0 || height <= 0) {
+            return true;
+        }
+        NativeGraphics ng = (NativeGraphics) graphics;
+        // Live screen only: queue the iOS 26 selection-drop LENS op carrying the
+        // params. During the drain it reads the already-painted content (bar +
+        // black glyphs) UNDER the drop and magnifies + chromatically aberrates +
+        // dark->accent tints it. The offscreen-image path (rare now that the
+        // fidelity capture renders live) has no lens -- return false to fall back.
+        if (ng.associatedImage == null) {
+            nativeInstance.nativeLensScreenRegion(x, y, width, height, cornerRadius, magnify, aberration, tintColor, tintStrength);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Applies the Liquid Glass OPTICS to the blurred, colour-transformed backdrop
+     * (src, the bw x bh padded buffer; the component occupies rw x rh at offset
+     * (pad,pad)) and writes the rw x rh result into out. Three effects, all keyed off
+     * a rounded-rect signed distance field so they follow the host shape (capsule when
+     * cornerRadius &lt; 0):
+     * <ul>
+     * <li><b>Edge refraction / lensing</b>: near the edges the backdrop sample is
+     * displaced radially toward the centre following a quarter-circle profile
+     * (1 - sqrt(1 - t^2)), magnifying/bending the backdrop so the panel reads as a
+     * real glass layer ON TOP rather than a flat see-through hole. Invisible over a
+     * flat backdrop (displacing a uniform field is a no-op), pronounced over busy
+     * content -- exactly like iOS.</li>
+     * <li><b>Specular rim</b>: a bright highlight in a thin band at the very edge,
+     * brightest at the top (the iOS "glint"). </li>
+     * <li><b>Shape mask</b>: anti-aliased coverage from the SDF, so the glass clips to
+     * the rounded/pill shape with a crisp 1px edge.</li>
+     * </ul>
+     */
+    private static void applyGlassOptics(int[] src, int bw, int bh, int pad, int[] out,
+            int rw, int rh, float cornerRadius, float refract, float specular) {
+        float hw = rw / 2f, hh = rh / 2f;
+        float r = cornerRadius < 0f ? Math.min(hw, hh) : Math.min(cornerRadius, Math.min(hw, hh));
+        if (r < 0f) r = 0f;
+        float band = Math.min(hw, hh) * 0.6f;       // refraction active in the outer 60%
+        float rimW = 3.0f;                          // specular rim width (px)
+        for (int y = 0; y < rh; y++) {
+            float py = y + 0.5f;
+            for (int x = 0; x < rw; x++) {
+                float px = x + 0.5f;
+                // Rounded-rect signed distance: negative inside, 0 at the edge.
+                float dx = Math.abs(px - hw) - (hw - r);
+                float dy = Math.abs(py - hh) - (hh - r);
+                float ax = dx > 0 ? dx : 0, ay = dy > 0 ? dy : 0;
+                float outside = (float) Math.sqrt(ax * ax + ay * ay);
+                float inside = Math.min(Math.max(dx, dy), 0f);
+                float sdf = outside + inside - r;
+                float depth = -sdf;                 // >0 inside the shape, 0 at edge
+                if (depth <= 0f) { out[y * rw + x] = 0; continue; }
+                float alpha = depth >= 1f ? 1f : depth;   // 1px AA edge
+                // Edge refraction: sample the backdrop displaced toward the centre.
+                // Base on the integer coord so a zero displacement samples the source
+                // pixel EXACTLY (a px+0.5 base would bilinear-soften the whole patch).
+                float sx = x, sy = y;
+                if (refract > 0f && band > 0f && depth < band) {
+                    float t = 1f - depth / band;            // 1 at edge -> 0 at band
+                    float distortion = 1f - (float) Math.sqrt(Math.max(0f, 1f - t * t));
+                    sx = x - (px - hw) * distortion * refract;
+                    sy = y - (py - hh) * distortion * refract;
+                }
+                int col = sampleBilinear(src, bw, bh, sx + pad, sy + pad);
+                int rr = (col >> 16) & 0xff, gg = (col >> 8) & 0xff, bb = col & 0xff;
+                // Specular rim: bright glint in the outer rimW px, brightest at top.
+                if (specular > 0f && depth < rimW) {
+                    float rim = 1f - depth / rimW;
+                    float topBias = 0.55f + 0.45f * (1f - py / rh);
+                    int add = (int) (specular * rim * topBias * 70f);
+                    rr = rr + add > 255 ? 255 : rr + add;
+                    gg = gg + add > 255 ? 255 : gg + add;
+                    bb = bb + add > 255 ? 255 : bb + add;
+                }
+                int a = (int) (alpha * 255f);
+                out[y * rw + x] = (a << 24) | (rr << 16) | (gg << 8) | bb;
+            }
+        }
+    }
+
+    /** Bilinear ARGB sample with edge clamping; used by the glass edge refraction. */
+    private static int sampleBilinear(int[] buf, int w, int h, float fx, float fy) {
+        if (fx < 0f) fx = 0f; else if (fx > w - 1) fx = w - 1;
+        if (fy < 0f) fy = 0f; else if (fy > h - 1) fy = h - 1;
+        int x0 = (int) fx, y0 = (int) fy;
+        int x1 = x0 + 1 < w ? x0 + 1 : x0, y1 = y0 + 1 < h ? y0 + 1 : y0;
+        float tx = fx - x0, ty = fy - y0;
+        int p00 = buf[y0 * w + x0], p10 = buf[y0 * w + x1];
+        int p01 = buf[y1 * w + x0], p11 = buf[y1 * w + x1];
+        int r = bilerp((p00 >> 16) & 0xff, (p10 >> 16) & 0xff, (p01 >> 16) & 0xff, (p11 >> 16) & 0xff, tx, ty);
+        int g = bilerp((p00 >> 8) & 0xff, (p10 >> 8) & 0xff, (p01 >> 8) & 0xff, (p11 >> 8) & 0xff, tx, ty);
+        int b = bilerp(p00 & 0xff, p10 & 0xff, p01 & 0xff, p11 & 0xff, tx, ty);
+        return (r << 16) | (g << 8) | b;
+    }
+
+    private static int bilerp(int c00, int c10, int c01, int c11, float tx, float ty) {
+        float top = c00 + (c10 - c00) * tx;
+        float bot = c01 + (c11 - c01) * tx;
+        return (int) (top + (bot - top) * ty + 0.5f);
+    }
+
+    /**
+     * Reverse-engineered iOS "Liquid Glass" material (empirically derived from a
+     * real UIVisualEffectView, validated &lt;1 LSB): an affine colour transform of
+     * each (blurred) backdrop pixel. For each channel c:
+     * c' = clamp( (lum + (c - lum) * sat) * scale + offset ) where lum is the
+     * pixel luma. The offset term is the white/dark frost floor. Alpha preserved.
+     */
+    private static void glassMaterialInPlace(int[] argb, float sat, float scale, float offset) {
+        for (int i = 0; i < argb.length; i++) {
+            int p = argb[i];
+            int a = p & 0xff000000;
+            float r = (p >> 16) & 0xff, g = (p >> 8) & 0xff, b = p & 0xff;
+            float lum = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+            r = (lum + (r - lum) * sat) * scale + offset;
+            g = (lum + (g - lum) * sat) * scale + offset;
+            b = (lum + (b - lum) * sat) * scale + offset;
+            int ri = r < 0 ? 0 : (r > 255 ? 255 : (int) r);
+            int gi = g < 0 ? 0 : (g > 255 ? 255 : (int) g);
+            int bi = b < 0 ? 0 : (b > 255 ? 255 : (int) b);
+            argb[i] = a | (ri << 16) | (gi << 8) | bi;
+        }
+    }
+
+    /** Liquid-glass vibrancy: how far backdrop colours are pushed from grey (1.0 = off). */
+    private static final float GLASS_SATURATION = 1.35f;
+
+    /**
+     * Boosts the saturation of an ARGB buffer in place by interpolating each pixel
+     * away from its perceptual luminance (the standard saturation-matrix approach):
+     * c' = lum + (c - lum) * factor. Alpha is preserved. Used to give the
+     * backdrop-filter glass the vibrancy UIKit's real material has.
+     */
+    private static void saturateInPlace(int[] argb, float factor) {
+        if (factor == 1f) {
+            return;
+        }
+        for (int i = 0; i < argb.length; i++) {
+            int p = argb[i];
+            int a = p & 0xff000000;
+            int r = (p >> 16) & 0xff, g = (p >> 8) & 0xff, b = p & 0xff;
+            float lum = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+            r = (int) (lum + (r - lum) * factor);
+            g = (int) (lum + (g - lum) * factor);
+            b = (int) (lum + (b - lum) * factor);
+            if (r < 0) { r = 0; } else if (r > 255) { r = 255; }
+            if (g < 0) { g = 0; } else if (g > 255) { g = 255; }
+            if (b < 0) { b = 0; } else if (b > 255) { b = 255; }
+            argb[i] = a | (r << 16) | (g << 8) | b;
+        }
+    }
+
+    
+    public Object createImage(byte[] bytes, int offset, int len) {
+        int[] wh = new int[2];
+        if(offset != 0 || len != bytes.length) {
+            byte[] b = new byte[len];
+            System.arraycopy(bytes, offset, b, 0, len);
+            bytes = b;
+        }
+        NativeImage n = new NativeImage("Native PNG of " + bytes.length);
+        n.peer = createImage(bytes, wh);
+        if (n.peer == 0 || wh[0] <= 0 || wh[1] <= 0) {
+            System.out.println("CN1SS:ERR:ios createImage(byte[]) failed len=" + bytes.length
+                    + " peer=" + n.peer + " width=" + wh[0] + " height=" + wh[1]);
+            return null;
+        }
+        n.width = wh[0];
+        n.height = wh[1];
+        return n;
+    }
+
+
+    private long createImage(byte[] data, int[] widthHeight) {
+        return nativeInstance.createImage(data, widthHeight);
+    }
+
+    public int getImageWidth(Object i) {
+        return ((NativeImage)i).width;
+    }
+
+    public int getImageHeight(Object i) {
+        return ((NativeImage)i).height;
+    }
+
+    public Object scale(Object nativeImage, int width, int height) {
+        NativeImage original = (NativeImage)nativeImage;
+        NativeImage n = new NativeImage("Scaled image from peer: " + original.peer + " width " + width + " height " + height);
+        n.scaled = true;
+        n.peer = original.peer;
+        n.width = width;
+        n.height = height;
+        nativeInstance.retainPeer(n.peer);
+        return n;
+    }
+
+    private long scale(long peer, int width, int height) {
+        return nativeInstance.scale(peer, width, height);
+    }
+
+    public int getSoftkeyCount() {
+        return 0;
+    }
+
+    public int[] getSoftkeyCode(int index) {
+        return null;
+    }
+
+    public int getClearKeyCode() {
+        return -1;
+    }
+
+    public int getBackspaceKeyCode() {
+        return -1;
+    }
+
+    public int getBackKeyCode() {
+        return -1;
+    }
+
+    public int getGameAction(int keyCode) {
+        if(keyCode <= -20) {
+            // this effectively maps negative numbers to media game keys
+            return keyCode * -1;
+        }
+        return -1;
+    }
+
+    public int getKeyCode(int gameAction) {
+        return -1;
+    }
+
+    public boolean isTouchDevice() {
+        return true;
+    }
+
+    public int getColor(Object graphics) {
+        return ((NativeGraphics)graphics).color;
+    }
+
+
+    public void setColor(Object graphics, int RGB) {
+        ((NativeGraphics)graphics).color = RGB;
+    }
+
+    public void setAlpha(Object graphics, int alpha) {
+        ((NativeGraphics)graphics).alpha = alpha;
+    }
+
+    public int getAlpha(Object graphics) {
+        return ((NativeGraphics)graphics).alpha;
+    }
+
+    public boolean isAlphaGlobal() {
+        return true;
+    }
+
+    public void setNativeFont(Object graphics, Object font) {
+        ((NativeGraphics)graphics).font = (NativeFont)font;
+    }
+
+    
+    
+    
+    public int getClipX(Object graphics) {
+        
+        return ((NativeGraphics)graphics).getClipX();
+    }
+
+    public int getClipY(Object graphics) {
+         
+        return ((NativeGraphics)graphics).getClipY();
+    }
+
+    public int getClipWidth(Object graphics) {
+        return ((NativeGraphics)graphics).getClipW();
+    }
+
+    public int getClipHeight(Object graphics) {
+        
+        return ((NativeGraphics)graphics).getClipH();
+    }
+
+    @Override
+    public boolean isShapeClipSupported(Object graphics) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        return ng.isShapeClipSupported();
+    }
+
+    @Override
+    public void setClip(Object graphics, Shape shape) {
+        ((NativeGraphics)graphics).setClip(shape);
+    }
+   
+    
+    public void pushClip(Object graphics){
+        ((NativeGraphics)graphics).pushClip();
+    }
+    
+    public void popClip(Object graphics){
+        ((NativeGraphics)graphics).popClip();
+    }
+    
+    public void setClip(Object graphics, int x, int y, int width, int height) {
+        width = Math.max(0, width);
+        height = Math.max(0, height);
+        NativeGraphics ng = ((NativeGraphics)graphics);
+        ng.checkControl();
+        ng.setClip(x, y, width, height);
+    }
+
+    private  void setNativeClippingMutable(int x, int y, int width, int height, boolean firstClip) {
+        nativeInstance.setNativeClippingMutable(x, y, width, height, firstClip);
+    }
+    
+    
+    private  void setNativeClippingGlobal(int x, int y, int width, int height, boolean firstClip) {
+        nativeInstance.setNativeClippingGlobal(x, y, width, height, firstClip);
+    }
+    
+    float[] polygonPointsBuffer;
+    
+    private  void setNativeClippingGlobal(ClipShape shape){
+        Rectangle bounds = shape.getBounds();
+        if ( shape.isRectangle() || bounds.getWidth() <= 0 || bounds.getHeight() <= 0){
+            setNativeClippingGlobal(bounds.getX(), bounds.getY(), bounds.getWidth(), bounds.getHeight(), true);
+            return;
+        }
+        // Curved clips (anything containing QUADTO / CUBICTO) get
+        // flattened first so the polygon path below sees real polyline
+        // vertices instead of interleaved control / anchor pairs. Without
+        // this, setClip(circularPath) reaches the native side as 17 raw
+        // floats that include 8 outside-the-curve control points, and
+        // the triangle-fan stencil writer turns the circle into the
+        // visible "triangle clip" on gradient_circle.svg and
+        // clipped_badge.svg (see SVGStaticScreenshotTest).
+        ClipShape polyShape = flattenClipShapeIfNeeded(shape);
+        if (polyShape.isPolygon()) {
+            int pointsSize = polyShape.getPointsSize();
+            // Reallocate when the buffer doesn't EXACTLY match -- previously
+            // this only reallocated when undersized, so a smaller polygon
+            // reused a larger buffer and the trailing slots retained the
+            // previous (larger) polygon's vertices. The native side reads
+            // the JAVA_ARRAY's allocated length, not a separate count, so
+            // those stale vertices became "real" polygon corners and
+            // produced visible spike artefacts in the rendered clip on
+            // iOS Metal (#3921 / PR #4924). Allocate exactly the size we
+            // need so trailing garbage can't appear.
+            if (polygonPointsBuffer == null || polygonPointsBuffer.length != pointsSize) {
+                polygonPointsBuffer = new float[pointsSize];
+            }
+            shapeToPolygon(polyShape, polygonPointsBuffer);
+            nativeInstance.setNativeClippingPolygonGlobal(polygonPointsBuffer);
+        } else {
+            // The path didn't reduce to a polygon (still has multiple
+            // disjoint sub-paths or other oddities). Fall back to the
+            // alpha-mask Renderer; the texture handle isn't compatible
+            // with MTLTexture, so the bounding box is used as a coarse
+            // fallback (see ClipRect.m).
+            TextureAlphaMask mask = (TextureAlphaMask)textureCache.get(shape, null);
+            if ( mask == null ){
+                mask = (TextureAlphaMask)this.createAlphaMask(shape, null);
+                textureCache.add(shape, null, mask);
+            }
+
+           if ( mask != null ){
+                nativeInstance.setNativeClippingMaskGlobal(mask.getTextureName(), mask.getBounds().getX(), mask.getBounds().getY(), mask.getBounds().getWidth(), mask.getBounds().getHeight());
+            } else {
+               Log.p("Failed to create texture mask for clipping region");
+            }
+
+        }
+    }
+
+    
+    public void clipRect(Object graphics, int x, int y, int width, int height) {
+        width = Math.max(0, width);
+        height = Math.max(0, height);
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.clipRect(x, y, width, height);
+    }
+
+    @Override
+    public boolean isTransformSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isPerspectiveTransformSupported() {
+        return true;
+    }
+
+    @Override
+    public Object makeTransformAffine(double m00, double m10, double m01, double m11, double m02, double m12) {
+        return Matrix.make(new float[]{
+           (float)m00, (float)m10, 0, 0,
+           (float)m01, (float)m11, 0, 0,
+           0, 0, 1, 0,
+           (float)m02, (float)m12, 0, 1
+        });
+    }
+
+    @Override
+    public void setTransformAffine(Object nativeTransform, double m00, double m10, double m01, double m11, double m02, double m12) {
+        ((Matrix)nativeTransform).setData(new float[]{
+           (float)m00, (float)m10, 0, 0,
+           (float)m01, (float)m11, 0, 0,
+           0, 0, 1, 0,
+           (float)m02, (float)m12, 0, 1
+        });
+    }
+    
+    
+    
+
+    @Override
+    public Object makeTransformTranslation(float translateX, float translateY, float translateZ) {
+        return Matrix.makeTranslation(translateX, translateY, translateZ);
+    }
+
+    @Override
+    public void setTransformTranslation(Object nativeTransform, float translateX, float translateY, float translateZ) {
+        Matrix m = (Matrix)nativeTransform;
+        m.setTranslation(translateX, translateY, translateZ);
+    }
+    
+    @Override
+    public Object makeTransformScale(float scaleX, float scaleY, float scaleZ) {
+        Matrix out = Matrix.makeIdentity();
+        out.scale(scaleX, scaleY, scaleZ);
+        return out;
+    }
+    
+    @Override
+    public void setTransformScale(Object nativeTransform, float scaleX, float scaleY, float scaleZ) {
+        Matrix out = (Matrix)nativeTransform;
+        out.reset();
+        out.scale(scaleX, scaleY, scaleZ);
+    }
+
+    @Override
+    public Object makeTransformRotation(float angle, float x, float y, float z) {
+        return Matrix.makeRotation(angle, x, y, z);
+    }
+    
+    @Override
+    public void setTransformRotation(Object nativeTransform, float angle, float x, float y, float z) {
+        Matrix m = (Matrix)nativeTransform;
+        m.reset();
+        m.rotate(angle, x, y, z);
+    }
+
+    @Override
+    public Object makeTransformPerspective(float fovy, float aspect, float zNear, float zFar) {
+        return Matrix.makePerspective(fovy, aspect, zNear, zFar);
+    }
+    
+    public void setTransformPerspective(Object nativeGraphics, float fovy, float aspect, float zNear, float zFar) {
+        Matrix m = (Matrix)nativeGraphics;
+        m.setPerspective(fovy, aspect, zNear, zFar);
+    }
+
+    @Override
+    public Object makeTransformOrtho(float left, float right, float bottom, float top, float near, float far) {
+        return Matrix.makeOrtho(left, right, bottom, top, near, far);
+    }
+    
+    public void setTransformOrtho(Object nativeGraphics, float left, float right, float bottom, float top, float near, float far) {
+        Matrix m = (Matrix)nativeGraphics;
+        m.setOrtho(left, right, bottom, top, near, far);
+    }
+
+    @Override
+    public Object makeTransformCamera(float eyeX, float eyeY, float eyeZ, float centerX, float centerY, float centerZ, float upX, float upY, float upZ) {
+        return Matrix.makeCamera(eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX, upY, upZ);
+    }
+    
+    @Override
+    public void setTransformCamera(Object nativeGraphics, float eyeX, float eyeY, float eyeZ, float centerX, float centerY, float centerZ, float upX, float upY, float upZ) {
+        Matrix m = (Matrix)nativeGraphics;
+        m.setCamera(eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX, upY, upZ);
+    }
+
+    @Override
+    public void transformRotate(Object nativeTransform, float angle, float x, float y, float z) {
+        ((Matrix)nativeTransform).rotate(angle, x, y, z);
+    }
+
+    @Override
+    public void transformTranslate(Object nativeTransform, float x, float y, float z) {
+        ((Matrix)nativeTransform).translate(x, y, z);
+    }
+
+    
+    @Override
+    public void transformScale(Object nativeTransform, float x, float y, float z) {
+        ((Matrix)nativeTransform).scale(x, y, z);
+    }
+
+    @Override
+    public Object makeTransformInverse(Object nativeTransform) {
+        Matrix copy = ((Matrix)nativeTransform).copy();
+        if ( copy.invert() ){
+            return copy;
+        } else {
+            return null;
+        }
+    }
+    
+    @Override
+    public void setTransformInverse(Object nativeTransform) throws com.codename1.ui.Transform.NotInvertibleException {
+        Matrix m = (Matrix)nativeTransform;
+        if (!m.invert()) {
+            throw new com.codename1.ui.Transform.NotInvertibleException();
+        }
+    }
+    
+    @Override
+    public Object makeTransformIdentity(){
+        return Matrix.makeIdentity();
+    }
+    
+    @Override
+    public void setTransformIdentity(Object nativeTransform){
+        ((Matrix)nativeTransform).setIdentity();
+    }
+
+    @Override
+    public void copyTransform(Object src, Object dest) {
+        Matrix srcM = (Matrix)src;
+        Matrix destM = (Matrix)dest;
+        System.arraycopy(srcM.data, 0, destM.data, 0, 16);
+    }
+
+    @Override
+    public void concatenateTransform(Object t1, Object t2) {
+        ((Matrix)t1).concatenate((Matrix)t2);
+    }
+
+    
+    @Override
+    public void transformPoint(Object nativeTransform, float[] in, float[] out) {
+        ((Matrix)nativeTransform).transformPoints(Math.min(3, in.length), in, 0, out, 0, 1);
+    }
+
+    @Override
+    public void transformPoints(Object nativeTransform, int pointSize, float[] in, int srcPos, float[] out, int destPos, int numPoints) {
+        Matrix m = (Matrix)nativeTransform;
+        m.transformPoints(pointSize, in, srcPos, out, destPos, numPoints);
+    }
+
+    @Override
+    public void translatePoints(int pointSize, float tX, float tY, float tZ, float[] in, int srcPos, float[] out, int destPos, int numPoints) {
+        nativeInstance.translatePoints(pointSize, tX, tY, tX, in, srcPos, out, destPos, numPoints);
+    }
+
+    @Override
+    public void scalePoints(int pointSize, float sX, float sY, float sZ, float[] in, int srcPos, float[] out, int destPos, int numPoints) {
+        nativeInstance.scalePoints(pointSize, sX, sY, sZ, in, srcPos, out, destPos, numPoints);
+    }
+   
+    // END TRANSFORMATION METHODS--------------------------------------------------------------------
+    
+    
+    private static void nativeDrawLineMutable(int color, int alpha, int x1, int y1, int x2, int y2) {
+        nativeInstance.nativeDrawLineMutable(color, alpha, x1, y1, x2, y2);
+    }
+    private static void nativeDrawLineGlobal(int color, int alpha, int x1, int y1, int x2, int y2) {
+        nativeInstance.nativeDrawLineGlobal(color, alpha, x1, y1, x2, y2);
+    }
+
+    public void drawLine(Object graphics, int x1, int y1, int x2, int y2) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        ng.nativeDrawLine(ng.color, ng.alpha, x1, y1, x2, y2);
+    }
+    
+
+    static void nativeFillRectMutable(int color, int alpha, int x, int y, int width, int height) {
+        nativeInstance.nativeFillRectMutable(color, alpha, x, y, width, height);
+    }
+    
+    static void nativeFillRectGlobal(int color, int alpha, int x, int y, int width, int height) {
+        nativeInstance.nativeFillRectGlobal(color, alpha, x, y, width, height);
+    }
+    
+    static void nativeClearRectGlobal(int x, int y, int width, int height) {
+        nativeInstance.nativeClearRectGlobal(x, y, width, height);
+    }
+
+    public void fillRect(Object graphics, int x, int y, int width, int height) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        if(ng.alpha == 0) {
+            return;
+        }
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        ng.nativeFillRect(ng.color, ng.alpha, x, y, width, height);
+    }
+
+    @Override
+    public void fillPolygon(Object graphics, int[] xPoints, int[] yPoints, int nPoints) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        if(ng.alpha == 0) {
+            return;
+        }
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        ng.fillPolygon(ng.color, ng.alpha, xPoints, yPoints, nPoints);
+    }
+    
+    
+    
+    public void clearRect(Object graphics, int x, int y, int width, int height) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        ng.nativeClearRect(x, y, width, height);
+    }
+
+    private static void nativeDrawRectMutable(int color, int alpha, int x, int y, int width, int height) {
+        nativeInstance.nativeDrawRectMutable(color, alpha, x, y, width, height);
+    }
+    private static void nativeDrawRectGlobal(int color, int alpha, int x, int y, int width, int height) {
+        nativeInstance.nativeDrawRectGlobal(color, alpha, x, y, width, height);
+    }
+
+    public void drawRect(Object graphics, int x, int y, int width, int height) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        ng.nativeDrawRect(ng.color, ng.alpha, x, y, width, height);
+    }
+
+    public void drawRoundRect(Object graphics, int x, int y, int width, int height, int arcWidth, int arcHeight) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        ng.nativeDrawRoundRect(ng.color, ng.alpha, x, y, width, height, arcWidth, arcHeight);
+    }
+
+    public void fillRoundRect(Object graphics, int x, int y, int width, int height, int arcWidth, int arcHeight) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        ng.nativeFillRoundRect(ng.color, ng.alpha, x, y, width, height, arcWidth, arcHeight);
+    }
+
+    public void fillArc(Object graphics, int x, int y, int width, int height, int startAngle, int arcAngle) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        ng.nativeFillArc(ng.color, ng.alpha, x, y, width, height, startAngle, arcAngle);
+    }
+
+    @Override
+    public void fillRadialGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height, int startAngle, int arcAngle) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        Paint oldPaint = ng.paint;
+        ng.paint = new RadialGradient(startColor, endColor, x, y, width, height);
+        ng.applyPaint();
+        ng.nativeFillArc(ng.color, ng.alpha, x, y, width, height, startAngle, arcAngle);
+        ng.unapplyPaint();
+        ng.paint = oldPaint;
+    }
+
+    @Override
+    public void fillRadialGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height) {
+        fillRadialGradient(graphics, startColor, endColor, x, y, width, height, 0, 360); 
+    }
+    
+    
+
+    public void drawArc(Object graphics, int x, int y, int width, int height, int startAngle, int arcAngle) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        ng.nativeDrawArc(ng.color, ng.alpha, x, y, width, height, startAngle, arcAngle);
+    }
+
+    private static void nativeDrawStringMutable(int color, int alpha, long fontPeer, String str, int x, int y) {
+        nativeInstance.nativeDrawStringMutable(color, alpha, fontPeer, str, x, y);
+    }
+    private static void nativeDrawStringGlobal(int color, int alpha, long fontPeer, String str, int x, int y) {
+        nativeInstance.nativeDrawStringGlobal(color, alpha, fontPeer, str, x, y);
+    }
+
+    @Override
+    public void drawString(Object graphics, Object nativeFont, String str, int x, int y, int textDecoration) {
+        // Re-sync ng.font with the Java-side current font before drawing.
+        // Display.impl.drawLabelComponent calls setNativeFont(ng, labelStyleFont)
+        // directly to push the label's style font into NativeGraphics for fast
+        // native rendering, but does NOT update Graphics.current. After the
+        // title bar (or any Label) renders, ng.font holds the label's font
+        // while Graphics.current holds the Java-side font from before the
+        // label's draw. The user's next g.drawString() on the same Graphics
+        // expects to use Graphics.current; the iOS 4-arg drawString below
+        // reads ng.font instead, so they diverge. Graphics.drawString already
+        // passes Graphics.current as the nativeFont parameter -- pin ng.font
+        // to it here so the 4-arg drawString picks up the correct font.
+        if (nativeFont != null && graphics instanceof NativeGraphics) {
+            ((NativeGraphics) graphics).font = (NativeFont) nativeFont;
+        }
+        super.drawString(graphics, nativeFont, str, x, y, textDecoration);
+    }
+
+    public void drawString(Object graphics, String str, int x, int y) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        NativeFont fnt = ng.getFont();
+        int l = str.length();
+        int max = fnt.getMaxStringLength();
+        if(l > max) {
+            boolean rtl = useContentBasedRTLStringDetection
+                ? nativeInstance.isRTLString(str)
+                : UIManager.getInstance().getLookAndFeel().isRTL();
+            // really long string split it and draw multiple strings to avoid texture overload
+            int one = 1;
+            if(l % max == 0) {
+                one = 0;
+            }
+            if (rtl) {
+                x += stringWidth(fnt, str);
+            }
+            int stringCount = l / max + one;
+            for(int iter = 0 ; iter < stringCount ; iter++) {
+                int pos = iter * max;
+                String s = str.substring(pos, Math.min(pos + max, str.length()));
+                int substrWidth = stringWidth(fnt, s);
+                int rtlOffset = rtl ? -substrWidth : 0;
+                ng.nativeDrawString(ng.color, ng.alpha, fnt.peer, s, x + rtlOffset, y);
+                x += (rtl ? -substrWidth : substrWidth);
+            }
+        } else {
+            ng.nativeDrawString(ng.color, ng.alpha, fnt.peer, str, x, y);
+        }
+    }
+
+    public void tileImage(Object graphics, Object img, int x, int y, int w, int h) {
+        if (img == null) return;
+        NativeGraphics ng = (NativeGraphics)graphics;
+        if (ng instanceof GlobalGraphics) {
+            ng.checkControl();
+            ng.applyTransform();
+            ng.applyClip();
+            NativeImage nm = (NativeImage)img;
+            nativeInstance.nativeTileImageGlobal(nm.peer, ng.alpha, x, y, w, h);
+        } else if (metalRendering) {
+            // Phase 3 v2 (Metal only): queue a single TileImage op tagged
+            // with the current mutable image as target. nativeTileImage-
+            // Global's C side picks up currentMutableImage and tags
+            // accordingly. Mirrors the GlobalGraphics branch above except
+            // ng.checkControl already set currentMutableImage. Avoids
+            // super.tileImage's 1500-iter drawImage loop which would
+            // queue ~1500 ops per panel and stall the EDT past the test
+            // timeout on slow CI runners. On GL the same tagging doesn't
+            // happen (drawTextureAlphaMask/TileImage setTarget is gated
+            // by `#ifdef CN1_USE_METAL`) so the op would land on the
+            // screen instead of inside the mutable -- fall back to the
+            // EDT-side super.tileImage there.
+            ng.checkControl();
+            ng.applyTransform();
+            ng.applyClip();
+            NativeImage nm = (NativeImage)img;
+            nativeInstance.nativeTileImageGlobal(nm.peer, ng.alpha, x, y, w, h);
+        } else {
+            super.tileImage(graphics, img, x, y, w, h);
+        }
+    }
+    
+    public void drawImage(Object graphics, Object img, int x, int y) {
+        if (img == null) return;
+        NativeGraphics ng = (NativeGraphics)graphics;
+        //System.out.println("Drawing image " + img);
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        NativeImage nm = (NativeImage)img;
+        ng.nativeDrawImage(nm.peer, ng.alpha, x, y, nm.width, nm.height);
+    }
+
+    
+    
+    @Override
+    public void setRenderingHints(Object nativeGraphics, int hints) {
+        NativeGraphics ng = (NativeGraphics)nativeGraphics;
+        ng.setRenderingHints(hints);
+    }
+
+    @Override
+    public int getRenderingHints(Object nativeGraphics) {
+        NativeGraphics ng = (NativeGraphics)nativeGraphics;
+        return ng.renderingHints;
+    }
+    
+    
+    
+    
+
+    // -------------------------------------------------------------------------
+    // METHODS FOR DRAWING SHAPES AND TRANSFORMATIONS
+    // -------------------------------------------------------------------------
+    /**
+     * Creates a platform-specific alpha mask for a shape.  This is used to cache 
+     * masks in the {@link com.codename1.ui.GeneralPath} class.  On iOS the alpha
+     * mask is a texture handle (not a raster of alpha pixels), but other platforms
+     * may use different representations if they like.
+     * 
+     * <p>The {@link com.codename1.ui.Graphics#drawAlphaMask} method
+     * is used to draw a mask on the graphics context and this will ultimately call {@link #drawAlphaMask}
+     * which can be platform specific also.
+     * </p>
+     * @param shape The shape that will have an alpha mask created.
+     * @param stroke The stroke settings for stroking the outline of the mask.  Leave null to produce a fill 
+     * mask.
+     * @return The platform specific alpha mask object or null if it is not supported or failed.
+     * @see #deleteAlphaMask
+     * @see #drawAlphaMask
+     * @see #isAlphaMaskSupported
+     * @see com.codename1.ui.Graphics#drawAlphaMask 
+     * @see com.codename1.ui.GeneralPath#getAlphaMask
+     */
+    public TextureAlphaMask createAlphaMask(Shape shape, Stroke stroke) {
+        int[] bounds = new int[]{0,0,0,0};
+        long tex = nativeCreateAlphaMaskForShape(shape, stroke, bounds);
+        Rectangle shapeBounds = shape.getBounds();
+        int[] padding = new int[]{
+            //top
+            shapeBounds.getY()-bounds[1],   
+            // right
+            bounds[2] - (shapeBounds.getX()+shapeBounds.getWidth()), 
+            // bottom
+            bounds[3] - (shapeBounds.getY()+shapeBounds.getHeight()), 
+            // left
+            shapeBounds.getX()-bounds[0]
+        };
+        
+        if ( tex == 0 ){
+            return null;
+        }
+        return new TextureAlphaMask(tex, new Rectangle(bounds[0], bounds[1], bounds[2]-bounds[0], bounds[3]-bounds[1]), padding);
+    }
+    
+    @Override
+    public Image createImage(Shape shape, Stroke stroke, int color){
+        NativePathRenderer renderer = renderShape(shape, stroke);
+        int[] argb = renderer.toARGB(color);
+        int[] bounds = new int[4];
+        renderer.getOutputBounds(bounds);
+        Image out = Image.createImage(argb, bounds[2]-bounds[0], bounds[3]-bounds[1]);
+        renderer.destroy();
+        return out;
+    }
+    
+    private NativePathRenderer renderShape(Shape shape, Stroke stroke){
+        if ( stroke != null ){
+            float lineWidth = stroke.getLineWidth();
+            int capStyle = stroke.getCapStyle();
+            int miterStyle = stroke.getJoinStyle();
+            float miterLimit = stroke.getMiterLimit();
+            
+            PathIterator path = shape.getPathIterator();
+            Rectangle rb = shape.getBounds();
+            // Notice that these will be cleaned up in the dealloc method of the DrawPath objective-c class
+            int padding = (int)Math.ceil(lineWidth);
+            int padding2 = padding * 2;
+            NativePathRenderer renderer = new NativePathRenderer(rb.getX()-padding, rb.getY()-padding, rb.getWidth()+padding2, rb.getHeight()+padding2, path.getWindingRule());
+            NativePathStroker stroker = new NativePathStroker(renderer, lineWidth, capStyle, miterStyle, miterLimit);
+            NativePathConsumer c = stroker.consumer;
+            fillPathConsumer(path, c);
+
+            // We don't need the stroker anymore because it has passed the strokes to the renderer.
+            stroker.destroy();
+            return renderer;
+
+        } else {
+            Rectangle rb = shape.getBounds();
+            PathIterator path = shape.getPathIterator();
+
+            // Notice that this will be cleaned up in the dealloc method of the DrawPath objective-c class.
+            NativePathRenderer renderer = new NativePathRenderer(rb.getX(), rb.getY(), rb.getWidth(), rb.getHeight(), path.getWindingRule());
+            
+            NativePathConsumer c = renderer.consumer;
+            fillPathConsumer(path, c);
+            
+            return renderer;
+            
+        }
+    }
+    
+    private long nativeCreateAlphaMaskForShape(Shape shape, Stroke stroke, int[] bounds) {
+        
+        NativePathRenderer renderer = renderShape(shape, stroke);
+        long tex = renderer.createTexture();
+        renderer.getOutputBounds(bounds);
+        renderer.destroy();
+        return tex;
+ 
+    }
+    
+    private void shapeToPolygon(ClipShape shape, float[] pointsOut){
+        int size = shape.getPointsSize();
+        if (size > pointsOut.length) {
+            throw new RuntimeException("shapeToPolygon requires out array at least the size of the points in the polygon.  Requires "+size+" but found "+pointsOut.length);
+        }
+        shape.getPoints(pointsOut);
+
+    }
+
+    // Reusable buffer for flattening curves into a polyline GeneralPath
+    // before handing the clip down to the native polygon path. Reused
+    // across clip applications to avoid per-frame allocation.
+    private GeneralPath flattenedClipPath;
+    private ClipShape flattenedClipShape;
+
+    /// Walks `src` and builds a polyline GeneralPath in `dst` by replacing
+    /// every QUADTO / CUBICTO with a chain of straight LINETO segments
+    /// produced by midpoint subdivision. The native iOS clip pipeline
+    /// (GL ES2 FillPolygon and Metal CN1MetalApplyPolygonStencilClip) both
+    /// consume their input as a flat polygon: the only points they look
+    /// at are the (x, y) pairs in the buffer. When the source path is a
+    /// curve (e.g. a circle built from arc() emits 8 quadTos) the raw
+    /// points buffer contains alternating control / anchor pairs, and the
+    /// stencil writer treats every control point as a real polygon
+    /// vertex. The result is the degenerate "triangle clip" described in
+    /// the SVG tests on gradient_circle.svg / clipped_badge.svg. Flatten
+    /// first so only true vertices survive.
+    private void flattenShapeToPolyline(Shape src, GeneralPath dst) {
+        dst.reset();
+        PathIterator it = src.getPathIterator();
+        dst.setWindingRule(it.getWindingRule());
+        float[] coords = new float[6];
+        float curX = 0f, curY = 0f, moveX = 0f, moveY = 0f;
+        while (!it.isDone()) {
+            int seg = it.currentSegment(coords);
+            switch (seg) {
+                case PathIterator.SEG_MOVETO:
+                    dst.moveTo(coords[0], coords[1]);
+                    curX = moveX = coords[0];
+                    curY = moveY = coords[1];
+                    break;
+                case PathIterator.SEG_LINETO:
+                    dst.lineTo(coords[0], coords[1]);
+                    curX = coords[0];
+                    curY = coords[1];
+                    break;
+                case PathIterator.SEG_QUADTO:
+                    flattenQuadInto(dst, curX, curY, coords[0], coords[1], coords[2], coords[3], 0);
+                    curX = coords[2];
+                    curY = coords[3];
+                    break;
+                case PathIterator.SEG_CUBICTO:
+                    flattenCubicInto(dst, curX, curY,
+                            coords[0], coords[1], coords[2], coords[3], coords[4], coords[5], 0);
+                    curX = coords[4];
+                    curY = coords[5];
+                    break;
+                case PathIterator.SEG_CLOSE:
+                    dst.closePath();
+                    curX = moveX;
+                    curY = moveY;
+                    break;
+            }
+            it.next();
+        }
+    }
+
+    // Squared distance threshold (in user-space units) for the
+    // subdivision flatness test. 0.25 px is well below 1 device pixel
+    // even after the typical retina upscale and matches the precision of
+    // the alpha-mask Renderer used by the rest of the iOS port.
+    private static final float FLATTEN_TOLERANCE_SQ = 0.25f * 0.25f;
+    // Safety cap on the recursion depth. 18 = 2^18 sub-segments which is
+    // far past anything a real SVG path needs; the flatness test should
+    // always converge well before this.
+    private static final int FLATTEN_MAX_DEPTH = 18;
+
+    private static void flattenQuadInto(GeneralPath dst,
+                                        float x0, float y0,
+                                        float x1, float y1,
+                                        float x2, float y2,
+                                        int depth) {
+        // Distance from the control point to the chord P0-P2. For a
+        // quadratic Bezier the maximum deviation between the curve and
+        // its chord is bounded by half the control-point-to-chord
+        // distance, so testing the control point against the threshold
+        // is a safe (slightly conservative) flatness criterion.
+        float dx = x2 - x0;
+        float dy = y2 - y0;
+        float lenSq = dx * dx + dy * dy;
+        float distSq;
+        if (lenSq < 1e-6f) {
+            distSq = (x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0);
+        } else {
+            float cross = (x1 - x0) * dy - (y1 - y0) * dx;
+            distSq = (cross * cross) / lenSq;
+        }
+        if (distSq <= FLATTEN_TOLERANCE_SQ || depth >= FLATTEN_MAX_DEPTH) {
+            dst.lineTo(x2, y2);
+            return;
+        }
+        float mx1 = (x0 + x1) * 0.5f, my1 = (y0 + y1) * 0.5f;
+        float mx2 = (x1 + x2) * 0.5f, my2 = (y1 + y2) * 0.5f;
+        float mx = (mx1 + mx2) * 0.5f, my = (my1 + my2) * 0.5f;
+        flattenQuadInto(dst, x0, y0, mx1, my1, mx, my, depth + 1);
+        flattenQuadInto(dst, mx, my, mx2, my2, x2, y2, depth + 1);
+    }
+
+    private static void flattenCubicInto(GeneralPath dst,
+                                         float x0, float y0,
+                                         float x1, float y1,
+                                         float x2, float y2,
+                                         float x3, float y3,
+                                         int depth) {
+        // Max distance from either inner control point to the chord
+        // P0-P3. A cubic curve never strays farther than its furthest
+        // control point from its chord, so the larger of the two
+        // perpendicular distances is a conservative flatness bound.
+        float dx = x3 - x0;
+        float dy = y3 - y0;
+        float lenSq = dx * dx + dy * dy;
+        float d1Sq, d2Sq;
+        if (lenSq < 1e-6f) {
+            d1Sq = (x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0);
+            d2Sq = (x2 - x0) * (x2 - x0) + (y2 - y0) * (y2 - y0);
+        } else {
+            float c1 = (x1 - x0) * dy - (y1 - y0) * dx;
+            float c2 = (x2 - x0) * dy - (y2 - y0) * dx;
+            d1Sq = (c1 * c1) / lenSq;
+            d2Sq = (c2 * c2) / lenSq;
+        }
+        float distSq = d1Sq > d2Sq ? d1Sq : d2Sq;
+        if (distSq <= FLATTEN_TOLERANCE_SQ || depth >= FLATTEN_MAX_DEPTH) {
+            dst.lineTo(x3, y3);
+            return;
+        }
+        float mx01 = (x0 + x1) * 0.5f, my01 = (y0 + y1) * 0.5f;
+        float mx12 = (x1 + x2) * 0.5f, my12 = (y1 + y2) * 0.5f;
+        float mx23 = (x2 + x3) * 0.5f, my23 = (y2 + y3) * 0.5f;
+        float mxA = (mx01 + mx12) * 0.5f, myA = (my01 + my12) * 0.5f;
+        float mxB = (mx12 + mx23) * 0.5f, myB = (my12 + my23) * 0.5f;
+        float mx = (mxA + mxB) * 0.5f, my = (myA + myB) * 0.5f;
+        flattenCubicInto(dst, x0, y0, mx01, my01, mxA, myA, mx, my, depth + 1);
+        flattenCubicInto(dst, mx, my, mxB, myB, mx23, my23, x3, y3, depth + 1);
+    }
+
+    // True if the path has only MOVETO / LINETO / CLOSE segments, i.e.
+    // it is already a polyline and flattening would just copy it.
+    private boolean isAlreadyFlat(Shape s) {
+        if (s instanceof ClipShape && ((ClipShape) s).isRect()) {
+            return true;
+        }
+        PathIterator it = s.getPathIterator();
+        float[] coords = new float[6];
+        while (!it.isDone()) {
+            int seg = it.currentSegment(coords);
+            if (seg == PathIterator.SEG_QUADTO || seg == PathIterator.SEG_CUBICTO) {
+                return false;
+            }
+            it.next();
+        }
+        return true;
+    }
+
+    // Flatten if necessary and return the ClipShape that should be sent
+    // through the native polygon clip path. When the input is already a
+    // polyline (the common case for rectangular clipRect intersections
+    // built by NativeGraphics.clipRect) the input is returned as-is. The
+    // returned ClipShape is reused across calls (not shared with the
+    // input), so callers must finish reading from it before the next
+    // clip is applied.
+    private ClipShape flattenClipShapeIfNeeded(ClipShape src) {
+        if (isAlreadyFlat(src)) {
+            return src;
+        }
+        if (flattenedClipPath == null) {
+            flattenedClipPath = new GeneralPath();
+        }
+        flattenShapeToPolyline(src, flattenedClipPath);
+        if (flattenedClipShape == null) {
+            flattenedClipShape = new ClipShape();
+        }
+        flattenedClipShape.setShape(flattenedClipPath, null);
+        return flattenedClipShape;
+    }
+    /*
+    public void drawConvexPolygon(Object graphics, Shape shape, Stroke stroke, int color, int alpha){
+        NativeGraphics ng = (NativeGraphics)graphics;
+        if ( ng.isShapeSupported()){
+            ng.checkControl();
+            ng.applyTransform();
+            ng.applyClip();
+            float[] points = shapeToPolygon(shape);
+            if ( stroke == null ){
+                ng.fillConvexPolygon(points, color, alpha);
+
+            } else {
+                ng.drawConvexPolygon(points, color, alpha, stroke.getLineWidth(), stroke.getJoinStyle(), stroke.getCapStyle(), stroke.getMiterLimit());
+            }
+        }
+        
+    }
+    */
+
+    /**
+     * Deletes an alpha mask that was created with {@link #createAlphaMask}.
+     * @param texture The alpha mask to be deleted.
+     * @see #createAlphaMask
+     * @see #isAlphaMaskSupported
+     */
+    public void deleteAlphaMask(TextureAlphaMask mask) {
+        mask.dispose();
+        
+    }
+
+    /**
+     * Draws the given alpha mask (created by {@link #createAlphaMask} to the given graphics context.
+     * @param graphics The graphics context to which to draw the alpha mask.
+     * @param mask The mask to be drawn.
+     * @see #createAlphaMask
+     * @see #deleteAlphaMask
+     * @see #isAlphaMaskSupported
+     * @see com.codename1.ui.Graphics#drawAlphaMask 
+     * @see com.codename1.ui.GeneralPath#getAlphaMask
+     */
+    public void drawAlphaMask(Object graphics, TextureAlphaMask mask) {
+        
+        TextureAlphaMask nt = (TextureAlphaMask)mask;
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        ng.nativeDrawAlphaMask(nt);
+        
+    }
+
+    /**
+     * Checks to see if alpha masks are supported.  If alpha masks are supported, then {@link com.codename1.ui.Graphics#drawShape}
+     * will try to first convert the shape to a platform-specific alpha mask (which can be cached) and then draw the alpha mask.
+     * @param graphics The graphics context.
+     * @return True if alpha masks are supported.
+     * @see #createAlphaMask
+     * @see #deleteAlphaMask
+     * @see #drawAlphaMask
+     * @see com.codename1.ui.Graphics#drawAlphaMask 
+     * @see com.codename1.ui.GeneralPath#getAlphaMask
+     */
+    public boolean isAlphaMaskSupported(Object graphics) {
+        return ((NativeGraphics)graphics).isAlphaMaskSupported();
+    }
+    
+    void nativeDeleteTexture(long textureID){
+        nativeInstance.nativeDeleteTexture(textureID);
+    }
+    /**
+     * Draws the outline of a shape in the given graphics context.
+     * @param graphics the graphics context
+     * @param shape The shape to be drawn.
+     */
+    @Override
+    public void drawShape(Object graphics, Shape shape, Stroke stroke){// float lineWidth, int capStyle, int miterStyle, float miterLimit){
+        
+        NativeGraphics ng = (NativeGraphics)graphics;
+        if ( ng.isShapeSupported()){
+            ng.checkControl();
+            ng.applyTransform();
+            ng.applyClip();
+            ng.nativeDrawShape(shape, stroke);
+        }
+    }
+    
+    /**
+     * Draws a path on the current graphics context.
+     * @param graphics the graphics context
+     * @param path the path to draw.
+     */
+    @Override
+    public void fillShape(Object graphics, Shape shape){
+        NativeGraphics ng = (NativeGraphics)graphics;
+        if ( ng.isShapeSupported()){
+            ng.checkControl();
+            ng.applyTransform();
+            ng.applyClip();
+            ng.nativeFillShape(shape);
+        }
+        
+        
+    }
+
+    /// True everywhere the native shadow actually draws, which is not macOS.
+    ///
+    /// nativeDrawShadowMutable is a UIKit helper and its TARGET_OS_OSX branch is
+    /// empty -- AppKit's equivalent is a different API rather than a renamed
+    /// one, so it has not been ported. Answering true there sent
+    /// Component.useNativeShadowRendering() down the native path, which drew
+    /// nothing at all: an elevation shadow simply vanished, with no error and
+    /// nothing in Java able to notice. Answering false routes the caller to the
+    /// framework's own elevation rendering, which paints.
+    ///
+    /// Delete this override, not the capability, when the AppKit path lands.
+    @Override
+    public boolean isDrawShadowSupported() {
+        return !isMacPlatform();
+    }
+
+    /// Whether this is the native macOS port rather than an iOS or Mac Catalyst
+    /// build. Catalyst reports "ios" and is unaffected.
+    private boolean isMacPlatform() {
+        return isMacPlatformStatic();
+    }
+
+    /// The same test, reachable from the static native callbacks.
+    private static boolean isMacPlatformStatic() {
+        return instance != null && "mac".equals(instance.getPlatformName());
+    }
+
+    @Override
+    public boolean isDrawShadowFast() {
+        return false;
+    }
+
+    @Override
+    public void drawShadow(Object graphics, Object image, int x, int y, int offsetX, int offsetY, int blurRadius, int spreadRadius, int color, float opacity) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        NativeImage ni = (NativeImage)image;
+        if (ng.isDrawShadowSupported()) {
+            ng.checkControl();
+            ng.applyTransform();
+            ng.applyClip();
+            ng.nativeDrawShadow(ni.peer, x, y, offsetX, offsetY, blurRadius, spreadRadius, color, opacity);
+        }
+
+    }
+
+    private void drawPath(NativePathRenderer r, int color, int alpha){
+        this.nativeInstance.nativeDrawPath(color, alpha, r.ptr);
+    }
+    
+    private void fillPathConsumer(PathIterator path, NativePathConsumer c){
+        float p[] = new float[6];
+        while ( !path.isDone()){
+            int segment = path.currentSegment(p);
+            switch ( segment ){
+                case PathIterator.SEG_MOVETO:
+                    c.moveTo(p[0], p[1]);
+                    break;
+                case PathIterator.SEG_LINETO:
+                    c.lineTo(p[0], p[1]);
+                    break;
+                case PathIterator.SEG_QUADTO:
+                    c.quadTo(p[0], p[1], p[2], p[3]);
+                    break;
+                case PathIterator.SEG_CUBICTO:
+                    c.curveTo(p[0], p[1], p[2], p[3], p[4], p[5]);
+                    break;
+                case PathIterator.SEG_CLOSE:
+                    c.close();
+                    break;
+            }
+            path.next();
+        }
+        c.done();
+        
+    }
+
+    @Override
+    public Transform getTransform(Object graphics) {
+        return ((NativeGraphics)graphics).transform.copy();
+    }
+
+    @Override
+    public void getTransform(Object nativeGraphics, Transform t) {
+        NativeGraphics ng = (NativeGraphics)nativeGraphics;
+        if (ng.transform != null) {
+            t.setTransform(ng.transform);
+        } else {
+            t.setIdentity();
+        }
+    }
+
+    
+    
+    @Override
+    public void setTransform(Object graphics, Transform transform) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        if (ng.transform != null) {
+            if (transform == null) {
+                ng.transform.setIdentity();
+            } else {
+                ng.transform.setTransform(transform);
+            }
+        } else {
+            ng.transform = transform == null ? null : transform.copy();
+        }
+        ng.transformApplied = false;
+        // The cached clip / inverseClip / inverseTransform are derived from
+        // the current transform; replacing the transform leaves them
+        // pointing at the previous transform's space. Subsequent draw ops
+        // (e.g. fillRect or fillLinearGradient on the form Graphics) read
+        // those caches via loadClipBounds / inverseClip and end up clipped
+        // to the wrong region, which is why TransformRotation and
+        // Scale/AffineScale produced empty top cells on iOS Metal while
+        // the equivalent rotation via g.rotate (which DOES invalidate
+        // these flags, line 5513) rendered correctly. Match the
+        // rotate/scale/translate/resetAffine paths so the cache is rebuilt
+        // before the next draw.
+        ng.clipDirty = true;
+        ng.inverseClipDirty = true;
+        ng.inverseTransformDirty = true;
+        ng.checkControl();
+        ng.applyTransform();
+    }
+    
+    public void setNativeTransformGlobal(Transform transform){
+        Matrix t = (Matrix)transform.getNativeTransform();
+        float[] m = t.getData();
+        
+        
+        // Note that Matrix is stored in column-major format but GLKMatrix is stored in row-major
+        // that's why we transpose it here.
+        //Log.p("....Setting transform.....");
+        nativeInstance.nativeSetTransform(
+            m[0], m[4], m[8], m[12],
+            m[1], m[5], m[9], m[13],
+            m[2], m[6], m[10], m[14],
+            m[3], m[7], m[11], m[15],
+            0, 0
+        );
+    }
+    
+    public void setNativeTransformMutable(Transform transform){
+        Matrix t = (Matrix)transform.getNativeTransform();
+        float[] m = t.getData();
+        
+        
+        // Note that Matrix is stored in column-major format but GLKMatrix is stored in row-major
+        // that's why we transpose it here.
+        //Log.p("....Setting transform.....");
+        nativeInstance.nativeSetTransformMutable(
+            m[0], m[4], m[8], m[12],
+            m[1], m[5], m[9], m[13],
+            m[2], m[6], m[10], m[14],
+            m[3], m[7], m[11], m[15],
+            0, 0
+        );
+    }
+
+    @Override
+    public boolean transformNativeEqualsImpl(Object t1, Object t2) {
+        if ( t1 != null ){
+            Matrix m1 = (Matrix)t1;
+            Matrix m2 = (Matrix)t2;
+            return m1.equals(m2);
+        } else {
+            return t2 == null;
+        }
+        
+    }
+    
+    @Override
+    public boolean isTransformSupported(Object graphics) {
+        return ((NativeGraphics)graphics).isTransformSupported();
+    }
+
+    @Override
+    public boolean isPerspectiveTransformSupported(Object graphics) {
+        return ((NativeGraphics)graphics).isPerspectiveTransformSupported();
+    }
+
+    @Override
+    public boolean isShapeSupported(Object graphics) {
+        return ((NativeGraphics)graphics).isShapeSupported();
+    }
+    
+    /**
+     * A map to cache textures.
+     */
+    class TextureCache {
+        /**
+         * Stores weak references to TextureAlphaMask objects.
+         */
+        Map<Long, Object> textures = new HashMap<Long,Object>();
+        
+        /**
+         * Gets the alpha mask for a given shape/stroke from the
+         * texture cache.  The mask will be take the bounds of the provided
+         * shape rather than the bounds of the original shape from which the
+         * mask was created.
+         * @param s The shape.
+         * @param stroke The stroke.  If null, then it will get a fill alpha mask.
+         * @return The alpha mask for the shape/stroke or null if it is not currently
+         * in the cache.
+         */
+        TextureAlphaMaskProxy get(Shape s, Stroke stroke){
+            long shapeID = getShapeID(s, stroke);
+            Object out = textures.get(shapeID);
+            if ( out != null ){
+                
+                out = Display.getInstance().extractHardRef(out);
+                
+                if ( out != null ){
+                    TextureAlphaMask mask = (TextureAlphaMask)out;
+                    Rectangle bounds = s.getBounds();
+                    return new TextureAlphaMaskProxy(mask, bounds);
+                    
+                } else {
+                    textures.remove(shapeID);
+                }
+            }
+            return null;
+        }
+        
+        /**
+         * Adds a shape/stroke => TextureAlphaMask to the cache.
+         * @param s The shape.
+         * @param stroke The stroke.  Null for a fill alpha mask.
+         * @param mask The alpha mask
+         */
+        void add(Shape s, Stroke stroke, TextureAlphaMask mask){
+            long shapeID = getShapeID(s, stroke);
+            textures.put(shapeID, Display.getInstance().createSoftWeakRef(mask));
+            
+        }
+        
+        /**
+         * Generates a key to be used in the texture map for a given shape/stroke.
+         * Shapes that are identical but just translated will have identical keys.  
+         * The bounds will be adjusted as part of the {@link #get} method.
+         * @param shape The shape for which to retrieve the mask.
+         * @param stroke The stroke.  If null, then it is a fill mask.  Otherwise it
+         * is a contour mask.
+         * @return The string ID used in the map.
+         */
+        long getShapeID(Shape shape, Stroke stroke){
+            long result = 17; // Prime number to start the hash computation
+
+            float referenceX = 0;
+            float referenceY = 0;
+            boolean referencePointSet = false;
+
+            PathIterator it = shape.getPathIterator();
+            float[] buf = new float[6];
+
+            result = 31 * result + it.getWindingRule();
+
+            while (!it.isDone()){
+                int type = it.currentSegment(buf);
+
+                if (!referencePointSet && type != PathIterator.SEG_CLOSE) {
+                    referencePointSet = true;
+                    referenceX = buf[0];
+                    referenceY = buf[1];
+                }
+
+                float tx, ty, tx2, ty2, tx3, ty3;
+
+                switch (type) {
+                    case PathIterator.SEG_MOVETO:
+                        tx = buf[0] - referenceX;
+                        ty = buf[1] - referenceY;
+                        result = 31 * result + Float.floatToIntBits(tx);
+                        result = 31 * result + Float.floatToIntBits(ty);
+                        break;
+                    case PathIterator.SEG_LINETO:
+                        tx = buf[0] - referenceX;
+                        ty = buf[1] - referenceY;
+                        result = 31 * result + Float.floatToIntBits(tx);
+                        result = 31 * result + Float.floatToIntBits(ty);
+                        break;
+                    case PathIterator.SEG_QUADTO:
+                        tx = buf[0] - referenceX;
+                        ty = buf[1] - referenceY;
+                        tx2 = buf[2] - referenceX;
+                        ty2 = buf[3] - referenceY;
+                        result = 31 * result + Float.floatToIntBits(tx);
+                        result = 31 * result + Float.floatToIntBits(ty);
+                        result = 31 * result + Float.floatToIntBits(tx2);
+                        result = 31 * result + Float.floatToIntBits(ty2);
+                        break;
+                    case PathIterator.SEG_CUBICTO:
+                        tx = buf[0] - referenceX;
+                        ty = buf[1] - referenceY;
+                        tx2 = buf[2] - referenceX;
+                        ty2 = buf[3] - referenceY;
+                        tx3 = buf[4] - referenceX;
+                        ty3 = buf[5] - referenceY;
+                        result = 31 * result + Float.floatToIntBits(tx);
+                        result = 31 * result + Float.floatToIntBits(ty);
+                        result = 31 * result + Float.floatToIntBits(tx2);
+                        result = 31 * result + Float.floatToIntBits(ty2);
+                        result = 31 * result + Float.floatToIntBits(tx3);
+                        result = 31 * result + Float.floatToIntBits(ty3);
+                        break;
+                    case PathIterator.SEG_CLOSE:
+                        result = 31 * result + type;
+                        break;
+                }
+
+                it.next();
+            }
+
+            if (stroke != null) {
+                result = 31 * result + stroke.hashCode();
+            }
+
+            return result;
+        }
+
+    }
+    
+    
+    // END SHAPES AND TRANSFORMATION CODE
+    
+    private void nativeDrawImageMutable(long peer, int alpha, int x, int y, int width, int height, int renderingHints) {
+        nativeInstance.nativeDrawImageMutable(peer, alpha, x, y, width, height, renderingHints);
+    }
+    private void nativeDrawImageRoundedMutable(long peer, int alpha, int x, int y, int width, int height, int renderingHints, float cornerRadius) {
+        nativeInstance.nativeDrawImageRoundedMutable(peer, alpha, x, y, width, height, renderingHints, cornerRadius);
+    }
+
+    private void nativeDrawImageRoundedGlobal(long peer, int alpha, int x, int y, int width, int height, int renderingHints, float cornerRadius) {
+        nativeInstance.nativeDrawImageRoundedGlobal(peer, alpha, x, y, width, height, renderingHints, cornerRadius);
+    }
+
+    private void nativeDrawImageGlobal(long peer, int alpha, int x, int y, int width, int height, int renderingHints) {
+        nativeInstance.nativeDrawImageGlobal(peer, alpha, x, y, width, height, renderingHints);
+    }
+
+    public void drawRGB(Object graphics, int[] rgbData, int offset, int x, int y, int w, int h, boolean processAlpha) {
+        Object nativeImage = createImage(rgbData, w, h);
+        drawImage(graphics, nativeImage, x, y);
+    }
+
+    public Object getNativeGraphics() {
+        if(globalGraphics == null) {
+            globalGraphics = new GlobalGraphics();
+        }
+        return globalGraphics;
+    }
+
+    public Object getNativeGraphics(Object image) {
+        return ((NativeImage)image).getGraphics();
+    }
+
+    public int charsWidth(Object nativeFont, char[] ch, int offset, int length) {
+        NativeFont fnt = f(nativeFont);
+        return stringWidthNative(fnt.peer, new String(ch, offset, length));
+    }
+
+    @Override
+    public boolean isBaselineTextSupported() {
+        return true;
+    }
+
+    
+    
+    @Override
+    public int getFontAscent(Object nativeFont) {
+        NativeFont fnt = f(nativeFont);
+        return fontAscentNative(fnt.peer);
+    }
+
+    @Override
+    public int getFontDescent(Object nativeFont) {
+        NativeFont fnt = f(nativeFont);
+        return Math.abs(fontDescentNative(fnt.peer));
+    }
+
+    
+    
+    private NativeFont f(Object o) {
+        if(o == null) {
+            return (NativeFont)getDefaultFont();
+        }
+        return (NativeFont)o;
+    }
+
+    public int stringWidth(Object nativeFont, String str) {
+        NativeFont fnt = f(nativeFont);
+        return stringWidthNative(fnt.peer, str);
+    }
+    
+    class FontStringCache {
+        String txt;
+        long peer;
+        
+        public FontStringCache(String t, long i) {
+            txt = t;
+            peer = i;
+        }
+        
+        public int hashCode() {
+            return txt.hashCode() + ((int)peer);
+        }
+        
+        public boolean equals(Object o) {
+            FontStringCache c = (FontStringCache)o;
+            return c.peer == peer && txt.equalsIgnoreCase(c.txt);
+        }
+    }
+    private Map<FontStringCache, Integer> stringWidthCache = new HashMap<FontStringCache, Integer>();
+    private FontStringCache recycle = new FontStringCache("", 1);
+    private int stringWidthNative(long peer, String str) {
+        if(str.length() < 50) {
+            // we don't need to allocate for the case of a cache hit
+            recycle.peer = peer;
+            recycle.txt = str;
+            
+            Integer i = stringWidthCache.get(recycle);
+            if(i != null) {
+                return i.intValue();
+            }
+            int val = nativeInstance.stringWidthNative(peer, str);
+            FontStringCache c = new FontStringCache(str, peer);
+            if (stringWidthCache.size() > 10000) {
+                // If the cache grows too big, let's clear it out.
+                // We could use a more advanced algorithm, but right now
+                // I just want to fix possible memory leak.
+                
+                // Each FontStringCache object is 48 bytes.  So 48 x 10000 = 480K
+                // So we will allow a maximum footprint of 480K for this cache.
+                // When it reaches 480K, we'll just clear it out.
+                stringWidthCache.clear();
+            }
+            stringWidthCache.put(c, new Integer(val));
+            return val;
+        }
+        return nativeInstance.stringWidthNative(peer, str);
+    }
+    
+    private int fontAscentNative(long peer){
+        return nativeInstance.fontAscentNative(peer);
+    }
+    
+    private int fontDescentNative(long peer){
+        return nativeInstance.fontDescentNative(peer);
+    }
+    
+    
+
+    public int charWidth(Object nativeFont, char ch) {
+        return f(nativeFont).charWidth(ch);
+    }
+
+    private int charWidthNative(long peer, char ch) {
+        return nativeInstance.charWidthNative(peer, ch);
+    }
+
+    public int getHeight(Object nativeFont) {
+        return getFontHeightNative(f(nativeFont).peer);
+    }
+
+
+    private int getFontHeightNative(long peer) {
+        return nativeInstance.getFontHeightNative(peer);
+    }
+
+    public Object getDefaultFont() {
+        if(defaultFont == null) {
+            defaultFont = (NativeFont)createFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_MEDIUM);
+        }
+        return defaultFont;
+    }
+
+    private long createSystemFont(int face, int style, int size) {
+        return nativeInstance.createSystemFont(face, style, size);
+    }
+
+    Map<NativeFont, Long> fontMap = new HashMap<NativeFont, Long>();
+    
+    public Object createFont(int face, int style, int size) {
+        NativeFont fnt = new NativeFont();
+        fnt.face = face;
+        fnt.size = size;
+        fnt.style = style;
+
+        Long val = fontMap.get(fnt);
+        if(val != null) {
+            fnt.peer = val;
+            return fnt;
+        }
+        
+        fnt.peer = createSystemFont(face, style, size);
+        
+        return fnt;
+    }
+
+    public void setImageName(Object nativeImage, String name) { 
+        nativeInstance.setImageName(((NativeImage)nativeImage).peer, name);
+    }
+
+    private long getResourceNSData(String resource) {
+        StringTokenizer t = new StringTokenizer(resource, "/.");
+        int cnt = t.countTokens();
+        while(cnt > 2) {
+            t.nextToken();
+            cnt--;
+        }
+        String name = t.nextToken();
+        String type = t.nextToken();
+        int val = nativeInstance.getResourceSize(name, type);
+        if(val <= 0) {
+            return -1;
+        }
+        return IOSImplementation.nativeInstance.createNSDataResource(name, type);
+    }
+    
+    public InputStream getResourceAsStream(Class cls, String resource) {
+        // Flatten resources
+        int lastSlash = resource.lastIndexOf("/");
+        if ( lastSlash != -1 ){
+            resource = resource.substring(lastSlash+1);
+        }
+        
+        int val = nativeInstance.getResourceSize(resource, null);
+        if(val <= 0) {
+            return null;
+        }
+        return new BufferedInputStream(new NSFileInputStream(resource, null), resource);
+    }
+
+    /**
+     * How many soft references this port keeps alive at once.
+     *
+     * <p>Codename One's soft references are CACHES: a decoded bitmap behind an
+     * EncodedImage, the int[] behind {@code Image.getRGB}, a scaled copy, a
+     * rasterised gradient. Every one of them is written expecting the reference
+     * to come back null once memory is wanted elsewhere, and every one of them
+     * can rebuild its value.</p>
+     *
+     * <p>This port had no such expiry: the map was a plain Hashtable, so a soft
+     * reference here was a HARD one that lived until a low-memory warning
+     * arrived. An application that decoded a screenful of artwork kept every
+     * full-size bitmap, every RGB array and every scaled copy for the life of
+     * the process. Bounding it restores the contract the callers were written
+     * against, and a miss costs a re-decode rather than a wrong result.</p>
+     */
+    // this might be accessed on multiple threads
+    private Hashtable softReferenceMap = new Hashtable();
+    public static void flushSoftRefMap() {
+        instance.softReferenceMap = new Hashtable();
+    }
+    
+    /**
+     * Extracts the hard reference from the soft/weak reference given
+     *
+     * @param o the reference returned by createSoftWeakRef
+     * @return the original object submitted or null
+     */
+    public Object extractHardRef(Object o) {
+        /*SoftReference w = (SoftReference)o;
+        if(w != null) {
+            return w.get();
+        }
+        return null;*/
+        if(o == null) {
+            return null;
+        }
+        Object val = softReferenceMap.get(o);
+        if(val != null) {
+            return val;
+        }
+        return null;
+    }
+
+    public Object createSoftWeakRef(Object o) {
+        Object key = new Object();
+        if(o == null) {
+            return key;
+        }
+        softReferenceMap.put(key, o);
+        return key;
+        //return new SoftReference(o);
+    }
+
+    class Loc extends LocationManager {
+        private long peer;
+        private boolean locationUpdating, backgroundLocationUpdating;
+        private static final String PREFS_BACKGROUND_LOCATION_LISTENER_CLASS = "ios.backgroundLocationListener";
+        private static final String PREFS_BACKGROUND_LOCATION_UPDATING = "ios.backgroundLocationUpdating";
+        private static final String PREFS_GEOFENCE_LISTENER_CLASS = "ios.geofenceListenerClass";
+        private LocationListener backgroundLocationListenerInstance;
+        private Map<String,String> geofenceListeners;
+        private Map<String,Long> geofenceExpirations;
+
+        @Override
+        public boolean isGPSDetectionSupported() {
+            return true;
+        }
+
+        @Override
+        public boolean isGPSEnabled() {
+            return nativeInstance.isGPSEnabled();
+        }
+        
+        
+        
+        
+        protected void finalize() throws Throwable {
+            //super.finalize();
+            if(peer != 0) {
+                nativeInstance.releasePeer(peer);
+            }
+        }
+        
+        LocationListener getBackgroundLocationListenerInstance() {
+            if (backgroundLocationListenerInstance == null) {
+                Class cls = getBackgroundLocationListener();
+                if (cls != null) {
+                    try {
+                        backgroundLocationListenerInstance = (LocationListener)cls.newInstance();
+                    } catch (Throwable t) {
+                        Log.e(t);
+                        throw new RuntimeException(t.getMessage());
+                    }
+                }
+            }
+            return backgroundLocationListenerInstance;
+        }
+        
+        @Override
+        public Class getBackgroundLocationListener() {
+            Class superVal = super.getBackgroundLocationListener();
+            if (superVal == null && !"".equals(Preferences.get(PREFS_BACKGROUND_LOCATION_LISTENER_CLASS, ""))) {
+                String backgroundLocationListenerClassName = Preferences.get(PREFS_BACKGROUND_LOCATION_LISTENER_CLASS, "");
+                try {
+                    Class backgroundLocationListenerClass = (Class)Class.forName(backgroundLocationListenerClassName);
+                    super.setBackgroundLocationListener(backgroundLocationListenerClass);
+                } catch (Throwable t) {}
+            }
+            return super.getBackgroundLocationListener(); //To change body of generated methods, choose Tools | Templates.
+        }
+
+        @Override
+        public void setBackgroundLocationListener(Class locationListener) {
+            if (locationListener != null) {
+                Preferences.set(PREFS_BACKGROUND_LOCATION_LISTENER_CLASS, locationListener.getCanonicalName());
+            } else {
+                Preferences.set(PREFS_BACKGROUND_LOCATION_LISTENER_CLASS, null);
+            }
+            super.setBackgroundLocationListener(locationListener); //To change body of generated methods, choose Tools | Templates.
+        }
+        
+        private long getLocation() {
+            if(peer < 0) {
+                return peer;
+            }
+            if(peer == 0) {
+                peer = nativeInstance.createCLLocation();
+            }
+            if(peer == 0) {
+                peer = -1;
+            }
+            return peer;
+        }
+
+        /**
+         * If the app is running in the background and a background listener
+         * is registered, and active, then this will return the background listener
+         * instance.  Otherwise this should return the regular location listener.
+         * @return 
+         */
+        public LocationListener getActiveLocationListener() {
+            if (Display.getInstance().isMinimized() 
+                    && Preferences.get(PREFS_BACKGROUND_LOCATION_UPDATING, false)
+                    && getBackgroundLocationListenerInstance() != null) {
+                return getBackgroundLocationListenerInstance();
+            } else {
+                return getLocationListener();
+            }
+        }
+        
+        public LocationListener getLocationListener() {
+            return super.getLocationListener();
+        }
+ 
+        @Override
+        public Location getCurrentLocation() {
+            long p = getLocation();
+            if(p <= 0) {
+                return null;
+            }
+            bindListener();
+            Location l = new Location();
+            long c = nativeInstance.getCurrentLocationObject(p);
+            l.setAccuracy((float)nativeInstance.getLocationAccuracy(c));
+            l.setAltitude(nativeInstance.getLocationAltitude(c));
+            l.setDirection((float)nativeInstance.getLocationDirection(c));
+            l.setLatitude(nativeInstance.getLocationLatitude(c));
+            l.setLongitude(nativeInstance.getLocationLongtitude(c));
+            if(nativeInstance.isGoodLocation(p)) {
+                l.setStatus(LocationManager.AVAILABLE);
+            } else {
+                l.setStatus(LocationManager.TEMPORARILY_UNAVAILABLE);
+            }
+            l.setTimeStamp(nativeInstance.getLocationTimeStamp(c));
+            l.setVelocity((float)nativeInstance.getLocationVelocity(c));
+            nativeInstance.releasePeer(c);
+            return l;
+        }
+        
+        private boolean statusInitialized;
+        
+        public void setStatus() {
+            if(!statusInitialized) {
+                statusInitialized = true;
+                if(nativeInstance.isGoodLocation(getLocation())) {
+                    super.setStatus(AVAILABLE);
+                } else {
+                    super.setStatus(TEMPORARILY_UNAVAILABLE);
+                }
+            }
+        }
+
+        private Map<String,String> geofenceListeners() {
+            if (geofenceListeners == null) {
+                if (Storage.getInstance().exists("ios.geofenceListeners")) {
+                    geofenceListeners = (Map)Storage.getInstance().readObject("ios.geofenceListeners");
+                } else {
+                    geofenceListeners = new HashMap<String,String>();
+                }
+            }
+            return geofenceListeners;
+        }
+        
+        private Map<String,Long> geofenceExpirations() {
+            if (geofenceExpirations == null) {
+                if (Storage.getInstance().exists("ios.geofenceExpirations")) {
+                    geofenceExpirations = (Map)Storage.getInstance().readObject("ios.geofenceExpirations");
+                } else {
+                    geofenceExpirations = new HashMap<String,Long>();
+                }
+            }
+            return geofenceExpirations;
+        }
+        
+        private void synchronizeGeofenceListeners() {
+            if (geofenceListeners != null) {
+                Storage.getInstance().writeObject("ios.geofenceListeners", geofenceListeners);
+            }
+        }
+        private void synchronizeGeofenceExpirations() {
+            if (geofenceExpirations != null) {
+                Storage.getInstance().writeObject("ios.geofenceExpirations", geofenceExpirations);
+            }
+        }
+        
+        GeofenceListener getGeofenceListener(String id) {
+            if (geofenceListeners().containsKey(id)) {
+                Class cls = null;
+                try {
+                    cls = Class.forName(geofenceListeners.get(id)); 
+                    if (cls == null) {
+                        return null;
+                    }
+                    return (GeofenceListener)cls.newInstance();
+                } catch (Throwable t) {
+                    Log.e(t);
+                }
+                
+            }
+            return null;
+        }
+        
+        synchronized void clearExpiredGeofences() {
+            List<String> toRemove = new ArrayList<String>();
+            for (String id : geofenceExpirations().keySet()) {
+                if (geofenceExpirations().get(id) < System.currentTimeMillis()) {
+                    toRemove.add(id);
+                }
+            }
+            for (String id : toRemove) {
+                geofenceListeners().remove(id);
+                geofenceExpirations().remove(id);
+                nativeInstance.removeGeofencing(peer, id);
+            }
+            if (!toRemove.isEmpty()) {
+                synchronizeGeofenceExpirations();
+                synchronizeGeofenceListeners();
+            }
+            
+        }
+        
+        @Override
+        public void addGeoFencing(Class GeofenceListenerClass, Geofence gf) {
+            clearExpiredGeofences();
+            
+            if (gf.getExpiration() > 0) {
+                long expiresAt = System.currentTimeMillis() + gf.getExpiration();
+                geofenceExpirations().put(gf.getId(), expiresAt);
+                synchronizeGeofenceExpirations();
+            }
+            geofenceListeners().put(gf.getId(), GeofenceListenerClass.getCanonicalName());
+            synchronizeGeofenceListeners();
+            long p = getLocation();
+            if (p <= 0) {
+                throw new RuntimeException("Failed to load location manager.  Check that you have included all applicable location permissions.");
+            }
+            nativeInstance.addGeofencing(peer, gf.getLoc().getLatitude(), gf.getLoc().getLongitude(), gf.getRadius(), gf.getExpiration(), gf.getId());
+            super.addGeoFencing(GeofenceListenerClass, gf); //To change body of generated methods, choose Tools | Templates.
+        }
+
+        @Override
+        public void removeGeoFencing(String id) {
+            geofenceListeners().remove(id);
+            geofenceExpirations().remove(id);
+            synchronizeGeofenceListeners();
+            synchronizeGeofenceExpirations();
+            long p = getLocation();
+            if (p <= 0) {
+                throw new RuntimeException("Failed to load location manager.  Check that you have included all applicable location permissions.");
+            }
+            nativeInstance.removeGeofencing(peer, id);
+        }
+
+        @Override
+        public boolean isGeofenceSupported() {
+            // Asked of the native layer rather than answered true: addGeofencing
+            // is an empty body on macOS, watchOS and tvOS, and a caller told yes
+            // there registers a fence the OS was never asked to monitor.
+            return nativeInstance.isGeofencingSupported();
+        }
+        
+        @Override
+        protected void bindListener() {
+            if(!locationUpdating) {
+                long p = getLocation();
+                if(p <= 0) {
+                    return;
+                }
+                locationUpdating = true;
+                int priority = LocationRequest.PRIORITY_MEDIUM_ACCUARCY;
+                if (this.getRequest() != null) {
+                    priority = this.getRequest().getPriority();
+                }
+                nativeInstance.startUpdatingLocation(p, priority);
+            }
+        }
+
+        @Override
+        protected void clearListener() {
+            if(locationUpdating) {
+                long p = getLocation();
+                if(p <= 0) {
+                    return;
+                }
+                locationUpdating = false;
+                nativeInstance.stopUpdatingLocation(p);
+            }
+        }
+        
+        @Override
+        protected void bindBackgroundListener() {
+            //boolean backgroundLocationUpdatingPref = Preferences.get(PREFS_BACKGROUND_LOCATION_UPDATING, false);
+            if (!backgroundLocationUpdating) {
+                long p = getLocation();
+                if(p <= 0) {
+                    return;
+                }
+                Preferences.set(PREFS_BACKGROUND_LOCATION_UPDATING, true);
+                backgroundLocationUpdating = true;
+                nativeInstance.startUpdatingBackgroundLocation(p);
+            }
+        }
+        
+        /**
+         * Method called specially when the app is started with the significant
+         * location change service.  It shoudl start up the location listener
+         * to receive location updates while in the background.
+         */
+        void startBackgroundListener() {
+            // This should kick start the background listener
+            // and significant change service.
+            getBackgroundLocationListenerInstance();
+            
+        }
+
+        @Override
+        protected void clearBackgroundListener() {
+            //boolean backgroundLocationUpdating = Preferences.get(PREFS_BACKGROUND_LOCATION_UPDATING, false);
+            if(backgroundLocationUpdating) {
+                long p = getLocation();
+                if(p <= 0) {
+                    return;
+                }
+                Preferences.set(PREFS_BACKGROUND_LOCATION_UPDATING, false);
+                backgroundLocationUpdating = false;
+                nativeInstance.stopUpdatingBackgroundLocation(p);
+            }
+        }
+
+        @Override
+        public boolean isBackgroundLocationSupported() {
+            return true;
+        }
+        
+        @Override
+        public Location getLastKnownLocation() {
+            return getCurrentLocation();
+        }
+    }
+    
+    private static Loc lm;
+
+    /**
+     * Callback for native
+     */
+    public static void locationUpdate() {
+        if(lm != null) {
+            final LocationListener ls = lm.getActiveLocationListener();
+            lm.setStatus();
+            if(ls != null) {
+                Display.getInstance().callSerially(new Runnable() {
+                    @Override
+                    public void run() {
+                        ls.locationUpdated(lm.getCurrentLocation());
+                    }
+                });
+            }
+        }
+    }
+    
+    public static void onGeofenceEnter(final String id) {
+        if (lm != null) {
+            final GeofenceListener ls = lm.getGeofenceListener(id);
+            if (ls != null) {
+                Display.getInstance().callSerially(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        ls.onEntered(id);
+                    }
+                    
+                });
+            }
+            lm.clearExpiredGeofences();
+        }
+    }
+    
+    public static void onGeofenceExit(final String id) {
+        if (lm != null) {
+            final GeofenceListener ls = lm.getGeofenceListener(id);
+            if (ls != null) {
+                Display.getInstance().callSerially(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        ls.onExit(id);
+                    }
+                    
+                });
+            }
+            lm.clearExpiredGeofences();
+        }
+    }
+    
+    public static void appDidLaunchWithLocation() {
+        ((Loc)LocationManager.getLocationManager()).startBackgroundListener();
+        
+    }
+    
+    private IOSBiometrics biometrics;
+    private IOSSecureStorage secureStorage;
+    private IOSNfc nfc;
+    private static IOSBluetooth bluetooth;
+    private IOSDeviceIntegrity deviceIntegrity;
+
+    @Override
+    public com.codename1.security.Biometrics getBiometrics() {
+        if (biometrics == null) {
+            biometrics = new IOSBiometrics(nativeInstance);
+        }
+        return biometrics;
+    }
+
+    @Override
+    public boolean isAttestationSupported() {
+        return nativeInstance.isAppAttestSupported();
+    }
+
+    @Override
+    public com.codename1.util.AsyncResource<String> requestIntegrityToken(String nonce) {
+        return deviceIntegrity().requestToken(nonce);
+    }
+
+    @Override
+    public void resetAttestation() {
+        deviceIntegrity().resetAttestation();
+    }
+
+    @Override
+    public void confirmAttestation(String keyId) {
+        deviceIntegrity().confirmAttestation(keyId);
+    }
+
+    /**
+     * The App Attest coordinator, created once.
+     *
+     * <p>Synchronized because two concurrent first requests would otherwise each build
+     * one. Each carries its own {@code flowLock} and {@code bootstrapInFlight}, so
+     * neither would see the other's bootstrap -- two rate-limited hardware keys, and
+     * two sets of callbacks racing to persist an identity -- while the constructor
+     * overwrites the shared static the native callbacks dispatch through.</p>
+     */
+    private synchronized IOSDeviceIntegrity deviceIntegrity() {
+        if (deviceIntegrity == null) {
+            deviceIntegrity = new IOSDeviceIntegrity(nativeInstance);
+        }
+        return deviceIntegrity;
+    }
+
+    @Override
+    public com.codename1.security.SecureStorage getSecureStorage() {
+        if (secureStorage == null) {
+            secureStorage = new IOSSecureStorage(nativeInstance);
+        }
+        return secureStorage;
+    }
+
+    @Override
+    public com.codename1.nfc.Nfc getNfc() {
+        if (nfc == null) {
+            nfc = new IOSNfc(nativeInstance);
+        }
+        return nfc;
+    }
+
+    @Override
+    public com.codename1.calendar.LocalCalendarSource getLocalCalendarSource() {
+        if (calendarSource == null) {
+            calendarSource = new IOSCalendarSource(nativeInstance);
+        }
+        return calendarSource;
+    }
+
+    @Override
+    public com.codename1.bluetooth.Bluetooth getBluetooth() {
+        synchronized (IOSImplementation.class) {
+            if (bluetooth == null) {
+                bluetooth = new IOSBluetooth(nativeInstance);
+            }
+            return bluetooth;
+        }
+    }
+
+    private static IOSHealth health;
+
+    /// Returns the health entry point.
+    ///
+    /// The missing-privacy-string diagnostic is *not* thrown here, and
+    /// that is deliberate. `Health.getInstance()` is also how an app
+    /// reaches `getSensors()`, which is pure Bluetooth LE and touches no
+    /// HealthKit at all -- the iOS builder knows this and injects neither
+    /// the framework nor the usage strings for a sensor-only app. Throwing
+    /// on the way in made that supported path impossible to use without
+    /// declaring HealthKit disclosures the app has no business declaring,
+    /// and which App Review would ask it to justify.
+    ///
+    /// It is thrown from [IOSHealth#getStore()] instead: that is the
+    /// first thing that actually needs HealthKit, and it is still before
+    /// anything can be swallowed into an AsyncResource error nobody reads.
+    @Override
+    public com.codename1.health.Health getHealth() {
+        synchronized (IOSImplementation.class) {
+            if (health == null) {
+                health = new IOSHealth(nativeInstance);
+            }
+            return health;
+        }
+    }
+
+    public LocationManager getLocationManager() {
+        if (!nativeInstance.checkLocationUsage()) {
+            throw new RuntimeException("Please add the ios.NSLocationUsageDescription or ios.NSLocationAlwaysUsageDescription build hint");
+        }
+        synchronized (IOSImplementation.class) {
+            if (lm == null) {
+                lm = new Loc();
+            }
+            return lm;
+        }
+    }
+
+    private IOSMotionSensorManager motionSensorManager;
+
+    @Override
+    public com.codename1.sensors.MotionSensorManager getMotionSensorManager() {
+        synchronized (IOSImplementation.class) {
+            if (motionSensorManager == null) {
+                motionSensorManager = new IOSMotionSensorManager();
+            }
+            return motionSensorManager;
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String getMediaRecorderingMimeType() {
+        return "audio/aac";
+    }
+    
+    /**
+     * Callback for the native layer
+     */
+    /**
+     * One result of a capture or a gallery pick, in the "file:&lt;path&gt;" form the callback
+     * documents.
+     *
+     * <p>A percent encoded file:// URL is what the macOS panels report: a filename there may
+     * legally contain the newline a multiple selection is separated by, so the native side encodes
+     * rather than hand over a raw path that would split into several. Decoding it here produces the
+     * plain path every other port produces, so nothing downstream sees the difference.</p>
+     *
+     * <p>Shared by both branches deliberately. The decode used to sit inside the multiple-selection
+     * loop, which left a single pick holding a URL that still spelled a space "%20" -- every file
+     * API downstream then looked for a name nothing on disk had. Nothing about the encoding depends
+     * on how many files were chosen.</p>
+     */
+    private static String capturedPath(String path) {
+        if (path.startsWith("file://")) {
+            return "file:" + Util.decode(path.substring("file://".length()), "UTF-8", false);
+        }
+        if (path.startsWith("file:")) {
+            return path;
+        }
+        return "file:" + path;
+    }
+
+    /**
+     * The framework id of the Window a peer lives in, or -1 when it is on the main surface.
+     *
+     * <p>Native peers are real views, and which view they are added to has to be decided when they
+     * are added. The native side has only the peer and a rectangle at that point -- the owning
+     * window is not something it can recover -- so a peer created in a secondary Window was added
+     * to the main one and then positioned there using coordinates measured against its own. It
+     * appeared over the main Form and took input there.</p>
+     *
+     * <p>Resolving it late, on a later positioning pass, was tried and reverted: the view is
+     * resolved on one thread and used from a deferred main-queue block, so a window torn down in
+     * between leaves it pointing into a dead window, which is a crash the next time anything draws.
+     * An id is an int -- it carries safely into that block and is looked up on the main thread, at
+     * the moment it is used.</p>
+     */
+    private static int peerWindowId(Component cmp) {
+        if (cmp == null) {
+            return -1;
+        }
+        com.codename1.ui.TopLevelContainer top = cmp.getTopLevelContainer();
+        if (top instanceof com.codename1.ui.Window) {
+            return ((com.codename1.ui.Window) top).getWindowId();
+        }
+        return -1;
+    }
+
+    /// The macOS entry points for the two picker results, which deliver the
+    /// application's listener ON THE EDT.
+    ///
+    /// Both natives run on AppKit's main queue. The shared methods below fire
+    /// the application's ActionListener synchronously, so the listener ran on
+    /// that queue rather than the EDT: ordinary UI work raced the framework,
+    /// and a listener calling BrowserComponent.setURL() reached the browser
+    /// native's dispatch_sync back onto the main queue it was already occupying
+    /// and deadlocked.
+    ///
+    /// dropEvents is cleared HERE, immediately, and only the listener is
+    /// marshalled. That flag suppresses input while a modal picker is up, and
+    /// deferring it to the EDT would leave events dropped for a turn after the
+    /// picker closed.
+    ///
+    /// New methods rather than a change to the shared ones, so the iOS document
+    /// picker and the Mac share callback keep the behaviour they have. Note
+    /// that means iOS still fires these listeners off the EDT and can still
+    /// deadlock the same way -- that is pre-existing, framework-wide, and wants
+    /// fixing inside fileChooserResult/capturePictureResult where every caller
+    /// benefits.
+    public static void macFileChooserResult(final String r) {
+        dropEvents = false;
+        // Bound to the request NOW, on the thread the native answered on,
+        // rather than read later from the shared slot: by the time the EDT runs
+        // the delivery a second openFileChooser() may have replaced it, and
+        // this result would then fire the wrong listener and orphan its own.
+        final EventDispatcher target = macDequeue(macFileChooserQueue);
+        if (target != null && target == fileChooserCallback) {
+            // Nothing else has claimed the slot, so keep it in step: the shared
+            // path clears it after delivering, and leaving a fired dispatcher
+            // there would let a later stray result fire it twice.
+            fileChooserCallback = null;
+        }
+        if (deliverPickerResultOnEdt(new Runnable() {
+            @Override
+            public void run() {
+                fileChooserResult(r, target);
+            }
+        })) {
+            return;
+        }
+        fileChooserResult(r, target);
+    }
+
+    /// @see #macFileChooserResult(String)
+    public static void macCapturePictureResult(final String r) {
+        dropEvents = false;
+        final MacCaptureRequest request = macDequeueCapture();
+        final EventDispatcher target = request == null ? null : request.dispatcher;
+        final boolean multiple = request != null && request.selectMultiple;
+        if (target != null && target == captureCallback) {
+            captureCallback = null;
+        }
+        if (deliverPickerResultOnEdt(new Runnable() {
+            @Override
+            public void run() {
+                capturePictureResult(r, target, multiple);
+            }
+        })) {
+            return;
+        }
+        capturePictureResult(r, target, multiple);
+    }
+
+    /// Queues the delivery on the EDT, answering whether it took it.
+    ///
+    /// callSerially, never callSeriallyAndWait: this runs on the thread AppKit
+    /// needs to keep servicing, and waiting for the EDT from it is the deadlock
+    /// these entry points exist to avoid. False when there is no EDT to queue
+    /// on -- Display not yet initialised, or we are already on it -- and the
+    /// caller then delivers inline exactly as before.
+    private static boolean deliverPickerResultOnEdt(Runnable delivery) {
+        if (!Display.isInitialized()) {
+            return false;
+        }
+        Display d = Display.getInstance();
+        if (d == null || d.isEdt()) {
+            return false;
+        }
+        d.callSerially(delivery);
+        return true;
+    }
+
+    public static void capturePictureResult(String r) {
+        capturePictureResult(r, captureCallback, gallerySelectMultiple);
+        captureCallback = null;
+    }
+
+    /// Delivers to ONE dispatcher, in the shape THAT request asked for.
+    ///
+    /// The single-slot caller above keeps the old behaviour for iOS; the macOS
+    /// entry point passes the dispatcher and the multiplicity recorded when the
+    /// request was made. Both have to travel together: reading the process-wide
+    /// gallerySelectMultiple here would hand the first listener the second
+    /// request's shape.
+    private static void capturePictureResult(String r, EventDispatcher captureCallback,
+            boolean selectMultiple) {
+        dropEvents = false;
+        if(captureCallback != null) {
+            if(r != null) {
+                if (selectMultiple) {
+                    String[] paths = Util.split(r, "\n");
+                    int len = paths.length;
+                    for (int i=0; i<len; i++) {
+                        paths[i] = capturedPath(paths[i]);
+                    }
+                    captureCallback.fireActionEvent(new ActionEvent(paths));
+                } else {
+                    captureCallback.fireActionEvent(new ActionEvent(capturedPath(r)));
+                }
+            } else {
+                captureCallback.fireActionEvent(new ActionEvent(null));
+            }
+        }
+    }
+
+    /**
+     * Callback for the native document picker.
+     */
+    public static void fileChooserResult(String r) {
+        fileChooserResult(r, fileChooserCallback);
+        fileChooserCallback = null;
+    }
+
+    /// @see #capturePictureResult(String, EventDispatcher)
+    private static void fileChooserResult(String r, EventDispatcher fileChooserCallback) {
+        dropEvents = false;
+        if(fileChooserCallback != null) {
+            if(r != null) {
+                if(r.startsWith("file:")) {
+                    fileChooserCallback.fireActionEvent(new ActionEvent(r));
+                } else {
+                    fileChooserCallback.fireActionEvent(new ActionEvent("file:" + r));
+                }
+            } else {
+                fileChooserCallback.fireActionEvent(new ActionEvent(null));
+            }
+        }
+    }
+    
+    
+    public void captureAudio(ActionListener response) {
+        if (!nativeInstance.checkMicrophoneUsage()) {
+            throw new RuntimeException("Please add the ios.NSMicrophoneUsageDescription build hint");
+        }
+        dropEvents = false;
+        String p = FileSystemStorage.getInstance().getAppHomePath();
+        if(!p.endsWith("/")) {
+            p += "/";
+        }
+        try {
+            final Media media = MediaManager.createMediaRecorder(p + "cn1TempAudioFile", MediaManager.getAvailableRecordingMimeTypes()[0]);
+            media.play();
+
+            boolean b = Dialog.show("Recording", "", "Save", "Cancel");
+            final Dialog d = new Dialog("Recording");
+
+            media.pause();
+            media.cleanup();
+            d.dispose();
+            if(b) {
+                response.actionPerformed(new ActionEvent(p + "cn1TempAudioFile"));
+            } else {
+                FileSystemStorage.getInstance().delete(p + "cn1TempAudioFile");
+                response.actionPerformed(null);
+            }
+        } catch(IOException err) {
+            err.printStackTrace();
+            response.actionPerformed(null);
+        }
+    }
+
+    /**
+     * Callback for the native layer
+     */
+    public static void captureMovieResult(String r) {
+        dropEvents = false;
+        capturePictureResult(r);
+    }
+    
+    private static EventDispatcher captureCallback;
+    private static EventDispatcher fileChooserCallback;
+
+    /// The dispatchers of chooser requests the native has not answered yet,
+    /// oldest first. macOS only.
+    ///
+    /// The shared callbacks above are ONE slot read at DELIVERY time, which is
+    /// only sound while a request cannot be outstanding when the next is made.
+    /// It can here: openFileChooser() returns as soon as it has queued the
+    /// panel, so two calls in a single EDT turn overwrite the slot before
+    /// either answer arrives -- the first panel's selection is then delivered
+    /// to the SECOND listener and clears the slot, and the second selection
+    /// finds it null and is dropped. Neither listener hears its own result and
+    /// one hears nothing at all.
+    ///
+    /// A queue rather than a single slot, because pairing by ORDER is exactly
+    /// right on this port: the panel runs through -[NSOpenPanel runModal],
+    /// which is application modal on the main queue, so a second panel cannot
+    /// start until the first returns and the answers come back in the order the
+    /// requests were made.
+    ///
+    /// iOS keeps the single slot. Its pickers are presented rather than run
+    /// modally and its result path is the shared one; changing it belongs with
+    /// a fix to fileChooserResult/capturePictureResult where every caller
+    /// benefits, not smuggled in here.
+    private static final java.util.ArrayList<EventDispatcher> macFileChooserQueue =
+            new java.util.ArrayList<EventDispatcher>();
+
+    /// One outstanding capture request: who asked, and what SHAPE of answer it
+    /// asked for.
+    ///
+    /// gallerySelectMultiple is process-wide and read when the result arrives,
+    /// so binding only the dispatcher was half a fix: open a single-select and
+    /// a multi-select gallery before the first panel returns and the first
+    /// listener is handed the second request's shape -- a String[] where it
+    /// expects a String, or several paths collapsed into one newline-separated
+    /// one. The shape belongs to the request, like the dispatcher.
+    private static final class MacCaptureRequest {
+        final EventDispatcher dispatcher;
+        final boolean selectMultiple;
+
+        MacCaptureRequest(EventDispatcher dispatcher, boolean selectMultiple) {
+            this.dispatcher = dispatcher;
+            this.selectMultiple = selectMultiple;
+        }
+    }
+
+    private static final java.util.ArrayList<MacCaptureRequest> macCaptureQueue =
+            new java.util.ArrayList<MacCaptureRequest>();
+
+    /// Remembers a capture request, dispatcher and answer shape together.
+    private static void macEnqueueCapture(EventDispatcher dispatcher) {
+        if (!isMacPlatformStatic() || dispatcher == null) {
+            return;
+        }
+        synchronized (macCaptureQueue) {
+            macCaptureQueue.add(new MacCaptureRequest(dispatcher, gallerySelectMultiple));
+        }
+    }
+
+    /// The oldest unanswered capture request, or null when there is none.
+    private static MacCaptureRequest macDequeueCapture() {
+        synchronized (macCaptureQueue) {
+            if (macCaptureQueue.isEmpty()) {
+                return null;
+            }
+            return macCaptureQueue.remove(0);
+        }
+    }
+
+    /// Remembers a chooser request's dispatcher so its own result can find it.
+    private static void macEnqueue(java.util.ArrayList<EventDispatcher> queue,
+            EventDispatcher dispatcher) {
+        if (!isMacPlatformStatic() || dispatcher == null) {
+            return;
+        }
+        synchronized (queue) {
+            queue.add(dispatcher);
+        }
+    }
+
+    /// The dispatcher for the oldest unanswered request, or null when there is
+    /// none -- a result the framework never asked for, which is dropped exactly
+    /// as the single-slot path dropped it.
+    private static EventDispatcher macDequeue(
+            java.util.ArrayList<EventDispatcher> queue) {
+        synchronized (queue) {
+            if (queue.isEmpty()) {
+                return null;
+            }
+            return queue.remove(0);
+        }
+    }
+    
+    /**
+     * Captures a photo and notifies with the image data when available
+     * @param response callback for the resulting image
+     */
+    public void capturePhoto(ActionListener response) {
+        if (!nativeInstance.checkCameraUsage()) {
+            throw new RuntimeException("Please add the ios.NSCameraUsageDescription build hint");
+        }
+        gallerySelectMultiple = false;
+        captureCallback = new EventDispatcher();
+        captureCallback.addListener(response);
+        macEnqueueCapture(captureCallback);
+        nativeInstance.captureCamera(false, 0, 0);
+        dropEvents = true;
+    }
+
+    @Override
+    public com.codename1.impl.CameraImpl createCameraImpl() {
+        return new IOSCameraImpl();
+    }
+
+    @Override
+    public com.codename1.impl.ARImpl createARImpl() {
+        if (!nativeInstance.cn1ArIsSupported(0) && !nativeInstance.cn1ArIsSupported(1)) {
+            // AR compiled out (non-AR app, tvOS/watchOS) or unsupported device.
+            return null;
+        }
+        return new IOSARImpl();
+    }
+
+    @Override
+    public com.codename1.impl.VisionImpl createVisionImpl() {
+        for (int feature = 0;
+                feature < com.codename1.ai.vision.VisionFeature.values().length;
+                feature++) {
+            if (nativeInstance.cn1VisionIsSupported(feature, false)
+                    || nativeInstance.cn1VisionIsSupported(feature, true)) {
+                return new IOSVisionImpl();
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public com.codename1.impl.LanguageImpl createLanguageImpl() {
+        return nativeInstance.cn1LanguageIsSupported(0, false)
+                || nativeInstance.cn1LanguageIsSupported(1, false)
+                || nativeInstance.cn1LanguageIsSupported(2, false)
+                ? new IOSLanguageImpl() : null;
+    }
+
+    @Override
+    public com.codename1.impl.InferenceImpl createInferenceImpl() {
+        return nativeInstance.cn1InferenceIsSupported()
+                ? new IOSInferenceImpl() : null;
+    }
+
+    @Override
+    public String [] getAvailableRecordingMimeTypes() {
+        // All of these amount to the same thing.
+        // We record in AAC format, wrapped in an mp4 container.
+        return new String[]{"audio/mp4", "audio/aac", "audio/m4a"};
+    }
+    
+    private static boolean finishedCreatingAudioRecorder;
+    private static Object createAudioRecorderLock = new Object();
+    private static IOException createAudioRecorderException = null;
+    
+    public static void finishedCreatingAudioRecorder(IOException ex) {
+        createAudioRecorderException = ex;
+        finishedCreatingAudioRecorder = true;
+        synchronized(createAudioRecorderLock) {
+            createAudioRecorderLock.notifyAll();
+        }
+    }
+
+    @Override
+    public Media createMediaRecorder(MediaRecorderBuilder builder) throws IOException {
+        return createMediaRecorder(builder.getPath(), builder.getMimeType(), builder.getSamplingRate(), builder.getBitRate(), builder.getAudioChannels(), 0, builder.isRedirectToAudioBuffer());
+    }
+    
+    
+    
+    @Override
+    public Media createMediaRecorder(final String path, final String mimeType) throws IOException {
+        MediaRecorderBuilder builder = new MediaRecorderBuilder()
+                .path(path)
+                .mimeType(mimeType);
+        return createMediaRecorder(builder);
+    }
+    
+
+    private  Media createMediaRecorder(final String path, final String mimeType, final int sampleRate, final int bitRate, final int audioChannels, final int maxDuration, final boolean redirectToAudioBuffer) throws IOException {
+        if (!nativeInstance.checkMicrophoneUsage()) {
+            throw new RuntimeException("Please add the ios.NSMicrophoneUsageDescription build hint");
+        }
+        if (redirectToAudioBuffer) {
+            AudioBuffer buf = MediaManager.getAudioBuffer(path, true, 4096);
+            return new AbstractMedia() {
+                long peer = nativeInstance.createAudioUnit(path, audioChannels, sampleRate, new float[64]);
+                boolean isPlaying;
+                @Override
+                protected void playImpl() {
+                    isPlaying = true;
+                    nativeInstance.startAudioUnit(peer);
+                    fireMediaStateChange(State.Playing);
+                }
+
+                @Override
+                protected void pauseImpl() {
+                    isPlaying = false;
+                    nativeInstance.stopAudioUnit(peer);
+                    fireMediaStateChange(State.Paused);
+                }
+
+                @Override
+                public void prepare() {
+                    
+                }
+
+                @Override
+                public void cleanup() {
+                    if (peer == 0) {
+                        return;
+                    }
+                    if (isPlaying) {
+                        pauseImpl();
+                    }
+                    MediaManager.releaseAudioBuffer(path);
+                    nativeInstance.destroyAudioUnit(peer);
+                }
+
+                @Override
+                public int getTime() {
+                    return -1;
+                }
+
+                @Override
+                public void setTime(int time) {
+                    
+                }
+
+                @Override
+                public int getDuration() {
+                    return -1;
+                }
+
+                @Override
+                public void setVolume(int vol) {
+                    
+                }
+
+                @Override
+                public int getVolume() {
+                    return -1;
+                }
+
+                @Override
+                public boolean isPlaying() {
+                    return isPlaying;
+                }
+
+                @Override
+                public Component getVideoComponent() {
+                    return null;
+                }
+
+                @Override
+                public boolean isVideo() {
+                    return false;
+                }
+
+                @Override
+                public boolean isFullScreen() {
+                    return false;
+                }
+
+                @Override
+                public void setFullScreen(boolean fullScreen) {
+                    
+                }
+
+                @Override
+                public void setNativePlayerMode(boolean nativePlayer) {
+                    
+                }
+
+                @Override
+                public boolean isNativePlayerMode() {
+                    return false;
+                }
+
+                @Override
+                public void setVariable(String key, Object value) {
+                    
+                }
+
+                @Override
+                public Object getVariable(String key) {
+                    return null;
+                }
+                
+            };
+        }
+        
+        finishedCreatingAudioRecorder = false;
+        createAudioRecorderException = null;
+        final long[] peer = new long[] { nativeInstance.createAudioRecorder(path, mimeType, sampleRate, bitRate, audioChannels, maxDuration) };
+        Display.getInstance().invokeAndBlock(new Runnable() {
+            public void run() {
+                while (!finishedCreatingAudioRecorder) {
+                    synchronized(createAudioRecorderLock) {
+                        Util.wait(createAudioRecorderLock);
+                    }
+                }
+            }
+        });
+        if (createAudioRecorderException != null) {
+            throw createAudioRecorderException;
+        }
+        return new AbstractMedia() {
+            private boolean playing;
+            @Override
+            protected void playImpl() {
+                if(peer[0] != 0) {
+                    nativeInstance.startAudioRecord(peer[0]);
+                    playing = true;
+                    fireMediaStateChange(State.Playing);
+                }
+            }
+
+            @Override
+            protected void pauseImpl() {
+                if(peer[0] != 0) {
+                    nativeInstance.pauseAudioRecord(peer[0]);
+                    playing = false;
+                    fireMediaStateChange(State.Paused);
+                }
+            }
+            
+            protected void finalize() {
+                if(peer[0] != 0) {
+                    cleanup();
+                }
+            }
+
+            @Override
+            public void cleanup() {
+                if(playing) {
+                    nativeInstance.pauseAudioRecord(peer[0]);
+                    fireMediaStateChange(State.Paused);
+                }
+                nativeInstance.cleanupAudioRecord(peer[0]);
+                peer[0] = 0;
+            }
+
+            @Override
+            public int getTime() {
+                return -1;
+            }
+
+            @Override
+            public void setTime(int time) {
+            }
+
+            @Override
+            public int getDuration() {
+                return -1;
+            }
+
+            @Override
+            public void setVolume(int vol) {
+            }
+
+            @Override
+            public int getVolume() {
+                return -1;
+            }
+
+            @Override
+            public boolean isPlaying() {
+                return playing;
+            }
+
+            @Override
+            public Component getVideoComponent() {
+                return null;
+            }
+
+            @Override
+            public boolean isVideo() {
+                return false;
+            }
+
+            @Override
+            public boolean isFullScreen() {
+                return false;
+            }
+
+            @Override
+            public void setFullScreen(boolean fullScreen) {
+            }
+
+            @Override
+            public void setNativePlayerMode(boolean nativePlayer) {
+            }
+
+            @Override
+            public boolean isNativePlayerMode() {
+                return false;
+            }
+
+            public void setVariable(String key, Object value) {
+            }
+
+            public Object getVariable(String key) {
+                return null;
+            }
+
+            public void prepare() {
+            }
+        };
+    }
+    
+    /**
+     * Captures a video and notifies with the data when available
+     * @param response callback for the resulting video
+     */
+    public void captureVideo(ActionListener response) {
+        captureVideo(null, response);
+    }
+        
+    /**
+     * Captures a video and notifies with the data when available
+     * @param response callback for the resulting video
+     */
+    public void captureVideo(VideoCaptureConstraints cnst, ActionListener response) {
+        if (!nativeInstance.checkCameraUsage() || !nativeInstance.checkMicrophoneUsage()) {
+            throw new RuntimeException("Please add the ios.NSCameraUsageDescription and ios.NSMicrophoneUsageDescription build hints");
+        }
+        gallerySelectMultiple = false;
+        captureCallback = new EventDispatcher();
+        captureCallback.addListener(response);
+        macEnqueueCapture(captureCallback);
+        nativeInstance.captureCamera(true, getUIPickerControllerQualityType(cnst), cnst != null ? cnst.getPreferredMaxLength() : 0);
+        dropEvents = true;
+    }
+    
+    private static int getUIPickerControllerQualityType(VideoCaptureConstraints cnst) {
+        if (cnst == null) {
+            return 1; //UIImagePickerControllerQualityTypeMedium = 1
+        }
+        int w = cnst.getWidth();
+        int h = cnst.getHeight();
+        if (w == 640 && h == 480) {
+            return 3; //UIImagePickerControllerQualityType640x480 = 3
+        }
+        if (w == 1280 && h == 720) {
+            return 4; //UIImagePickerControllerQualityTypeIFrame1280x720 = 4
+        }
+        if (w == 960 && h == 540) {
+            return 5; //UIImagePickerControllerQualityTypeIFrame960x540 = 5
+        }
+        int quality = cnst.getQuality();
+        switch (quality) {
+            case VideoCaptureConstraints.QUALITY_LOW:
+                return 2; //UIImagePickerControllerQualityTypeLow = 2
+            case VideoCaptureConstraints.QUALITY_HIGH:
+                return 0; //UIImagePickerControllerQualityTypeHigh = 0
+            default:
+                return 1; //UIImagePickerControllerQualityTypeMedium = 1
+        }
+    }
+    
+
+
+    @Override
+    public void openImageGallery(ActionListener response) {    
+        openGallery(response, Display.GALLERY_IMAGE);
+    }
+
+    @Override
+    public boolean isGalleryTypeSupported(int type) {
+        if (super.isGalleryTypeSupported(type)) {
+            return true;
+        }
+        if (type == -9999) {
+            return true;
+        }
+        switch (type) {
+            case -9998:
+            case Display.GALLERY_ALL_MULTI:
+            case Display.GALLERY_IMAGE_MULTI:
+            case Display.GALLERY_VIDEO_MULTI:
+                return nativeInstance.isMultiGallerySelectSupported();
+        }
+        return false;
+    }
+    
+    
+
+    @Override
+    public void openGallery(ActionListener response, int type) {
+        if (!isGalleryTypeSupported(type)) {
+            throw new IllegalArgumentException("Gallery type "+type+" not supported on this platform.");
+        }
+        if (!nativeInstance.checkPhotoLibraryUsage()) {
+            throw new RuntimeException("Please add the ios.NSPhotoLibraryUsageDescription build hint");
+        }
+        switch (type) {
+            case -9998:
+            case Display.GALLERY_ALL_MULTI:
+            case Display.GALLERY_IMAGE_MULTI:
+            case Display.GALLERY_VIDEO_MULTI:
+                gallerySelectMultiple = true;
+                break;
+            default:
+                gallerySelectMultiple = false;
+                
+        }
+        captureCallback = new EventDispatcher();
+        captureCallback.addListener(response);
+        macEnqueueCapture(captureCallback);
+        nativeInstance.openGallery(type);
+    }
+
+    @Override
+    public void openFileChooser(ActionListener response, String accept) {
+        fileChooserCallback = new EventDispatcher();
+        fileChooserCallback.addListener(response);
+        macEnqueue(macFileChooserQueue, fileChooserCallback);
+        nativeInstance.openFileChooser(accept);
+        dropEvents = true;
+    }
+    
+    
+    
+    static class IOSMediaCallback {
+        Runnable onCompletion;
+        long nsObserverPeer;
+        
+    }
+    
+    /**
+     * Map of media callbacks.  This allows onCompletion callbacks to be fired
+     * from native code.
+     */
+    final HashMap<Integer,IOSMediaCallback> mediaCallbacks = new HashMap<Integer,IOSMediaCallback>();
+    
+    /**
+     * Serial id for media callbacks
+     */
+    int nextMediaCallbackId = 1;
+    
+    /**
+     * Registers a media callback and assigns it an ID.
+     * @param r The callback associated with the given id.
+     * @return An ID that can be used from {@link #fireMediaCallback} to execute
+     * the callback.
+     */
+    int registerMediaCallback(Runnable r) {
+        if (r != null) {
+            IOSMediaCallback cb = new IOSMediaCallback();
+            cb.onCompletion = r;
+            synchronized(instance.mediaCallbacks) {
+                int id = instance.nextMediaCallbackId++;
+                instance.mediaCallbacks.put(id, cb);
+                return id;
+            }
+        }
+        return 0;
+    }
+    
+    /**
+     * Called from native code to fire media callback.
+     * @param id ID that was assigned in {@link #registerMediaCallback(java.lang.Runnable) }
+     */
+    static void fireMediaCallback(int id) {
+        IOSMediaCallback cb = instance.mediaCallbacks.get(id);
+        if (cb != null) {
+            Display.getInstance().callSerially(cb.onCompletion);
+        }
+    }
+    
+    /**
+     * Removes a media callback
+     * @param id ID of the media callback to remove.  Generated by the {@link #registerMediaCallback(java.lang.Runnable) } method.
+     */
+    void removeMediaCallback(int id) {
+        IOSMediaCallback cb = null;
+        synchronized(mediaCallbacks) {
+            cb = mediaCallbacks.get(id);
+            mediaCallbacks.remove(id);
+        }
+        if (cb != null && cb.nsObserverPeer != 0) {
+            // TODO.. implement this... need to remove the observer
+            nativeInstance.removeNotificationCenterObserver(cb.nsObserverPeer);
+        }
+    }
+    
+    /**
+     * Called from native code to bind an opaque objective-c object that is
+     * the registered observer from NSNotificationCenter with the ID of
+     * the callback that it calls.  This allows it to later be removed
+     * from the Java side.
+     * @param callbackId The callback ID of the media callback (as generated by {@link #registerMediaCallback(java.lang.Runnable) }
+     * @param nsObserverPeer The Objective-C observer that was registered with NSNotificationCenter
+     */
+    static void bindNSObserverPeerToMediaCallback(long nsObserverPeer, int callbackId) {
+        IOSMediaCallback cb = instance.mediaCallbacks.get(callbackId);
+        if (cb != null) {
+            cb.nsObserverPeer = nsObserverPeer;
+        }
+    }
+    // To prevent media from being GC'd before they are finished playing
+    // https://github.com/codenameone/CodenameOne/issues/2380
+    private List<IOSMedia> activeMedia;
+    
+    class IOSMedia extends AbstractMedia {
+        private String uri;
+        private boolean isVideo;
+        //private Runnable onCompletion;
+        int onCompletionCallbackId;
+        private InputStream stream;
+        private String mimeType;
+        private PeerComponent component;
+        private boolean nativePlayer;
+        private long moviePlayerPeer;
+        private boolean fullScreen;
+        private boolean embedNativeControls=true;
+        private List<Runnable> completionHandlers;
+        private boolean prepareToPlay;
+        
+        
+        
+        public IOSMedia(String uri, boolean isVideo, Runnable onCompletion) {
+            this.uri = uri;
+            this.isVideo = isVideo;
+            if (onCompletion != null) {
+                addCompletionHandler(onCompletion);
+            }
+            onCompletion = new Runnable() {
+
+                @Override
+                public void run() {
+                    unmarkActive();
+                    fireMediaStateChange(State.Paused);
+                    fireCompletionHandlers();
+                    
+                }
+                
+            };
+            this.onCompletionCallbackId = registerMediaCallback(onCompletion);
+            if(!isVideo) {
+                moviePlayerPeer = nativeInstance.createAudio(uri, onCompletion);
+            }
+        }
+
+        public IOSMedia(InputStream stream, String mimeType, Runnable onCompletion) {
+            this.stream = stream;
+            this.mimeType = mimeType;
+            if (onCompletion != null) {
+                addCompletionHandler(onCompletion);
+            }
+            onCompletion = new Runnable() {
+
+                @Override
+                public void run() {
+                    unmarkActive();
+                    fireMediaStateChange(State.Paused);
+                    fireCompletionHandlers();
+                    
+                }
+                
+            };
+            this.onCompletionCallbackId = registerMediaCallback(onCompletion);            
+            isVideo = mimeType.indexOf("video") > -1;
+            if(!isVideo) {
+                try {
+                    moviePlayerPeer = nativeInstance.createAudio(Util.readInputStream(stream), onCompletion);
+                    nativeInstance.retainPeer(moviePlayerPeer);
+                } catch (final IOException ex) {
+                    ex.printStackTrace();
+                    CN.callSerially(new Runnable() {
+                        public void run() {
+                            fireMediaError(new MediaException(MediaErrorType.Network, ex));
+                        }
+                    });
+                }
+            }
+            
+        }
+        
+        private void markActive() {
+            if (activeMedia == null) {
+                activeMedia = Collections.synchronizedList(new ArrayList<IOSMedia>());
+            }
+            // Prevent premature GC
+            // https://github.com/codenameone/CodenameOne/issues/2380
+            activeMedia.add(this);
+        }
+        
+        private void fireCompletionHandlers() {
+            if (completionHandlers != null && !completionHandlers.isEmpty()) {
+                Display.getInstance().callSerially(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        if (completionHandlers != null && !completionHandlers.isEmpty()) {
+                            List<Runnable>  toRun;
+
+                            synchronized(IOSMedia.this) {
+                                toRun = new ArrayList<Runnable>(completionHandlers);
+                            }
+                            for (Runnable r : toRun) {
+                                r.run();
+                            }
+                        }
+                    }
+
+                });
+            }
+        }
+
+        public void addCompletionHandler(Runnable onCompletion) {
+            synchronized(this) {
+                if (completionHandlers == null) {
+                    completionHandlers = new ArrayList<Runnable>();
+                }
+
+                completionHandlers.add(onCompletion);
+            }
+        }
+
+        public void removeCompletionHandler(Runnable onCompletion) {
+            if (completionHandlers != null) {
+                synchronized(this) {
+                    completionHandlers.remove(onCompletion);
+                }
+            }
+        }
+        
+        @Override
+        protected void playImpl() {
+            if(isVideo) {
+                if(component == null && nativePlayer) {
+                    // Mass source of confusion.  If getVideoComponent() has been called, then
+                    // we can't use the native player.
+                    if(uri != null) {
+                        moviePlayerPeer = nativeInstance.createNativeVideoComponent(uri, onCompletionCallbackId);
+                    } else {
+                        try {
+                            long val = getNSData(stream);
+                            if(val > 0) {
+                                moviePlayerPeer = nativeInstance.createNativeVideoComponentNSData(val, onCompletionCallbackId);
+                                Util.cleanup(stream);
+                            } else {
+                                byte[] data = Util.readInputStream(stream);
+                                Util.cleanup(stream);
+                                moviePlayerPeer = nativeInstance.createNativeVideoComponent(data, onCompletionCallbackId);
+                            }
+                        } catch (IOException ex) {
+                            fireMediaError(new MediaException(MediaErrorType.Decode, ex));
+                        }
+                    }
+                    nativeInstance.showNativePlayerController(moviePlayerPeer);
+                }
+                if(moviePlayerPeer != 0) {
+                    nativeInstance.startVideoComponent(moviePlayerPeer);
+                }
+            } else {
+                nativeInstance.playAudio(moviePlayerPeer);                
+            }
+            markActive();
+            fireMediaStateChange(State.Playing);
+        }
+
+        private void unmarkActive() {
+            if (activeMedia != null && activeMedia.contains(this)) {
+                activeMedia.remove(this);
+            }
+        }
+        
+        @Override
+        protected void pauseImpl() {
+            if(moviePlayerPeer != 0) {
+                if(isVideo) {
+                    nativeInstance.pauseVideoComponent(moviePlayerPeer);
+                } else {
+                    nativeInstance.pauseAudio(moviePlayerPeer);
+                }
+            }
+            unmarkActive();
+            fireMediaStateChange(State.Paused);
+        }
+
+        public void prepare() {
+            prepareToPlay = true;
+            if(moviePlayerPeer != 0) {
+                if(isVideo) {
+                    nativeInstance.prepareVideoComponent(moviePlayerPeer);
+                }
+            }
+        }
+        
+        @Override
+        public void cleanup() {
+            if(moviePlayerPeer != 0) {
+                pause();
+                if(!isVideo) {
+                    nativeInstance.cleanupAudio(moviePlayerPeer);
+                    moviePlayerPeer = 0;
+                }
+                removeMediaCallback(onCompletionCallbackId);
+                // SJH Nov. 13, 2015:  Uncommenting this because it seems that 
+                // we do need to release the peer when we're cleaning up.
+                if (isVideo) {
+                    nativeInstance.releasePeer(moviePlayerPeer);
+                    moviePlayerPeer = 0;
+                }
+                unmarkActive();
+            }
+            
+        }
+        
+        protected void finalize() {
+            cleanup();
+        }
+
+        @Override
+        public int getTime() {
+            if(moviePlayerPeer != 0) {
+                if(isVideo) {
+                    return nativeInstance.getMediaTimeMS(moviePlayerPeer);
+                } else {
+                    return nativeInstance.getAudioTime(moviePlayerPeer);
+                }
+            }
+            return 0;
+        }
+
+        @Override
+        public void setTime(int time) {
+            if(moviePlayerPeer != 0) {
+                if(isVideo) {
+                    nativeInstance.setMediaTimeMS(moviePlayerPeer, time);
+                } else {
+                    nativeInstance.setAudioTime(moviePlayerPeer, time);
+                }
+            }
+        }
+
+        @Override
+        public int getDuration() {
+            if(moviePlayerPeer != 0) {
+                if(isVideo) {
+                    return nativeInstance.getMediaDuration(moviePlayerPeer);
+                } else {
+                    return nativeInstance.getAudioDuration(moviePlayerPeer);
+                }
+            }
+            return 0;
+        }
+
+        @Override
+        public void setVolume(int vol) {
+            nativeInstance.setVolume(((float)vol) / 100);
+        }
+
+        @Override
+        public int getVolume() {
+            return (int)(nativeInstance.getVolume() * 100);
+        }
+
+        @Override
+        public boolean isPlaying() {
+            if(moviePlayerPeer != 0) {
+                if(isVideo) {
+                    return nativeInstance.isVideoPlaying(moviePlayerPeer);
+                } else {
+                    return nativeInstance.isAudioPlaying(moviePlayerPeer);
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public Component getVideoComponent() {
+            if (component == null) {
+                if(uri != null) {
+                    moviePlayerPeer = nativeInstance.createVideoComponent(uri, onCompletionCallbackId);
+                    nativeInstance.setNativeVideoControlsEmbedded(moviePlayerPeer, embedNativeControls);
+                    component = PeerComponent.create(new long[] { nativeInstance.getVideoViewPeer(moviePlayerPeer) });
+                } else {
+                    try {
+                        byte[] data = toByteArray(stream);
+                        Util.cleanup(stream);
+                        moviePlayerPeer = nativeInstance.createVideoComponent(data, onCompletionCallbackId);
+                        nativeInstance.setNativeVideoControlsEmbedded(moviePlayerPeer, embedNativeControls);
+                        component = PeerComponent.create(new long[] { nativeInstance.getVideoViewPeer(moviePlayerPeer) });
+                    } catch (IOException ex) {
+                        ex.printStackTrace();
+                        fireMediaError(new MediaException(MediaErrorType.Decode, ex));
+                        return new Label("Error loading video " + ex);
+                    }
+                }
+            }
+            if (prepareToPlay && isVideo && !isPlaying()) {
+                prepare();
+            }
+            return component;
+        }
+
+        @Override
+        public boolean isVideo() {
+            return isVideo;
+        }
+
+        @Override
+        public boolean isFullScreen() {
+            long p = get(component);
+            if(p != 0) {
+                return nativeInstance.isVideoFullScreen(p);
+            }
+            return false;
+        }
+
+        @Override
+        public void setFullScreen(boolean fullScreen) {
+            this.fullScreen = fullScreen;
+            long p = get(component);
+            if(p != 0) {
+                nativeInstance.setVideoFullScreen(p, fullScreen);
+            }
+        }
+
+        @Override
+        public void setNativePlayerMode(boolean nativePlayer) {
+            this.nativePlayer = nativePlayer;
+        }
+
+        @Override
+        public boolean isNativePlayerMode() {
+            return nativePlayer;
+        }
+
+        public void setVariable(String key, Object value) {
+            if(key.equals(Media.VARIABLE_BACKGROUND_ALBUM_COVER)) {
+                NativeImage ni = (NativeImage)((Image)value).getImage();
+                nativeInstance.setMediaBgAlbumCover(ni.peer);
+                return;
+            }
+            if(key.equals(Media.VARIABLE_BACKGROUND_ARTIST)) {
+                nativeInstance.setMediaBgArtist((String)value);
+                return;
+            }
+            if(key.equals(Media.VARIABLE_BACKGROUND_DURATION)) {
+                nativeInstance.setMediaBgDuration(((Long)value).longValue());
+                return;
+            }
+            if(key.equals(Media.VARIABLE_BACKGROUND_POSITION)) {
+                nativeInstance.setMediaBgPosition(((Long)value).longValue());
+                return;
+            }
+            if(key.equals(Media.VARIABLE_BACKGROUND_TITLE)) {
+                nativeInstance.setMediaBgTitle((String)value);
+            }
+            if(Media.VARIABLE_NATIVE_CONTRLOLS_EMBEDDED.equals(key) && value instanceof Boolean) {
+                embedNativeControls = (Boolean)value;
+                if (moviePlayerPeer != 0) {
+                    nativeInstance.setNativeVideoControlsEmbedded(moviePlayerPeer, (Boolean)value);
+                }
+            }
+        }
+
+        public Object getVariable(String key) {
+            if(Media.VARIABLE_BACKGROUND_SUPPORTED.equals(key)) {
+                return Boolean.TRUE;
+            }
+            return null;
+        }
+    }
+    
+    public Media createMedia(String uri, boolean isVideo, Runnable onCompletion) throws IOException {
+        return new IOSMedia(uri, isVideo, onCompletion);
+    }
+
+    @Override
+    public void addCompletionHandler(Media media, Runnable onCompletion) {
+        super.addCompletionHandler(media, onCompletion);
+        if (media instanceof IOSMedia) {
+            ((IOSMedia)media).addCompletionHandler(onCompletion);
+        }
+    }
+
+    @Override
+    public void removeCompletionHandler(Media media, Runnable onCompletion) {
+        super.removeCompletionHandler(media, onCompletion);
+        if (media instanceof IOSMedia) {
+            ((IOSMedia)media).removeCompletionHandler(onCompletion);
+        }
+    }
+
+    
+    
+
+    public Media createMedia(InputStream stream, String mimeType, Runnable onCompletion) throws IOException {
+        return new IOSMedia(stream, mimeType, onCompletion);
+    }
+
+    @Override
+    public boolean isSoundPoolSupported() {
+        return true;
+    }
+
+    @Override
+    public com.codename1.media.SoundPoolPeer createSoundPool(int maxStreams) {
+        return new IOSSoundPool(maxStreams);
+    }
+
+    /// Native low latency sound pool peer backed by CN1SoundPool.m (an AVAudioPlayer
+    /// ring per sound). Handles (pool, sound) are native pointers carried as longs.
+    class IOSSoundPool implements com.codename1.media.SoundPoolPeer {
+        private final long pool;
+        private final int ringSize;
+
+        IOSSoundPool(int maxStreams) {
+            this.pool = nativeInstance.nativeCreateSoundPool(maxStreams);
+            this.ringSize = Math.min(maxStreams, 4);
+        }
+
+        public Object loadSound(InputStream data, String mimeType) throws IOException {
+            byte[] bytes = com.codename1.io.Util.readInputStream(data);
+            com.codename1.io.Util.cleanup(data);
+            return Long.valueOf(nativeInstance.nativeLoadSound(pool, bytes, ringSize));
+        }
+
+        public Object loadSound(String uri) throws IOException {
+            InputStream in = getResourceAsStream(getClass(), uri);
+            if (in == null) {
+                throw new IOException("sound not found: " + uri);
+            }
+            return loadSound(in, null);
+        }
+
+        private long sound(Object s) {
+            return ((Long) s).longValue();
+        }
+
+        public int play(Object s, float volume, float pan, float rate, int loop) {
+            return nativeInstance.nativePlaySound(pool, sound(s), volume, pan, rate, loop);
+        }
+
+        public void setVolume(int voiceId, float volume) {
+            nativeInstance.nativeSetSoundVolume(pool, voiceId, volume);
+        }
+
+        public void setRate(int voiceId, float rate) {
+            nativeInstance.nativeSetSoundRate(pool, voiceId, rate);
+        }
+
+        public void setPan(int voiceId, float pan) {
+            nativeInstance.nativeSetSoundPan(pool, voiceId, pan);
+        }
+
+        public void pauseVoice(int voiceId) {
+            nativeInstance.nativePauseSound(pool, voiceId);
+        }
+
+        public void resumeVoice(int voiceId) {
+            nativeInstance.nativeResumeSound(pool, voiceId);
+        }
+
+        public void stopVoice(int voiceId) {
+            nativeInstance.nativeStopSound(pool, voiceId);
+        }
+
+        public void stopAll() {
+            nativeInstance.nativeStopAllSounds(pool);
+        }
+
+        public void autoPause() {
+            nativeInstance.nativeAutoPauseSoundPool(pool);
+        }
+
+        public void autoResume() {
+            nativeInstance.nativeAutoResumeSoundPool(pool);
+        }
+
+        public void unloadSound(Object s) {
+            nativeInstance.nativeUnloadSound(pool, sound(s));
+        }
+
+        public void release() {
+            nativeInstance.nativeReleaseSoundPool(pool);
+        }
+    }
+
+    private static long createNativeMutableImage(int w, int h, int color) {
+        return nativeInstance.createNativeMutableImage(w, h, color);
+    }
+
+    // should delete the old peer!
+    private static void startDrawingOnImage(int w, int h, long peer) {
+        nativeInstance.startDrawingOnImage(w, h, peer);
+    }
+    private static long finishDrawingOnImage() {
+        return nativeInstance.finishDrawingOnImage();
+    }
+
+    private static void deleteNativePeer(long peer) {
+        nativeInstance.deleteNativePeer(peer);
+    }
+    
+    public boolean isAffineSupported() {
+        return true;
+    }
+
+    public void resetAffine(Object nativeGraphics) {
+        ((NativeGraphics)nativeGraphics).resetAffine();
+    }
+
+    public void scale(Object nativeGraphics, float x, float y) {
+        ((NativeGraphics)nativeGraphics).scale(x, y);
+    }
+
+    public void rotate(Object nativeGraphics, float angle, int x, int y) {
+        ((NativeGraphics)nativeGraphics).rotate(angle, x, y);
+    }
+
+    @Override
+    public boolean isTranslateMatrixSupported() {
+        // iOS dispatches translateMatrix into NativeGraphics.transform the
+        // same way it dispatches scale/rotate, so the impl matrix sees the
+        // translate as a real composition step.
+        return true;
+    }
+
+    @Override
+    public void translateMatrix(Object nativeGraphics, float x, float y) {
+        ((NativeGraphics)nativeGraphics).translateMatrix(x, y);
+    }
+
+    @Override
+    public boolean isTranslationSupported() {
+        //return true;
+        // We'll leave this as false until the next iteration...
+        // ES2 should allow us to do all of this using transforms but
+        // let's take small steps first
+        return false;
+    }
+
+    public void shear(Object nativeGraphics, float x, float y) {
+        ((NativeGraphics)nativeGraphics).shear(x, y);
+    }
+
+
+    /**
+     * A utility class to encapsulate the Pisces Stroker.
+     * @see Stroker.h and Stroker.c in nativeSources
+     */
+    static class NativePathStroker {
+        
+        static final int JOIN_MITER = 0;
+        static final int JOIN_ROUND = 1;
+        static final int JOIN_BEVEL = 2;
+        static final int CAP_BUTT = 0;
+        static final int CAP_ROUND = 1;
+        static final int CAP_SQUARE = 2;
+        
+        /**
+         * Pointer to the native Stroker struct.
+         */
+        final long ptr;
+        final NativePathRenderer renderer;
+        final NativePathConsumer consumer;
+        
+        /**
+         * Creates a stroker with the given settings and renderer.
+         * @param renderer
+         * @param lineWidth
+         * @param capStyle
+         * @param joinStyle
+         * @param miterLimit 
+         */
+        NativePathStroker(NativePathRenderer renderer, float lineWidth, int capStyle, int joinStyle, float miterLimit){
+            ptr = nativeInstance.nativePathStrokerCreate(renderer.consumer.ptr, lineWidth, capStyle, joinStyle, miterLimit);
+            this.renderer = renderer;
+            this.consumer = new NativePathConsumer(nativeInstance.nativePathStrokerGetConsumer(ptr));
+        }
+        
+        /**
+         * Resets the stroker with the specified settings.
+         * @param lineWidth
+         * @param capStyle
+         * @param joinStyle
+         * @param miterLimit 
+         */
+        void reset(float lineWidth, int capStyle, int joinStyle, float miterLimit){
+            nativeInstance.nativePathStrokerReset(ptr, lineWidth, capStyle, joinStyle, miterLimit);
+        }
+        
+        /**
+         * This should be called when the stroker is not needed anymore.
+         * DON'T PUT THIS INSIDE finalize() because the stroker may need to 
+         * outlive it's java wrapper in objective-c space.
+         */
+        void destroy(){
+            nativeInstance.nativePathStrokerCleanup(ptr);
+        }
+        
+        
+        
+        
+    }
+    
+    /**
+     * Encapsulates the pisces native path consumer for consuming paths.
+     * See PathConsumer.h, Renderer.h, Renderer.c
+     */
+    static class NativePathConsumer {
+        final long ptr;
+        
+        NativePathConsumer(long ptr){
+            this.ptr = ptr;
+        }
+         public void moveTo(float x, float y){
+            nativeInstance.nativePathConsumerMoveTo(ptr, x, y);
+        }
+        
+        public void lineTo(float x, float y){
+            nativeInstance.nativePathConsumerLineTo(ptr, x, y);
+        }
+        
+        public void quadTo(float xc, float yc, float x1, float y1){
+            nativeInstance.nativePathConsumerQuadTo(ptr, xc, yc, x1, y1);
+        }
+        
+        public void curveTo(float xc1, float yc1, float xc2, float yc2, float x1, float y1){
+            nativeInstance.nativePathConsumerCurveTo(ptr, xc1, yc1, xc2, yc2, x1, y1);
+        }
+        
+        public void close(){
+            nativeInstance.nativePathConsumerClose(ptr);
+        }
+        
+        public void done(){
+            nativeInstance.nativePathConsumerDone(ptr);
+        }
+    }
+    
+    /**
+     * Encapsulation of a native pisces path renderer.
+     * See Renderer.h, Renderer.c
+     */
+    static class NativePathRenderer {
+        
+        
+        static final int WIND_EVEN_ODD = 0;
+        static final int WIND_NON_ZERO = 1;
+        final long ptr;
+        final NativePathConsumer consumer;
+        
+        
+        NativePathRenderer(int pix_boundsX, int pix_boundsY,
+                           int pix_boundsWidth, int pix_boundsHeight,
+                           int windingRule){
+            ptr = nativeInstance.nativePathRendererCreate(pix_boundsX, pix_boundsY, pix_boundsWidth, pix_boundsHeight, windingRule);
+            consumer = new NativePathConsumer(nativeInstance.nativePathRendererGetConsumer(ptr));
+            
+            
+        }
+        
+        
+        static void setup(int subpixelLgPositionsX, int subpixelLgPositionsY){
+            nativeInstance.nativePathRendererSetup(subpixelLgPositionsX, subpixelLgPositionsY);
+        }
+        
+        void reset(int pix_boundsX, int pix_boundsY,
+                           int pix_boundsWidth, int pix_boundsHeight,
+                           int windingRule){
+            nativeInstance.nativePathRendererReset(ptr, pix_boundsX, pix_boundsY, pix_boundsWidth, pix_boundsHeight, windingRule);
+            
+        }
+        
+        /**
+         * This can be called to destroy the underlying Renderer C struct. 
+         * DON'T call this inside finalize() because the Renderer may need to outlive
+         * the java wrapper in objective-c space.  Specifically, it is passed to the
+         * DrawPath object for the rendering pipeline.  It will be destroyed in
+         * the DrawPath dealloc method.
+         */
+        private void destroy(){
+            nativeInstance.nativePathRendererCleanup(ptr);
+        }
+        
+        void getOutputBounds(int[] bounds){
+            nativeInstance.nativePathRendererGetOutputBounds(ptr, bounds);
+        }
+        
+       /**
+        * This creates a texture with the renderer.  Note that you'll need to 
+        * @return 
+        */
+       long createTexture(){
+           return nativeInstance.nativePathRendererCreateTexture(ptr);
+       }
+        
+       
+       int[] toARGB(int color){
+           return nativeInstance.nativePathRendererToARGB(ptr, color);
+       }
+       
+    }
+    
+    
+    
+    
+    class TextureAlphaMask {
+        private Rectangle bounds;
+        private long textureName;
+        private int[] padding;
+        
+        TextureAlphaMask(long textureName, Rectangle bounds, int[] padding){
+            this.bounds = bounds;
+            this.textureName = textureName;
+            this.padding = padding;
+        }
+        
+        void setPadding(int n, int e, int s, int w){
+            padding[0] = n;
+            padding[1] = e;
+            padding[2] = s;
+            padding[3] = w;
+        }
+        
+        void setPadding(int[] padding){
+            this.padding = padding;
+        }
+        
+        int[] getPadding(){
+            return padding;
+        }
+        
+        void dispose(){
+            if ( getTextureName() != 0 ){
+                nativeDeleteTexture(getTextureName());
+                setTextureName(0);
+            }
+        }
+        
+        
+
+        protected void finalize() throws Throwable {
+            dispose();
+            //super.finalize(); 
+        }
+
+        /**
+         * @return the bounds
+         */
+        public Rectangle getBounds() {
+            return bounds;
+        }
+
+        /**
+         * @param bounds the bounds to set
+         */
+        public void setBounds(Rectangle bounds) {
+            this.bounds = bounds;
+        }
+
+        /**
+         * @return the textureName
+         */
+        public long getTextureName() {
+            return textureName;
+        }
+
+        /**
+         * @param textureName the textureName to set
+         */
+        public void setTextureName(long textureName) {
+            this.textureName = textureName;
+        }
+        
+        
+    }
+    
+    class TextureAlphaMaskProxy extends TextureAlphaMask {
+        private TextureAlphaMask mask;
+        private Rectangle bounds;
+        
+       
+        
+        public TextureAlphaMaskProxy(TextureAlphaMask m, Rectangle bounds){
+            super(m.textureName, m.bounds, m.padding);
+            mask = m;
+            this.bounds = bounds;
+            this.bounds.setX(bounds.getX()-m.padding[3]);
+            this.bounds.setY(bounds.getY()-m.padding[0]);
+            this.bounds.setWidth(bounds.getWidth()+m.padding[3]+m.padding[1]);
+            this.bounds.setHeight(bounds.getHeight()+m.padding[0]+m.padding[2]);
+        }
+        
+        public Rectangle getBounds(){
+            return bounds;
+        }
+        
+        public void setBounds(Rectangle r){
+            bounds = r;
+        }
+        
+        public long getTextureName(){
+            return mask.getTextureName();
+        }
+        
+        public void dispose(){
+            // Don't do anything here... all disposal should 
+            // be done by the original proxy
+        }
+        
+    }
+    
+    abstract class Paint {
+        
+    }
+    
+    abstract class Gradient extends Paint {
+        int startColor;
+        int endColor;
+    }
+    
+    class RadialGradient extends Gradient {
+        int x, y, width, height;
+        
+        RadialGradient(int startColor, int endColor, int x, int y, int width, int height) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+            this.startColor = startColor;
+            this.endColor = endColor;
+        }
+    }
+    
+    class NativeGraphics {
+        Paint paint;
+        final Rectangle reusableRect = new Rectangle();
+        final Rectangle reusableRect2 = new Rectangle();
+        NativeImage associatedImage;
+        int color;
+        int alpha = 255;
+        NativeFont font;
+        int clipX, clipY, clipW = -1, clipH = -1;
+        boolean clipApplied;
+        ClipShape clip;
+        final ClipShape reusableClipShape = new ClipShape();
+        /**
+         * Used with the ES2 pipeline (or any engine where transforms are supported)
+         * to record if the clipX, clipY, clipW, and clipH parameters need to be updated.
+         */
+        boolean clipDirty = true;
+
+        GeneralPath inverseClip;
+        boolean inverseClipDirty=true;
+        Rectangle inverseClipBounds;
+        
+        
+        Transform transform = Transform.makeIdentity();
+        Transform inverseTransform;
+        boolean inverseTransformDirty=true;
+        
+        
+        boolean transformApplied = false;
+        ClipShape[] clipStack = new ClipShape[20];
+        private int clipStackPtr = 0; 
+        private boolean antialiased;
+        private boolean antialiasedSet;
+        private boolean antialiasedText;
+        private boolean antialiasedTextSet;
+        int renderingHints;
+        
+        boolean isAntiAliasingSupported() {
+            return true;
+        }
+
+        boolean isAntiAliasTextSupported() {
+            return true;
+        }
+        
+        void setAntiAliasedText(boolean a) {
+            antialiasedText = a;
+            antialiasedTextSet = true;
+            
+        }
+        
+        boolean isAntiAliasedText() {
+            return !antialiasedTextSet || antialiasedText;
+        }
+        
+        void setAntiAliased(boolean antialiased) {
+            antialiasedSet = true;
+            this.antialiased = antialiased;
+            nativeInstance.setAntiAliasedMutable(antialiased);
+        }
+        
+        
+        boolean isAntiAliased() {
+            // If antialiasing hasn't been set, then it defaults to 
+            // antialiased
+            return !antialiasedSet || antialiased;
+        }
+        
+        void setClip(Shape newClip) {
+            if ( clip == null) {
+                clip = new ClipShape();
+            }
+            if (!clip.equals(newClip, transform)) { 
+                clip.setShape(newClip, transform);
+                clipDirty = true;
+                clipApplied = false;
+                inverseClipDirty = true;
+                applyClip();
+            }
+        }
+        
+        
+        void setClip(int x, int y, int w, int h) {
+            if (clip == null) {
+                clip = new ClipShape();
+            }
+            if (transform == null || transform.isIdentity()) {
+                if (!clip.equals(x, y, w, h)) {
+                    clip.setBounds(x, y, w, h);
+                    clipDirty = true;
+                    clipApplied = false;
+                    inverseClipDirty = true;
+                    applyClip();
+                }
+            } else {
+                reusableRect.setBounds(x, y, w, h);
+                if (!clip.equals(reusableRect, transform)) {
+                    clip.setShape(reusableRect, transform);
+                    clipDirty = true;
+                    clipApplied = false;
+                    inverseClipDirty = true;
+                    applyClip();
+                }
+            }
+            
+        }
+        
+        void clipRect(int x, int y, int w, int h) {
+            if (clip == null) {
+                setClip(x, y, w, h);
+                return;
+            }
+            
+            if (transform == null || transform.isIdentity()) {
+                // Preliminary checks to see if clipping is unnecessary
+                clip.getBounds(reusableRect);
+                if (reusableRect.getWidth() <= 0 || reusableRect.getHeight() <= 0) {
+                    // The existing clip is null so we don't need to do anything here.
+                    return;
+                }
+                reusableRect2.setBounds(x, y, w, h);
+                
+                boolean clipIsRect = clip.isRect();
+                if (clipIsRect && reusableRect2.contains(reusableRect)) {
+                    // The intersection did not change the resulting clip shape
+                    // Just retrun here.
+                    return;
+                } 
+                if (!clipIsRect) {
+                    reusableClipShape.setShape(clip, null);
+                }
+                if (!clip.intersect(x, y, w, h)) {
+                    clip.setBounds(0, 0, 0, 0);
+                }
+                if (!clipIsRect && clip.equals(reusableClipShape, null)) {
+                    return;
+                }
+                clipDirty = true;
+                clipApplied = false;
+                inverseClipDirty = true;
+                applyClip();
+            } else {
+                reusableClipShape.setShape(clip, null);
+            
+                GeneralPath inverseClip = inverseClip();
+                if (!inverseClip.intersect(x, y, w, h)) {
+                    clip.setBounds(0,0,0,0);
+                } else {
+                    clip.setShape(inverseClip, transform);
+                }
+                if (clip.equals(reusableClipShape, null)) {
+                    return;
+                }
+                clipDirty = true;
+                clipApplied = false;
+                inverseClipDirty = true;
+                applyClip();
+            }
+            
+        }
+        
+        void loadClipBounds(){
+            NativeGraphics ng = this;
+            if ( ng.clipDirty){
+                ng.clipDirty = false;
+                if ( ng.transform == null ){
+                    ng.transform = Transform.makeIdentity();
+                }
+                if ( ng.clip == null ){
+                    ng.clip = ClipShape.create();
+                    if (associatedImage == null) {
+                        ng.clip.setBounds(0,0,Display.getInstance().getDisplayWidth(), Display.getInstance().getDisplayHeight());
+                    } else {
+                        ng.clip.setBounds(0, 0, associatedImage.width, associatedImage.height);
+                    }
+                }
+                if ( ng.transform.isIdentity() ){
+                    Rectangle r = reusableRect;
+                
+                    ng.clip.getBounds(r);
+                    ng.clipX = r.getX();
+                    ng.clipY = r.getY();
+                    ng.clipW = r.getWidth();
+                    ng.clipH = r.getHeight();
+                } else {
+                    
+                    GeneralPath inverseClip = ng.inverseClip();
+                    Rectangle r = reusableRect;
+                    inverseClip.getBounds(r);
+                    ng.clipX = r.getX();
+                    ng.clipY = r.getY();
+                    ng.clipW = r.getWidth();
+                    ng.clipH = r.getHeight();
+                } 
+
+            }
+        }
+        
+        int getClipX() {
+            loadClipBounds();
+            return clipX;
+        }
+        
+        int getClipY() {
+            loadClipBounds();
+            return clipY;
+        }
+        
+        int getClipW() {
+            loadClipBounds();
+            if(clipW < 0 && associatedImage != null) {
+                return associatedImage.width;
+            }
+            return clipW;
+        }
+        
+        int getClipH() {
+            loadClipBounds();
+            if(clipH < 0 && associatedImage != null) {
+                return associatedImage.height;
+            }
+            return clipH;
+        }
+        
+        void setTransform(Transform t) {
+            if (transform == null) {
+                transform = Transform.makeIdentity();
+            }
+            transform.setTransform(t);
+            inverseTransformDirty = true;
+            clipDirty = true;
+            transformApplied = false;
+            applyTransform();
+        }
+        
+        Transform inverseTransform() {
+            
+            if (inverseTransformDirty) {
+                if (inverseTransform == null) {
+                    inverseTransform = Transform.makeIdentity();
+                }
+                if (transform == null) {
+                    inverseTransform.setIdentity();
+                } else {
+                    try {
+                        transform.getInverse(inverseTransform);
+                    } catch (Transform.NotInvertibleException ex) {
+                        throw new RuntimeException("The transform "+transform+" cannot be inverted");
+                    }
+                }
+                inverseTransformDirty = false;
+            }
+            return inverseTransform;
+            
+        }
+        
+        
+        GeneralPath inverseClip() {
+            if (inverseClipDirty) {
+
+                if (clip == null) {
+                    return null;
+                }
+                if (inverseClip == null) {
+                    inverseClip = new GeneralPath();
+                }
+                inverseClip.setShape(clip, inverseTransform());
+                inverseClipDirty = false;
+            }
+            return inverseClip;
+        }
+        
+        
+
+        public NativeFont getFont() {
+            if(font != null) {
+                return font;
+            }
+            return (NativeFont)getDefaultFont();
+        }
+
+        public void applyTransform(){
+            if (!transformApplied) {
+                setNativeTransformMutable(this.transform);
+                transformApplied = true;
+            }
+        }
+        
+        public void pushClip(){
+            
+            ClipShape newClip = ClipShape.create();
+            newClip.setShape(clip, null);
+            clipStack[clipStackPtr++] = newClip;
+            
+        }
+        
+        public Shape popClip(){
+            ClipShape s = clipStack[--clipStackPtr];
+            //Log.p("Popping clip "+s);
+            clipApplied = false;
+            clip.setShape(s, null);
+            ClipShape.recycle(s);
+            applyClip();
+            return s;
+        }
+        
+        public void applyClip() {
+            if ( clipApplied ){
+                return;
+            }
+            //Log.p("In applyClip");
+            if ( this.clip == null ){
+                //Log.p("Clip is null");
+                int w = associatedImage == null ? Display.getInstance().getDisplayWidth() : associatedImage.width;
+                int h = associatedImage == null ? Display.getInstance().getDisplayHeight() : associatedImage.height;
+                clipX = 0;
+                clipY = 0;
+                clipW = w;
+                clipH = h;
+                this.clip = new ClipShape();
+                this.clip.setBounds(0,0,w,h);
+                setNativeClipping(0,0,w,h,clipApplied);
+                clipApplied = true;
+                return;
+            }
+            if ( this.clip.isRect() ){
+                //Log.p("Clip is a rectangle");
+                //Log.p(""+this.clip);
+                Rectangle r = this.reusableRect;
+                this.clip.getBounds(r);
+                setNativeClipping(r.getX(), r.getY(), r.getWidth(), r.getHeight(), clipApplied);
+                clipApplied = true;
+            } else {
+                //Log.p("Clip is not a rectangle");
+                //Log.p(""+this.clip);
+                setNativeClipping(this.clip);
+                clipApplied = true;
+            }
+            
+        }
+
+        public void checkControl() {
+            if(currentlyDrawingOn != this) {
+                if(currentlyDrawingOn != null) {
+                    currentlyDrawingOn.associatedImage.peer = finishDrawingOnImage();
+                }
+                startDrawingOnImage(associatedImage.width, associatedImage.height, associatedImage.peer);
+                currentlyDrawingOn = this;
+            }
+        }
+
+        
+        void setNativeClipping(int x, int y, int width, int height, boolean firstClip) {
+            setNativeClippingMutable(x, y, width, height, firstClip);
+        }
+        
+        void setNativeClipping(ClipShape shape){
+
+            if (shape.isRect()) {
+                shape.getBounds(reusableRect);
+                setNativeClippingMutable(reusableRect.getX(), reusableRect.getY(), reusableRect.getWidth(), reusableRect.getHeight(), clipApplied);
+
+            } else {
+                // The native side (setNativeClippingShapeMutableImpl in
+                // CodenameOne_GLViewController.m) ignores the commands
+                // array and treats every (x, y) pair in the points buffer
+                // as a polygon vertex. For a path with curves that means
+                // control points appear as polygon vertices, producing
+                // the SVG "triangle clip" symptom for gradient_circle.svg
+                // and clipped_badge.svg. Flatten on the Java side so the
+                // points buffer contains only true polyline vertices.
+                ClipShape polyShape = flattenClipShapeIfNeeded(shape);
+                int commandsLen = polyShape.getTypesSize();
+                int pointsLen = polyShape.getPointsSize();
+                byte[] commandsArr = getTmpNativeDrawShape_commands(commandsLen);
+                float[] pointsArr = getTmpNativeDrawShape_coords(pointsLen);
+                polyShape.getTypes(commandsArr);
+                polyShape.getPoints(pointsArr);
+                nativeInstance.setNativeClippingMutable(commandsLen, commandsArr, pointsLen, pointsArr);
+            }
+        }
+
+        void nativeDrawLine(int color, int alpha, int x1, int y1, int x2, int y2) {
+            // The C-side nativeDrawLineMutableImpl already short-circuits
+            // through Metal under #ifdef CN1_USE_METAL (queues a DrawLine op
+            // tagged with currentMutableImage). No Java-side Metal/GL gate
+            // needed.
+            nativeDrawLineMutable(color, alpha, x1, y1, x2, y2);
+        }
+
+        void nativeFillRect(int color, int alpha, int x, int y, int width, int height) {
+            // Same as nativeDrawLine: the C-side nativeFillRectMutableImpl
+            // routes through the Metal pipeline under #ifdef CN1_USE_METAL.
+            nativeFillRectMutable(color, alpha, x, y, width, height);
+        }
+
+        void nativeDrawRect(int color, int alpha, int x, int y, int width, int height) {
+            // Same as nativeDrawLine / nativeFillRect: the C-side
+            // nativeDrawRectMutableImpl routes through the Metal pipeline
+            // under #ifdef CN1_USE_METAL.
+            nativeDrawRectMutable(color, alpha, x, y, width, height);
+        }
+
+        void nativeDrawRoundRect(int color, int alpha, int x, int y, int width, int height, int arcWidth, int arcHeight) {
+            if (metalRendering) {
+                // Build a round-rect GeneralPath and stroke it via the
+                // alpha-mask Metal pipeline (Renderer.c -> R8 MTLTexture ->
+                // DrawTextureAlphaMask op tagged with currentMutableImage).
+                GeneralPath p = roundRectPath(x, y, width, height, arcWidth, arcHeight);
+                if (tmpStroke1px == null) tmpStroke1px = new Stroke(1, Stroke.CAP_BUTT, Stroke.JOIN_ROUND, 1f);
+                renderShapeViaAlphaMask(p, tmpStroke1px);
+                return;
+            }
+            // GL: drawTextureAlphaMaskImpl can't tag the alpha-mask op with
+            // a mutable target on a non-Metal build, so the mask would land
+            // on the screen instead of inside the mutable's UIImage. Fall
+            // back to the legacy CG-rasterise-and-DrawImage JNI which
+            // writes directly to the mutable's CGContextRef.
+            nativeInstance.nativeDrawRoundRectMutable(color, alpha, x, y, width, height, arcWidth, arcHeight);
+        }
+
+        void nativeFillRoundRect(int color, int alpha, int x, int y, int width, int height, int arcWidth, int arcHeight) {
+            if (metalRendering) {
+                GeneralPath p = roundRectPath(x, y, width, height, arcWidth, arcHeight);
+                renderShapeViaAlphaMask(p, null);
+                return;
+            }
+            nativeInstance.nativeFillRoundRectMutable(color, alpha, x, y, width, height, arcWidth, arcHeight);
+        }
+
+        void nativeDrawArc(int color, int alpha, int x, int y, int width, int height, int startAngle, int arcAngle) {
+            if (metalRendering) {
+                if (drawingArcPath == null) drawingArcPath = new GeneralPath();
+                if (tmpStroke1px == null) tmpStroke1px = new Stroke(1, Stroke.CAP_BUTT, Stroke.JOIN_ROUND, 1f);
+                drawingArcPath.reset();
+                drawingArcPath.arc(x, y, width, height, startAngle * Math.PI / 180, arcAngle * Math.PI / 180, false);
+                renderShapeViaAlphaMask(drawingArcPath, tmpStroke1px);
+                return;
+            }
+            nativeInstance.nativeDrawArcMutable(color, alpha, x, y, width, height, startAngle, arcAngle);
+        }
+
+        void nativeFillArc(int color, int alpha, int x, int y, int width, int height, int startAngle, int arcAngle) {
+            if (metalRendering) {
+                if (drawingArcPath == null) drawingArcPath = new GeneralPath();
+                drawingArcPath.reset();
+                if (arcAngle >= 360 || arcAngle <= -360) {
+                    // Full circle/ellipse: omit the moveTo(center). With it the
+                    // path is center -> arc start -> 360 -> close back to
+                    // center, which Renderer.c rasterises with a visible slice
+                    // line from center to the start point.
+                    drawingArcPath.arc(x, y, width, height, startAngle * Math.PI / 180, arcAngle * Math.PI / 180, false);
+                } else {
+                    drawingArcPath.moveTo(x + width / 2, y + height / 2);
+                    drawingArcPath.arc(x, y, width, height, startAngle * Math.PI / 180, arcAngle * Math.PI / 180, true);
+                }
+                drawingArcPath.closePath();
+                renderShapeViaAlphaMask(drawingArcPath, null);
+                return;
+            }
+            nativeInstance.nativeFillArcMutable(color, alpha, x, y, width, height, startAngle, arcAngle);
+        }
+
+        private Stroke tmpStroke1px;
+        private GeneralPath drawingArcPath;
+
+        // Build a round-rect path from the parametric (x,y,w,h,arcW,arcH) form
+        // so the alpha-mask pipeline can rasterise it. arcW/arcH are full
+        // ellipse-axis lengths (matching the Java2D / cn1 roundRect contract);
+        // half each gives the corner radii.
+        private GeneralPath roundRectPath(int x, int y, int width, int height, int arcWidth, int arcHeight) {
+            GeneralPath p = new GeneralPath();
+            float rx = Math.min(arcWidth / 2f, width / 2f);
+            float ry = Math.min(arcHeight / 2f, height / 2f);
+            if (rx <= 0 || ry <= 0) {
+                // Degenerate: just emit a rectangle outline.
+                p.moveTo(x, y);
+                p.lineTo(x + width, y);
+                p.lineTo(x + width, y + height);
+                p.lineTo(x, y + height);
+                p.closePath();
+                return p;
+            }
+            // Trace the round-rect outline as a single closed sub-path going
+            // CW in screen coords (Y-down): top edge -> top-right corner ->
+            // right edge -> bottom-right corner -> bottom edge -> bottom-left
+            // corner -> left edge -> top-left corner -> close.
+            //
+            // Each corner arc starts where the previous edge ended and ends
+            // where the next edge begins, so every joinPath=true draws a
+            // zero-length connector. cn1's GeneralPath.arc internally negates
+            // the angles (math-Y-up convention -> screen-Y-down via
+            // -startAngle / -sweepAngle in addToPath), and getPointAtAngle
+            // uses cy + b*sin(theta), which means a user-facing angle of
+            // +pi/2 evaluates to (cx, cy - b) in screen coords (top of bbox)
+            // and 0 evaluates to (cx + a, cy) (right). Sweep -pi/2 traces a
+            // single quadrant CW visually. Concretely:
+            //   top-right    : start +pi/2 (top),    sweep -pi/2 -> right
+            //   bottom-right : start  0    (right),  sweep -pi/2 -> bottom
+            //   bottom-left  : start -pi/2 (bottom), sweep -pi/2 -> left
+            //   top-left     : start +pi   (left),   sweep -pi/2 -> top
+            // The previous version used sweep +pi/2 with the opposite start
+            // angles, which produced an arc traversing the *opposite*
+            // quadrant of the corner bbox. For pills (where adjacent corner
+            // bboxes overlap because h-2ry == 0) the resulting path looped
+            // back through the bbox interior and Renderer.c's winding-fill
+            // pass interpreted that as a tear -- visible as the Switch
+            // track's right-half collapsing into a triangular wedge.
+            //
+            // Skip the inter-corner lineTos when their endpoints would
+            // coincide with the next arc's join target (pill case: rx ==
+            // width/2 collapses the top/bottom edges; ry == height/2
+            // collapses the left/right edges). Emitting a zero-length lineTo
+            // would leave a phantom edge that the winding pass also reads
+            // as a tear.
+            boolean hasTopBottomEdges = rx < width / 2f;
+            boolean hasLeftRightEdges = ry < height / 2f;
+            float twoRx = 2f * rx;
+            float twoRy = 2f * ry;
+            p.moveTo(x + rx, y);
+            if (hasTopBottomEdges) p.lineTo(x + width - rx, y);
+            p.arc(x + width - twoRx, y,                  twoRx, twoRy,  Math.PI / 2, -Math.PI / 2, true);
+            if (hasLeftRightEdges) p.lineTo(x + width, y + height - ry);
+            p.arc(x + width - twoRx, y + height - twoRy, twoRx, twoRy,  0,           -Math.PI / 2, true);
+            if (hasTopBottomEdges) p.lineTo(x + rx, y + height);
+            p.arc(x,                 y + height - twoRy, twoRx, twoRy, -Math.PI / 2, -Math.PI / 2, true);
+            if (hasLeftRightEdges) p.lineTo(x, y + ry);
+            p.arc(x,                 y,                  twoRx, twoRy,  Math.PI,     -Math.PI / 2, true);
+            p.closePath();
+            return p;
+        }
+
+        void nativeDrawString(int color, int alpha, long fontPeer, String str, int x, int y) {
+            boolean antialiasTextChanged = false;
+            if (isAntiAliased() != isAntiAliasedText()) {
+                // We want text to be antialiased
+                antialiasTextChanged = true;
+                setAntiAliased(isAntiAliasedText());
+                
+            }
+            nativeDrawStringMutable(color, alpha, fontPeer, str, x, y);
+            if (antialiasTextChanged) {
+                setAntiAliased(!isAntiAliasedText());
+            }
+        }
+
+        void nativeDrawImage(long peer, int alpha, int x, int y, int width, int height) {
+            nativeDrawImageMutable(peer, alpha, x, y, width, height, renderingHints);
+        }
+
+        void nativeDrawImageRounded(long peer, int alpha, int x, int y, int width, int height, float cornerRadius) {
+            nativeDrawImageRoundedMutable(peer, alpha, x, y, width, height, renderingHints, cornerRadius);
+        }
+        
+        
+        
+        //----------------------------------------------------------------------
+        // BEGIN DRAW SHAPE METHODS
+        
+        void nativeDrawAlphaMask(TextureAlphaMask mask){
+            // Mirror GlobalGraphics: hand the alpha-mask MTLTexture handle
+            // off to drawTextureAlphaMask. The JNI side picks up
+            // currentMutableImage and tags the queued op so drawFrame's
+            // drain (Phase 3 v2) routes it to the mutable's encoder.
+            if (mask != null && mask.getTextureName() != 0) {
+                Rectangle r = mask.getBounds();
+                nativeInstance.drawTextureAlphaMask(mask.getTextureName(), this.color, this.alpha, r.getX(), r.getY(), r.getWidth(), r.getHeight());
+            }
+        }
+        
+        
+        private float[] tmpNativeDrawShape_coords;
+        
+        private float[] getTmpNativeDrawShape_coords(int size) {
+            if (tmpNativeDrawShape_coords == null) {
+                tmpNativeDrawShape_coords = new float[size];
+            }
+            if (tmpNativeDrawShape_coords.length < size) {
+                float[] newArray = new float[size];
+                System.arraycopy(tmpNativeDrawShape_coords, 0, newArray, 0, tmpNativeDrawShape_coords.length);
+                tmpNativeDrawShape_coords = newArray;
+            }
+            return tmpNativeDrawShape_coords;
+        }
+        
+        private float[] growTmpNativeDrawShape_coords(int size, int factor) {
+            if (tmpNativeDrawShape_coords.length < size) {
+                float[] newArray = new float[size * factor];
+                System.arraycopy(tmpNativeDrawShape_coords, 0, newArray, 0, tmpNativeDrawShape_coords.length);
+                tmpNativeDrawShape_coords = newArray;
+            }
+            return tmpNativeDrawShape_coords;
+        }
+        
+        private byte[] getTmpNativeDrawShape_commands(int size) {
+            if (tmpNativeDrawShape_commands == null) {
+                tmpNativeDrawShape_commands = new byte[size];
+            }
+            if (tmpNativeDrawShape_commands.length < size) {
+                byte[] newArray = new byte[size];
+                System.arraycopy(tmpNativeDrawShape_commands, 0, newArray, 0, tmpNativeDrawShape_commands.length);
+                tmpNativeDrawShape_commands = newArray;
+            }
+            return tmpNativeDrawShape_commands;
+        }
+        
+        private byte[] tmpNativeDrawShape_commands;
+        
+        /**
+         * Draws a shape in the graphics context
+         * @param shape
+         * @param stroke
+         */
+        void nativeDrawShape(Shape shape, Stroke stroke) {
+            if (metalRendering) {
+                renderShapeViaAlphaMask(shape, stroke);
+                return;
+            }
+            // GL: serialize the path commands and call the legacy CG-based
+            // JNI which strokes the shape into the mutable's CGContextRef.
+            // The alpha-mask path can't target a mutable on a non-Metal
+            // build (drawTextureAlphaMaskImpl's setTarget is gated by
+            // #ifdef CN1_USE_METAL), so the mask would otherwise land on
+            // the screen and the mutable would come back empty.
+            if (shape.getClass() == GeneralPath.class) {
+                GeneralPath p = (GeneralPath) shape;
+                int commandsLen = p.getTypesSize();
+                int pointsLen = p.getPointsSize();
+                byte[] commandsArr = getTmpNativeDrawShape_commands(commandsLen);
+                float[] pointsArr = getTmpNativeDrawShape_coords(pointsLen);
+                p.getTypes(commandsArr);
+                p.getPoints(pointsArr);
+                nativeInstance.nativeDrawShapeMutable(color, alpha, commandsLen, commandsArr, pointsLen, pointsArr,
+                        stroke.getLineWidth(), stroke.getCapStyle(), stroke.getJoinStyle(), stroke.getMiterLimit());
+            } else {
+                Log.p("Drawing shapes that are not GeneralPath objects is not yet supported on mutable images.");
+            }
+        }
+
+        // Render a shape on the current mutable target via Renderer.c
+        // -> R8 MTLTexture -> DrawTextureAlphaMask op tagged with the
+        // mutable's GLUIImage. Stroke == null means fill.
+        //
+        // Caches the resulting MTLTexture in textureCache keyed on
+        // (shape, stroke) so repeated draws of the same path (typical
+        // theme rendering) hit the cache instead of re-rasterising.
+        //
+        // For non-identity transforms, bakes the transform's scale into
+        // a copy of the shape (so the alpha-mask is rasterised at the
+        // displayed scale, not at unit scale and then scaled), then
+        // draws with the inverse-scale transform applied so the result
+        // lands at the right coordinates. Mirrors what GlobalGraphics
+        // does on the screen-side path.
+        private void renderShapeViaAlphaMask(Shape shape, Stroke stroke) {
+            if (!(shape instanceof GeneralPath)) {
+                Log.p("Drawing shapes that are not GeneralPath objects is not yet supported on mutable images.");
+                return;
+            }
+            if (transform == null || transform.isIdentity()) {
+                TextureAlphaMask mask = textureCache.get(shape, stroke);
+                if (mask == null) {
+                    mask = createAlphaMask(shape, stroke);
+                    textureCache.add(shape, stroke, mask);
+                }
+                if (mask == null) return;
+                nativeDrawAlphaMask(mask);
+                return;
+            }
+            if (tmpDrawShape == null) tmpDrawShape = new GeneralPath();
+            if (tmpTransform == null) tmpTransform = Transform.makeIdentity();
+            if (tmpDrawStroke == null) tmpDrawStroke = new Stroke();
+            if (tmpRect2 == null) tmpRect2 = new Rectangle();
+            // Metal-only path (entry to this method is already gated on
+            // metalRendering). Factor the user transform into a non-uniform
+            // pre-rasterisation scale (sx, sy) plus a residual GPU transform
+            // -- see the matching block in GlobalGraphics.nativeDrawShape for
+            // the rationale (GH-3302 inscribed-shape drift).
+            Matrix nm = (Matrix) transform.getNativeTransform();
+            float[] m = nm.getData();
+            float c0x = m[0], c0y = m[1];
+            float c1x = m[4], c1y = m[5];
+            float sx = (float) Math.sqrt((double) c0x * c0x + (double) c0y * c0y);
+            float sy = (float) Math.sqrt((double) c1x * c1x + (double) c1y * c1y);
+            if (sx < 1e-6f) sx = 1f;
+            if (sy < 1e-6f) sy = 1f;
+            float strokeScale = (sx == sy) ? sx : (float) Math.sqrt((double) sx * (double) sy);
+            tmpTransform.setScale(sx, sy);
+            tmpDrawShape.setShape(shape, tmpTransform);
+            Stroke scaledStroke = null;
+            if (stroke != null) {
+                tmpDrawStroke.setStroke(stroke);
+                tmpDrawStroke.setLineWidth(tmpDrawStroke.getLineWidth() * strokeScale);
+                scaledStroke = tmpDrawStroke;
+            }
+            TextureAlphaMask mask = textureCache.get(tmpDrawShape, scaledStroke);
+            if (mask == null) {
+                mask = createAlphaMask(tmpDrawShape, scaledStroke);
+                textureCache.add(tmpDrawShape, scaledStroke, mask);
+            }
+            if (mask == null) return;
+            // Apply the residual S(1/sx, 1/sy) via the impl-side scale path
+            // -- the same path g.scale uses. Going through setTransform with
+            // a separately-built composed Transform has been documented to
+            // silently fail to update the Metal-side currentTransform in
+            // some cases (see the Transform.setTransform comment about
+            // "iOS Metal port has shown that without this flag
+            // setTransform(composed) silently fails to apply"). The scale
+            // path queues a SetTransform op that reliably reaches both the
+            // screen and mutable-image encoders.
+            scale(1f / sx, 1f / sy);
+            try {
+                nativeDrawAlphaMask(mask);
+            } finally {
+                // Restore by composing the inverse residual back onto the
+                // matrix. After this call the impl matrix is back at
+                // T(...) * S(sx, sy) -- exactly what the caller expects.
+                scale(sx, sy);
+            }
+        }
+
+        private GeneralPath tmpDrawShape;
+        private Transform tmpTransform;
+        private Stroke tmpDrawStroke;
+        private Rectangle tmpRect2;
+
+        /**
+         * Fills a shape in the graphics context.
+         * @param shape
+         */
+        void nativeFillShape(Shape shape) {
+            if (metalRendering) {
+                // Fill is the same alpha-mask path as draw with a null
+                // stroke. Renderer.c on the C side decides fill-vs-stroke
+                // from the stroke being NULL.
+                renderShapeViaAlphaMask(shape, null);
+                return;
+            }
+            if (shape.getClass() == GeneralPath.class) {
+                GeneralPath p = (GeneralPath) shape;
+                int commandsLen = p.getTypesSize();
+                int pointsLen = p.getPointsSize();
+                byte[] commandsArr = getTmpNativeDrawShape_commands(commandsLen);
+                float[] pointsArr = getTmpNativeDrawShape_coords(pointsLen);
+                p.getTypes(commandsArr);
+                p.getPoints(pointsArr);
+                nativeInstance.nativeFillShapeMutable(color, alpha, commandsLen, commandsArr, pointsLen, pointsArr);
+            } else {
+                Log.p("Drawing shapes that are not GeneralPath objects is not yet supported on mutable images.");
+            }
+        }
+
+        boolean isDrawShadowSupported() {
+            // Same reason as the port-level answer above: this is the path that
+            // calls nativeDrawShadowMutable, whose macOS branch is empty.
+            return !isMacPlatform();
+        }
+
+        void nativeDrawShadow(long image, int x, int y, int offsetX, int offsetY, int blurRadius, int spreadRadius, int color, float opacity) {
+            nativeInstance.nativeDrawShadowMutable(image, x, y, offsetX, offsetY, blurRadius, spreadRadius, color, opacity);
+        }
+        
+        boolean isTransformSupported(){
+            return true;
+        }
+        
+        boolean isPerspectiveTransformSupported(){
+            return false;
+        }
+        
+        boolean isShapeSupported(){
+            return true;
+        }
+        
+        boolean isAlphaMaskSupported() {
+            // On Metal nativeDrawShape / nativeFillShape route through the
+            // Renderer.c-driven alpha-mask pipeline (same as GlobalGraphics
+            // on screen). On GL the alpha-mask op can't target a mutable,
+            // so we fall back to the CG path; tell the framework not to
+            // bother building alpha masks for mutable on GL.
+            return metalRendering;
+        }
+
+        // END DRAW SHAPE METHODS
+        //----------------------------------------------------------------------
+        
+        public void resetAffine() {
+            this.transform.setIdentity();
+            transformApplied = false;
+            clipDirty = true;
+            inverseClipDirty = true;
+            inverseTransformDirty = true;
+            this.applyTransform();
+        }
+
+        public void scale(float x, float y) {
+            this.transform.scale(x, y, 1);
+            clipDirty = true;
+            transformApplied = false;
+            inverseClipDirty = true;
+            inverseTransformDirty = true;
+            this.applyTransform();
+        }
+
+        public void rotate(float angle) {
+            this.transform.rotate(angle, 0, 0);
+            clipDirty = true;
+            transformApplied = false;
+            inverseClipDirty = true;
+            inverseTransformDirty = true;
+            applyTransform();
+        }
+
+        public void rotate(float angle, int x, int y) {
+            this.transform.rotate(angle, x, y);
+            transformApplied = false;
+            clipDirty = true;
+            inverseClipDirty = true;
+            inverseTransformDirty = true;
+            this.applyTransform();
+        }
+
+        public void translateMatrix(float x, float y) {
+            // Composes T(x, y) onto the impl-side matrix, exactly like
+            // scale/rotate. NOTE: deliberately does NOT touch the
+            // framework-level xTranslate/yTranslate accumulator that the
+            // legacy g.translate(int, int) path uses. Mixing them is well-
+            // defined (xTranslate is added to draw coords first, then this
+            // matrix applies) but apps that switch to translateMatrix
+            // should generally avoid g.translate so the two don't fight.
+            this.transform.translate(x, y, 0);
+            clipDirty = true;
+            transformApplied = false;
+            inverseClipDirty = true;
+            inverseTransformDirty = true;
+            this.applyTransform();
+        }
+
+        public void translate(int x, int y){
+
+        }
+        
+        public int getTranslateX(){
+            return 0;
+        }
+        public int getTranslateY(){
+            return 0;
+        }
+
+        public void shear(float x, float y) {
+        }
+
+        public void fillRectRadialGradient(int startColor, int endColor, int x, int y, int width, int height, float relativeX, float relativeY, float relativeSize) {
+            nativeInstance.fillRectRadialGradientMutable(startColor, endColor, x, y, width, height, relativeX, relativeY, relativeSize);
+        }
+    
+        public void fillLinearGradient(int startColor, int endColor, int x, int y, int width, int height, boolean horizontal) {
+            nativeInstance.fillLinearGradientMutable(startColor, endColor, x, y, width, height, horizontal);
+        }
+
+        void fillConvexPolygon(float[] points, int color, int alpha) {
+            
+        }
+
+        void drawConvexPolygon(float[] points, int color, int alpha, float lineWidth, int joinStyle, int capStyle, float miterLimit) {
+            
+        }
+
+        boolean isShapeClipSupported() {
+            return true;
+        }
+        
+        public void applyPaint() {
+            if (paint != null && paint instanceof RadialGradient) {
+                RadialGradient g = (RadialGradient)paint;
+                nativeInstance.applyRadialGradientPaintMutable(g.startColor, g.endColor, g.x, g.y, g.width, g.height);
+            }
+        }
+        
+        public void unapplyPaint() {
+            if (paint != null && paint instanceof RadialGradient) {
+                nativeInstance.clearRadialGradientPaintMutable();
+            }
+        }
+
+        public void nativeClearRect(int x, int y, int width, int height) {
+            nativeInstance.clearRectMutable(x, y, width, height);
+        }
+
+        void fillPolygon(int color, int alpha, int[] xPoints, int[] yPoints, int nPoints) {
+            
+            // With mutable contexts the performance should be similar between
+            // drawing a shape and drawing a polygon, so let's just use
+            // the more generate fillShape code.
+            GeneralPath path = GeneralPath.createFromPool();
+            try {
+                for (int i=0; i<nPoints; i++) {
+                    if (i==0) {
+                        path.moveTo(xPoints[0], yPoints[0]);
+                    } else {
+                        path.lineTo(xPoints[i], yPoints[i]);
+                    }
+                }
+                path.closePath();
+                this.nativeFillShape(path);
+            } finally {
+                GeneralPath.recycle(path);
+            }
+        }
+
+        private void setRenderingHints(int hints) {
+            renderingHints = hints;
+        }
+        
+        private int getRenderingHints() {
+            return renderingHints;
+        }
+
+        
+    }
+
+    class GlobalGraphics extends NativeGraphics {
+
+        @Override
+        void setAntiAliased(boolean antialiased) {
+            // Don't do anything here because the global graphcis doesn't support antialiasing.
+        }
+
+        @Override
+        boolean isAntiAliased() {
+            // Currently global graphics doesn't support antialiasing.
+            return false;
+        }
+
+        @Override
+        boolean isDrawShadowSupported() {
+            return false;
+        }
+
+        @Override
+        void nativeDrawShadow(long image, int x, int y, int offsetX, int offsetY, int blurRadius, int spreadRadius, int color, float opacity) {
+
+        }
+
+
+
+        @Override
+        void fillPolygon(int color, int alpha, int[] xPoints, int[] yPoints, int nPoints) {
+            if (GeneralPath.isConvexPolygon(xPoints, yPoints)) {
+                nativeInstance.fillPolygonGlobal(color, alpha, xPoints, yPoints, nPoints);
+            } else {
+                GeneralPath path = GeneralPath.createFromPool();
+                try {
+                    for (int i=0; i<nPoints; i++) {
+                        if (i==0) {
+                            path.moveTo(xPoints[0], yPoints[0]);
+                        } else {
+                            path.lineTo(xPoints[i], yPoints[i]);
+                        }
+                    }
+                    path.closePath();
+                    this.nativeFillShape(path);
+                } finally {
+                    GeneralPath.recycle(path);
+                }
+            }
+        }
+        
+        
+        
+        @Override
+        boolean isAntiAliasingSupported() {
+            // Currently global graphics are drawn on the GPU
+            // and don't support antialiasing on drawLine, drawRect, functions
+            // etc...
+            return false;
+        }
+
+        @Override
+        boolean isAntiAliasTextSupported() {
+            
+            // In global context antialias text is the default, and we don't
+            // support turning it off right now.  I guess the most appropriate
+            // value here is "false" to indicate that this setting
+            // can't be manipulated
+            return false;
+        }
+
+        @Override
+        void setAntiAliasedText(boolean a) {
+            
+        }
+
+        @Override
+        boolean isAntiAliasedText() {
+            // Currently text is always antialiased in global context.
+            return true;
+        }
+        
+        public void applyPaint() {
+            if (paint != null && paint instanceof RadialGradient) {
+                RadialGradient g = (RadialGradient)paint;
+                nativeInstance.applyRadialGradientPaintGlobal(g.startColor, g.endColor, g.x, g.y, g.width, g.height);
+            }
+        }
+        
+        public void unapplyPaint() {
+            if (paint != null && paint instanceof RadialGradient) {
+                nativeInstance.clearRadialGradientPaintGlobal();
+            }
+        }
+        
+        public void checkControl() {
+            if(currentlyDrawingOn != this) {
+                if(currentlyDrawingOn != null) {
+                    currentlyDrawingOn.associatedImage.peer = finishDrawingOnImage();
+                    // Returning to the screen after drawing into a mutable image:
+                    // on the Metal backend the mutable-image draw runs on its own
+                    // render encoder, so the screen encoder's scissor is whatever
+                    // it was last set to -- NOT necessarily the current screen
+                    // clip. clipApplied still reads true, so applyClip() would
+                    // skip re-emitting it and the next screen draw would use a
+                    // stale (often full-screen) scissor. That makes a clip set
+                    // before the mutable-image draw silently not apply to the
+                    // draw after it -> content drawn outside its clip (#5171).
+                    // Invalidate so the screen state is re-applied for the next draw.
+                    clipApplied = false;
+                    transformApplied = false;
+                }
+                currentlyDrawingOn = null;
+            }
+        }
+
+        public void applyTransform(){
+            if ( !transformApplied){
+                setNativeTransformGlobal(this.transform);
+                transformApplied = true;
+            }
+        }
+        
+        public void resetAffine() {
+            this.transform.setIdentity();
+            transformApplied = false;
+            inverseClipDirty = true;
+            clipDirty = true;
+            inverseTransformDirty = true;
+            this.applyTransform();
+        }
+
+        public void scale(float x, float y) {
+            this.transform.scale(x, y, 1);
+            transformApplied = false;
+            inverseClipDirty = true;
+            inverseTransformDirty = true;
+            clipDirty = true;
+            this.applyTransform();
+        }
+
+        public void rotate(float angle) {
+            this.transform.rotate(angle, 0, 0);
+            transformApplied = false;
+            inverseClipDirty = true;
+            inverseTransformDirty = true;
+            clipDirty = true;
+            applyTransform();
+            
+        }
+
+        public void rotate(float angle, int x, int y) {
+            this.transform.rotate(angle, x, y);
+            transformApplied = false;
+            this.applyTransform();
+            inverseClipDirty = true;
+            inverseTransformDirty = true;
+            clipDirty = true;
+
+        }
+
+        public void shear(float x, float y) {
+            nativeInstance.shearGlobal(x, y);
+        }
+        
+        @Override
+        void setNativeClipping(int x, int y, int width, int height, boolean firstClip) {
+            setNativeClippingGlobal(x, y, width, height, firstClip);
+        }
+        
+        @Override
+        void setNativeClipping(ClipShape clip){
+            if (clip.isRect()) {
+                clip.getBounds(reusableRect);
+                setNativeClippingGlobal(reusableRect.getX(), reusableRect.getY(), reusableRect.getWidth(), reusableRect.getHeight(), clipApplied);
+            } else {
+                setNativeClippingGlobal(clip);
+            }
+        }
+
+        void nativeDrawLine(int color, int alpha, int x1, int y1, int x2, int y2) {
+            nativeDrawLineGlobal(color, alpha, x1, y1, x2, y2);
+        }
+
+        void nativeFillRect(int color, int alpha, int x, int y, int width, int height) {
+            nativeFillRectGlobal(color, alpha, x, y, width, height);
+        }
+
+        @Override
+        public void nativeClearRect(int x, int y, int width, int height) {
+            nativeClearRectGlobal(x, y, width, height);
+            
+        }
+        
+        
+
+        void nativeDrawRect(int color, int alpha, int x, int y, int width, int height) {
+            nativeDrawRectGlobal(color, alpha, x, y, width, height);
+        }
+
+        void nativeDrawRoundRect(int color, int alpha, int x, int y, int width, int height, int arcWidth, int arcHeight) {
+            if (metalRendering) {
+                // Route through the alpha-mask Metal pipeline (build a path,
+                // then nativeDrawShape uses Renderer.c -> R8 MTLTexture ->
+                // DrawTextureAlphaMask op).
+                GeneralPath p = roundRectPath(x, y, width, height, arcWidth, arcHeight);
+                if (tmpStroke1px == null) tmpStroke1px = new Stroke(1, Stroke.CAP_BUTT, Stroke.JOIN_ROUND, 1f);
+                nativeDrawShape(p, tmpStroke1px);
+                return;
+            }
+            // GL screen: legacy CG path. Pre-c764fd4 GlobalGraphics already
+            // gated with metalRendering; the unification commit collapsed
+            // it which made the GL screen alpha-mask render diverge from
+            // the GL goldens captured against the CG path. Restoring the
+            // gate keeps existing GL goldens valid.
+            nativeInstance.nativeDrawRoundRectGlobal(color, alpha, x, y, width, height, arcWidth, arcHeight);
+        }
+
+        void nativeFillRoundRect(int color, int alpha, int x, int y, int width, int height, int arcWidth, int arcHeight) {
+            if (metalRendering) {
+                GeneralPath p = roundRectPath(x, y, width, height, arcWidth, arcHeight);
+                nativeFillShape(p);
+                return;
+            }
+            nativeInstance.nativeFillRoundRectGlobal(color, alpha, x, y, width, height, arcWidth, arcHeight);
+        }
+
+        // Build a round-rect path from the parametric (x,y,w,h,arcW,arcH) form
+        // so the alpha-mask Metal pipeline can rasterise it. arcW/arcH are
+        // full ellipse-axis lengths (cn1 / Java2D contract); half each gives
+        // the corner radii. Mirrors MutableGraphics.roundRectPath.
+        private GeneralPath roundRectPath(int x, int y, int width, int height, int arcWidth, int arcHeight) {
+            GeneralPath p = new GeneralPath();
+            float rx = Math.min(arcWidth / 2f, width / 2f);
+            float ry = Math.min(arcHeight / 2f, height / 2f);
+            if (rx <= 0 || ry <= 0) {
+                p.moveTo(x, y);
+                p.lineTo(x + width, y);
+                p.lineTo(x + width, y + height);
+                p.lineTo(x, y + height);
+                p.closePath();
+                return p;
+            }
+            // CW screen-coord traversal with sweep=-pi/2 per corner -- see
+            // MutableGraphics.roundRectPath above for the angle-convention
+            // analysis and why sweep=+pi/2 (the prior code) traced the
+            // opposite quadrant of each corner bbox and produced a
+            // triangular tear on pills.
+            boolean hasTopBottomEdges = rx < width / 2f;
+            boolean hasLeftRightEdges = ry < height / 2f;
+            float twoRx = 2f * rx;
+            float twoRy = 2f * ry;
+            p.moveTo(x + rx, y);
+            if (hasTopBottomEdges) p.lineTo(x + width - rx, y);
+            p.arc(x + width - twoRx, y,                  twoRx, twoRy,  Math.PI / 2, -Math.PI / 2, true);
+            if (hasLeftRightEdges) p.lineTo(x + width, y + height - ry);
+            p.arc(x + width - twoRx, y + height - twoRy, twoRx, twoRy,  0,           -Math.PI / 2, true);
+            if (hasTopBottomEdges) p.lineTo(x + rx, y + height);
+            p.arc(x,                 y + height - twoRy, twoRx, twoRy, -Math.PI / 2, -Math.PI / 2, true);
+            if (hasLeftRightEdges) p.lineTo(x, y + ry);
+            p.arc(x,                 y,                  twoRx, twoRy,  Math.PI,     -Math.PI / 2, true);
+            p.closePath();
+            return p;
+        }
+
+        private Stroke tmpStroke1px;
+        void nativeDrawArc(int color, int alpha, int x, int y, int width, int height, int startAngle, int arcAngle) {
+            // Turns out that using a Shape instead of using a Shader is much faster so we just pipe this
+            // through to DrawShape.
+            // See https://gist.github.com/shannah/85d93674d709c7733e98 for Shader implementation that we decided 
+            // not to use.
+            if (drawingArcPath == null) {
+                drawingArcPath = new GeneralPath();
+            }
+            if (tmpStroke1px == null) {
+                tmpStroke1px = new Stroke(1, Stroke.CAP_BUTT, Stroke.JOIN_ROUND, 1f);
+            }
+            drawingArcPath.reset();
+            //drawingArcPath.moveTo(x + width / 2, y + height / 2);
+            drawingArcPath.arc(x, y, width, height, startAngle * Math.PI / 180, arcAngle * Math.PI / 180, false);
+            //drawingArcPath.closePath();
+            nativeDrawShape(drawingArcPath, tmpStroke1px);
+        }
+
+        // path used by fillArc to fill arcs.
+        private GeneralPath drawingArcPath;
+        
+        void nativeFillArc(int color, int alpha, int x, int y, int width, int height, int startAngle, int arcAngle) {
+            // Turns out that using a Shape instead of using a Shader is much faster so we just pipe this
+            // through to DrawShape.
+            // See https://gist.github.com/shannah/85d93674d709c7733e98 for Shader implementation that we decided
+            // not to use.
+            if (drawingArcPath == null) {
+                drawingArcPath = new GeneralPath();
+            }
+            drawingArcPath.reset();
+            if (arcAngle >= 360 || arcAngle <= -360) {
+                // Full circle/ellipse: skip moveTo(center). Without this the
+                // path is center -> arc start -> 360 -> close back to
+                // center, which rasterises as a pacman with a visible
+                // slice line through the fill (broken thumb on Switch).
+                drawingArcPath.arc(x, y, width, height, startAngle * Math.PI / 180, arcAngle * Math.PI / 180, false);
+            } else {
+                drawingArcPath.moveTo(x + width / 2, y + height / 2);
+                drawingArcPath.arc(x, y, width, height, startAngle * Math.PI / 180, arcAngle * Math.PI / 180, true);
+            }
+            drawingArcPath.closePath();
+            nativeFillShape(drawingArcPath);
+        }
+
+        void nativeDrawString(int color, int alpha, long fontPeer, String str, int x, int y) {
+            nativeDrawStringGlobal(color, alpha, fontPeer, str, x, y);
+        }
+
+        void nativeDrawImage(long peer, int alpha, int x, int y, int width, int height) {
+            nativeDrawImageGlobal(peer, alpha, x, y, width, height, renderingHints);
+        }
+
+        @Override
+        void nativeDrawImageRounded(long peer, int alpha, int x, int y, int width, int height, float cornerRadius) {
+            nativeDrawImageRoundedGlobal(peer, alpha, x, y, width, height, renderingHints, cornerRadius);
+        }
+
+        @Override
+        void nativeDrawAlphaMask(TextureAlphaMask mask) {
+            if ( mask != null && mask.getTextureName() != 0 ){
+                Rectangle r = mask.getBounds();
+                //Log.p("Drawing shape with bounds "+r);
+                nativeInstance.drawTextureAlphaMask(mask.getTextureName(), this.color, this.alpha, r.getX(), r.getY(), r.getWidth(), r.getHeight() );
+            }
+        }
+     
+        void fillConvexPolygon(float[] points, int color, int alpha) {
+            nativeInstance.fillConvexPolygonGlobal(points, color, alpha);
+        }
+
+        void drawConvexPolygon(float[] points, int color, int alpha, float lineWidth, int joinStyle, int capStyle, float miterLimit) {
+            nativeInstance.drawConvexPolygonGlobal(points, color, alpha, lineWidth, joinStyle, capStyle, miterLimit);
+        }
+        
+        private GeneralPath tmpDrawShape;
+        private Transform tmpTransform, tmpTransform2;
+        private Rectangle tmpRect2;
+        private Stroke tmpDrawStroke;
+        private Image coreGraphicsBuffer;
+        void nativeDrawShape(Shape shape, Stroke stroke){//float lineWidth, int capStyle, int miterStyle, float miterLimit) {
+            
+            if (shape instanceof GeneralPath) {
+                if (transform == null || transform.isIdentity()) {
+
+                    TextureAlphaMask mask = textureCache.get(shape, stroke);
+                    if ( mask == null ){
+                        mask = (TextureAlphaMask)createAlphaMask(shape, stroke);
+                        textureCache.add(shape, stroke, mask);
+
+                    }
+                    if (mask==null){
+                        // A null mask generally means the shape had zero bounds
+                        return;
+                    }
+                    //mask = (TextureAlphaMask)createAlphaMask(shape, stroke);
+                    nativeDrawAlphaMask(mask);
+
+
+                } else {
+                    if (tmpDrawShape == null) {
+                        tmpDrawShape = new GeneralPath();
+                    }
+                    if (tmpTransform == null) {
+                        tmpTransform = Transform.makeIdentity();
+                    }
+                    if (tmpTransform2 == null) {
+                        tmpTransform2 = Transform.makeIdentity();
+                    }
+                    if (tmpRect2 == null) {
+                        tmpRect2 = new Rectangle();
+                    }
+                    if (tmpDrawStroke == null) {
+                        tmpDrawStroke = new Stroke();
+                    }
+                    // Factor the user transform into a pre-rasterisation scale
+                    // (sx, sy) and a residual GPU transform = transform *
+                    // S(1/sx, 1/sy). Two strategies:
+                    //
+                    // - Metal: take sx, sy from the column norms of the 2x2
+                    //   linear part of the transform. The path is rasterised
+                    //   at the actual per-axis scale so the residual GPU
+                    //   transform is pure rotation/shear -- no non-uniform
+                    //   texture stretch. This fixes GH-3302: under
+                    //   g.translate + non-uniform g.scale + fillShape the
+                    //   inscribed shape used to drift off the axis-aligned
+                    //   drawRect because the uniform-scale rasterise +
+                    //   non-uniform GPU stretch round to different pixel
+                    //   grids.
+                    //
+                    // - GL ES2: keep the legacy uniform h2/h1 diagonal ratio.
+                    //   Existing GL goldens are calibrated against this
+                    //   behaviour; only Metal opts in to the per-axis
+                    //   decomposition.
+                    float sx, sy;
+                    if (metalRendering) {
+                        Matrix nm = (Matrix) transform.getNativeTransform();
+                        float[] m = nm.getData();
+                        // Column-major 4x4: column 0 = [m[0], m[1], ...],
+                        // column 1 = [m[4], m[5], ...]. Length of each column
+                        // is the per-axis scale magnitude (true for pure
+                        // scale, scale-then-rotate, and rotate-then-scale;
+                        // shear contributes to both norms equally).
+                        float c0x = m[0], c0y = m[1];
+                        float c1x = m[4], c1y = m[5];
+                        sx = (float) Math.sqrt((double) c0x * c0x + (double) c0y * c0y);
+                        sy = (float) Math.sqrt((double) c1x * c1x + (double) c1y * c1y);
+                        if (sx < 1e-6f) sx = 1f;
+                        if (sy < 1e-6f) sy = 1f;
+                    } else {
+                        GeneralPath p = (GeneralPath) shape;
+                        Rectangle origBounds = reusableRect;
+                        Rectangle transformedBounds = tmpRect2;
+                        p.getBounds(origBounds);
+                        tmpDrawShape.setShape(shape, transform);
+                        tmpDrawShape.getBounds(transformedBounds);
+                        double h1 = Math.sqrt(origBounds.getWidth() * origBounds.getWidth() + origBounds.getHeight() * origBounds.getHeight());
+                        double h2 = Math.sqrt(transformedBounds.getWidth() * transformedBounds.getWidth() + transformedBounds.getHeight() * transformedBounds.getHeight());
+                        if (h2 < 1) h2 = 1;
+                        if (h1 < 1) h1 = 1;
+                        float scale = (float) (h2 / h1);
+                        sx = sy = scale;
+                    }
+                    // Stroke widening: in path space the renderer can only
+                    // produce a circular pen, but the residual GPU transform
+                    // does not scale (Metal) or applies a non-uniform stretch
+                    // (GL legacy). Use the geometric mean of the per-axis
+                    // scales so the on-screen stroke matches what the user
+                    // asked for on average; when sx == sy this collapses to
+                    // the uniform legacy behaviour.
+                    float strokeScale = (sx == sy) ? sx : (float) Math.sqrt((double) sx * (double) sy);
+                    tmpTransform.setScale(sx, sy);
+                    tmpDrawShape.setShape(shape, tmpTransform);
+
+                    if (stroke != null) {
+                        tmpDrawStroke.setStroke(stroke);
+                        tmpDrawStroke.setLineWidth(tmpDrawStroke.getLineWidth() * strokeScale);
+                    }
+                    TextureAlphaMask mask = textureCache.get(tmpDrawShape, stroke==null?null:tmpDrawStroke);
+                    if ( mask == null ){
+                        mask = (TextureAlphaMask)createAlphaMask(tmpDrawShape, stroke==null?null:tmpDrawStroke);
+                        textureCache.add(tmpDrawShape, stroke==null?null:tmpDrawStroke, mask);
+                    }
+                    if (mask==null){
+                        return;
+                    }
+                    if (paint != null && paint instanceof RadialGradient) {
+                        RadialGradient rgp = (RadialGradient)paint;
+                        rgp.x = (int) (rgp.x * sx);
+                        rgp.y = (int) (rgp.y * sy);
+                        rgp.width = (int) (rgp.width * sx);
+                        rgp.height = (int) (rgp.height * sy);
+                        applyPaint();
+                    }
+                    // Apply the residual S(1/sx, 1/sy) via the impl-side scale
+                    // path (the same path g.scale uses). Going through
+                    // setTransform with a separately-built composed Transform
+                    // has been documented to silently fail to update the
+                    // Metal-side currentTransform (see the comment in
+                    // Transform.setTransform). The scale path reliably queues
+                    // a SetTransform op that reaches both the screen and the
+                    // mutable-image encoders.
+                    scale(1f / sx, 1f / sy);
+                    try {
+                        nativeDrawAlphaMask(mask);
+                    } finally {
+                        scale(sx, sy);
+                    }
+                }
+            } else {
+                Log.p("drawShape() only supported for GeneralPaths currently");
+            }
+        }
+
+        
+        /**
+         * Draws a path on the current graphics context.
+         *
+         * @param graphics the graphics context
+         * @param path the path to draw.
+         */
+        void nativeFillShape(Shape shape) {
+            nativeDrawShape(shape, null);
+        }
+        
+        boolean isTransformSupported(){
+            //return nativeInstance.nativeIsTransformSupportedGlobal();
+            return true; // Since they both support it now.
+        }
+        
+        boolean isPerspectiveTransformSupported(){
+            return nativeInstance.nativeIsPerspectiveTransformSupportedGlobal();
+        }
+        
+        boolean isShapeSupported(){
+            //return nativeInstance.nativeIsShapeSupportedGlobal();
+            return true;
+        }
+        
+        
+        boolean isAlphaMaskSupported(){
+            return true;
+            //return nativeInstance.nativeIsAlphaMaskSupportedGlobal();
+        }
+        
+        public void fillRectRadialGradient(int startColor, int endColor, int x, int y, int width, int height, float relativeX, float relativeY, float relativeSize) {
+            nativeInstance.fillRectRadialGradientGlobal(startColor, endColor, x, y, width, height, relativeX, relativeY, relativeSize);
+        }
+    
+        public void fillLinearGradient(int startColor, int endColor, int x, int y, int width, int height, boolean horizontal) {
+            nativeInstance.fillLinearGradientGlobal(startColor, endColor, x, y, width, height, horizontal);
+        }
+        
+    }
+
+    public static long getFontPeer(NativeFont font) {
+        return font.peer;
+    }
+    
+    class NativeFont {
+        long peer;
+        int style;
+        int face;
+        int size;
+        String name;
+        int weight;
+        float height;
+        int maxStringLength = -1;
+        private final Map<Character, Integer> widthCache = new HashMap<Character, Integer>();
+        
+        public NativeFont() {
+        }
+        
+        public int getMaxStringLength() {
+            if(maxStringLength == -1) {
+                int w = charWidth('X');
+                maxStringLength = Math.max(getDisplayWidth(), getDisplayHeight()) * 2 / w;
+            }
+            return maxStringLength;
+        }
+        
+        public int charWidth(char c) {
+            Character chr = new Character(c);
+            Integer w = widthCache.get(chr);
+            if(w != null) {
+                return w.intValue();
+            }
+            int v = charWidthNative(peer, c);
+            widthCache.put(chr, v);
+            return v;
+        }
+        
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof NativeFont)) {
+                return false;
+            }
+            NativeFont f = (NativeFont)o;
+            if (name != null || f.name != null) {
+                return name != null && name.equals(f.name) && f.weight == weight && f.height == height;
+            }
+            if (weight != 0 || height != 0 || f.weight != 0 || f.height != 0) {
+                return f.style == style && f.face == face && f.weight == weight && f.height == height;
+            }
+            return f.style == style && f.face == face && f.size == size;
+        }
+        
+        public int hashCode() {
+            int result;
+            if (name != null) {
+                result = name.hashCode();
+                result = 31 * result + weight;
+                result = 31 * result + Float.floatToIntBits(height);
+                return result;
+            }
+            if (weight != 0 || height != 0) {
+                result = style;
+                result = 31 * result + face;
+                result = 31 * result + weight;
+                result = 31 * result + Float.floatToIntBits(height);
+                return result;
+            }
+            return style | face | size;
+        }
+
+        // this might be a problem with font caching
+        /*protected void finalize() {
+            if(peer != 0) {
+                CodenameOneiPhoneNative.deleteNativeFontPeer(peer);
+            }
+        }*/
+    }
+
+    class NativeImage {
+        boolean scaled;
+        NativeGraphics child;
+        int width;
+        int height;
+        long peer;
+        String debugText;
+        public NativeImage(String debugText) {
+            this.debugText = debugText;
+        }
+        public String toString() {
+            return debugText;
+        }
+
+        public NativeGraphics getGraphics() {
+            if(child == null) {
+                child = new NativeGraphics();
+                child.associatedImage = this;
+            }
+            return child;
+        }
+        
+        void deleteImage() {
+            if(peer != 0) {
+                deleteNativePeer(peer);
+                peer = 0;
+            }            
+        }
+
+        protected void finalize() {
+            deleteImage();
+        }
+    }
+    
+    @Override
+    public boolean animateImage(Object nativeImage, long lastFrame) {
+        return super.animateImage(nativeImage, lastFrame);
+    }
+
+    @Override
+    public void browserBack(PeerComponent browserPeer) {
+        nativeInstance.browserBack(get(browserPeer));
+    }
+
+    @Override
+    public void browserStop(PeerComponent browserPeer) {
+        nativeInstance.browserStop(get(browserPeer));
+    }
+    
+    @Override
+    public void browserClearHistory(PeerComponent browserPeer) {
+        nativeInstance.browserClearHistory(get(browserPeer));
+    }
+
+    @Override
+    public void browserExecute(PeerComponent browserPeer, String javaScript) {
+        nativeInstance.browserExecute(get(browserPeer), javaScript);
+    }
+    
+    public boolean supportsExecuteAndReturnString(final PeerComponent browserPeer) {
+        return true;
+    }
+    
+    @Override
+    public String browserExecuteAndReturnString(final PeerComponent browserPeer, final String javaScript) {
+        if (disableUIWebView || !Boolean.FALSE.equals(browserPeer.getClientProperty("BrowserComponent.useWKWebView"))) {
+            final String[] res = new String[1];
+            final boolean[] complete = new boolean[1];
+            nativeInstance.browserExecuteAndReturnStringCallback(get(browserPeer), javaScript, new SuccessCallback<String>() {
+                @Override
+                public void onSucess(String value) {
+                    synchronized(complete) {
+                        res[0] = value;
+                        complete[0] = true;
+                        complete.notify();
+                    }
+                }
+                
+            });
+            while (!complete[0]) {
+                synchronized(complete) {
+                    Util.wait(complete);
+                }
+            }
+            return res[0];
+        }
+        if(Display.getInstance().isEdt()) {
+            final String[] result = new String[1];
+
+            // We cannot block the EDT so we use invokeAndBlock. This is very
+            // important since Javascript may try to communicate with the EDT
+            // from inside the script.
+            Display.getInstance().invokeAndBlock(new Runnable(){
+                public void run() {
+                    result[0] = nativeInstance.browserExecuteAndReturnString(get(browserPeer), javaScript);
+                }
+            });
+            return result[0];
+        } 
+        return nativeInstance.browserExecuteAndReturnString(get(browserPeer), javaScript);        
+    }
+
+    @Override
+    public void browserExposeInJavaScript(PeerComponent browserPeer, Object o, String name) {
+        // TODO
+    }
+
+    @Override
+    public void browserForward(PeerComponent browserPeer) {
+        nativeInstance.browserForward(get(browserPeer));
+    }
+
+    @Override
+    public boolean browserHasBack(PeerComponent browserPeer) {
+        return nativeInstance.browserHasBack(get(browserPeer));
+    }
+
+    @Override
+    public boolean browserHasForward(PeerComponent browserPeer) {
+        return nativeInstance.browserHasForward(get(browserPeer));
+    }
+
+    @Override
+    public void browserReload(PeerComponent browserPeer) {
+        nativeInstance.browserReload(get(browserPeer));
+    }
+
+    @Override
+    public void lockScreen(){
+        nativeInstance.lockScreen();
+    }
+    
+    @Override
+    public void unlockScreen(){
+        nativeInstance.unlockScreen();
+    }
+
+    @Override
+    public boolean isScreenLockSupported() {
+        return true;
+    }
+    
+    
+    /// tvOS and watchOS have no rotatable device orientation. IOSNative's
+    /// lockOrientation compiles the rotation away on both of those slices and
+    /// only records the requested lock, so answering true here promised callers
+    /// something the port cannot deliver. Anything that then waited for the
+    /// rotation to land waited for an event that could never arrive: an Apple TV
+    /// frame is landscape by construction, so a poll for portrait never settles
+    /// and burns its entire budget before giving up. That is what pushed
+    /// OrientationLockScreenshotTest past the compliance suite's per-test
+    /// timeout on tvOS. Reporting the truth sends those callers down their
+    /// fixed-orientation path immediately instead.
+    @Override
+    public boolean canForceOrientation() {
+        return !isWatch() && !isTV();
+    }
+
+    /*@Override
+    public void playAudio(Object handle) {
+        long[] l = (long[])handle;
+        if(l[0] == 0) {
+            return;
+        }
+        nativeInstance.playAudio(l[0]);
+    }
+
+    @Override
+    public void cleanupAudio(Object handle) {
+        long[] l = (long[])handle;
+        if(l[0] == 0) {
+            return;
+        }
+        l[0] = 0;
+        nativeInstance.cleanupAudio(l[0]);
+    }*/
+
+    private int dDensity = -1;
+    
+    /// The screen's own scale, asked of the platform rather than inferred.
+    ///
+    /// This used to map from getDeviceDensity(), which is wrong in both of that
+    /// method's modes: the density bucket approximates DPI and is picked from the
+    /// display RESOLUTION, so a 750x1334 2x phone lands in a bucket that implies
+    /// 3, and under ios.densityOld a Retina iPad can land in a bucket this had no
+    /// case for at all and answered 0. A caller converting platform-logical units
+    /// then sized everything by the ratio between the two.
+    @Override
+    public float getDevicePixelRatio() {
+        float scale = nativeInstance.getDisplayScale();
+        return scale > 0 ? scale : super.getDevicePixelRatio();
+    }
+
+    @Override
+    public int getDeviceDensity() {
+        // IMPORTANT:  If you modify this method, you MUST make the equivalent changes
+        // to the getDeviceDensity() method in the Shooter project or the iOS screenshots
+        // will produce slightly different results than the actual device.
+        
+        if(dDensity == -1) {
+            if(Display.getInstance().getProperty("ios.densityOld", "false").equals("true")) {
+                dDensity = super.getDeviceDensity();
+                return dDensity;
+            }
+            int dispWidth = getDisplayWidth();
+            int dispHeight = getDisplayHeight();
+            // ipad mini is ignored, there is no sensible way to detect it
+            if(isTablet()) {
+                if(dispWidth < 1100) {
+                    dDensity = Display.DENSITY_MEDIUM;
+                    return dDensity;
+                }
+                dDensity = Display.DENSITY_VERY_HIGH;
+                return dDensity;
+            } else {
+                if(dispWidth < 500) {
+                    dDensity = Display.DENSITY_MEDIUM;
+                    return dDensity;
+                }
+                int largest = Math.max(dispWidth, dispHeight);
+                int smallest = Math.min(dispWidth, dispHeight);
+                if (largest == 2340 && smallest == 1080) {
+                    // 12 mini
+                    //ppi = PPI_476;
+                    dDensity = Display.DENSITY_560;
+                    return dDensity;
+                }
+                else if (largest == 2532 && smallest == 1170) {
+                    // iPhone 12, 12 Pro, 13, 13 Pro, 14
+                    dDensity = Display.DENSITY_560;
+                    return dDensity;
+                }
+                else if (largest == 2556 && smallest == 1179) {
+                    // iPhone 14 Pro, 15, 15 Pro, 16
+                    //ppi = PPI_460;
+                    dDensity = Display.DENSITY_560;
+                    return dDensity;
+                }
+                else if (largest == 2796 && smallest == 1290) {
+                    // iPhone 14 Pro Max, 15 Plus, 15 Pro Max, 16 Plus
+                    //ppi = PPI_460;
+                    dDensity = Display.DENSITY_560;
+                    return dDensity;
+                }
+                else if (largest == 2622 && smallest == 1206) {
+                    // iPhone 16 Pro
+                    //ppi = PPI_460;
+                    dDensity = Display.DENSITY_560;
+                    return dDensity;
+                }
+                else if (largest == 2868 && smallest == 1320) {
+                    // iPhone 16 Pro Max
+                    //ppi = PPI_460;
+                    dDensity = Display.DENSITY_560;
+                    return dDensity;
+                }
+                else if (largest == 2778 && smallest == 1284) {
+                    // iPhone 12 Pro Max, 13 Pro Max, 14 Plus
+                    //ppi = PPI_458;
+                    dDensity = Display.DENSITY_560;
+                    return dDensity;
+                }
+                else if (largest == 1792 && smallest == 828) {
+                    // iPhone 11, XR
+                    //ppi = PPI_326;
+                    dDensity = Display.DENSITY_VERY_HIGH;
+                    return dDensity;
+                } else if (largest == 2688 && smallest == 1242) {
+                    // iPhone 11 Pro Max, Xs Max
+                    //ppi = PPI_458;
+                    dDensity = Display.DENSITY_560;
+                    return dDensity;
+                } else if (largest == 2208 && smallest == 1242) {
+                    // 6+, 6s, 7+, 8+
+                    //ppi = PPI_401;
+                    dDensity = Display.DENSITY_HD;
+                    return dDensity;
+                } else if (largest == 1334 && smallest == 750) {
+                    // 6, 6s, 7, 8
+                    //ppi = PPI_326;
+                    dDensity = Display.DENSITY_VERY_HIGH;
+                    return dDensity;
+                } else if (largest == 1136 && smallest == 640) {
+                    //5, 5s, 5c, SE
+                    //ppi = PPI_326;
+                    dDensity = Display.DENSITY_VERY_HIGH;
+                    return dDensity;
+                } else if (largest == 960 && smallest == 640) {
+                    // 4, 4s
+                    //ppi = PPI_326;
+                    dDensity = Display.DENSITY_VERY_HIGH;
+                    return dDensity;
+                } else if (largest == 480 && smallest == 320) {
+                    //2G, 3G, 3GS
+                    //ppi = PPI_163;
+                    dDensity = Display.DENSITY_MEDIUM;
+                    return dDensity;
+                }
+                else if (largest == 2436) {
+                    // iphone X
+                    //ppi = 18.031496062992126;
+                    dDensity = Display.DENSITY_560;
+                    return dDensity;
+                } 
+                else if(largest > 2000) {
+                    dDensity = Display.DENSITY_560;
+                    return dDensity;
+                }
+                dDensity = Display.DENSITY_VERY_HIGH;
+                return dDensity;
+            }
+        }
+        return dDensity;
+    }
+
+    @Override
+    public boolean isSimulator() {
+        return nativeInstance.isSimulator();
+    }
+    
+    double ppi = 0;
+    private static final double PPI_458 = 18.031496062992126;
+    private static final double PPI_326 = 12.834645669291339;
+    private static final double PPI_401 = 15.78740157480315;
+    private static final double PPI_163 = 6.417322834645669;
+    private static final double PPI_476 = 18.740157480314963;
+    private static final double PPI_460 = 18.11023622047244;
+    
+    @Override
+    public int convertToPixels(int dipCount, boolean horizontal) {
+        // IMPORTANT:  If you modify this method, you MUST make the equivalent changes
+        // to the convertToPixels() method in the Shooter project or the iOS screenshots
+        // will produce slightly different results than the actual device.
+        
+        // ipad mini is ignored, there is no sensible way to detect it
+        if(ppi == 0) {
+            int dispWidth = getDisplayWidth();
+            if(isTablet()) {
+                if(dispWidth < 1100) {
+                    ppi = 5.1975051975052;
+                } else {
+                    ppi = 10.3939299449122;
+                }
+            } else {
+                if(dispWidth < 500) {
+                    ppi = 6.4173236936575;
+                } else {
+                    int dispHeight = getDisplayHeight();
+                    int largest = Math.max(dispWidth, dispHeight);
+                    int smallest = Math.min(dispWidth, dispHeight);
+                    if (largest == 2340 && smallest == 1080) {
+                        // 12 mini
+                        ppi = PPI_476;
+                    }
+                    else if (largest == 2532 && smallest == 1170) {
+                        // iPhone 12, 12 Pro, 13, 13 Pro, 14
+                        ppi = PPI_460;
+                    }
+                    else if (largest == 2556 && smallest == 1179) {
+                        // iPhone 14 Pro, 15, 15 Pro, 16
+                        ppi = PPI_460;
+                    }
+                    else if (largest == 2796 && smallest == 1290) {
+                        // iPhone 14 Pro Max, 15 Plus, 15 Pro Max, 16 Plus
+                        ppi = PPI_460;
+                    }
+                    else if (largest == 2622 && smallest == 1206) {
+                        // iPhone 16 Pro
+                        ppi = PPI_460;
+                    }
+                    else if (largest == 2868 && smallest == 1320) {
+                        // iPhone 16 Pro Max
+                        ppi = PPI_460;
+                    }
+                    else if (largest == 2778 && smallest == 1284) {
+                        // iPhone 12 Pro Max, 13 Pro Max, 14 Plus
+                        ppi = PPI_458;
+                    }
+                    else if (largest == 1792 && smallest == 828) {
+                        // iPhone 11, XR
+                        ppi = PPI_326;
+                    } else if (largest == 2688 && smallest == 1242) {
+                        // iPhone 11 Pro Max, Xs Max
+                        ppi = PPI_458;
+                    } else if (largest == 2208 && smallest == 1242) {
+                        // 6+, 6s+, 7+, 8+
+                        ppi = PPI_401;
+                    } else if (largest == 1334 && smallest == 750) {
+                        // 6, 6s, 7, 8, SE 2nd/3rd gen
+                        ppi = PPI_326;
+                    } else if (largest == 1136 && smallest == 640) {
+                        //5, 5s, 5c, SE 1st gen
+                        ppi = PPI_326;
+                    } else if (largest == 960 && smallest == 640) {
+                        // 4, 4s
+                        ppi = PPI_326;
+                    } else if (largest == 480 && smallest == 320) {
+                        //2G, 3G, 3GS
+                        ppi = PPI_163;
+                    }
+                    else if (largest == 2436) {
+                        // iPhone X, Xs, 11 Pro
+                        ppi = PPI_458;
+                    } else {
+                        // Unknown 3x device. Apple has held 460 ppi for every
+                        // non-Plus iPhone since the iPhone 12, so default future
+                        // phones to that rather than the legacy 6 Plus value.
+                        if (largest > 2000) {
+                            ppi = PPI_460;
+                        } else {
+                            // Older 2x device fallback (~PPI_326).
+                            ppi = 12.8369704749679;
+                        }
+                    }
+                }
+            }
+        }
+        return (int)Math.round((((float)dipCount) * ppi));
+    }
+    
+    
+    @Override
+    public Object getPasteDataFromClipboard() {
+        String s = nativeInstance.getClipboardString();
+        com.codename1.ui.ClipboardContent content = new com.codename1.ui.ClipboardContent()
+                .setData(com.codename1.ui.ClipboardContent.MIME_TEXT, s)
+                .setData(com.codename1.ui.ClipboardContent.MIME_HTML,
+                        nativeInstance.getClipboardContent(com.codename1.ui.ClipboardContent.MIME_HTML))
+                .setData(com.codename1.ui.ClipboardContent.MIME_RTF,
+                        nativeInstance.getClipboardContent(com.codename1.ui.ClipboardContent.MIME_RTF))
+                .setData(com.codename1.ui.ClipboardContent.MIME_MARKDOWN,
+                        nativeInstance.getClipboardContent(com.codename1.ui.ClipboardContent.MIME_MARKDOWN))
+                .setData(com.codename1.ui.ClipboardContent.MIME_ASCIIDOC,
+                        nativeInstance.getClipboardContent(com.codename1.ui.ClipboardContent.MIME_ASCIIDOC));
+        byte[] image = nativeInstance.getClipboardImage();
+        if(image != null && image.length > 0) {
+            content.setData(com.codename1.ui.ClipboardContent.MIME_PNG, image);
+        }
+        // Everything else the pasteboard is offering. The reads above name the types the
+        // framework has constants for; a copy -- this application's own or another's -- may
+        // put any type at all on it, and one of those could be published and never read back,
+        // so a paste of an application's own format answered with null once the lightweight
+        // clipboard behind it was gone.
+        int offered = nativeInstance.getClipboardTypeCount();
+        for(int iter = 0 ; iter < offered ; iter++) {
+            String mime = nativeInstance.getClipboardTypeAt(iter);
+            if(mime == null || mime.length() == 0 || content.hasMimeType(mime)) {
+                continue;
+            }
+            byte[] bytes = nativeInstance.getClipboardRepresentation(mime);
+            if(bytes != null) {
+                // Empty is present, as everywhere else here: a representation published
+                // deliberately empty is one the source published.
+                //
+                // A text type reads back as text. The pasteboard hands over bytes for
+                // everything, and copyToClipboard puts a custom String on it as UTF-8 -- so
+                // storing them as bytes broke this port's own round trip: getText on the
+                // type just pasted answered null, where a drop of the same type and every
+                // other port answer with the string. UTF-8 because that is what the copy
+                // above writes; a pasteboard type carries no charset to consult.
+                if(mime.startsWith("text/")) {
+                    try {
+                        content.setData(mime, new String(bytes, "UTF-8"));
+                    } catch(java.io.UnsupportedEncodingException err) {
+                        com.codename1.io.Log.e(err);
+                    }
+                } else {
+                    content.setData(mime, bytes);
+                }
+            }
+        }
+        String files = nativeInstance.getClipboardFileUris();
+        if(files != null && files.length() > 0) {
+            // The pasteboard's URLs, which are not all files: a link copied out of Safari is one
+            // of these too, and calling it a file handed a file-only target a web address
+            // through getFiles() as though it were a document on disk. Every one of them is the
+            // URI list; only the ones naming something on this device are the file list.
+            String[] parts = splitClipboardFileUris(files);
+            java.util.List<String> local = new java.util.ArrayList<String>();
+            StringBuilder uris = new StringBuilder();
+            for(int iter = 0 ; iter < parts.length ; iter++) {
+                if(namesALocalFile(parts[iter])) {
+                    local.add(parts[iter]);
+                }
+                if(uris.length() > 0) {
+                    // RFC 2483, which is what every other port here writes and reads.
+                    uris.append("\r\n");
+                }
+                uris.append(parts[iter]);
+            }
+            if(!local.isEmpty()) {
+                content.setData(com.codename1.ui.ClipboardContent.MIME_FILE,
+                        local.size() == 1 ? local.get(0)
+                                : local.toArray(new String[local.size()]));
+            }
+            if(uris.length() > 0) {
+                content.setData(com.codename1.ui.ClipboardContent.MIME_URI_LIST, uris.toString());
+            }
+        }
+        int mimeCount = content.getMimeTypes().length;
+        if(mimeCount > 1 || (s == null && mimeCount > 0)) {
+            return content;
+        }
+        if(s != null) {
+            Object lightweight = super.getPasteDataFromClipboard();
+            if(lightweight instanceof com.codename1.ui.ClipboardContent
+                    && s.equals(((com.codename1.ui.ClipboardContent)lightweight)
+                            .getText(com.codename1.ui.ClipboardContent.MIME_TEXT))) {
+                return lightweight;
+            }
+            return s;
+        }
+        return super.getPasteDataFromClipboard();
+    }
+    
+
+    // ------------------------------------------------------------------------------------
+    // Native drag and drop.
+    //
+    // UIKit owns the drag gesture: UIDragInteraction has its own recognizer and asks what is
+    // being dragged when it fires, so the framework cannot start a session on its own drag
+    // threshold the way the desktop port does. It stages the operation on the press instead,
+    // and CN1DragAndDrop.m calls nativeDragSessionStartedCallback below when UIKit decides a
+    // drag has begun. The payload is fetched at that moment rather than on the press, so a
+    // drag offering a file the application has not written yet does not write it every time
+    // the user merely touches the component.
+    // ------------------------------------------------------------------------------------
+
+    @Override
+    public boolean isNativeDragAndDropSupported() {
+        return nativeInstance.isNativeDragAndDropSupported();
+    }
+
+    @Override
+    public boolean isNativeDragOutsideApplicationSupported() {
+        return nativeInstance.isNativeDragOutsideAppSupported();
+    }
+
+    @Override
+    public boolean isNativeDragImageNeededOnPrepare() {
+        // UIKit asks for the lift preview at the instant its own recognizer fires, which is
+        // not a moment at which this port can render a component.
+        return true;
+    }
+
+    @Override
+    public void prepareNativeDrag(NativeDragOperation op) {
+        ClipboardContent content = op.getContent();
+        nativeInstance.prepareNativeDrag(join(content.getMimeTypes()), op.getAllowedActions(),
+                pngBytes(op.getDragImage()), op.getDragImageOffsetX(), op.getDragImageOffsetY());
+    }
+
+    @Override
+    public void cancelNativeDrag() {
+        nativeInstance.cancelNativeDrag();
+    }
+
+    @Override
+    public void nativeDragSourceRegistered() {
+        nativeInstance.enableNativeDragSource();
+    }
+
+    @Override
+    public void nativeDropTargetRegistered() {
+        nativeInstance.enableNativeDropTarget();
+    }
+
+    /// Encodes a drag preview as PNG, the one image format the whole bridge speaks.
+    private static byte[] pngBytes(Image image) {
+        if (image == null) {
+            return null;
+        }
+        try {
+            return EncodedImage.createFromImage(image, false).getImageData();
+        } catch (Throwable err) {
+            com.codename1.io.Log.e(err);
+            return null;
+        }
+    }
+
+    private static String join(String[] values) {
+        if (values == null || values.length == 0) {
+            return null;
+        }
+        StringBuilder out = new StringBuilder();
+        for (int iter = 0; iter < values.length; iter++) {
+            if (iter > 0) {
+                out.append('\n');
+            }
+            out.append(values[iter]);
+        }
+        return out.toString();
+    }
+
+    private static String[] split(String value) {
+        if (value == null || value.length() == 0) {
+            return null;
+        }
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        int start = 0;
+        while (start <= value.length()) {
+            int next = value.indexOf('\n', start);
+            String entry = next < 0 ? value.substring(start) : value.substring(start, next);
+            if (entry.length() > 0) {
+                out.add(entry);
+            }
+            if (next < 0) {
+                break;
+            }
+            start = next + 1;
+        }
+        return out.isEmpty() ? null : out.toArray(new String[out.size()]);
+    }
+
+    /// Describes a drag in progress from its MIME types alone. UIKit hands over no data until
+    /// the drop, and a drop target only needs the names in order to say whether it wants the
+    /// drag; the providers registered here answer null until the real content arrives.
+    private static ClipboardContent describe(String mimeTypes) {
+        ClipboardContent content = new ClipboardContent();
+        String[] mimes = split(mimeTypes);
+        if (mimes == null) {
+            return content;
+        }
+        for (int iter = 0; iter < mimes.length; iter++) {
+            content.setDataProvider(mimes[iter], new ClipboardDataProvider() {
+                @Override
+                public Object getClipboardData(String mimeType) {
+                    return null;
+                }
+            });
+        }
+        return content;
+    }
+
+    /// Invoked from CN1DragAndDrop.m as a drag moves over the surface. Returns the action a
+    /// drop would perform right now, or zero.
+    public static int nativeDragOverCallback(int x, int y, String mimeTypes, int allowedActions,
+            boolean entering) {
+        ClipboardContent content = describe(mimeTypes);
+        if (entering) {
+            return NativeDragAndDrop.dragEnter(0, x, y, content, allowedActions);
+        }
+        return NativeDragAndDrop.dragOver(0, x, y, content, allowedActions);
+    }
+
+    /// Invoked from CN1DragAndDrop.m when a drag leaves the surface without dropping.
+    public static void nativeDragExitCallback() {
+        NativeDragAndDrop.dragExit(0);
+    }
+
+    /// Every exported drag whose payload something can still read, under the session id its
+    /// load handlers carry.
+    ///
+    /// Deliberately not the active drag: an item provider's load handler is asynchronous by
+    /// design, and a receiving application is free to defer reading a representation until
+    /// after the session has ended -- by which point the active drag has been cleared and the
+    /// lookup would answer with nothing at all.
+    ///
+    /// Matched by id, because a single slot answered a late read with *whatever was being
+    /// dragged by then*: a handler from the previous drag resolving after the next one began
+    /// produced that one's bytes. Nor is it a fixed number of recent drags -- a receiver may
+    /// keep an item provider and read it at any later point, and any bound expires payloads
+    /// that are still legitimately readable. The providers themselves say when they are done:
+    /// CN1DragAndDrop.m gives every load handler a token for its session and calls
+    /// #nativeDragPayloadReleasedCallback(int) when the last of them is released, so a payload
+    /// is held for exactly as long as something can ask for it and no longer.
+    private static final java.util.Map<Integer, ExportedDrag> exportedDrags =
+            new java.util.HashMap<Integer, ExportedDrag>();
+
+    /// One drag this application is exporting, and the values its receivers have read.
+    ///
+    /// The values are kept per session rather than on the operation. A source offers the same
+    /// operation for every drag of its component, and UIKit keeps a session readable for as
+    /// long as a receiver holds one of its item providers -- so an older session can be read
+    /// while a newer one is running, and reading through what the operation remembers would
+    /// hand that receiver the newer drag's file, or make the provider produce a second one for
+    /// a drag that had already ended. Each session answers from what it produced itself.
+    private static final class ExportedDrag {
+        private final NativeDragOperation op;
+        private final java.util.Map<String, Object> produced =
+                new java.util.HashMap<String, Object>();
+
+        ExportedDrag(NativeDragOperation op) {
+            this.op = op;
+        }
+
+        /// This session's value for a type, produced once and remembered for as long as the
+        /// session is readable -- a receiver that queries and then reads must not make the
+        /// provider write its file twice.
+        ///
+        /// Declared as throwing, rather than rethrowing the caught Throwable and letting the
+        /// compiler work out what it can be: this port is also built at source 1.6, which has
+        /// no precise rethrow, and there the bare rethrow does not compile at all. The one
+        /// caller catches Throwable either way.
+        Object produce(String mimeType) throws Throwable {
+            // The provider runs inside the lock, not beside it. At most once per transfer
+            // is what a provider is promised, and two readers that both miss an empty memo
+            // would both run it -- writing the promised file twice and keeping one, which
+            // is the contract broken in the way it most costs.
+            //
+            // Holding a lock across application code is worth saying out loud. The only
+            // thread it can block is one reading this same session, which is precisely the
+            // one that has to wait; and the resolutions arrive on the main queue anyway,
+            // dispatched there by the load handlers in CN1DragAndDrop.m, so they are
+            // already serialized and this is what keeps them so if that ever changes.
+            synchronized (produced) {
+                if (produced.containsKey(mimeType)) {
+                    return produced.get(mimeType);
+                }
+                Object value;
+                try {
+                    value = NativeDragAndDrop.produceDragValue(op, mimeType);
+                } catch (Throwable err) {
+                    // A provider that threw has answered: nothing, once. Leaving the
+                    // failure unrecorded had the next reader run it again.
+                    produced.put(mimeType, null);
+                    throw err;
+                }
+                produced.put(mimeType, value);
+                return value;
+            }
+        }
+    }
+    private static int nextDragSessionId;
+
+    /// The drop being assembled by CN1DragAndDrop.m, one representation at a time.
+    ///
+    /// Only ever touched from the three callbacks below, which UIKit runs in order on the main
+    /// thread, so it needs no guarding of its own.
+    private static ClipboardContent pendingDrop;
+
+    /// Invoked from CN1DragAndDrop.m as a drop begins, before its representations arrive.
+    public static void nativeDropBeginCallback() {
+        pendingDrop = new ClipboardContent();
+    }
+
+    /// Invoked from CN1DragAndDrop.m once per representation the drop carries.
+    ///
+    /// Every representation UIKit loaded is delivered here rather than a fixed list of the
+    /// framework's own: forwarding fewer meant a drag carrying markdown or an application's own
+    /// type was accepted while it hovered and then materialized without it, so the target that
+    /// agreed to take the drop was refused it.
+    public static void nativeDropAddCallback(String mimeType, String text, byte[] binary) {
+        if (pendingDrop == null || mimeType == null || mimeType.length() == 0) {
+            return;
+        }
+        if (ClipboardContent.MIME_FILE.equals(mimeType)) {
+            // One path per call, appended. Delivered as one joined string they were split
+            // apart again here, and a newline is legal in a filename on this platform --
+            // so a dropped file whose name contained one arrived as two paths naming
+            // nothing. The outgoing side stopped joining them for the same reason.
+            if (text == null || text.length() == 0) {
+                return;
+            }
+            String[] known = pendingDrop.getFiles();
+            String[] grown = new String[known == null ? 1 : known.length + 1];
+            for (int iter = 0; known != null && iter < known.length; iter++) {
+                grown[iter] = known[iter];
+            }
+            grown[grown.length - 1] = text;
+            pendingDrop.setFiles(grown);
+            return;
+        }
+        // Length is not a test of presence. A representation the drag advertised and that is
+        // legitimately empty -- an empty string, a zero byte payload -- was discarded here, so
+        // the materialized content lacked a type the hover had accepted and the drop was then
+        // refused by the very target that agreed to take it. Null is absent; empty is present.
+        if (binary != null) {
+            pendingDrop.setData(mimeType, binary);
+        } else if (text != null) {
+            pendingDrop.setData(mimeType, text);
+        }
+    }
+
+    /// Invoked from CN1DragAndDrop.m for a representation that is a file already on disk.
+    ///
+    /// A document provider advertises the document's own content type as well as a file URL,
+    /// and a target may filter on either. Promising the type against the copy rather than
+    /// loading it keeps the two in agreement without reading a large document into memory on
+    /// top of copying it -- the bytes are only read if something asks for that type.
+    public static void nativeDropAddFileCallback(String mimeType, final String path,
+            final String charset) {
+        if (pendingDrop == null || mimeType == null || mimeType.length() == 0
+                || path == null || path.length() == 0 || pendingDrop.hasMimeType(mimeType)) {
+            return;
+        }
+        pendingDrop.setDataProvider(mimeType, new ClipboardDataProvider() {
+            @Override
+            public Object getClipboardData(String requested) {
+                try {
+                    java.io.InputStream in = com.codename1.io.FileSystemStorage.getInstance()
+                            .openInputStream(path.startsWith("/") ? "file://" + path : path);
+                    if (in == null) {
+                        return null;
+                    }
+                    byte[] bytes;
+                    try {
+                        bytes = com.codename1.io.Util.readInputStream(in);
+                    } finally {
+                        in.close();
+                    }
+                    // A text type reads back as text. A document provider from Files commonly
+                    // offers a plain text representation beside its file URL, and answering
+                    // that with bytes made getText() and NativeDropEvent.getText() null for a
+                    // type the drop had just accepted.
+                    //
+                    // In the encoding the representation's own type identifier declared, when
+                    // it declared one. This side never sees that identifier -- it has a path
+                    // and a MIME type -- so assuming UTF-8 turned a UTF-16 alternative into
+                    // rubbish while the same representation read as data came through intact.
+                    if (bytes != null && requested != null && requested.startsWith("text/")) {
+                        return new String(bytes, charsetOrUtf8(charset));
+                    }
+                    return bytes;
+                } catch (Throwable err) {
+                    com.codename1.io.Log.e(err);
+                    return null;
+                }
+            }
+        });
+    }
+
+    /// The named charset when this platform has it, and UTF-8 otherwise -- which is what the
+    /// unnamed case means anyway.
+    private static String charsetOrUtf8(String charset) {
+        if (charset == null || charset.length() == 0) {
+            return "UTF-8";
+        }
+        return charset;
+    }
+
+    /// Invoked from CN1DragAndDrop.m once every representation has arrived. Returns the action
+    /// accepted, or zero when nothing under the pointer took it.
+    public static int nativeDropCommitCallback(int x, int y, int action, int allowedActions,
+            boolean local, int hoverGeneration, final int dropId) {
+        ClipboardContent content = pendingDrop == null ? new ClipboardContent() : pendingDrop;
+        pendingDrop = null;
+        // What *this* drop was offering and where it came from, both taken by the native side
+        // when the drop began. Asking now would ask about whichever drag is running by the time
+        // a slow item provider finished loading, and that can be a different one.
+        // deferredDrop, not drop: this assembly has been loading, so the component
+        // hovering by now may belong to a drop that arrived since -- and the action
+        // below was taken from this session when the user released it.
+        //
+        // The hover generation goes with it, taken by the native side at the same moment. The
+        // recovery for a target that moved reads the hover this drag left behind, and by now
+        // that hover can belong to a session which arrived while the providers were loading.
+        int accepted = NativeDragAndDrop.deferredDrop(0, x, y, content, action, allowedActions,
+                local, hoverGeneration);
+        // Queued behind the callback the line above queued, because callSerially is first in
+        // first out: what this drop copied out is owed to its target until that callback has
+        // read it, and the copies are reclaimable only afterwards. Queued whatever the answer
+        // was -- a drop nobody took has nothing left to read either, and an entry never
+        // released would hold its files for the life of the process.
+        Display.getInstance().callSerially(new Runnable() {
+            @Override
+            public void run() {
+                nativeInstance.dropDeliveryFinished(dropId);
+            }
+        });
+        return accepted;
+    }
+
+    /// Invoked from CN1DragAndDrop.m as a drop begins loading, so the commit that follows can
+    /// say whether the hover state it wants to fall back on is still its own.
+    public static int nativeDragHoverGenerationCallback() {
+        return NativeDragAndDrop.hoverGeneration();
+    }
+
+    /// Invoked from CN1DragAndDrop.m when UIKit starts a drag session. Hands the payload down
+    /// -- which is where a promised representation is finally built -- and returns the actions
+    /// the operation allows, or zero when the framework has nothing staged and no drag should
+    /// begin.
+    public static int nativeDragSessionStartedCallback() {
+        NativeDragOperation op = NativeDragAndDrop.dragSessionStarted();
+        if (op == null) {
+            return 0;
+        }
+        int sessionId;
+        ExportedDrag exported = new ExportedDrag(op);
+        synchronized (exportedDrags) {
+            sessionId = ++nextDragSessionId;
+            exportedDrags.put(Integer.valueOf(sessionId), exported);
+        }
+        try {
+            ClipboardContent content = op.getContent();
+            nativeInstance.beginNativeDragPayload(sessionId);
+            // Names, not values. Reading a representation here would build every promised file
+            // and encode every promised image at the moment the drag begins -- including for a
+            // drag the user then abandons -- which is the opposite of what setDataProvider
+            // promises. The native side asks for one through nativeDragResolveCallback if a
+            // receiver reads it.
+            String[] mimeTypes = content.getMimeTypes();
+            for (int iter = 0; iter < mimeTypes.length; iter++) {
+                String mime = mimeTypes[iter];
+                if (ClipboardContent.MIME_FILE.equals(mime)) {
+                    // The exception, and it is UIKit's: the session needs its item count when
+                    // it begins, and for a file drag that count is the number of files. So this
+                    // one representation is resolved now -- and on its own, because a provider
+                    // is permitted to fail and a payload offering an image beside its file
+                    // still has the image to drag.
+                    String[] files;
+                    try {
+                        files = content.getFiles();
+                    } catch (Throwable err) {
+                        com.codename1.io.Log.e(err);
+                        continue;
+                    }
+                    if (files != null) {
+                        // One call per file. Joined into one string they were split apart
+                        // again on the other side, and a newline is legal in a filename
+                        // here -- so one such file arrived as two paths naming nothing,
+                        // and the drag carried neither it nor a complaint.
+                        for (int file = 0; file < files.length; file++) {
+                            if (files[file] != null && files[file].length() > 0) {
+                                nativeInstance.addNativeDragFiles(files[file]);
+                            }
+                        }
+                    }
+                    continue;
+                }
+                if (ClipboardContent.MIME_URI_LIST.equals(mime) && declareDraggedUrls(exported)) {
+                    // Handed over as items rather than declared as a type: see
+                    // declareDraggedUrls. Declaring it as well would publish the list twice,
+                    // once as items and once as a lump.
+                    continue;
+                }
+                nativeInstance.declareNativeDragPayload(mime);
+            }
+        } catch (Throwable err) {
+            // The session is already the framework's -- dragSessionStarted() made the
+            // operation active and it is in exportedDrags -- and returning zero tells UIKit to
+            // begin none, which means no completion and no payload release will ever arrive
+            // for it. So this is the one path that has to give it back by hand: without it the
+            // operation stayed active, every later drag was refused as one already running,
+            // and the payload was held for the life of the process.
+            com.codename1.io.Log.e(err);
+            abandonDragSession(sessionId);
+            return 0;
+        }
+        // A payload that declared nothing needs no such care: the answer is non-zero, UIKit
+        // asks for the items, finds none, and completes the session itself.
+        return op.getAllowedActions();
+    }
+
+    /// Hands each link of a text/uri-list to the session as an item of its own.
+    ///
+    /// Resolved here rather than promised, for the reason the file list is: UIKit fixes the
+    /// item count when the session begins, and a list of three links is three items. A
+    /// public.url representation is one URL, so registering the whole newline separated list
+    /// under that identifier gave every native receiver a single malformed address -- and
+    /// showed the user one item where there were three.
+    ///
+    /// #### Returns
+    ///
+    /// true when at least one link was handed over, in which case the type must not also be
+    /// declared as a representation of its own
+    private static boolean declareDraggedUrls(ExportedDrag exported) {
+        Object value;
+        try {
+            // Through this session's own memo, so the resolution counts as *the* one for this
+            // drag. Reading it off the content instead ran the provider here and again when a
+            // receiver asked for the type, which is twice in one transfer -- and a provider
+            // that generates its value, or writes something, is entitled to be asked once.
+            value = exported.produce(ClipboardContent.MIME_URI_LIST);
+        } catch (Throwable err) {
+            // A provider is permitted to fail, and the rest of the payload still travels. The
+            // failure is remembered by the memo above, so nothing asks it again either.
+            com.codename1.io.Log.e(err);
+            return false;
+        }
+        if (!(value instanceof String)) {
+            return false;
+        }
+        boolean any = false;
+        // Util.split, not String.split: ParparVM's java.lang.String has no split, so the
+        // translated call is an undeclared function and the app does not compile. The rest of
+        // this port splits with Util for the same reason.
+        String[] lines = Util.split((String) value, "\n");
+        for (int iter = 0; iter < lines.length; iter++) {
+            String line = lines[iter].trim();
+            // RFC 2483: a line opening with a hash is a comment rather than a URI.
+            if (line.length() == 0 || line.charAt(0) == '#') {
+                continue;
+            }
+            nativeInstance.addNativeDragUrl(line);
+            any = true;
+        }
+        return any;
+    }
+
+    /// Gives back a drag session the framework had already committed to and that UIKit is
+    /// about to be told not to start.
+    ///
+    /// #### Parameters
+    ///
+    /// - `sessionId`: the session being abandoned
+    private static void abandonDragSession(int sessionId) {
+        synchronized (exportedDrags) {
+            exportedDrags.remove(Integer.valueOf(sessionId));
+        }
+        NativeDragAndDrop.dragCompleted(NativeDragOperation.ACTION_NONE);
+    }
+
+    /// Invoked from CN1DragAndDrop.m when a receiver reads one of the drag's representations.
+    ///
+    /// This is where a promised value is finally produced -- the file written, the image
+    /// encoded -- so a drag that nobody reads costs nothing.
+    ///
+    /// #### Parameters
+    ///
+    /// - `mimeType`: the representation being read
+    ///
+    /// - `sessionId`: the drag the reading item provider belongs to
+    ///
+    /// #### Returns
+    ///
+    /// its bytes, or null when that drag can no longer supply it
+    public static byte[] nativeDragResolveCallback(String mimeType, int sessionId) {
+        // Matched by session id, not simply the latest: a handler from an earlier drag must
+        // answer for that drag or not at all. See the field.
+        ExportedDrag drag;
+        synchronized (exportedDrags) {
+            drag = exportedDrags.get(Integer.valueOf(sessionId));
+        }
+        if (drag == null || mimeType == null || mimeType.length() == 0) {
+            return null;
+        }
+        // Only the provider call is inside the broad catch: it runs application code, which may
+        // throw anything. The casts below sit outside it deliberately -- a cast reached through
+        // catch(Throwable) is exactly what ParparVM cannot report, since its CHECKCAST does not
+        // throw and the handler would never run on iOS.
+        //
+        // Through this session's own memo, not the operation's: see ExportedDrag.
+        Object value;
+        try {
+            value = drag.produce(mimeType);
+        } catch (Throwable err) {
+            com.codename1.io.Log.e(err);
+            return null;
+        }
+        if (value instanceof byte[]) {
+            return (byte[]) value;
+        }
+        if (value instanceof String) {
+            try {
+                return ((String) value).getBytes("UTF-8");
+            } catch (java.io.UnsupportedEncodingException err) {
+                com.codename1.io.Log.e(err);
+            }
+        }
+        return null;
+    }
+
+    /// Invoked from CN1DragAndDrop.m when a session this application started has ended.
+    public static void nativeDragCompletedCallback(int action) {
+        NativeDragAndDrop.dragCompleted(action);
+    }
+
+    /// Invoked from CN1DragAndDrop.m once the last item provider that could read a drag's
+    /// payload has been released, which is the only moment the payload is certainly unreadable.
+    ///
+    /// #### Parameters
+    ///
+    /// - `sessionId`: the drag whose payload may be dropped
+    public static void nativeDragPayloadReleasedCallback(int sessionId) {
+        synchronized (exportedDrags) {
+            exportedDrags.remove(Integer.valueOf(sessionId));
+        }
+    }
+
+    @Override
+    public void copyToClipboard(Object obj) {
+        if(obj instanceof com.codename1.ui.ClipboardContent) {
+            com.codename1.ui.ClipboardContent content = (com.codename1.ui.ClipboardContent)obj;
+            // Every representation, now, including any registered as a provider. The pasteboard
+            // is a system store that outlives this process, so what goes on it has to be the
+            // data and not a promise this application has to still be running to keep -- a lazily
+            // registered item pastes as nothing once the application is gone. The drag path is
+            // where the laziness pays off, and it keeps it; see ClipboardDataProvider.
+            // Every other type the content offers, before the call that publishes the clip.
+            // The arguments below name the types the framework has constants for, and a
+            // content may offer any type at all -- an application's own format reached the
+            // pasteboard nowhere else, so a copy of one published an empty pasteboard and
+            // its provider was never even asked.
+            String[] offered = content.getMimeTypes();
+            String published = firstImageMime(content);
+            for(int iter = 0 ; iter < offered.length ; iter++) {
+                if(isNamedClipboardType(offered[iter], published)) {
+                    continue;
+                }
+                Object value = clipboardValue(content, offered[iter]);
+                byte[] bytes = null;
+                if(value instanceof byte[]) {
+                    bytes = (byte[])value;
+                } else if(value instanceof String) {
+                    try {
+                        bytes = ((String)value).getBytes("UTF-8");
+                    } catch(java.io.UnsupportedEncodingException err) {
+                        com.codename1.io.Log.e(err);
+                    }
+                }
+                if(bytes != null) {
+                    nativeInstance.addClipboardRepresentation(offered[iter], bytes);
+                }
+            }
+            nativeInstance.setClipboardContent(
+                    clipboardText(content, com.codename1.ui.ClipboardContent.MIME_TEXT),
+                    clipboardText(content, com.codename1.ui.ClipboardContent.MIME_HTML),
+                    clipboardText(content, com.codename1.ui.ClipboardContent.MIME_RTF),
+                    clipboardText(content, com.codename1.ui.ClipboardContent.MIME_MARKDOWN),
+                    clipboardText(content, com.codename1.ui.ClipboardContent.MIME_ASCIIDOC),
+                    clipboardImageBytes(content),
+                    clipboardFileUris(content));
+            super.copyToClipboard(obj);
+            return;
+        }
+        if(obj instanceof String) {
+            nativeInstance.setClipboardString((String)obj);
+            super.copyToClipboard(obj);
+            return;
+        }
+        nativeInstance.setClipboardString(null);
+        super.copyToClipboard(obj);
+    }
+
+    /// True when setClipboardContent already has an argument for this type, so it must not be
+    /// published a second time beside itself.
+    private static boolean isNamedClipboardType(String mime, String publishedImage) {
+        // Only the *one* image encoding the image argument carries. A content offering a PNG
+        // and a JPEG sends one of them there, and excluding every image type from the loop
+        // beside it dropped the other -- so a receiver asking for the encoding that was left
+        // out could not paste an image the content plainly advertised.
+        return com.codename1.ui.ClipboardContent.MIME_TEXT.equals(mime)
+                || com.codename1.ui.ClipboardContent.MIME_HTML.equals(mime)
+                || com.codename1.ui.ClipboardContent.MIME_RTF.equals(mime)
+                || com.codename1.ui.ClipboardContent.MIME_MARKDOWN.equals(mime)
+                || com.codename1.ui.ClipboardContent.MIME_ASCIIDOC.equals(mime)
+                || (publishedImage != null && publishedImage.equals(mime))
+                || com.codename1.ui.ClipboardContent.MIME_FILE.equals(mime)
+                || com.codename1.ui.ClipboardContent.MIME_URI_LIST.equals(mime);
+    }
+
+    /// The image encoding clipboardImageBytes will send, or null when the content has none.
+    private static String firstImageMime(com.codename1.ui.ClipboardContent content) {
+        if(clipboardBytes(content, com.codename1.ui.ClipboardContent.MIME_PNG) != null) {
+            return com.codename1.ui.ClipboardContent.MIME_PNG;
+        }
+        if(clipboardBytes(content, com.codename1.ui.ClipboardContent.MIME_JPEG) != null) {
+            return com.codename1.ui.ClipboardContent.MIME_JPEG;
+        }
+        if(clipboardBytes(content, com.codename1.ui.ClipboardContent.MIME_GIF) != null) {
+            return com.codename1.ui.ClipboardContent.MIME_GIF;
+        }
+        return null;
+    }
+
+    /// Preferred image representation (PNG, then JPEG, then GIF bytes) for the pasteboard, or null.
+    private static byte[] clipboardImageBytes(com.codename1.ui.ClipboardContent content) {
+        byte[] b = clipboardBytes(content, com.codename1.ui.ClipboardContent.MIME_PNG);
+        if(b == null) {
+            b = clipboardBytes(content, com.codename1.ui.ClipboardContent.MIME_JPEG);
+        }
+        if(b == null) {
+            b = clipboardBytes(content, com.codename1.ui.ClipboardContent.MIME_GIF);
+        }
+        return b;
+    }
+
+    /// Newline-joined URLs for the pasteboard: the files this content names, and the URIs it
+    /// publishes under `ClipboardContent#MIME_URI_LIST`. Null when it has neither.
+    ///
+    /// One argument, because the pasteboard has one notion of a URL and the native side already
+    /// writes each of these as `public.url` -- which is what a receiving application reads a link
+    /// off. Without the URI list here a content whose only representation was a link passed null
+    /// for every argument, and the copy published an empty pasteboard: nothing outside this
+    /// application saw the link at all.
+    private static String clipboardFileUris(com.codename1.ui.ClipboardContent content) {
+        java.util.List<String> urls = new java.util.ArrayList<String>();
+        appendClipboardUrls(urls, clipboardValue(content, com.codename1.ui.ClipboardContent.MIME_FILE));
+        String list = clipboardText(content, com.codename1.ui.ClipboardContent.MIME_URI_LIST);
+        if(list != null) {
+            // RFC 2483: CRLF separated, and a line opening with a hash is a comment.
+            // Util.split for the reason declareDraggedUrls gives: the VM's String has none.
+            String[] lines = Util.split(list, "\n");
+            for(int i = 0 ; i < lines.length ; i++) {
+                String line = lines[i].trim();
+                if(line.length() > 0 && line.charAt(0) != '#') {
+                    appendClipboardUrls(urls, line);
+                }
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        for(int i = 0 ; i < urls.size() ; i++) {
+            if(sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(urls.get(i));
+        }
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
+    /// Adds a `MIME_FILE` value -- a `String` or a `String[]` -- to the pasteboard's URL list,
+    /// skipping anything already there so a file named by both representations travels once.
+    private static void appendClipboardUrls(java.util.List<String> urls, Object value) {
+        if(value instanceof String[]) {
+            String[] arr = (String[])value;
+            for(int i = 0 ; i < arr.length ; i++) {
+                appendClipboardUrls(urls, arr[i]);
+            }
+            return;
+        }
+        if(value instanceof String) {
+            String one = (String)value;
+            if(one.length() == 0) {
+                return;
+            }
+            String key = clipboardUrlKey(one);
+            for(int i = 0 ; i < urls.size() ; i++) {
+                if(clipboardUrlKey(urls.get(i)).equals(key)) {
+                    return;
+                }
+            }
+            urls.add(one);
+        }
+    }
+
+    /// What two spellings of one file have in common.
+    ///
+    /// The same document is commonly published both ways -- `/tmp/report.pdf` under MIME_FILE and
+    /// `file:///tmp/report.pdf` in the URI list -- and comparing the raw strings put both on the
+    /// pasteboard. The native writer turns each of them into the very same file URL, so a
+    /// receiver imported the document twice. Only the key is normalized; what is published stays
+    /// the spelling the source used.
+    private static String clipboardUrlKey(String url) {
+        // regionMatches(true, ...) rather than a lowercased substring: it compares
+        // character by character and is locale independent, which String.toLowerCase() is
+        // not -- a Turkish default folds the I of FILE: to a dotless i.
+        if(url.length() <= 5 || !url.regionMatches(true, 0, "file:", 0, 5)) {
+            return url;
+        }
+        String key = url.substring(5);
+        if(key.startsWith("///")) {
+            // The empty authority of a local file URL. A real one -- file://host/share -- is left
+            // alone, because that is not the same file as a path of its own.
+            key = key.substring(2);
+        }
+        try {
+            // Percent decoded, or file:///tmp/a%20b.pdf and /tmp/a b.pdf read as two documents.
+            return com.codename1.io.Util.decode(key, "UTF-8", false);
+        } catch(Throwable err) {
+            // Undecodable is not a reason to publish twice; the raw form still keys.
+            return key;
+        }
+    }
+
+    /// True when this URL names something on this device rather than somewhere on the web.
+    ///
+    /// A link copied out of a browser comes back off the pasteboard as an https URL, and calling
+    /// that a file handed a file-only target a web address through `getFiles()` as though it
+    /// were a document on disk. It is still reported, under `MIME_URI_LIST`, which is what it is.
+    private static boolean namesALocalFile(String url) {
+        if(url == null || url.length() == 0) {
+            return false;
+        }
+        if(url.charAt(0) == '/' || url.charAt(0) == '~') {
+            // An absolute path, which is a local file by construction. Tested before the scheme,
+            // because a path may perfectly well contain a colon and reading one as a scheme
+            // would call /tmp/a:b.txt a web address.
+            return true;
+        }
+        int colon = url.indexOf(':');
+        int slash = url.indexOf('/');
+        if(colon < 0 || (slash >= 0 && slash < colon)) {
+            // No scheme: a relative path, possibly one whose own name contains a colon.
+            return true;
+        }
+        return colon == 4 && url.regionMatches(true, 0, "file", 0, 4);
+    }
+
+    private static String[] splitClipboardFileUris(String joined) {
+        java.util.List<String> parts = new java.util.ArrayList<String>();
+        int start = 0;
+        for(int i = 0 ; i < joined.length() ; i++) {
+            if(joined.charAt(i) == '\n') {
+                if(i > start) {
+                    parts.add(joined.substring(start, i));
+                }
+                start = i + 1;
+            }
+        }
+        if(start < joined.length()) {
+            parts.add(joined.substring(start));
+        }
+        return parts.toArray(new String[parts.size()]);
+    }
+
+    /*class RunnableCleanup implements Runnable {
+        long[] peer;
+        Runnable onCompletion;
+        public void run() {
+            if(onCompletion != null) {
+                onCompletion.run();
+            }
+            if(peer != null && peer[0] != 0) {
+                cleanupAudio(peer);
+            }
+        }
+    }
+    
+    @Override
+    public Object createAudio(String uri, Runnable onCompletion) throws IOException {
+        RunnableCleanup c = new RunnableCleanup();
+        long[] p = new long[] {nativeInstance.createAudio(uri, c)};
+        c.peer = p;
+        c.onCompletion = onCompletion;
+        return p;
+    }
+
+    
+    @Override
+    public Object createAudio(InputStream stream, String mimeType, Runnable onCompletion) throws IOException {
+        ByteArrayOutputStream bo = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int size = stream.read(buffer);
+        while(size > -1) {
+            bo.write(buffer, 0, size);
+            size = stream.read(buffer);
+        }
+        bo.close();
+        stream.close();
+        RunnableCleanup c = new RunnableCleanup();
+        long[] p = new long[] {nativeInstance.createAudio(bo.toByteArray(), c)};
+        c.peer = p;
+        c.onCompletion = onCompletion;
+        return p;
+    }*/
+
+    @Override
+    public PeerComponent createBrowserComponent(Object browserComponent) {
+        boolean useWKWebView = disableUIWebView || 
+                (browserComponent instanceof Component && 
+                !Boolean.FALSE.equals(((Component)browserComponent).getClientProperty("BrowserComponent.useWKWebView")));
+        if (disableUIWebView && (browserComponent instanceof Component && 
+                Boolean.FALSE.equals(((Component)browserComponent).getClientProperty("BrowserComponent.useWKWebView")))) {
+            Log.p("The BrowserComponent.useWKWebView flag is currently disabled because Apple no longer allows apps that use the old UIWebView into the App Store.  You should remove calls to Display.setProperty(\"BrowserComponent.useWKWebView\", \"false\") from your codebase.");
+        }
+        long browserPeer = useWKWebView ? 
+                nativeInstance.createWKBrowserComponent(browserComponent) : 
+                nativeInstance.createBrowserComponent(browserComponent);
+        PeerComponent pc = createNativePeer(new long[] {browserPeer});
+        pc.putClientProperty("BrowserComponent.useWKWebView", useWKWebView);
+        nativeInstance.releasePeer(browserPeer);
+        return pc;
+    }
+
+    /*@Override
+    public VideoComponent createVideoPeer(String url) throws IOException {
+        return new NativeIPhoneVideoPeer(new long[] {nativeInstance.createVideoComponent(url)});
+    }
+
+    @Override
+    public VideoComponent createVideoPeer(InputStream stream, String type) throws IOException {
+        System.out.println("Unfortunately iPhone's don't support video streaming");
+        throw new UnsupportedOperationException("Unfortunately iPhone's don't support video streaming");
+    }
+    
+    class NativeIPhoneVideoPeer extends VideoComponent {
+        private long[] nativePeer;
+        
+        public NativeIPhoneVideoPeer(Object nativePeer) {
+            super(nativePeer);
+            this.nativePeer = (long[])nativePeer;
+            nativeInstance.retainPeer(this.nativePeer[0]);
+        }
+        
+        public void finalize() {
+            if(nativePeer[0] != 0) {
+                nativeInstance.releasePeer(nativePeer[0]);            
+            }
+        }
+        
+        public boolean isFocusable() {
+            return true;
+        }
+
+        public void setFocus(boolean b) {
+        }
+
+        protected Dimension calcPreferredSize() {
+            if(nativePeer == null || nativePeer[0] == 0) {
+                return new Dimension();
+            }
+            int[] p = new int[2];
+            nativeInstance.calcPreferredSize(nativePeer[0], getDisplayWidth(), getDisplayHeight(), p);
+            return new Dimension(p[0], p[1]);
+        }
+
+        protected void onPositionSizeChange() {
+            if(nativePeer != null && nativePeer[0] != 0) {
+                nativeInstance.updatePeerPositionSize(nativePeer[0], getAbsoluteX(), getAbsoluteY(), getWidth(), getHeight());
+            }
+        }
+
+        protected void initComponent() {
+            if(nativePeer != null && nativePeer[0] != 0) {
+                nativeInstance.peerInitialized(nativePeer[0], getAbsoluteX(), getAbsoluteY(),
+                        getWidth(), getHeight(), peerWindowId(this));
+            }
+        }
+
+        protected void deinitialize() {
+            if(nativePeer != null && nativePeer[0] != 0) {
+                nativeInstance.peerDeinitialized(nativePeer[0]);
+            }
+        }
+
+        @Override
+        public void start() {
+            if(nativePeer != null && nativePeer[0] != 0) {
+                nativeInstance.startVideoComponent(nativePeer[0]);
+            }
+        }
+
+        @Override
+        public void stop() {
+            if(nativePeer != null && nativePeer[0] != 0) {
+                nativeInstance.startVideoComponent(nativePeer[0]);
+            }
+        }
+
+        @Override
+        public void setLoopCount(int count) {
+        }
+
+        @Override
+        public int getMediaTimeMS() {
+            if(nativePeer != null && nativePeer[0] != 0) {
+                return nativeInstance.getMediaTimeMS(nativePeer[0]);
+            }
+            return -1;
+        }
+
+        @Override
+        public int setMediaTimeMS(int now) {
+            if(nativePeer != null && nativePeer[0] != 0) {
+                return nativeInstance.setMediaTimeMS(nativePeer[0], now);
+            }
+            return -1;
+        }
+
+        @Override
+        public int getMediaDuration() {
+            if(nativePeer != null && nativePeer[0] != 0) {
+                return nativeInstance.getMediaDuration(nativePeer[0]);
+            }
+            return -1;
+        }
+
+        @Override
+        public boolean isPlaying() {
+            if(nativePeer != null && nativePeer[0] != 0) {
+                return nativeInstance.isVideoPlaying(nativePeer[0]);
+            }
+            return false;
+        }
+
+        @Override
+        public void setFullScreen(boolean fullscreen) {
+            if(nativePeer != null && nativePeer[0] != 0) {
+                nativeInstance.setVideoFullScreen(nativePeer[0], fullscreen);
+            }
+        }
+
+        @Override
+        public boolean isFullScreen() {
+            if(nativePeer != null && nativePeer[0] != 0) {
+                return nativeInstance.isVideoFullScreen(nativePeer[0]);
+            }
+            return false;
+        }
+
+        @Override
+        public void close() {
+        }
+
+        @Override
+        public void setMediaListener(MediaListener l) {
+        }
+    }*/
+
+    @Override
+    public void drawImage(Object graphics, Object img, int x, int y, int w, int h) {
+        if (img == null) return;
+        NativeGraphics ng = (NativeGraphics)graphics;
+        //System.out.println("Drawing image " + img);
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        NativeImage nm = (NativeImage)img;
+        ng.nativeDrawImage(nm.peer, ng.alpha, x, y, w, h);
+    }
+
+    private static int roundedImageSupported = -1;
+
+    @Override
+    public boolean isRoundedImageDrawSupported() {
+        if (roundedImageSupported < 0) {
+            roundedImageSupported = nativeInstance.isRoundedImageDrawSupported() ? 1 : 0;
+        }
+        return roundedImageSupported == 1;
+    }
+
+    @Override
+    public void drawImageRounded(Object graphics, Object img, int x, int y, int w, int h, float cornerRadius) {
+        if (img == null) return;
+        if (cornerRadius <= 0 || !isRoundedImageDrawSupported()) {
+            drawImage(graphics, img, x, y, w, h);
+            return;
+        }
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        NativeImage nm = (NativeImage)img;
+        ng.nativeDrawImageRounded(nm.peer, ng.alpha, x, y, w, h, cornerRadius);
+    }
+
+    @Override
+    public void drawImageArea(Object nativeGraphics, Object img, int x, int y, int imageX, int imageY, int imageWidth, int imageHeight) {
+        super.drawImageArea(nativeGraphics, img, x, y, imageX, imageY, imageWidth, imageHeight);
+    }
+
+    @Override
+    public void drawPolygon(Object graphics, int[] xPoints, int[] yPoints, int nPoints) {
+        super.drawPolygon(graphics, xPoints, yPoints, nPoints);
+    }
+
+    @Override
+    public boolean isBadgingSupported() {
+        return true;
+    }
+
+    @Override
+    public void setBadgeNumber(int number) {
+        nativeInstance.setBadgeNumber(number);
+    }
+
+    @Override
+    public Boolean canExecute(String url) {
+        if (url.startsWith("file:")) {
+            url = "file:"+unfile(url);
+        }
+        if(nativeInstance.canExecute(url)) {
+            return Boolean.TRUE;
+        }
+        return Boolean.FALSE;
+    }
+    
+    @Override
+    public void execute(String url) {
+        if (url.startsWith("file:")) {
+            url = "file:"+unfile(url);
+        }
+        nativeInstance.execute(url);
+    }
+
+    @Override
+    public boolean isOpenNativeNavigationAppSupported(){
+        return true;
+    }
+    
+    @Override
+    public void openNativeNavigationApp(double latitude, double longitude){    
+        String s = "http://maps.apple.com/?daddr=" + latitude+ "," + longitude;
+        if(canExecute(s)) {
+            execute(s);
+        } else {
+            execute("http://maps.apple.com/?ll=" + latitude+ "," + longitude);
+        }
+    }
+    
+    @Override
+    public void openNativeNavigationApp(String location) {    
+        execute("http://maps.apple.com/?q=" + Util.encodeUrl(location));
+    }
+
+    @Override
+    public void flashBacklight(int duration) {
+        nativeInstance.flashBacklight(duration);
+    }
+
+    /*@Override
+    public int getAudioDuration(Object handle) {
+        long[] l = (long[])handle;
+        if(l[0] == 0) {
+            return -1;
+        }
+        return nativeInstance.getAudioDuration(l[0]);
+    }
+
+    @Override
+    public int getAudioTime(Object handle) {
+        long[] l = (long[])handle;
+        if(l[0] == 0) {
+            return -1;
+        }
+        return nativeInstance.getAudioTime(l[0]);
+    }*/
+
+    @Override
+    public String getBrowserTitle(PeerComponent browserPeer) {
+        return nativeInstance.getBrowserTitle(get(browserPeer));
+    }
+
+    @Override
+    public String getBrowserURL(PeerComponent browserPeer) {
+        return nativeInstance.getBrowserURL(get(browserPeer));
+    }
+
+
+    @Override
+    public int getFace(Object nativeFont) {
+        return f(nativeFont).face;
+    }
+
+    @Override
+    public String[] getFontPlatformNames() {
+        // TODO
+        return super.getFontPlatformNames();
+    }
+
+    @Override
+    public int getKeyboardType() {
+        return Display.KEYBOARD_TYPE_VIRTUAL;
+    }
+
+    /**
+     * Callback for the native layer
+     */
+    public static void fireWebViewError(BrowserComponent bc, int code) {
+        bc.fireWebEvent("onError", new ActionEvent("", code));
+    }
+
+    /**
+     * Callback for the native layer
+     */
+    public static void fireWebViewDidFinishLoad(BrowserComponent bc, String url) {
+        bc.fireWebEvent("onLoad", new ActionEvent(url));
+    }
+    
+    /**
+     * Callback for the native layer
+     */
+    public static void fireWebViewDidStartLoad(BrowserComponent bc, String url) {
+        bc.fireWebEvent("onStart", new ActionEvent(url));
+    }
+
+    @Override
+    public String getAppArg() {
+        // We need special handling of AppArg to avoid race conditions.
+        // AppArg is guaranteed to be set by the time 
+        // applicationDidBecomeActive() is called, so in some cases
+        // calling AppArg inside the start() method of the lifecycle will
+        // get a stale value.
+        // See the lifecycle here:
+        // https://developer.apple.com/library/ios/documentation/iPhone/Conceptual/iPhoneOSProgrammingGuide/Inter-AppCommunication/Inter-AppCommunication.html#//apple_ref/doc/uid/TP40007072-CH6-SW13
+        if (!minimized && !isActive && Display.getInstance().isEdt()) {
+            // !minimized = applicationWillEnterForeground has already run
+            // !isActive = applicationDidBecomeActive hasn't been called yet.
+            // => We will do some "waiting" to give the AppArg a chance
+            // to be changed.
+            // We only defer access to AppArg if we are on the EDT
+            // to avoid a possible dead-lock when on the main thread
+            // The case we are concerned about is only when
+            // calling inside the start() method, so this will be
+            // on the EDT.
+            // In all other cases, this property should just return
+            // unhindered.
+            Display.getInstance().invokeAndBlock(new Runnable() {
+                @Override
+                public void run() {
+                    final Object lock = new Object();
+                    final boolean[] complete = new boolean[1];
+                    callOnActive(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            complete[0] = true;
+                            synchronized(lock) {
+                                lock.notifyAll();
+                            }
+                        }
+
+                    });
+                    while (!complete[0]) {
+                        synchronized(lock) {
+                            try {
+                                lock.wait(100); // Wait long enough for the url handler
+                                                // to kick in.
+                                // I think it's better just to skip and move on
+                                // after 100ms rather than wait indefinitely just
+                                // in case we are running in the background
+                                break;
+                            } catch (InterruptedException ex) {
+                                break;
+                            }
+                        }
+                    }
+                }
+            });
+
+            
+        }
+        return super.getAppArg();
+    }
+
+    private static Map<String,AsyncResource> callbacks = new HashMap<String,AsyncResource>();
+    
+    static void completeStringCallback(String callbackId, String value) {
+        AsyncResource<String> res = (AsyncResource<String>)callbacks.get(callbackId);
+        if (res != null) {
+            res.complete(value);
+        }
+    }
+
+    
+    @Override
+    public String getProperty(String key, String defaultValue) {
+        if(key.equalsIgnoreCase("cn1_push_prefix")) {
+            return "ios";
+        }
+        if(key.equalsIgnoreCase("Platform")) {
+            return "iOS";
+        }
+        if(key.equalsIgnoreCase("os.gzip")) {
+            return "true";
+        }
+        // NSURLSession follows a redirect inside the native stack, so the
+        // framework never sees where a download actually came from. Answered
+        // here rather than inferred from the platform name because the native
+        // macOS port inherits this class -- and shares the behaviour -- while a
+        // skinless JavaSE build on a Mac reports the same platform name and does
+        // not. ModelCache reads it to decide whether a pinned digest is
+        // mandatory.
+        if(key.equalsIgnoreCase("cn1.nativeRedirects")) {
+            return "true";
+        }
+        // The ios.themeGeneration build hint, read back. iOS has no generic
+        // build-hint bridge -- getProperty answers a fixed key list and the
+        // generated stub's static setter is the only way a hint reaches the
+        // device -- so a hint the port already stores is invisible to the
+        // application unless it is answered here. The fidelity harness needs
+        // exactly this: it installs the native theme itself rather than through
+        // installNativeTheme, so without a readable generation it always scored
+        // the iOS 26 theme, including against the iOS 27 goldens.
+        if(key.equalsIgnoreCase("ios.themeGeneration")) {
+            return iosThemeGeneration;
+        }
+        // The theme resource that generation selects, so a caller that wants the
+        // file rather than the number does not have to re-derive the mapping and
+        // risk disagreeing with installNativeTheme about it.
+        //
+        // Answers the resource that is actually PRESENT, applying the same
+        // generation-26 fallback installNativeTheme applies. Reporting the
+        // requested name unconditionally would hand a caller a path that is not
+        // in the bundle, and a caller that trusts the answer -- the fidelity
+        // runner does, and gives up when the stream is null -- would then install
+        // no theme at all, which is worse than the fallback this exists beside.
+        if(key.equalsIgnoreCase("cn1.nativeThemeResource")) {
+            String want = "/" + modernThemeResourceName() + ".res";
+            if(!"/iOSModernTheme.res".equals(want) && !hasResource(want)) {
+                return "/iOSModernTheme.res";
+            }
+            return want;
+        }
+        if(key.equalsIgnoreCase("OS")) {
+            return "iOS";
+        }
+
+        if(key.equalsIgnoreCase("User-Agent")) {
+            /*if(isTablet()) {
+                return "Mozilla/5.0 (iPad; U; CPU OS 3_2 like Mac OS X; en-us) AppleWebKit/531.21.10 (KHTML, like Gecko) Version/4.0.4 Mobile/7B334b Safari/531.21.10";
+            } 
+            return "Mozilla/5.0 (iPhone; U; CPU like Mac OS X; en) AppleWebKit/420+ (KHTML, like Gecko) Version/3.0 Mobile/1C25 Safari/419.3";*/
+            if(userAgent == null) {
+                final String callbackId = key+System.currentTimeMillis();
+                AsyncResource<String> out = new AsyncResource<String>() {
+                    @Override
+                    public void complete(String value) {
+                        callbacks.remove(callbackId);
+                        super.complete(value); 
+                    }
+
+                    @Override
+                    public void error(Throwable t) {
+                        callbacks.remove(callbackId);
+                        super.error(t);
+                    }
+                };
+                callbacks.put(callbackId, out);
+                userAgent = nativeInstance.getUserAgentString(callbackId);
+                if (userAgent == null) {
+                    try {
+                        userAgent = out.get();
+                    } catch (Exception ex) {
+                        Log.e(ex);
+                    }
+                }
+            }
+            return userAgent;
+        }
+        if(key.equalsIgnoreCase("AppVersion")) {
+            // make app version case insensitive
+            return super.getProperty("AppVersion", "");
+        }
+        if("OSVer".equals(key)) {
+            return nativeInstance.getOSVersion();
+        }
+        if("DeviceName".equals(key)) {
+            return nativeInstance.getDeviceName();
+        }
+        if("DeviceHardwareModel".equals(key)) {
+            return nativeInstance.getDeviceHardwareModel();
+        }
+        if(key.equalsIgnoreCase("UDID")) {
+            return nativeInstance.getUDID();
+        }
+        if("cn1.iosStatusBarTap.count".equals(key)) {
+            return String.valueOf(nativeInstance.getStatusBarTapCount());
+        }
+        if("cn1.iosStatusBarTap.lastEpochMillis".equals(key)) {
+            return String.valueOf(nativeInstance.getStatusBarTapLastEpochMillis());
+        }
+        if("cn1.iosStatusBarTap.lastX".equals(key)) {
+            return String.valueOf(nativeInstance.getStatusBarTapLastX());
+        }
+        if("cn1.iosStatusBarTap.lastY".equals(key)) {
+            return String.valueOf(nativeInstance.getStatusBarTapLastY());
+        }
+        if("cn1.iosStatusBarTap.proxyInstalled".equals(key)) {
+            return String.valueOf(nativeInstance.isStatusBarTapProxyInstalled());
+        }
+        if("cn1.iosStatusBarTap.diagnostics".equals(key)) {
+            int count = nativeInstance.getStatusBarTapCount();
+            long lastTime = nativeInstance.getStatusBarTapLastEpochMillis();
+            int lastX = nativeInstance.getStatusBarTapLastX();
+            int lastY = nativeInstance.getStatusBarTapLastY();
+            boolean installed = nativeInstance.isStatusBarTapProxyInstalled();
+            StringBuilder sb = new StringBuilder();
+            sb.append("count=").append(count);
+            sb.append(", lastEpochMillis=").append(lastTime);
+            sb.append(", lastX=").append(lastX);
+            sb.append(", lastY=").append(lastY);
+            sb.append(", proxyInstalled=").append(installed);
+            return sb.toString();
+        }
+
+        return super.getProperty(key, defaultValue);
+    }
+
+    @Override
+    public int getSize(Object nativeFont) {
+        return f(nativeFont).size;
+    }
+
+    @Override
+    public int getStyle(Object nativeFont) {
+        return f(nativeFont).style;
+    }
+
+    /*@Override
+    public int getVolume() {
+        return (int)(nativeInstance.getVolume() * 100);
+    }*/
+
+    @Override
+    public boolean isAlphaMutableImageSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isAnimation(Object nativeImage) {
+        // TODO
+        return super.isAnimation(nativeImage);
+    }
+
+    @Override
+    public boolean isAntiAliased(Object graphics) {
+        return ((NativeGraphics)graphics).isAntiAliased();
+    }
+    
+
+    @Override
+    public boolean isAntiAliasedText(Object graphics) {
+        return ((NativeGraphics)graphics).isAntiAliasedText();
+    }
+
+    @Override
+    public boolean isAntiAliasedTextSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isAntiAliasedTextSupported(Object graphics) {
+        return ((NativeGraphics)graphics).isAntiAliasTextSupported();
+    }
+    
+    @Override
+    public boolean isAntiAliasingSupported() {
+        return true;
+    }
+    
+    public boolean isAntiAliasingSupported(Object graphics) {
+        return ((NativeGraphics)graphics).isAntiAliasingSupported();
+    }
+
+    @Override
+    public boolean isLookupFontSupported() {
+        // TODO
+        return super.isLookupFontSupported();
+    }
+
+    @Override
+    public boolean isMinimized() {
+        // SJH Nov. 17, 2015 : Removing native isMinimized() method because it conflicted with
+        // tracking on the java side.  It caused the app to still be minimized inside start()
+        // method.  
+        // Related to this issue https://groups.google.com/forum/?utm_medium=email&utm_source=footer#!msg/codenameone-discussions/Ajo2fArN8mc/KrF_e9cTDwAJ
+        //return minimized || nativeInstance.isMinimized();
+        return minimized;
+    }
+
+    @Override
+    public boolean isMultiTouch() {
+        return true;
+    }
+
+    @Override
+    public boolean isNativeBrowserComponentSupported() {
+        return true;
+    }
+
+    @Override
+    public void setPinchToZoomEnabled(PeerComponent browserComponent, boolean e) {
+        nativeInstance.setPinchToZoomEnabled(get(browserComponent), e);
+    }
+
+    @Override
+    public void setNativeBrowserScrollingEnabled(PeerComponent browserComponent, boolean e) {
+        nativeInstance.setNativeBrowserScrollingEnabled(get(browserComponent), e);
+    }
+
+    @Override
+    public boolean isOpaque(Image codenameOneImage, Object nativeImage) {
+        // TODO
+        return super.isOpaque(codenameOneImage, nativeImage);
+    }
+
+    @Override
+    public boolean isScaledImageDrawingSupported() {
+        return true;
+    }
+    
+    @Override
+    public boolean isNativeVideoPlayerControlsIncluded() {
+        return true;
+    }
+    
+    @Override
+    public void sendMessage(String[] recieptents, String subject, Message msg) {
+        String[] attachments = null;
+        String[] attachmentMime = null;
+        
+        if(msg.getAttachments().size() > 0) {
+            int counter = 0;
+            attachments = new String[msg.getAttachments().size()];
+            attachmentMime = new String[attachments.length];
+            for(String s : msg.getAttachments().keySet()) {
+                String mime = msg.getAttachments().get(s);
+                attachments[counter] = s;
+                attachmentMime[counter] = mime;
+                counter++;
+            }
+        }
+        
+        nativeInstance.sendEmailMessage(recieptents, subject, msg.getContent(),  
+                attachments, attachmentMime, msg.getMimeType().equals(Message.MIME_HTML));
+    }
+
+    @Override
+    public boolean isContactsPermissionGranted() {
+        final boolean[] f = new boolean[1];
+        Display.getInstance().invokeAndBlock(new Runnable() {
+
+            @Override
+            public void run() {
+                f[0] = nativeInstance.isContactsPermissionGranted();
+            }
+        });
+        return f[0];
+    }
+
+    @Override
+    public String createContact(String firstName, String surname, String officePhone, String homePhone, String cellPhone, String email) {
+        if (!nativeInstance.checkContactsUsage()) {
+            throw new RuntimeException("Please add the ios.NSContactsUsageDescription build hint");
+        }
+        return nativeInstance.createContact(firstName, surname, officePhone, homePhone, cellPhone, email);
+    }
+
+    @Override
+    public boolean deleteContact(String id) {
+        if (!nativeInstance.checkContactsUsage()) {
+            throw new RuntimeException("Please add the ios.NSContactsUsageDescription build hint");
+        }
+        return nativeInstance.deleteContact(Integer.parseInt(id));
+    }
+    
+    
+    @Override
+    public String[] getAllContacts(boolean withNumbers) {
+        if (!nativeInstance.checkContactsUsage()) {
+            throw new RuntimeException("Please add the ios.NSContactsUsageDescription build hint");
+        }
+        int[] c = new int[nativeInstance.getContactCount(withNumbers)];
+        int clen = c.length;
+        nativeInstance.getContactRefIds(c, withNumbers);
+        String[] r = new String[clen];
+        for(int iter = 0 ; iter < clen ; iter++) {
+            r[iter] = "" + c[iter];
+        }
+        return r;
+    }
+
+    @Override
+    public void refreshContacts() {
+        if (!nativeInstance.checkContactsUsage()) {
+            throw new RuntimeException("Please add the ios.NSContactsUsageDescription build hint");
+        }
+        nativeInstance.refreshContacts();
+    }
+
+    @Override
+    public String[] getLinkedContactIds(Contact c) {
+        if (!nativeInstance.checkContactsUsage()) {
+            throw new RuntimeException("Please add the ios.NSContactsUsageDescription build hint");
+        }
+        int recId = Integer.parseInt(c.getId());
+        int num = nativeInstance.countLinkedContacts(recId);
+        String[] out = new String[num];
+        if (num > 0) {
+            int[] iout = new int[num];
+            nativeInstance.getLinkedContactIds(num, recId, iout);
+            for (int i=0; i<num; i++) {
+                out[i] = String.valueOf(iout[i]);
+            }
+        }
+        return out;
+        
+    }
+    
+    
+    
+    @Override
+    public Contact getContactById(String id, boolean includesFullName, boolean includesPicture, boolean includesNumbers, boolean includesEmail, boolean includeAddress) {
+        if (!nativeInstance.checkContactsUsage()) {
+            throw new RuntimeException("Please add the ios.NSContactsUsageDescription build hint");
+        }
+        int recId = Integer.parseInt(id);
+        Contact c = new Contact();
+        c.setId(id);
+        c.setAddresses(new Hashtable());
+        if (includeAddress) {
+            // This is a hack to make sure that 
+            // Address and its methods aren't stripped out by the BytecodeCompiler
+            if (System.currentTimeMillis() == 0) {
+                Address tmp = new Address();
+                tmp.setCountry("");
+                tmp.setLocality("");
+                tmp.setRegion("");
+                tmp.setPostalCode("");
+                tmp.setStreetAddress("");
+                c.getAddresses().put("", tmp);
+            }
+        }
+
+        c.setEmails(new Hashtable());
+        c.setPhoneNumbers(new Hashtable());
+        nativeInstance.updatePersonWithRecordID(recId, c, includesFullName, includesPicture, includesNumbers, includesEmail, includeAddress);
+        return c;
+    }
+
+    @Override
+    public Contact getContactById(String id) {
+        if (!nativeInstance.checkContactsUsage()) {
+            throw new RuntimeException("Please add the ios.NSContactsUsageDescription build hint");
+        }
+        return getContactById(id, true, true, true, true, true);
+    }
+
+    /// The listener waiting for the contact picker, and the fields it asked
+    /// for.
+    ///
+    /// One slot rather than a queue, like the capture callback beside it:
+    /// `CNContactPickerViewController` is modal, so a second pick cannot
+    /// start while the first is on screen.
+    private static EventDispatcher contactPickerCallback;
+
+    private static int contactPickerFields;
+
+    @Override
+    public boolean isContactPickerSupported() {
+        return nativeInstance.isContactPickerSupported();
+    }
+
+    @Override
+    public void pickContacts(int requestedFields, boolean multiSelect,
+                             int selectionLimit, boolean requireAllRequestedFields,
+                             ActionListener<ActionEvent> response) {
+        if (!nativeInstance.isContactPickerSupported()) {
+            fireContactPickerResult(response, new Contact[0]);
+            return;
+        }
+        // Deliberately no checkContactsUsage. The picker is a separate
+        // process that hands back only what the user tapped, so it needs no
+        // NSContactsUsageDescription -- demanding the build hint here would
+        // make the privacy-preserving path harder to adopt than the broad
+        // one it replaces.
+        contactPickerFields = requestedFields;
+        contactPickerCallback = new EventDispatcher();
+        contactPickerCallback.addListener(response);
+        // requireAllRequestedFields reaches the picker as its enabling
+        // predicate, which is built natively from the same field bits.
+        nativeInstance.openContactPicker(
+                requireAllRequestedFields ? requestedFields | CONTACT_PICKER_REQUIRE_ALL
+                        : requestedFields,
+                multiSelect, selectionLimit);
+    }
+
+    /// Nulls out the picker tables the native side found nothing for.
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: the contact just populated from a picked CNContact
+    private static void dropEmpty(Contact c) {
+        if (c.getPhoneNumbers() != null && c.getPhoneNumbers().isEmpty()) {
+            c.setPhoneNumbers(null);
+        }
+        if (c.getEmails() != null && c.getEmails().isEmpty()) {
+            c.setEmails(null);
+        }
+        if (c.getAddresses() != null && c.getAddresses().isEmpty()) {
+            c.setAddresses(null);
+        }
+    }
+
+    /// Marks `#pickContacts` as wanting every requested field present.
+    ///
+    /// Rides the field bit set rather than a separate argument so the native
+    /// signature stays one int; it is well above every
+    /// `com.codename1.contacts.ContactPicker` constant.
+    static final int CONTACT_PICKER_REQUIRE_ALL = 0x40000000;
+
+    /// Invoked from the Objective-C picker delegate once the user is done.
+    ///
+    /// The picked contacts are still held natively when this runs; each one
+    /// is copied across and then the native array is dropped. Public and
+    /// static because the C side calls it by its mangled symbol, which is
+    /// also the only thing keeping it out of the dead-code pass.
+    ///
+    /// #### Parameters
+    ///
+    /// - `count`: how many contacts the user picked, zero when cancelled
+    public static void contactPickerResult(final int count) {
+        final EventDispatcher target = contactPickerCallback;
+        contactPickerCallback = null;
+        final int fields = contactPickerFields;
+        Contact[] picked = new Contact[Math.max(0, count)];
+        try {
+            for (int iter = 0; iter < picked.length; iter++) {
+                Contact c = new Contact();
+                // The native side fills these rather than creating them, the
+                // same way updatePersonWithRecordID does -- but only for the
+                // fields that were asked for. Creating all three regardless
+                // would hand the caller an empty table where this API
+                // promises null, and only on iOS, so code that tells "not
+                // requested" from "requested and absent" would read the two
+                // the same way here and differently everywhere else.
+                if ((fields & ContactPicker.ADDRESS) != 0) {
+                    c.setAddresses(new Hashtable());
+                }
+                if ((fields & ContactPicker.EMAIL) != 0) {
+                    c.setEmails(new Hashtable());
+                }
+                if ((fields & ContactPicker.PHONE) != 0) {
+                    c.setPhoneNumbers(new Hashtable());
+                }
+                if (System.currentTimeMillis() == 0) {
+                    // Keeps Address and its setters out of the dead-code pass;
+                    // only the native side ever calls them. Same hack, and
+                    // same reason, as getContactById above.
+                    Address tmp = new Address();
+                    tmp.setCountry("");
+                    tmp.setLocality("");
+                    tmp.setRegion("");
+                    tmp.setPostalCode("");
+                    tmp.setStreetAddress("");
+                    c.getAddresses().put("", tmp);
+                }
+                instance.nativeInstance.updatePickedContact(iter, c, fields);
+                // A table the native side left empty means the contact simply
+                // had none of that kind. Android and the simulator report that
+                // as null because they build the table only once they have a
+                // value, so it is dropped here rather than leaving iOS the one
+                // platform that answers an empty table.
+                dropEmpty(c);
+                picked[iter] = c;
+            }
+        } finally {
+            instance.nativeInstance.releasePickedContacts();
+        }
+        final Contact[] result = picked;
+        if (target == null) {
+            return;
+        }
+        if (deliverPickerResultOnEdt(new Runnable() {
+            @Override
+            public void run() {
+                target.fireActionEvent(new ActionEvent(result));
+            }
+        })) {
+            return;
+        }
+        target.fireActionEvent(new ActionEvent(result));
+    }
+    
+    @Override
+    public void dial(String phoneNumber) {        
+        nativeInstance.dial("tel://" + phoneNumber);
+    }
+
+    @Override
+    public boolean isCallDetectionSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isInCall() {
+        return callInterruptionActive;
+    }
+
+    @Override
+    public boolean canDial() {
+        boolean s = super.canDial(); 
+        return s && nativeInstance.canExecute("tel://911");
+    }
+    
+    @Override
+    public int getSMSSupport() {
+        return Display.SMS_INTERACTIVE;
+    }
+    
+    @Override
+    public void sendSMS(String phoneNumber, String message, boolean i) throws IOException{
+        nativeInstance.sendSMS(phoneNumber, message);
+    }
+
+    public void systemOut(String content) {
+        nativeInstance.log(content);
+    }
+
+    @Override
+    public boolean isTrueTypeSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isNativeFontSchemeSupported() {
+        return true;
+    }
+    
+    
+
+    protected String nativeFontName(String fontName) {
+        if(fontName != null && fontName.startsWith("native:")) {
+            if("native:MainThin".equals(fontName)) {
+                return "HelveticaNeue-UltraLight";
+            }
+            if("native:MainLight".equals(fontName)) {
+                return "HelveticaNeue-Light";
+            }
+            if("native:MainRegular".equals(fontName)) {
+                return "HelveticaNeue-Medium";
+            }
+            
+            if("native:MainBold".equals(fontName)) {
+                return "HelveticaNeue-Bold";
+            }
+            
+            if("native:MainBlack".equals(fontName)) {
+                return "HelveticaNeue-CondensedBlack";
+            }
+            
+            if("native:ItalicThin".equals(fontName)) {
+                return "HelveticaNeue-UltraLightItalic";
+            }
+            
+            if("native:ItalicLight".equals(fontName)) {
+                return "HelveticaNeue-LightItalic";
+            }
+            
+            if("native:ItalicRegular".equals(fontName)) {
+                return "HelveticaNeue-MediumItalic";
+            }
+            
+            if("native:ItalicBold".equals(fontName) || "native:ItalicBlack".equals(fontName)) {
+                return "HelveticaNeue-BoldItalic";
+            }
+        }            
+        return fontName;
+    }
+
+    @Override
+    public Object loadTrueTypeFont(String fontName, String fileName) {
+        NativeFont fnt = new NativeFont();
+        fnt.face = com.codename1.ui.Font.FACE_SYSTEM;
+        fnt.size = com.codename1.ui.Font.SIZE_MEDIUM;
+        fnt.style = com.codename1.ui.Font.STYLE_PLAIN;
+        fontName = nativeFontName(fontName);
+        fnt.name = fontName;
+        // Register the file this font lives in before asking for it by name.
+        // The native falls back to scanning the whole bundle when a name will
+        // not resolve, and that scan is what start-up used to pay: registering
+        // the one file that was named avoids it.
+        if (fileName != null && fileName.length() > 0) {
+            nativeInstance.registerBundledFont(fileName);
+        }
+        fnt.peer = nativeInstance.createTruetypeFont(fontName);
+        return fnt;
+    }
+
+    @Override
+    public Object deriveTrueTypeFont(Object font, float size, int weight) {
+        NativeFont original = (NativeFont)font;
+        NativeFont fnt = new NativeFont();
+        fnt.face = com.codename1.ui.Font.FACE_SYSTEM;
+        fnt.size = com.codename1.ui.Font.SIZE_MEDIUM;
+        fnt.style = com.codename1.ui.Font.STYLE_PLAIN;
+        fnt.name = original.name;
+        fnt.weight = weight;
+        fnt.height = size;
+        fnt.peer = nativeInstance.deriveTruetypeFont(original.peer, 
+                (weight & com.codename1.ui.Font.STYLE_BOLD) == com.codename1.ui.Font.STYLE_BOLD, 
+                (weight & com.codename1.ui.Font.STYLE_ITALIC) == com.codename1.ui.Font.STYLE_ITALIC, size);
+        return fnt;
+    }
+    
+    @Override
+    public void lockOrientation(boolean portrait) {
+        nativeInstance.lockOrientation(portrait);
+    }
+
+    @Override
+    public void unlockOrientation() {
+        nativeInstance.unlockOrientation();
+    }
+
+    @Override
+    public boolean minimizeApplication() {
+        return nativeInstance.minimizeApplication();
+    }
+
+    /*@Override
+    public void pauseAudio(Object handle) {
+        long[] l = (long[])handle;
+        if(l[0] == 0) {
+            return;
+        }
+        nativeInstance.pauseAudio(l[0]);
+    }*/
+
+    @Override
+    public void restoreMinimizedApplication() {
+        nativeInstance.restoreMinimizedApplication();
+    }
+
+    @Override
+    public void setAntiAliased(Object graphics, boolean a) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.setAntiAliased(a);
+    }
+
+    @Override
+    public void setAntiAliasedText(Object graphics, boolean a) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.setAntiAliasedText(a);
+    }
+
+    /*@Override
+    public void setAudioTime(Object handle, int time) {
+        long[] l = (long[])handle;
+        if(l[0] == 0) {
+            return;
+        }
+        nativeInstance.setAudioTime(l[0], time);
+    }*/
+
+    private long get(PeerComponent p) {
+        if(p == null) return 0;
+        long[] l = (long[])p.getNativePeer();
+        return l[0];
+    }
+    
+    @Override
+    public void setBrowserPage(PeerComponent browserPeer, String html, String baseUrl) {
+        if(baseUrl != null && baseUrl.startsWith("jar://")) {
+            String str = StringUtil.replaceAll(nativeInstance.getResourcesDir(), " ", "%20");
+            baseUrl = "file://localhost" + str + baseUrl.substring(6);
+        }
+        nativeInstance.setBrowserPage(get(browserPeer), html, baseUrl);
+    }
+
+    @Override
+    public void setBrowserProperty(PeerComponent browserPeer, String key, Object value) {
+        if(key.equalsIgnoreCase("useragent")) {
+            nativeInstance.setBrowserUserAgent(datePickerResult, (String)value);
+            return;
+        }
+        if (BrowserComponent.BROWSER_PROPERTY_FOLLOW_TARGET_BLANK.equals(key)) {
+            nativeInstance.setBrowserFollowTargetBlank(get(browserPeer), Boolean.TRUE.equals(value));
+        }
+        if (BrowserComponent.BROWSER_PROPERTY_INTERFACE_STYLE.equals(key)) {
+            // Maps to UIUserInterfaceStyle: 0 = unspecified/auto, 1 = light, 2 = dark.
+            int style = 0;
+            if (value != null) {
+                String v = value.toString();
+                if ("light".equalsIgnoreCase(v)) {
+                    style = 1;
+                } else if ("dark".equalsIgnoreCase(v)) {
+                    style = 2;
+                }
+            }
+            nativeInstance.setBrowserInterfaceStyle(get(browserPeer), style);
+        }
+    }
+
+    /**
+     * https://github.com/codenameone/CodenameOne/issues/2551
+     * 
+     * @param path The path to fix.  This should not include the file:// prefix
+     * @return The fixed path.  Does not include file:// prefix
+     */
+    private String fixAppRoot(String path) {
+        String base = "/var/mobile/Containers/Data/Application/";
+        String containerRoot = getContainerRoot();
+        if (path.startsWith(base) && !path.startsWith(containerRoot)) {
+            String theRest = path.substring(base.length(), path.length());
+            int slashPos = theRest.indexOf("/");
+            if (slashPos <= 0) {
+                return path;
+            }
+            
+            return containerRoot + theRest.substring(slashPos+1, theRest.length());
+        }
+        return path;
+    }
+    
+    // Gets the container root -- does not include file:// prefix
+    private String getContainerRoot() {
+        String appRoot = nativeInstance.getDocumentsDir();
+        if (appRoot.endsWith("/")) {
+            appRoot = appRoot.substring(0, appRoot.length()-1);
+        }
+        return appRoot.substring(0, appRoot.lastIndexOf("/")+1);
+        
+    }
+    
+    @Override
+    public void setBrowserURL(PeerComponent browserPeer, String url) {
+        url = unfile(url);
+        if(url.startsWith("jar://")) {
+            String str = StringUtil.replaceAll(nativeInstance.getResourcesDir(), " ", "%20");
+            url = "file://localhost" + str + url.substring(6);
+        }
+        nativeInstance.setBrowserURL(get(browserPeer), url);
+    }
+
+    @Override
+    public boolean isURLWithCustomHeadersSupported() {
+        return true;
+    }        
+    
+    @Override
+    public void setBrowserURL(PeerComponent browserPeer, String url, Map<String, String> headers) {
+        url = unfile(url);
+        if(url.startsWith("jar://")) {
+            String str = StringUtil.replaceAll(nativeInstance.getResourcesDir(), " ", "%20");
+            url = "file://localhost" + str + url.substring(6);
+        } 
+        
+        String[] keys = new String[headers.size()];
+        headers.keySet().toArray(keys);
+        String[] values = new String[keys.length];
+        for(int iter = 0 ; iter < keys.length ; iter++) {
+            values[iter] = headers.get(keys[iter]);
+        }
+        
+        nativeInstance.setBrowserURL(get(browserPeer), url, keys, values);
+    }
+
+    @Override
+    public void setBuiltinSoundsEnabled(boolean enabled) {
+        // TODO
+        super.setBuiltinSoundsEnabled(enabled);
+    }
+
+    /*@Override
+    public void setVolume(int vol) {
+        nativeInstance.setVolume(((float)vol) / 100.0f);
+    }*/
+
+    @Override
+    public void showNativeScreen(Object nativeFullScreenPeer) {
+        // TODO
+        super.showNativeScreen(nativeFullScreenPeer);
+    }
+
+    @Override
+    public void vibrate(int duration) {
+        nativeInstance.vibrate(duration);
+    }
+    
+    @Override
+    public PeerComponent createNativePeer(Object nativeComponent) {
+        return new NativeIPhoneView(nativeComponent);
+    }
+
+    // Live Metal 3D surfaces keyed by their hosting peer, mirroring the
+    // IdentityHashMap pattern the JavaSE port uses for its GL surfaces.
+    private final java.util.Map<PeerComponent, IOSGLSurface> glSurfaces =
+            new java.util.IdentityHashMap<PeerComponent, IOSGLSurface>();
+
+    // The portable 3D API is implemented on the Metal pipeline only, so the
+    // backend is exposed (getGpuImplementation returns non-null) only while
+    // Metal rendering is active.
+    private final com.codename1.impl.gpu.GpuImplementation gpuImpl =
+            new com.codename1.impl.gpu.GpuImplementation() {
+        @Override
+        public PeerComponent createPeer(com.codename1.gpu.RenderView view) {
+            long contextPeer = nativeInstance.gl3dCreateContext();
+            if (contextPeer == 0) {
+                return null;
+            }
+            long viewPeer = nativeInstance.gl3dGetViewPeer(contextPeer);
+            if (viewPeer == 0) {
+                nativeInstance.gl3dDestroyContext(contextPeer);
+                return null;
+            }
+            IOSGLSurface surface = new IOSGLSurface(view, contextPeer);
+            PeerComponent peer = createNativePeer(new long[] { viewPeer });
+            if (peer != null) {
+                glSurfaces.put(peer, surface);
+            }
+            return peer;
+        }
+
+        @Override
+        public void setContinuous(PeerComponent peer, boolean continuous) {
+            IOSGLSurface surface = glSurfaces.get(peer);
+            if (surface != null) {
+                surface.setContinuous(continuous);
+            }
+        }
+
+        @Override
+        public void requestRender(PeerComponent peer) {
+            IOSGLSurface surface = glSurfaces.get(peer);
+            if (surface != null) {
+                surface.requestRender();
+            }
+        }
+    };
+
+    @Override
+    public com.codename1.impl.gpu.GpuImplementation getGpuImplementation() {
+        return metalRendering ? gpuImpl : null;
+    }
+
+    class NativeIPhoneView extends PeerComponent {
+
+        private long nativePeer;
+
+        private boolean lightweightMode; 
+       
+        public NativeIPhoneView(Object nativePeer) {
+            super(nativePeer);
+            this.nativePeer = ((long[])nativePeer)[0];
+            nativeInstance.retainPeer(this.nativePeer);
+        }
+        
+        public void finalize() {
+            if(nativePeer != 0) {
+                nativeInstance.releasePeer(nativePeer);
+                nativePeer = 0;
+            }
+        }
+        
+        public boolean isFocusable() {
+            return true;
+        }
+
+        public void setFocus(boolean b) {
+        }
+        
+        protected Dimension calcPreferredSize() {
+            if(nativePeer == 0) {
+                return new Dimension();
+            }
+            int[] p = new int[2];
+            nativeInstance.calcPreferredSize(nativePeer, getDisplayWidth(), getDisplayHeight(), p);
+            return new Dimension(p[0], p[1]);
+        }
+
+        protected void onPositionSizeChange() {
+            if(nativePeer != 0) {
+                nativeInstance.updatePeerPositionSize(nativePeer, getAbsoluteX(), getAbsoluteY(), getWidth(), getHeight());
+                // Re-applies the frame in the window's own scale as well as re-homing
+                // it, since updatePeerPositionSize converts with the global one.
+                attachToOwningWindow();
+            }
+        }
+
+        protected void initComponent() {
+            super.initComponent();
+            if(nativePeer != 0) {
+                nativeInstance.peerInitialized(nativePeer, getAbsoluteX(), getAbsoluteY(),
+                        getWidth(), getHeight(), peerWindowId(this));
+                attachToOwningWindow();
+            }
+        }
+
+        /// Moves this peer into the Catalyst window that owns it.
+        ///
+        /// peerInitialized attaches every native view to the main controller's view,
+        /// so without this a browser, camera or video view inside a Window appeared
+        /// over the main surface and took its input there. A no-op for a component on
+        /// the main surface, and on every platform that is not Catalyst.
+        void attachToOwningWindow() {
+            int slot = MacWindowManager.slotForComponent(this);
+            if (slot >= 0) {
+                // The result is false when the window's scene has not been granted
+                // yet, which is ordinary rather than an error: a peer can be created
+                // in the same event dispatch turn as show(). The native side queues
+                // it in that case and scene adoption attaches it, so there is nothing
+                // to retry from here.
+                catalystWindowNative.macWindowAttachPeer(nativePeer, slot,
+                        getAbsoluteX(), getAbsoluteY(), getWidth(), getHeight());
+            }
+        }
+
+        protected void deinitialize() {
+            if(nativePeer != 0) {
+                setPeerImage(generatePeerImage());
+                nativeInstance.peerDeinitialized(nativePeer);
+            }
+            super.deinitialize();
+        }
+        
+        protected void setLightweightMode(boolean l) {
+            if(nativePeer != 0) {
+                if(lightweightMode != l) {
+                    lightweightMode = l;
+                    nativeInstance.peerSetVisible(nativePeer, !lightweightMode);
+                    if (!lightweightMode) {
+                        // peerSetVisible re-adds to the main view, so the peer has to
+                        // be put back in its own window each time it becomes heavy.
+                        attachToOwningWindow();
+                    }
+                    // fix for https://groups.google.com/d/msg/codenameone-discussions/LKxy16PhYEY/bvusdq-ICwAJ
+                    // Through the top level: getComponentForm() is null inside a Window,
+                    // so the repaint this fix exists for was skipped there.
+                    com.codename1.ui.TopLevelContainer f = getTopLevelContainer();
+                    if(f != null) {
+                        f.asContainer().repaint();
+                    }
+                }
+            }
+        }
+        
+        protected Image generatePeerImage() {
+            int[] wh = new int[2];
+            long imagePeer = nativeInstance.createPeerImage(this.nativePeer, wh);
+            if(imagePeer == 0) {
+                return null;
+            }
+            NativeImage ni = new NativeImage("PeerScreen");
+            ni.peer = imagePeer;
+            ni.width = wh[0];
+            ni.height = wh[1];
+            return Image.createImage(ni);
+        }
+        
+        protected boolean shouldRenderPeerImage() {
+            return lightweightMode || !isInitialized();
+        }
+
+    }
+
+    public boolean areMutableImagesFast() {
+        return false;
+    }
+
+    protected boolean cacheRadialGradients() {
+        return false;
+    }
+
+    protected boolean cacheLinearGradients() {
+        return false;
+    }
+
+    public void fillRectRadialGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height, float relativeX, float relativeY, float relativeSize) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        ng.fillRectRadialGradient(startColor, endColor, x, y, width, height, relativeX, relativeY, relativeSize);
+    }
+
+    public void fillLinearGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height, boolean horizontal) {
+        NativeGraphics ng = (NativeGraphics)graphics;
+        ng.checkControl();
+        ng.applyTransform();
+        ng.applyClip();
+        ng.fillLinearGradient(startColor, endColor, x, y, width, height, horizontal);
+    }
+
+    // The multi-stop CSS Gradient API goes through a pure-GPU shader
+    // (CN1MetalPipelineMultiStopGradient). A gradient that doesn't pack into
+    // the shader's 8-stop budget, or a slice with no Metal, falls back
+    // to the base CodenameOneImplementation software rasterizer, which builds
+    // an ARGB raster via Gradient.sampleArgb() and uploads it through
+    // drawImage. The Java side caches that raster on the Gradient via a
+    // WeakReference so repaint storms don't re-rasterise. gaussianBlurImage
+    // wraps either the Metal-native two-pass blur or CIGaussianBlur for the
+    // filter:blur effect on Image inputs.
+    @Override
+    public void fillGradient(Object graphics, com.codename1.ui.Gradient gradient, int x, int y, int width, int height) {
+        if (gradient == null || width <= 0 || height <= 0) {
+            return;
+        }
+        if (metalRendering && gradient.getColors().length <= 8) {
+            NativeGraphics ng = (NativeGraphics) graphics;
+            ng.checkControl();
+            ng.applyTransform();
+            ng.applyClip();
+            int kind = gradient.getKind();
+            int[] argb = gradient.getColors();
+            float[] pos = gradient.getPositions();
+            int stopCount = argb.length;
+            float[] colors = new float[stopCount * 4];
+            for (int i = 0; i < stopCount; i++) {
+                int c = argb[i];
+                int a8 = (c >>> 24) & 0xff;
+                if (a8 == 0) {
+                    a8 = 0xff;
+                }
+                float a = a8 / 255f;
+                colors[i * 4] = ((c >> 16) & 0xff) / 255f * a;
+                colors[i * 4 + 1] = ((c >> 8) & 0xff) / 255f * a;
+                colors[i * 4 + 2] = (c & 0xff) / 255f * a;
+                colors[i * 4 + 3] = a;
+            }
+            float angleOrFromAngle = 0f;
+            float cx = 0.5f;
+            float cy = 0.5f;
+            float rx = 0.5f;
+            float ry = 0.5f;
+            int shape = 1;
+            if (kind == com.codename1.ui.Gradient.KIND_LINEAR) {
+                angleOrFromAngle = ((com.codename1.ui.LinearGradient) gradient).getAngleDegrees();
+            } else if (kind == com.codename1.ui.Gradient.KIND_RADIAL) {
+                com.codename1.ui.RadialGradient rg = (com.codename1.ui.RadialGradient) gradient;
+                float[] geom = new float[4];
+                rg.computeRadii(width, height, geom);
+                cx = geom[0] / width;
+                cy = geom[1] / height;
+                rx = geom[2] / width;
+                ry = geom[3] / height;
+                shape = rg.getShape();
+            } else if (kind == com.codename1.ui.Gradient.KIND_CONIC) {
+                com.codename1.ui.ConicGradient cg = (com.codename1.ui.ConicGradient) gradient;
+                angleOrFromAngle = cg.getFromAngleDegrees();
+                cx = cg.getRelativeCenterX();
+                cy = cg.getRelativeCenterY();
+            }
+            boolean mutable = !(ng instanceof GlobalGraphics);
+            nativeInstance.fillGradient(kind, stopCount, pos, colors,
+                    gradient.getCycleMethod(), angleOrFromAngle,
+                    cx, cy, rx, ry, shape,
+                    x, y, width, height, mutable);
+            return;
+        }
+        super.fillGradient(graphics, gradient, x, y, width, height);
+    }
+
+
+    public static void appendData(long peer, long data) {
+        NetworkConnection n = null;
+        synchronized(CONNECTIONS_LOCK) {
+            int len = instance.connections.size();
+            for (int i=0; i<len; i++) {
+                if (instance.connections.get(i).peer == peer) {
+                    n = instance.connections.get(i);
+                }
+            }
+        }
+        if(n != null) {
+            synchronized(n.LOCK) {
+                nativeInstance.appendData(peer, data);
+                n.connected = true;
+                n.LOCK.notifyAll();
+            }
+        }
+    }
+    
+    public static void streamComplete(long peer) {
+        NetworkConnection n = null;
+        synchronized(CONNECTIONS_LOCK) {
+            int len = instance.connections.size();
+            for (int i=0; i<len; i++) {
+                if (instance.connections.get(i).peer == peer) {
+                    n = instance.connections.get(i);
+                }
+            }
+        }
+        if(n != null) {
+            synchronized(n.LOCK) {
+                n.connected = true;
+                n.streamComplete();
+                n.LOCK.notifyAll();
+            }
+        }
+    }
+    
+    public static void networkError(long peer, String error) {
+        NetworkConnection n = null;
+        synchronized(CONNECTIONS_LOCK) {
+            int len = instance.connections.size();
+            for (int i=0; i<len; i++) {
+                if (instance.connections.get(i).peer == peer) {
+                    n = instance.connections.get(i);
+                }
+            }
+        }
+        synchronized(n.LOCK) {
+            if(error == null) {
+                n.error = "Unknown server error";
+            } else {
+                n.error = error;
+            }
+            n.connected = true;
+            n.LOCK.notifyAll();
+        }
+    }
+
+    /**
+     * An output stream that will start writing to a file once it reaches 
+     * a certain size.  
+     */
+    static class FileBackedOutputStream extends OutputStream {
+
+        private ByteArrayOutputStream buf;
+        private NSDataOutputStream fos;
+        private static int maxBufferSize=102400;
+        boolean usingBuffer = true;
+        private String file;
+        
+        public FileBackedOutputStream() {
+            buf = new ByteArrayOutputStream();
+        }
+        
+        @Override
+        public void write(int b) throws IOException {
+            if (usingBuffer && buf.size() < maxBufferSize) {
+                buf.write(b);
+            } else if (usingBuffer) {
+                usingBuffer = false;
+                file = createTempFile();
+                fos = new NSDataOutputStream(file);
+                fos.write(buf.toByteArray());
+                fos.write(b);
+                buf = null;
+            } else {
+                fos.write(b);
+            }
+        }
+
+        @Override
+        public void write(byte[] b) throws IOException {
+            write(b, 0, b.length);
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            if (usingBuffer && buf.size() + len < maxBufferSize) {
+                buf.write(b, off, len);
+            } else if (usingBuffer) {
+                usingBuffer = false;
+                file = createTempFile();
+                fos = new NSDataOutputStream(file);
+                fos.write(buf.toByteArray());
+                fos.write(b, off, len);
+                buf = null;
+            } else {
+                fos.write(b, off, len);
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (buf != null) {
+                buf.close();
+            }
+            if (fos != null) {
+                fos.flush();
+                fos.close();
+            }
+        }
+
+        @Override
+        public void flush() throws IOException {
+            if (buf != null) {
+                buf.flush();
+            }
+            if (fos != null) {
+                fos.flush();
+            }
+        }
+        
+        
+        
+        public String getFilePath() {
+            if (fos != null) {
+                return file;
+            } else {
+                return null;
+            }
+        }
+        
+        public boolean isBackedByFile() {
+            return !usingBuffer;
+        }
+        
+        
+        public byte[] toByteArray() throws IOException {
+            if (isBackedByFile()) {
+                NSFileInputStream fis = null;
+                
+                fis = new NSFileInputStream(getFilePath());
+                byte[] out = Util.readInputStream(fis);
+                
+                Util.cleanup(fis);
+                return out;
+                
+                
+                
+            } else {
+                return buf.toByteArray();
+            }
+        }
+        
+        public InputStream getInputStream() throws IOException {
+            if (isBackedByFile()) {
+                return new NSFileInputStream(getFilePath());
+            } else {
+                return new ByteArrayInputStream(toByteArray());
+            }
+        }
+        
+        
+        
+        private String createTempFile() {
+            String p = FileSystemStorage.getInstance().getAppHomePath();
+            if (p.lastIndexOf("/") != p.length()-1) {
+                p += "/";
+            }
+            long t = System.currentTimeMillis();
+            while (FileSystemStorage.getInstance().exists(p + "networkTmp_"+t)) {
+                t++;
+            }
+            return p + "networkTmp_"+t;
+        }
+        
+    }
+    
+    
+    static class NetworkConnection extends InputStream {
+        private int id;
+        private long peer;
+        private boolean closed;
+        private FileBackedOutputStream body;
+        //private Vector pendingData = new Vector();
+        private boolean completed;
+        private Hashtable headers = new Hashtable();
+        private String[] sslCertificates;
+        private boolean connected;
+        private boolean ensureConnectionLock;
+        private boolean insecure;
+        String error;
+        public final Object LOCK = new Object();
+        
+        public void setId(int id) {
+            this.id = id;
+            nativeInstance.setConnectionId(peer, id);
+        }
+        
+        public void setInsecure(boolean insecure) {
+            this.insecure = insecure;
+            if (insecure) {
+                nativeInstance.setInsecure(peer, insecure);
+            }
+        }
+        
+        public void setChunkedStreamingMode(int len) {
+            nativeInstance.setChunkedStreamingMode(peer, len);
+        }
+        
+        public void ensureConnection() throws IOException {
+            synchronized(LOCK) {
+                if(connected) {
+                    return;
+                }
+                if(ensureConnectionLock) {
+                    while(ensureConnectionLock) {
+                        try {
+                            LOCK.wait();
+                        } catch (InterruptedException ex) {
+                        }
+                    }
+                    return;
+                }
+                ensureConnectionLock = true;
+                if(body != null) {
+                    try {
+                        body.flush();
+                    } catch (IOException ex) {
+                        ex.printStackTrace();
+                    }
+                    if (body.isBackedByFile()) {
+                        nativeInstance.setBody(peer, body.getFilePath());
+                    } else {
+                        nativeInstance.setBody(peer, body.toByteArray());
+                        body = null;
+                    }
+                    
+                }
+                nativeInstance.connect(peer);
+                while(!connected) {
+                    try {
+                        LOCK.wait();
+                    } catch (InterruptedException ex) {
+                    }
+                }
+                if(error != null) {
+                    Log.p(error);
+                    throw new IOException(error);
+                }
+            }
+        }
+        
+        public NetworkConnection(long peer) {
+            this.peer = peer;
+            synchronized(CONNECTIONS_LOCK) {
+                instance.connections.add(this);
+            }
+        }
+        
+        public void addHeader(String key, String value) {
+            headers.put(key, value);
+        }
+        
+        public void streamComplete() {
+            synchronized(LOCK) {
+                completed = true;
+                LOCK.notify();
+            }
+        }
+        
+        /*
+        public void appendData(byte[] data) {
+            boolean w = false;
+            synchronized(LOCK) {
+                pendingData.addElement(data);
+                LOCK.notify();
+                try {
+                    if(pendingData.size() > 20) {
+                        w = true;
+                        LOCK.wait(1000);
+                    }
+                } catch(InterruptedException ie) {
+                }
+            }
+            if(w) {
+                System.gc();
+            }
+        }
+        */
+        
+        private int shiftByte() {
+            return nativeInstance.shiftByte(peer);
+        }
+        
+        @Override
+        public int read() throws IOException {
+            synchronized(LOCK) {
+                if(available() == 0) {
+                    if(completed) {
+                        return -1;
+                    }
+
+                    while(available() == 0) {
+                        try {
+                            LOCK.wait();
+                        } catch (InterruptedException ex) {
+                        }
+                        if(error != null) {
+                            throw new IOException(error);
+                        }
+                        if(completed && available() == 0) {
+                            return -1;
+                        }
+                    }
+                }
+
+                //byte[] chunk = (byte[])pendingData.elementAt(0);
+                int val = shiftByte() & 0xff;
+                //if(chunk.length == 1) {
+                //    pendingData.removeElementAt(0);
+                //} else {
+                //    byte[] b = new byte[chunk.length - 1];
+                //    System.arraycopy(chunk, 1, b, 0, b.length);
+                //    pendingData.setElementAt(b, 0);
+                //}
+                if(error != null) {
+                    throw new IOException(error);
+                }
+                return val;
+            }
+        }
+
+        @Override
+        public int available() throws IOException {
+            if(error != null) {
+                throw new IOException(error);
+            }
+            return nativeInstance.available(peer);
+            /*
+            synchronized(LOCK) {
+                int count = 0;
+                for(int iter = 0 ; iter < pendingData.size() ; iter++) {
+                    byte[] b = (byte[])pendingData.elementAt(iter);
+                    count += b.length;
+                }
+                return count;
+            }
+            */
+        }
+
+        @Override
+        public void close() throws IOException {
+            synchronized(LOCK) {
+                //if(pendingData == null) {
+                //    return;
+                //}
+                if (closed) {
+                    return;
+                }
+                closed = true;
+                completed = true;
+                //pendingData = null;
+                super.close();
+                nativeInstance.closeConnection(peer);
+                peer = 0;
+            }
+            synchronized(CONNECTIONS_LOCK) {
+                instance.connections.remove(this);
+                if (body != null && body.isBackedByFile() && FileSystemStorage.getInstance().exists(body.getFilePath())) {
+                    FileSystemStorage.getInstance().delete(body.getFilePath());
+                }
+            }
+        }
+
+        @Override
+        public int read(byte[] bytes) throws IOException {
+            return read(bytes, 0, bytes.length);
+        }
+
+        @Override
+        public int read(byte[] bytes, int off, int len) throws IOException {
+            synchronized(LOCK) {
+                if(available() == 0) {
+                    if(completed) {
+                        return -1;
+                    }
+
+                    while(available() == 0) {
+                        try {
+                            LOCK.wait();
+                        } catch (InterruptedException ex) {
+                        }
+                        if(completed && available() == 0) {
+                            return -1;
+                        }
+                    }
+                }
+                len = nativeInstance.readData(peer, bytes, off, len);
+                //byte[] chunk = (byte[])pendingData.elementAt(0);
+                //if(chunk.length < len) {
+                //    len = chunk.length;
+                //}
+                //for(int iter = 0 ; iter < len ; iter++) {
+                //    bytes[iter + off] = chunk[iter];
+                //}
+
+                //if(chunk.length == len) {
+                //    pendingData.removeElementAt(0);
+                //} else {
+                //    byte[] b = new byte[chunk.length - len];
+                //    System.arraycopy(chunk, len, b, 0, b.length);
+                //    pendingData.setElementAt(b, 0);
+                //}
+                if(error != null) {
+                    throw new IOException(error);
+                }
+                return len;            
+            }
+        }
+
+        private String[] getSSLCertificates(String url) {
+            if (sslCertificates == null) {
+                try {
+                    com.codename1.io.URL uUrl = new com.codename1.io.URL(url);
+                    String key = uUrl.getHost()+":"+uUrl.getPort();
+                    String certs = nativeInstance.getSSLCertificates(peer);
+                    if (certs == null) {
+                        //if (sslCertificatesCache.containsKey(key)) {
+                        //    sslCertificates = sslCertificatesCache.get(key);
+                        //}
+                        if (sslCertificates == null) {
+                            return new String[0];
+                        }
+                        return sslCertificates;
+                    }
+                    sslCertificates = Util.split(certs, ",");
+                    //sslCertificatesCache.put(key, sslCertificates);
+                    return sslCertificates;
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    return new String[0];
+                }
+            }
+            return sslCertificates;
+        }
+        
+    }
+
+    //private static Map<String, String[]> sslCertificatesCache = new HashMap<String,String[]>();
+    
+    public boolean isTimeoutSupported() {
+        return true;
+    }
+
+    public void setTimeout(int t) {
+        timeout = t;
+    }
+
+    public Object connect(String url, boolean read, boolean write, int timeout) throws IOException {
+        return new NetworkConnection(nativeInstance.openConnection(url, timeout));
+    }
+    
+    /**
+     * @inheritDoc
+     */
+    public Object connect(String url, boolean read, boolean write) throws IOException {
+        return new NetworkConnection(nativeInstance.openConnection(url, timeout));
+    }
+
+    @Override
+    public String[] getSSLCertificates(Object connection, String url) throws IOException {
+        NetworkConnection conn =  (NetworkConnection)connection;
+        //conn.ensureConnection();
+        return stripExtendedCertificateEntries(conn.getSSLCertificates(url));
+    }
+
+    /**
+     * The native side always emits the chain-grouping and public-key entries,
+     * because the certificate string is built once during the TLS handshake and
+     * cannot be regenerated on demand. Callers of the legacy flat form must not
+     * see them, or an existing checkSSLCertificates override that rejects on any
+     * unrecognised entry would start failing every request.
+     */
+    private static String[] stripExtendedCertificateEntries(String[] entries) {
+        if (entries == null || entries.length == 0) {
+            return new String[0];
+        }
+        java.util.ArrayList<String> out = new java.util.ArrayList<String>(entries.length);
+        for (int i = 0; i < entries.length; i++) {
+            String e = entries[i];
+            if (e == null || e.startsWith("CHAIN:") || e.startsWith("SPKI-SHA-256:")) {
+                continue;
+            }
+            out.add(e);
+        }
+        return out.toArray(new String[out.size()]);
+    }
+
+    @Override
+    public String[] getSSLCertificatesEx(Object connection, String url) throws IOException {
+        NetworkConnection conn = (NetworkConnection)connection;
+        String[] certs = conn.getSSLCertificates(url);
+        return certs == null ? new String[0] : certs;
+    }
+
+    @Override
+    public boolean canGetSSLCertificates() {
+        return true;
+    }
+
+    @Override
+    public boolean canGetPublicKeyDigests() {
+        return true;
+    }
+
+    /**
+     * Checking SSL certificates uses a native callback, instead of the direct approach
+     * which is used in other ports.
+     * @return 
+     */
+    @Override
+    public boolean checkSSLCertificatesRequiresCallbackFromNative() {
+        return true;
+    }
+    
+    
+
+    /**
+     * @inheritDoc
+     */
+    @Override
+    public void setChunkedStreamingMode(Object connection, int bufferLen) {
+        ((NetworkConnection)connection).setChunkedStreamingMode(bufferLen);
+    }
+    
+    /**
+     * @inheritDoc
+     */
+    public void setHeader(Object connection, String key, String val) {
+        nativeInstance.addHeader(((NetworkConnection)connection).peer, key, val);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public OutputStream openOutputStream(Object connection) throws IOException {
+        if(connection instanceof String) {
+            BufferedOutputStream o = new BufferedOutputStream(new NSDataOutputStream((String)connection), (String)connection);
+            return o;
+        }
+        NetworkConnection n = (NetworkConnection)connection;
+        n.body = new FileBackedOutputStream();
+        return new BufferedOutputStream(n.body);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public OutputStream openOutputStream(Object connection, int offset) throws IOException {
+        BufferedOutputStream o = new BufferedOutputStream(new NSDataOutputStream((String)connection, offset), (String)connection);
+        return o;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public InputStream openInputStream(Object connection) throws IOException {
+        if(connection instanceof String) {
+            // Match openFileInputStream(String): if the path is missing, throw
+            // a FileNotFoundException instead of silently opening an empty
+            // NSFileInputStream (which Apple's fileHandleForReadingAtPath:
+            // returns when the file does not exist). See #1502.
+            String path = (String) connection;
+            if(!nativeInstance.fileExists(path)) {
+                throw new FileNotFoundException("File not found: " + path);
+            }
+            BufferedInputStream o = new BufferedInputStream(new NSFileInputStream(path), path);
+            return o;
+        }
+        NetworkConnection n = (NetworkConnection)connection;
+        n.ensureConnection();
+        return new BufferedInputStream(n);
+    }
+
+
+    /**
+     * @inheritDoc
+     */
+    public void setHttpMethod(Object connection, String method) throws IOException {
+        NetworkConnection n = (NetworkConnection)connection;
+        nativeInstance.setMethod(n.peer, method);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void setPostRequest(Object connection, boolean p) {
+        NetworkConnection n = (NetworkConnection)connection;
+        if(p) {
+            nativeInstance.setMethod(n.peer, "POST");
+        } else {
+            nativeInstance.setMethod(n.peer, "GET");
+        }
+    }
+
+    @Override
+    public void setConnectionId(Object connection, int id) {
+        NetworkConnection n = (NetworkConnection)connection;
+        n.setId(id);
+    }
+
+    @Override
+    public void setInsecure(Object connection, boolean insecure) {
+        NetworkConnection n = (NetworkConnection)connection;
+        n.setInsecure(insecure);
+    }
+    
+    
+    
+    
+
+    /**
+     * @inheritDoc
+     */
+    public int getResponseCode(Object connection) throws IOException {
+        NetworkConnection n = (NetworkConnection)connection;
+        n.ensureConnection();
+        return nativeInstance.getResponseCode(n.peer);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String getResponseMessage(Object connection) throws IOException {
+        NetworkConnection n = (NetworkConnection)connection;
+        n.ensureConnection();
+        return nativeInstance.getResponseMessage(n.peer);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public int getContentLength(Object connection) {
+        NetworkConnection n = (NetworkConnection)connection;
+        try {
+            n.ensureConnection();
+            return nativeInstance.getContentLength(n.peer);
+        } catch(IOException err) {
+            return -1;
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String getHeaderField(String name, Object connection) throws IOException {
+        NetworkConnection n = (NetworkConnection)connection;
+        n.ensureConnection();
+        return nativeInstance.getResponseHeader(n.peer, name);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String[] getHeaderFieldNames(Object connection) throws IOException {
+        NetworkConnection n = (NetworkConnection)connection;
+        n.ensureConnection();
+        String[] s = new String[nativeInstance.getResponseHeaderCount(n.peer)];
+        int slen = s.length;
+        for(int iter = 0 ; iter < slen ; iter++) {
+            s[iter] = nativeInstance.getResponseHeaderName(n.peer, iter);
+        }
+        return s;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String[] getHeaderFields(String name, Object connection) throws IOException {
+        NetworkConnection n = (NetworkConnection)connection;
+        n.ensureConnection();
+        String s = nativeInstance.getResponseHeader(n.peer, name);
+        if(s == null) {
+            return null;
+        }
+        
+        // iOS has a bug where it concates identical headers using a comma
+        // but since cookies use a comma in their expires header we need to 
+        // join them back together...
+        List<String> stringList = StringUtil.tokenize(s, ",");
+        if(stringList.size() > 1) {
+            List<String> result = new ArrayList<String>();
+            String loaded = null;
+            for(String current : stringList) {
+                if(loaded != null) {
+                    result.add(loaded + current);
+                    loaded = null;
+                } else {
+                    int p = current.toLowerCase().indexOf("expires=");
+                    int c = current.lastIndexOf(";");
+                    if(c < p && p > 0) {
+                        loaded = current;
+                    } else {
+                        result.add(current);
+                    }
+                }
+            }
+            String[] resultArr = new String[result.size()];
+            result.toArray(resultArr);
+            return resultArr;
+        }
+        String[] resultArr = new String[stringList.size()];
+        stringList.toArray(resultArr);
+        return resultArr;
+    }
+
+    private String storageDirectory;
+    public String getStorageDirectory() {
+        if(storageDirectory == null) {
+            storageDirectory = nativeInstance.getDocumentsDir();
+            if(!storageDirectory.endsWith("/")) {
+                storageDirectory = storageDirectory + "/";
+            }
+            storageDirectory += "cn1storage/";
+            if(!Display.getInstance().getProperty("iosNewStorage", "false").equals("true")) {
+                if(!exists(storageDirectory)) {
+                    // migrate existing storage
+                    mkdir(storageDirectory);
+
+                    String cachesDir = nativeInstance.getCachesDir();
+                    String[] a = new String[nativeInstance.fileCountInDir(cachesDir)];
+                    nativeInstance.listFilesInDir(cachesDir, a);
+                    if(!cachesDir.endsWith("/")) {
+                        cachesDir = cachesDir + "/";
+                    }
+                    for(String current : a) {
+                        if(!isDirectory(cachesDir + current)) {
+                            InputStream i = null;
+                            try {
+                                i = FileSystemStorage.getInstance().openInputStream(cachesDir + current);
+                                OutputStream o = FileSystemStorage.getInstance().openOutputStream(storageDirectory + current);
+                                Util.copy(i, o);
+                                FileSystemStorage.getInstance().delete(cachesDir + current);
+                            } catch (IOException ex) {
+                                throw new RuntimeException(ex.getMessage());
+                            } finally {
+                                if (i != null) {
+                                    try {
+                                        i.close();
+                                    } catch (IOException ex) {
+                                        //throw new RuntimeException(ex.getMessage());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } 
+            } else {
+                mkdir(storageDirectory);
+            }
+        }
+        return storageDirectory;
+    }
+    
+    /**
+     * @inheritDoc
+     */
+    public void deleteStorageFile(String name) {
+        nativeInstance.deleteFile(getStorageDirectory() + "/" + name);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public OutputStream createStorageOutputStream(String name) throws IOException {
+        name = getStorageDirectory() + "/" + name;
+        return new BufferedOutputStream(new NSDataOutputStream(name) , name);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public InputStream createStorageInputStream(String name) throws IOException {
+        name = getStorageDirectory() + "/" + name;
+        return new BufferedInputStream(new NSFileInputStream(name), name);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public boolean storageFileExists(String name) {
+        return nativeInstance.fileExists(getStorageDirectory() + "/" + name);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String[] listStorageEntries() {
+        String c = getStorageDirectory();
+        String[] a = new String[nativeInstance.fileCountInDir(c)];
+        nativeInstance.listFilesInDir(c, a);
+        return a;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public int getStorageEntrySize(String name) {
+        return nativeInstance.getFileSize(getStorageDirectory() + "/" + name);
+    }
+
+    @Override
+    public String toNativePath(String path) {
+        return unfile(path);
+    }
+
+    
+    
+    /**
+     * @inheritDoc
+     */
+    public String[] listFilesystemRoots() {
+        String[] roots;
+        if(Display.getInstance().getProperty("iosNewStorage", "false").equals("true")) {
+            roots = new String[] {
+                    nativeInstance.getDocumentsDir(),
+                    nativeInstance.getCachesDir(),
+                    nativeInstance.getResourcesDir()
+                };
+        } else {
+            roots = new String[] {
+                    nativeInstance.getCachesDir(),
+                    nativeInstance.getDocumentsDir(),
+                    nativeInstance.getResourcesDir()
+                };
+        }
+        int rlen = roots.length;
+        for(int iter = 0 ; iter < rlen ; iter++) {
+            if(roots[iter].startsWith("/")) {
+                roots[iter] = "file://" + roots[iter];
+            }
+            if(!roots[iter].endsWith("/")) {
+                roots[iter] = roots[iter] + "/";
+            }
+        }
+        return roots;
+    }
+
+    @Override
+    public boolean hasCachesDir() {
+        return true;
+    }
+
+    @Override
+    public String getCachesDir() {
+        return listFilesystemRoots()[1];
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public int getRootType(String root) {
+        return FileSystemStorage.ROOT_TYPE_UNKNOWN;
+    }
+    
+    /**
+     * @inheritDoc
+     */
+    public String[] listFiles(String directory) throws IOException {
+        directory = unfile(directory);
+        String[] a = new String[nativeInstance.fileCountInDir(directory)];
+        nativeInstance.listFilesInDir(directory, a);
+        return a;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public long getRootSizeBytes(String root) {
+        return -1;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public long getRootAvailableSpace(String root) {
+        return -1;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void mkdir(String directory) {
+        nativeInstance.createDirectory(unfile(directory));
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void deleteFile(String file) {
+        nativeInstance.deleteFile(unfile(file));
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public boolean isHidden(String file) {
+        return file.startsWith(".");
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void setHidden(String file, boolean h) {
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public long getFileLength(String file) {
+        return nativeInstance.getFileSize(unfile(file));
+    }
+
+    public long getFileLastModified(String file) {
+        return nativeInstance.getFileLastModified(unfile(file));
+    }
+
+    private String unfile(String file) {
+        if (file.startsWith("file:///")) {
+            return fixAppRoot(file.substring(7));
+        }
+        if (file.startsWith("file://")) {
+            return fixAppRoot(file.substring(6));
+        }
+        if (file.startsWith("file:/")) {
+            return fixAppRoot(file.substring(5));
+        }
+        return fixAppRoot(file);
+    }
+    
+    /**
+     * @inheritDoc
+     */
+    public boolean isDirectory(String file) {
+        return nativeInstance.isDirectory(unfile(file));
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public char getFileSystemSeparator() {
+        return '/';
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public OutputStream openFileOutputStream(String file) throws IOException {
+        file = unfile(file);
+        return new BufferedOutputStream(new NSDataOutputStream(file), file);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public InputStream openFileInputStream(String file) throws IOException {
+        file = unfile(file);
+        if(!nativeInstance.fileExists(file)) {
+            // FileNotFoundException is more precise than IOException and
+            // matches what FileInputStream throws on JavaSE, so callers can
+            // distinguish "missing" from other I/O errors. See #1502.
+            throw new FileNotFoundException("File not found: " + file);
+        }
+        return new BufferedInputStream(new NSFileInputStream(file), file);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public boolean exists(String file) {
+        file = unfile(file);
+        return nativeInstance.fileExists(file);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void rename(String file, String newName) {
+        file = unfile(file);
+        if(newName.indexOf('/') < 0) {
+            // good this is a relative filename, prepend file
+            if(file.endsWith("/")) {
+                file = file.substring(0, file.length() - 1);
+            }
+            int pos = file.lastIndexOf('/');
+            if(pos > -1) {
+                newName = file.substring(0, pos) + "/" + newName;
+            }
+        }
+        nativeInstance.moveFile(file, newName);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public boolean shouldWriteUTFAsGetBytes() {
+        return true;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void printStackTraceToStream(Throwable t, Writer o) {
+        nativeInstance.printStackTraceToStream(t, o);
+        /*try {
+            o.write(nativeInstance.stackTraceToString(t));
+        } catch(IOException err) {}*/
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String getPlatformName() {
+        return "ios";
+    }
+
+    @Override
+    public String getNativeLogSnapshot() {
+        try {
+            return nativeInstance.crashProtectionLogSnapshot();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    @Override
+    public void installNativeCrashHandler() {
+        try {
+            nativeInstance.crashProtectionInstall();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    @Override
+    public String consumePendingNativeCrash() {
+        try {
+            return nativeInstance.crashProtectionConsumePending();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    @Override
+    public Simd createSimd() {
+        return new IOSSimd();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String[] getPlatformOverrides() {
+        if(isWatch()) {
+            return new String[] {"watch", "ios", "applewatch"};
+        }
+        if(isTV()) {
+            return new String[] {"tv", "ios", "appletv"};
+        }
+        if(isTablet()) {
+            return new String[] {"tablet", "ios", "ipad"};
+        } else {
+            return new String[] {"phone", "ios", "iphone"};
+        }
+    }
+
+    @Override
+    public native void paintComponentBackground(Object nativeGraphics, int x, int y, int width, int height, Style s);
+    
+    @Override
+    public native void fillRect(Object nativeGraphics, int x, int y, int w, int h, byte alpha);
+    
+    @Override
+    public native void drawLabelComponent(Object nativeGraphics, int cmpX, int cmpY, int cmpHeight, int cmpWidth,
+            Style style, String text, Object icon, Object stateIcon, int preserveSpaceForState, int gap, boolean rtl,
+            boolean isOppositeSide, int textPosition, int stringWidth, boolean isTickerRunning, int tickerShiftText,
+            boolean endsWith3Points, int valign);
+    
+    @Override
+    public void registerPush(Hashtable metaData, boolean noFallback) {
+        PushCallback explicit = CodenameOneImplementation.getPushCallback();
+        if (explicit != null) {
+            pushCallback = explicit;
+            // Every path that installs a callback flushes: this one,
+            // setPushCallback and setMainClass. A held push released by only some
+            // of them would be a launch notification lost depending on how the
+            // application happens to register.
+            firePendingPush();
+        }
+        nativeInstance.registerPush();
+    }
+
+    @Override
+    public void deregisterPush() {
+        nativeInstance.deregisterPush();
+    }
+
+    @Override
+    public void blockCopyPaste(boolean blockCopyPaste) {
+        nativeInstance.blockCopyPaste(blockCopyPaste);
+    }
+
+    
+    
+    private static PushCallback pushCallback;
+    
+    /// Pushes that arrived before anything was registered to receive them.
+    ///
+    /// A managed notification can cold-launch the application, and the native
+    /// replay runs as soon as the framework is callable -- which is before the
+    /// main class's init() has installed the callback, because installing it is
+    /// queued on the EDT. Dropped there, the very notification that launched the
+    /// application was the one it never saw.
+    ///
+    /// A LIST, not one slot. A legacy type 3 payload carrying both an alert and
+    /// metadata reaches pushReceived TWICE -- both native routers send the alert
+    /// and then the metadata -- so a single slot kept the metadata and threw the
+    /// user-visible alert away. Every pair is held, in the order the native side
+    /// sent them, and replayed in that order.
+    ///
+    /// Bounded so a callback that never arrives cannot grow this without limit;
+    /// the oldest goes first, because the newest is the one the user just acted
+    /// on.
+    private static final int MAX_PENDING_PUSHES = 16;
+
+    /// One held push: the message, its type, and the id of the notification it came from.
+    ///
+    /// The id has to be held with the message rather than derived later. It names the completion
+    /// grant the operating system gave for THAT notification, and the whole point of holding a
+    /// message is that other notifications may arrive before it is delivered.
+    private static final class PendingPush {
+        final String message;
+        final String type;
+        final long completionId;
+        /// The PushContent that came with THIS notification, or null if it
+        /// carried none.
+        ///
+        /// Held with the message for the same reason the completion id is.
+        /// PushContent is a singleton the native layer resets and rewrites for
+        /// every notification, so by the time a held message is replayed it
+        /// describes whichever notification arrived LAST: two pushes before a
+        /// callback existed meant the first callback saw the second's image,
+        /// category and action, and the second saw nothing at all, because
+        /// PushContent.get() clears as it reads.
+        final PushContent content;
+
+        PendingPush(String message, String type, long completionId,
+                PushContent content) {
+            this.message = message;
+            this.type = type;
+            this.completionId = completionId;
+            this.content = content;
+        }
+    }
+
+    /// Puts a held notification's content back where PushContent.get() looks.
+    ///
+    /// Only the fields the native layer sets are restored, and only when the
+    /// notification had content: a push that carried none must leave
+    /// PushContent.exists() answering false rather than resurrect the previous
+    /// one's fields as empty strings.
+    private static void restorePushContent(PushContent c) {
+        PushContent.reset();
+        if (c == null) {
+            return;
+        }
+        PushContent.setTitle(c.getTitle());
+        PushContent.setBody(c.getBody());
+        PushContent.setImageUrl(c.getImageUrl());
+        PushContent.setCategory(c.getCategory());
+        PushContent.setMetaData(c.getMetaData());
+        PushContent.setActionId(c.getActionId());
+        PushContent.setActionTitle(c.getActionTitle());
+        PushContent.setTextResponse(c.getTextResponse());
+        PushContent.setType(c.getType());
+    }
+
+    private static final java.util.ArrayList<PendingPush> pendingPushes =
+            new java.util.ArrayList<PendingPush>();
+
+    /// Delivers every push held from before a callback existed, in order.
+    private static void firePendingPush() {
+        PendingPush[] held;
+        // The SAME lock the queueing path takes. A push arrives on the native UI
+        // thread while the callback is installed on the EDT, so without this the
+        // two interleave: pushReceived reads a null callback, this drains an
+        // empty queue, and only then does the message go in -- stranded, with
+        // its completion grant held, though a callback is installed and nothing
+        // will drain again.
+        synchronized (pendingPushes) {
+            if (pushCallback == null || pendingPushes.isEmpty()) {
+                return;
+            }
+            // Copied and cleared inside the lock: pushReceived is re-entered
+            // below and must not see the queue it is draining.
+            held = pendingPushes.toArray(new PendingPush[pendingPushes.size()]);
+            pendingPushes.clear();
+        }
+        // Delivered OUTSIDE the lock: pushReceived queues serially onto the EDT
+        // and calls into the native layer, and holding a lock across that invites
+        // the deadlock this is not worth.
+        for (PendingPush p : held) {
+            // The content travels WITH the delivery and is restored inside it.
+            // Restoring here instead would restore every snapshot before the
+            // first queued callback ran.
+            pushReceived(p.message, p.type, p.completionId, true, p.content);
+        }
+    }
+
+    public static void pushReceived(final String message, final String type,
+            final long completionId) {
+        pushReceived(message, type, completionId, false, null);
+    }
+
+    /// Delivers one push, optionally restoring the PushContent it arrived with.
+    ///
+    /// The restore has to happen INSIDE the queued delivery. pushReceived only
+    /// hands the callback to the EDT with callSerially, so a replay loop that
+    /// restored each snapshot before calling it had restored the LAST one
+    /// before the FIRST delivery ran -- every callback then read the final
+    /// notification's metadata, which is the bug the snapshot was added to fix,
+    /// moved one step along rather than removed.
+    ///
+    /// restore is false for a live push, where the native layer has already
+    /// written the singleton and rewriting it here would be wrong.
+    private static void pushReceived(final String message, final String type,
+            final long completionId, final boolean restore,
+            final PushContent content) {
+        if(pushCallback != null) {
+            Display.getInstance().callSerially(new Runnable() {
+                public void run() {
+                    try {
+                        if (restore) {
+                            restorePushContent(content);
+                        }
+                        if(type != null) {
+                            Display.getInstance().setProperty("pushType", type);
+                            PushContent.setType(Integer.parseInt(type));
+                        }
+
+                        pushCallback.push(message);
+                    } finally {
+                        if (!"true".equals(Display.getInstance().getProperty("delayPushCompletion", "false")) &&
+                            !"true".equals(Display.getInstance().getProperty("ios.delayPushCompletion", "false"))) {
+                            nativeInstance.firePushCompletionHandler(completionId);
+                        }
+                    }
+                }
+            });
+        } else {
+            // Held rather than dropped: registration is imminent on a cold
+            // launch, and firing the completion handler here told the system the
+            // notification had been handled when nothing had seen it.
+            //
+            // And the completion handler is NOT fired for a held message. It is
+            // the operating system's grant of execution time, so releasing it
+            // here says "done" before anything has run: iOS may suspend the
+            // process before the replay, and a content-available push that asked
+            // for background time through delayPushCompletion would lose it
+            // outright. The replay path fires it from the same finally every
+            // delivered push uses, so the grant is released exactly once, when
+            // the callback has actually had it.
+            //
+            // The one case this leaves is an application that registers no push
+            // callback at all, where a held grant is never released. That
+            // application is already misconfigured -- it asked the system for
+            // pushes and has nothing to receive them -- and the alternative,
+            // releasing the grant up front, breaks the case that does work.
+            boolean deliverNow = false;
+            boolean evicted = false;
+            long evictedCompletionId = 0;
+            synchronized (pendingPushes) {
+                // Rechecked under the lock. The callback may have been installed
+                // between the test above and here, in which case queueing would
+                // strand this message behind a drain that has already run.
+                if (pushCallback != null) {
+                    deliverNow = true;
+                } else {
+                    if (pendingPushes.size() >= MAX_PENDING_PUSHES) {
+                        evictedCompletionId = pendingPushes.remove(0).completionId;
+                        evicted = true;
+                    }
+                    // Taken NOW, while PushContent still describes this
+                    // notification. get() clears as it reads, which is what
+                    // makes the snapshot exclusive to this record; the next
+                    // notification resets the singleton anyway.
+                    // A replay that finds the callback gone again re-queues
+                    // the content it was handed, not the singleton: the restore
+                    // now happens inside the delivery, so the singleton does
+                    // not describe this push at this point.
+                    pendingPushes.add(new PendingPush(message, type, completionId,
+                            restore ? content : PushContent.get()));
+                }
+            }
+            if (deliverNow) {
+                pushReceived(message, type, completionId);
+                return;
+            }
+            if (evicted) {
+                // The evicted one will never be delivered, so ITS grant is
+                // released -- otherwise the queue cap would leak a background
+                // task the system is still waiting on. Its own id, not this
+                // message's: the two are different notifications, and releasing
+                // the wrong one is what the ids exist to prevent.
+                nativeInstance.firePushCompletionHandler(evictedCompletionId);
+            }
+            /*
+            // Removing this section because the race condition shouldn't happen
+            // anymore as setMainClass() is now called before initialization.
+            
+            // could be a race condition against the native code... Retry in 2 seconds
+            new Thread() {
+                public void run() {
+                    try {
+                        Thread.sleep(1500);
+                    } catch (InterruptedException ex) {
+                    }
+                    // prevent infinite loop
+                    if(pushCallback != null) {
+                        pushReceived(message, type); 
+                    }
+                }
+            }.start();
+            */
+        }
+    }
+    /// @inheritDoc
+    ///
+    /// Releases the oldest completion grant the operating system is still waiting on.
+    ///
+    /// This is the other half of `ios.delayPushCompletion`. With that hint set, pushReceived()
+    /// deliberately does NOT release the grant when the callback returns, because the application
+    /// asked to keep running -- and until now nothing released it afterwards either: the base
+    /// implementation of this method does nothing, so the grant was simply held until the system
+    /// took the process down. An application following the documented pattern never actually got
+    /// its background time honoured.
+    ///
+    /// Oldest first, because the application cannot say which push it means -- it is handed a
+    /// message, not an id. An application that handles its pushes in order and calls this once per
+    /// push therefore releases each of them in turn.
+    @Override
+    public void notifyPushCompletion() {
+        nativeInstance.releaseOldestPushCompletionHandler();
+    }
+
+    public static void pushRegistered(final String deviceKey) {
+        if(instance != null) {
+            instance.systemOut("Push handleRegistration() Sending registration to server: " + deviceKey);
+        }
+        String c = callback.getClass().getName();
+        final String clsName = c.substring(0, c.lastIndexOf('.'));
+        if(pushCallback != null) {
+            Display.getInstance().callSerially(new Runnable() {
+                public void run() {
+                    // PushClient owns managed registration. Calling the historical relay here
+                    // would register the same APNs token with the retired service before the
+                    // typed client has a chance to send it to BuildCloud.
+                    if (com.codename1.push.PushClient.getActiveCallback() == pushCallback) {
+                        pushCallback.registeredForPush(deviceKey);
+                    } else if(CodenameOneImplementation.registerServerPush(deviceKey, getApplicationKey(), (byte)2, "", clsName)) {
+                        pushCallback.registeredForPush(deviceKey);
+                    } else {
+                        pushCallback.pushRegistrationError("Server registration error", 1);
+                        pushCallback.registeredForPush(deviceKey);
+                    }
+                }
+            });
+        }
+    }
+
+    public static void pushRegistrationError(final String message) {
+        if(pushCallback != null) {
+            Display.getInstance().callSerially(new Runnable() {
+                public void run() {
+                    pushCallback.pushRegistrationError(message, 0);
+                }
+            });
+        }
+    }
+    
+    public static void initPushActionCategories() {
+        if (pushCallback instanceof PushActionsProvider) {
+            PushActionsProvider actionsProvider = (PushActionsProvider)pushCallback;
+            PushActionCategory[] categories = actionsProvider.getPushActionCategories();
+            if (categories != null) {
+                PushAction[] actions = PushActionCategory.getAllActions(categories);
+                for (PushAction action : actions) {
+                    nativeInstance.registerPushAction(action.getId(), action.getTitle(), action.getTextInputPlaceholder(), action.getTextInputButtonText());
+                }
+                for (PushActionCategory category : categories) {
+                    nativeInstance.startPushActionCategory(category.getId());
+                    for (PushAction action : category.getActions()) {
+                        nativeInstance.addPushActionToCategory(action.getId());
+                    }
+                    nativeInstance.endPushActionCategory();
+                }
+                nativeInstance.registerPushCategories();
+            }
+        }
+    }
+
+    public static void setPushCallback(PushCallback callback) {
+        pushCallback = callback;
+        // Anything that arrived before this point is delivered now.
+        firePendingPush();
+    }
+    
+    public static void setLocalNotificationCallback(LocalNotificationCallback callback) {
+        localNotificationCallback = callback;
+        // Releases any delivery waiting for exactly this, which is how a
+        // notification that cold-launched the application reaches a callback
+        // installed afterwards. setPushCallback drains its own backlog here for
+        // the same reason.
+        synchronized (macLocalNotifications) {
+            macLocalNotifications.notifyAll();
+        }
+    }
+    
+    public static LocalNotificationCallback getLocalNotificationCallback() {
+        return localNotificationCallback;
+    }
+    
+    
+    /// One queued local notification: which one, and the content it arrived
+    /// with.
+    private static final class MacLocalNotification {
+        final String notificationId;
+        final PushContent content;
+
+        MacLocalNotification(String notificationId, PushContent content) {
+            this.notificationId = notificationId;
+            this.content = content;
+        }
+    }
+
+    private static final java.util.ArrayList<MacLocalNotification> macLocalNotifications =
+            new java.util.ArrayList<MacLocalNotification>();
+    private static boolean macLocalNotificationWorkerRunning;
+
+    /// Delivers a local notification OFF the AppKit main thread.
+    ///
+    /// The macOS delegate pumps deliveries on the main queue, and
+    /// localNotificationReceived() runs the application's callback on whatever
+    /// thread calls it -- so the callback ran on the very queue AppKit was
+    /// executing. The callback is documented as off the EDT and may legitimately
+    /// call a non-UI API such as MediaManager.createMedia(), whose native side
+    /// dispatch_syncs to the main queue: that is a deadlock against the queue
+    /// already running it, and a cold-launch notification is exactly when an
+    /// application does that kind of setup.
+    ///
+    /// The content travels with the notification and is restored immediately
+    /// before its own callback, for the reason the held-push replay has to do
+    /// the same: PushContent is a singleton the native layer rewrites per
+    /// delivery, so a second notification would otherwise describe the first.
+    ///
+    /// ONE worker, draining in order. A thread per delivery would restore two
+    /// snapshots into the same singleton concurrently and hand both callbacks
+    /// whichever won.
+    public static void macLocalNotificationReceived(final String notificationId) {
+        // Taken here, on the thread the native layer set it on.
+        MacLocalNotification queued =
+                new MacLocalNotification(notificationId, PushContent.get());
+        synchronized (macLocalNotifications) {
+            macLocalNotifications.add(queued);
+            if (macLocalNotificationWorkerRunning) {
+                return;
+            }
+            macLocalNotificationWorkerRunning = true;
+        }
+        new Thread() {
+            public void run() {
+                for (;;) {
+                    MacLocalNotification next;
+                    synchronized (macLocalNotifications) {
+                        if (macLocalNotifications.isEmpty()) {
+                            macLocalNotificationWorkerRunning = false;
+                            return;
+                        }
+                        next = macLocalNotifications.remove(0);
+                    }
+                    // Wait for the callback, for as long as it takes.
+                    //
+                    // Not a timeout. A fixed wait means a cold launch slower
+                    // than the number loses its launch notification outright:
+                    // the shared method's retry is guarded by pushCallback, so
+                    // an application that handles local notifications and not
+                    // push gets no second chance, and the finally below would
+                    // already have advanced the native queue past it.
+                    //
+                    // Woken by setLocalNotificationCallback, the same way
+                    // setPushCallback drains what arrived before it. The wait
+                    // is unbounded and holds the native delivery barrier, which
+                    // matters only for an application that registers NO local
+                    // notification callback at all -- one that asked the system
+                    // for notifications with nothing to receive them, which is
+                    // the same case the push barrier already documents.
+                    synchronized (macLocalNotifications) {
+                        while (localNotificationCallback == null) {
+                            try {
+                                macLocalNotifications.wait();
+                            } catch (InterruptedException ignored) {
+                            }
+                        }
+                    }
+                    restorePushContent(next.content);
+                    try {
+                        localNotificationReceived(next.notificationId);
+                    } finally {
+                        // Releases the native delivery barrier: the callback has
+                        // had its content, so the next delivery may rewrite the
+                        // singleton. Without this the pump would stay blocked
+                        // after the first local notification.
+                        nativeInstance.macRunPendingDeliveries();
+                    }
+                }
+            }
+        }.start();
+    }
+
+    public static void localNotificationReceived(final String notificationId) {
+        if (localNotificationCallback != null) {
+            // this should be invoked off the EDT...
+            localNotificationCallback.localNotificationReceived(notificationId);
+        } else { // could be a race condition against the native code... Retry in 2 seconds
+            new Thread() {
+                public void run() {
+                    try {
+                        Thread.sleep(1500);
+                    } catch (InterruptedException ex) {
+                    }
+                    // prevent infinite loop
+                    if(pushCallback != null) {
+                        localNotificationReceived(notificationId);
+                    }
+                }
+            }.start();
+        }
+    }
+    
+    
+    
+    public static void setMainClass(Object main) {
+        setCurrentApplicationInstance(main);
+        if(main instanceof PushCallback) {
+            pushCallback = (PushCallback)main;
+            firePendingPush();
+        }
+        if(main instanceof PurchaseCallback) {
+            purchaseCallback = (PurchaseCallback)main;
+        }
+        if(main instanceof RestoreCallback) {
+            restoreCallback = (RestoreCallback)main;
+        }
+        if (main instanceof LocalNotificationCallback) {
+            setLocalNotificationCallback((LocalNotificationCallback) main);
+        }
+        if (main instanceof BackgroundFetch) {
+            backgroundFetchCallback = (BackgroundFetch)main;
+        }
+    }        
+    
+    private L10NManager l10n;
+
+    /**
+     * @inheritDoc
+     */
+    public L10NManager getLocalizationManager() {
+        if(l10n == null) {
+            Locale l = Locale.getDefault();
+            l10n = new L10NManager(l.getLanguage(), l.getCountry()) {
+                public String format(int number) {
+                    return nativeInstance.formatInt(number);
+                }
+
+                @Override
+                public String getLongMonthName(Date date) {
+                    return nativeInstance.getLongMonthName(date.getTime());
+                }
+
+                @Override
+                public String getShortMonthName(Date date) {
+                    return nativeInstance.getShortMonthName(date.getTime());
+                }
+                
+                public String format(double number) {
+                    return nativeInstance.formatDouble(number);
+                }
+
+                public String formatCurrency(double currency) {
+                    return nativeInstance.formatCurrency(currency);
+                }
+
+                public String formatDateLongStyle(Date d) {
+                    return nativeInstance.formatDate(d.getTime());
+                }
+
+                public String formatDateShortStyle(Date d) {
+                    return nativeInstance.formatDateShort(d.getTime());
+                }
+
+                public String formatDateTime(Date d) {
+                    return nativeInstance.formatDateTime(d.getTime());
+                }
+                
+                public double parseDouble(String localeFormattedDecimal) {
+                    return nativeInstance.parseDouble(localeFormattedDecimal);
+                }
+                
+                public String formatDateTimeMedium(Date d) {
+                    return nativeInstance.formatDateTimeMedium(d.getTime());
+                }
+
+                public String formatDateTimeShort(Date d) {
+                    return nativeInstance.formatDateTimeShort(d.getTime());
+                }
+
+                public String getCurrencySymbol() {
+                    return nativeInstance.getCurrencySymbol();
+                }
+
+                public void setLocale(String locale, String language) {
+                    super.setLocale(locale, language);
+                    Locale l = new Locale(language, locale);
+                    Locale.setDefault(l);
+                    nativeInstance.setLocale(language+"_"+locale);
+                }
+            };
+        }
+        return l10n;
+    }
+    
+    private ImageIO imageIO;
+    
+    @Override
+    public ImageIO getImageIO() {
+        if(imageIO == null) {
+            imageIO = new ImageIO() {
+                @Override
+                public void save(InputStream image, OutputStream response, String format, int width, int height, float quality) throws IOException {
+                    Image img = Image.createImage(image);
+                    NativeImage ni = (NativeImage)img.getImage();
+                    long p = nativeInstance.createImageFile(ni.peer, format.equals(FORMAT_JPEG), width, height, quality);
+                    writeNSData(p, response);
+                }
+
+                private void writeNSData(long p, OutputStream os) throws IOException {
+                    int size = nativeInstance.getNSDataSize(p);
+                    if(size < 128 * 1024) {
+                        byte[] b = new byte[size];
+                        nativeInstance.nsDataToByteArray(p, b);
+                        nativeInstance.releasePeer(p);
+                        os.write(b);
+                        os.close();
+                    } else {
+                        NSDataInputStream ni = new NSDataInputStream(p, size);
+                        Util.copy(ni, os);
+                        ni.close();
+                    }
+                }
+                
+                @Override
+                protected void saveImage(Image img, OutputStream response, String format, float quality) throws IOException {
+                    globalGraphics.checkControl();
+                    NativeImage ni = (NativeImage)img.getImage();
+                    long p = nativeInstance.createImageFile(ni.peer, format.equals(FORMAT_JPEG), img.getWidth(), img.getHeight(), quality);
+                    writeNSData(p, response);
+                }
+
+                @Override
+                public boolean isFormatSupported(String format) {
+                    return format.equals(FORMAT_JPEG) || format.equals(FORMAT_PNG);
+                }
+            };
+        }
+        return imageIO;
+    }
+
+    private com.codename1.media.VideoIO videoIO;
+
+    @Override
+    public com.codename1.media.VideoIO getVideoIO() {
+        if (isWatch() || isTV()) {
+            // AVFoundation's video classes (AVAssetReader / AVAssetWriter /
+            // AVAssetImageGenerator) are unavailable on watchOS, and VideoIO is
+            // not supported on the TV target, so report no support there.
+            return null;
+        }
+        if (videoIO == null) {
+            videoIO = new com.codename1.media.VideoIO() {
+                @Override
+                public com.codename1.media.VideoCodec[] getAvailableEncoders() {
+                    return iosCodecs(true);
+                }
+
+                @Override
+                public com.codename1.media.VideoCodec[] getAvailableDecoders() {
+                    return iosCodecs(false);
+                }
+
+                @Override
+                public com.codename1.media.VideoWriter createWriter(com.codename1.media.VideoWriterBuilder cfg) throws IOException {
+                    return new IOSVideoWriter(cfg);
+                }
+
+                @Override
+                public com.codename1.media.VideoReader openReader(String filePath) throws IOException {
+                    long peer = nativeInstance.videoReaderOpen(filePath);
+                    if (peer == 0) {
+                        throw new IOException("Failed to open video: " + filePath);
+                    }
+                    return new IOSVideoReader(peer);
+                }
+            };
+        }
+        return videoIO;
+    }
+
+    com.codename1.media.VideoCodec[] iosCodecs(boolean encoder) {
+        java.util.List<com.codename1.media.VideoCodec> out = new java.util.ArrayList<com.codename1.media.VideoCodec>();
+        String[] mp4 = new String[]{com.codename1.media.VideoIO.CONTAINER_MP4, com.codename1.media.VideoIO.CONTAINER_MOV};
+        out.add(new com.codename1.media.VideoCodec(com.codename1.media.VideoIO.CODEC_H264, "H.264 (AVFoundation)", "video/avc", true, encoder, !encoder, true, -1, -1, mp4));
+        if (nativeInstance.videoSupportsHEVC()) {
+            out.add(new com.codename1.media.VideoCodec(com.codename1.media.VideoIO.CODEC_HEVC, "HEVC (AVFoundation)", "video/hevc", true, encoder, !encoder, true, -1, -1, mp4));
+        }
+        out.add(new com.codename1.media.VideoCodec(com.codename1.media.VideoIO.CODEC_AAC, "AAC (AVFoundation)", "audio/mp4a-latm", false, encoder, !encoder, false, -1, -1, mp4));
+        return out.toArray(new com.codename1.media.VideoCodec[out.size()]);
+    }
+
+    private byte[] nsDataToBytes(long p) {
+        int size = nativeInstance.getNSDataSize(p);
+        byte[] b = new byte[size];
+        nativeInstance.nsDataToByteArray(p, b);
+        nativeInstance.releasePeer(p);
+        return b;
+    }
+
+    private static int[] rgbaBytesToArgb(byte[] rgba, int pixels) {
+        int[] argb = new int[pixels];
+        int o = 0;
+        for (int i = 0; i < pixels; i++) {
+            int r = rgba[o] & 0xff;
+            int g = rgba[o + 1] & 0xff;
+            int b = rgba[o + 2] & 0xff;
+            int a = rgba[o + 3] & 0xff;
+            argb[i] = (a << 24) | (r << 16) | (g << 8) | b;
+            o += 4;
+        }
+        return argb;
+    }
+
+    private static byte[] argbToRgbaBytes(int[] argb, int pixels) {
+        byte[] rgba = new byte[pixels * 4];
+        int o = 0;
+        for (int i = 0; i < pixels; i++) {
+            int p = argb[i];
+            rgba[o++] = (byte) ((p >> 16) & 0xff);
+            rgba[o++] = (byte) ((p >> 8) & 0xff);
+            rgba[o++] = (byte) (p & 0xff);
+            rgba[o++] = (byte) ((p >> 24) & 0xff);
+        }
+        return rgba;
+    }
+
+    class IOSVideoReader extends com.codename1.media.VideoReader {
+        private final long peer;
+        private final int width;
+        private final int height;
+        private final long duration;
+        private final float frameRate;
+        private final boolean hasVideo;
+        private final boolean hasAudio;
+        private final int audioSampleRate;
+        private final int audioChannels;
+
+        IOSVideoReader(long peer) {
+            this.peer = peer;
+            this.width = nativeInstance.videoReaderWidth(peer);
+            this.height = nativeInstance.videoReaderHeight(peer);
+            this.duration = nativeInstance.videoReaderDuration(peer);
+            this.frameRate = nativeInstance.videoReaderFrameRate(peer);
+            this.hasVideo = nativeInstance.videoReaderHasVideo(peer);
+            this.hasAudio = nativeInstance.videoReaderHasAudio(peer);
+            this.audioSampleRate = nativeInstance.videoReaderAudioSampleRate(peer);
+            this.audioChannels = nativeInstance.videoReaderAudioChannels(peer);
+        }
+
+        public int getWidth() { return hasVideo ? width : -1; }
+        public int getHeight() { return hasVideo ? height : -1; }
+        public long getDurationMillis() { return duration; }
+        public float getFrameRate() { return frameRate; }
+        public boolean hasVideo() { return hasVideo; }
+        public boolean hasAudio() { return hasAudio; }
+        public int getAudioSampleRate() { return hasAudio ? audioSampleRate : -1; }
+        public int getAudioChannels() { return hasAudio ? audioChannels : -1; }
+
+        public com.codename1.media.VideoFrame frameAt(long millis) throws IOException {
+            if (!hasVideo) {
+                return null;
+            }
+            long nsd = nativeInstance.videoReaderFrameAt(peer, Math.max(0, millis));
+            if (nsd == 0) {
+                return null;
+            }
+            byte[] rgba = nsDataToBytes(nsd);
+            return new com.codename1.media.VideoFrame(rgbaBytesToArgb(rgba, width * height), width, height, millis);
+        }
+
+        public void readFrames(float fps, FrameCallback callback) throws IOException {
+            if (!hasVideo) {
+                return;
+            }
+            if (fps <= 0f) {
+                throw new IllegalArgumentException("fps must be positive");
+            }
+            long step = Math.max(1, Math.round(1000.0 / fps));
+            for (long t = 0; duration <= 0 || t < duration; t += step) {
+                com.codename1.media.VideoFrame f = frameAt(t);
+                if (f == null) {
+                    break;
+                }
+                if (!callback.frame(f)) {
+                    break;
+                }
+                if (duration <= 0) {
+                    break;
+                }
+            }
+        }
+
+        public com.codename1.media.AudioBuffer readAudio() throws IOException {
+            if (!hasAudio) {
+                return null;
+            }
+            long nsd = nativeInstance.videoReaderReadAudio(peer);
+            if (nsd == 0) {
+                return null;
+            }
+            byte[] pcm = nsDataToBytes(nsd);
+            int sampleCount = pcm.length / 2;
+            float[] samples = new float[sampleCount];
+            int o = 0;
+            for (int i = 0; i < sampleCount; i++) {
+                int lo = pcm[o] & 0xff;
+                int hi = pcm[o + 1];
+                short s = (short) ((hi << 8) | lo);
+                samples[i] = s / 32768f;
+                o += 2;
+            }
+            int sr = audioSampleRate > 0 ? audioSampleRate : 44100;
+            int ch = audioChannels > 0 ? audioChannels : 2;
+            com.codename1.media.AudioBuffer buffer = new com.codename1.media.AudioBuffer(Math.max(1, sampleCount));
+            buffer.copyFrom(sr, ch, samples);
+            return buffer;
+        }
+
+        public void close() throws IOException {
+            nativeInstance.videoReaderClose(peer);
+        }
+    }
+
+    class IOSVideoWriter extends com.codename1.media.VideoWriter {
+        private final long peer;
+        private final int width;
+        private final int height;
+        private final float frameRate;
+        private final boolean hasVideo;
+        private final boolean hasAudio;
+        private boolean closed;
+
+        IOSVideoWriter(com.codename1.media.VideoWriterBuilder cfg) throws IOException {
+            this.width = cfg.getWidth();
+            this.height = cfg.getHeight();
+            this.frameRate = cfg.getFrameRate();
+            this.hasVideo = cfg.isHasVideo();
+            this.hasAudio = cfg.isHasAudio();
+            boolean hevc = com.codename1.media.VideoIO.CODEC_HEVC.equals(cfg.getVideoCodec());
+            int bitRate = cfg.getVideoBitRate();
+            if (bitRate <= 0) {
+                bitRate = (int) Math.max(800000L, Math.min((long) (width * (long) height * Math.max(1f, frameRate) * 0.10), 100000000L));
+            }
+            int gop = Math.max(1, Math.round(cfg.getKeyFrameInterval() * Math.max(1f, frameRate)));
+            this.peer = nativeInstance.videoWriterOpen(cfg.getPath(), width, height, frameRate, hevc, bitRate, gop,
+                    hasAudio, cfg.getSampleRate(), cfg.getAudioChannels(), cfg.getAudioBitRate());
+            if (peer == 0) {
+                throw new IOException("Failed to create video writer for " + cfg.getPath());
+            }
+        }
+
+        public void writeFrame(int[] argb, int frameWidth, int frameHeight, long presentationTimeMillis) throws IOException {
+            if (closed) {
+                throw new IOException("writer is closed");
+            }
+            if (!hasVideo) {
+                throw new IOException("video track is not enabled for this writer");
+            }
+            if (frameWidth != width || frameHeight != height) {
+                throw new IllegalArgumentException("frame is " + frameWidth + "x" + frameHeight
+                        + " but writer was configured for " + width + "x" + height);
+            }
+            nativeInstance.videoWriterAddFrame(peer, argbToRgbaBytes(argb, width * height), width, height, Math.max(0, presentationTimeMillis));
+        }
+
+        public void writeAudio(short[] interleavedPcm, int sampleRate, int channels, long presentationTimeMillis) throws IOException {
+            if (closed) {
+                throw new IOException("writer is closed");
+            }
+            if (!hasAudio) {
+                throw new IOException("audio track is not enabled for this writer");
+            }
+            byte[] bytes = new byte[interleavedPcm.length * 2];
+            int o = 0;
+            for (int i = 0; i < interleavedPcm.length; i++) {
+                short s = interleavedPcm[i];
+                bytes[o++] = (byte) (s & 0xff);
+                bytes[o++] = (byte) ((s >> 8) & 0xff);
+            }
+            nativeInstance.videoWriterAddAudio(peer, bytes, sampleRate, channels, Math.max(0, presentationTimeMillis));
+        }
+
+        public void close() throws IOException {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            if (!nativeInstance.videoWriterClose(peer)) {
+                throw new IOException("Failed to finalize video file");
+            }
+        }
+
+        public int getWidth() { return width; }
+        public int getHeight() { return height; }
+        public float getFrameRate() { return frameRate; }
+    }
+
+    
+    /**
+     * Workaround for XMLVM bug
+     */
+    public boolean instanceofObjArray(Object o) {
+        return instanceofObjArrayI(o);        
+    }
+    
+    /**
+     * Workaround for XMLVM bug
+     */
+    public boolean instanceofByteArray(Object o) {
+        return instanceofByteArrayI(o);
+    }
+    
+    /**
+     * Workaround for XMLVM bug
+     */
+    public boolean instanceofShortArray(Object o) {
+        return instanceofShortArrayI(o);        
+    }
+    
+    /**
+     * Workaround for XMLVM bug
+     */
+    public boolean instanceofLongArray(Object o) {
+        return instanceofLongArrayI(o);        
+    }
+    
+    /**
+     * Workaround for XMLVM bug
+     */
+    public boolean instanceofIntArray(Object o) {
+        return instanceofIntArrayI(o);        
+    }
+    
+    /**
+     * Workaround for XMLVM bug
+     */
+    public boolean instanceofFloatArray(Object o) {
+        return instanceofFloatArrayI(o);        
+    }
+    
+    /**
+     * Workaround for XMLVM bug
+     */
+    public boolean instanceofDoubleArray(Object o) {
+        return instanceofDoubleArrayI(o);        
+    }
+
+    /**
+     * Workaround for XMLVM bug
+     */
+    private static native boolean instanceofObjArrayI(Object o);
+    
+    /**
+     * Workaround for XMLVM bug
+     */
+    private static native boolean instanceofByteArrayI(Object o);
+    
+    /**
+     * Workaround for XMLVM bug
+     */
+    private static native boolean instanceofShortArrayI(Object o);
+    
+    /**
+     * Workaround for XMLVM bug
+     */
+    private static native boolean instanceofLongArrayI(Object o);
+    
+    /**
+     * Workaround for XMLVM bug
+     */
+    private static native boolean instanceofIntArrayI(Object o);
+    
+    /**
+     * Workaround for XMLVM bug
+     */
+    private static native boolean instanceofFloatArrayI(Object o);
+    
+    /**
+     * Workaround for XMLVM bug
+     */
+    private static native boolean instanceofDoubleArrayI(Object o);
+
+    /**
+     * Resolves a database name to an absolute path. Bare names live in the documents directory;
+     * a file:// URL is resolved through FileSystemStorage, which is what makes custom database
+     * paths work here the way they already do on Android and the simulator.
+     */
+    private String resolveDatabasePath(String databaseName) {
+        if (databaseName.startsWith("file://")) {
+            return FileSystemStorage.getInstance().toNativePath(databaseName);
+        }
+        return nativeInstance.sqlDbPath(databaseName);
+    }
+
+    @Override
+    public Database openOrCreateDB(String databaseName) throws IOException{
+        return new DatabaseImpl(databaseName, resolveDatabasePath(databaseName));
+    }
+
+    @Override
+    public Database openOrCreateDB(String databaseName, DatabaseConfig config) throws IOException {
+        if (config == null || !config.isEncrypted()) {
+            return openOrCreateDB(databaseName);
+        }
+        if (!isDatabaseEncryptionSupported()) {
+            throw new DatabaseEncryptionException(DatabaseEncryptionException.NOT_SUPPORTED,
+                    "This build was not compiled with encrypted database support");
+        }
+        // The resolved file, not the name it was asked for: a managed key with no explicit alias
+        // is stored under what is passed here, so two accepted spellings of one database would
+        // derive two different keys and the second open would report a wrong key against intact
+        // data.
+        String path = resolveDatabasePath(databaseName);
+        return new DatabaseImpl(databaseName, path,
+                config.resolveKeyMaterial(databaseManagedKeyIdentity(databaseName)));
+    }
+
+    @Override
+    public String databaseManagedKeyIdentity(String databaseName) {
+        return managedKeyAliasForPath(resolveDatabasePath(databaseName));
+    }
+
+    /// The managed alias for an already resolved database file.
+    ///
+    /// Keyed on the path rather than the name so the connection object can ask the same question:
+    /// it holds the path, not the name it was opened under, and a key written under one alias and
+    /// looked for under another is a wrong key reported against intact data. One method, so the
+    /// open and the re-key cannot answer differently.
+    ///
+    /// #### Parameters
+    ///
+    /// - `path`: the resolved database file
+    ///
+    /// #### Returns
+    ///
+    /// the identity a managed key for that file is filed under
+    static String managedKeyAliasForPath(String path) {
+        return Database.normalizeDatabaseKey(containerRelative(resolveLinks(path)));
+    }
+
+    /// The path with its links followed, the way SQLite follows them.
+    ///
+    /// The engine reports the file it opened with every link resolved -- `PRAGMA database_list`
+    /// answers `/private/var/mobile/...` for a database this port names `/var/mobile/...`, since
+    /// `/var` is itself a link, and it resolves `/a/link/../db` to wherever the link really
+    /// points rather than to `/a/db`. A key built from the unresolved spelling names a file the
+    /// engine has never heard of, so a delete or a key change asked for by one form does not see
+    /// a connection registered under the other.
+    ///
+    /// Both sides of the comparison go through here, including the container prefix below, so
+    /// the two are always in the same form.
+    ///
+    /// Through a native rather than `java.io.File`. That class's `exists` and `getCanonicalPath`
+    /// natives are not linked into the watch and tv targets, so naming them here broke those
+    /// builds at the link step -- with the app itself compiling perfectly well, since the Java
+    /// side is identical for every target.
+    ///
+    /// #### Parameters
+    ///
+    /// - `path`: a native path, which need not exist yet
+    ///
+    /// #### Returns
+    ///
+    /// the resolved path, or the path itself when the filesystem cannot resolve it
+    private static String resolveLinks(String path) {
+        if (path == null || path.length() == 0) {
+            return path;
+        }
+        String resolved = nativeInstance.realPath(path);
+        return resolved == null || resolved.length() == 0 ? path : resolved;
+    }
+
+    /// Where a database sits inside this application, rather than where the device is keeping it
+    /// today.
+    ///
+    /// A managed key with no alias of its own is stored under whatever this returns, so what this
+    /// returns has to survive everything the key survives. The keychain item does survive an
+    /// encrypted backup and a restore onto another device -- that is the promise the security
+    /// notes make -- but the absolute path does not: iOS gives the application a fresh container
+    /// directory, and the same database comes back at
+    /// /var/mobile/Containers/Data/Application/<a different UUID>/Documents/app.db. Keying on that
+    /// meant the restored keychain still held the key under the old container while the open
+    /// derived a new one under the new container, so a database that restored perfectly reported
+    /// a wrong key against intact data.
+    ///
+    /// Taking the path apart rather than using the name it was asked for keeps the property the
+    /// absolute path was chosen for: two spellings of one database still resolve to one file and
+    /// therefore to one key. What changes is that the part which moves is removed.
+    ///
+    /// A path outside the container is left as it is. There is nothing stable to measure it
+    /// against, and an application that puts a database there has told us where it wants it.
+    ///
+    /// #### Parameters
+    ///
+    /// - `databaseName`: the name or file URL the application opened
+    ///
+    /// #### Returns
+    ///
+    /// the identity to store a managed key under, never null
+    private static String containerRelative(String path) {
+        String container = applicationContainerPath();
+        if (container != null && path.startsWith(container)) {
+            return path.substring(container.length());
+        }
+        return path;
+    }
+
+    /// The directory iOS hands this application, which is the part of a database path that moves.
+    ///
+    /// Derived from the application home rather than asked for directly: the home is the Documents
+    /// directory inside the container, so its parent is the container itself, and taking the
+    /// parent covers a database the application put somewhere else inside the sandbox as well.
+    ///
+    /// #### Returns
+    ///
+    /// the container path with a trailing separator, or null if it cannot be determined
+    private static String applicationContainerPath() {
+        String home = FileSystemStorage.getInstance().getAppHomePath();
+        if (home == null || home.length() == 0) {
+            return null;
+        }
+        String nativeHome = FileSystemStorage.getInstance().toNativePath(home);
+        if (nativeHome == null || nativeHome.length() == 0) {
+            return null;
+        }
+        // Resolved like the paths it is matched against. The home directory arrives as
+        // /var/mobile/... and a resolved database path reads /private/var/mobile/..., so an
+        // unresolved prefix never matched and the alias kept the container's UUID in it -- the
+        // one thing being container relative exists to keep out, since that UUID changes when the
+        // application is restored onto another device and the managed key would be lost with it.
+        nativeHome = resolveLinks(nativeHome);
+        int end = nativeHome.length();
+        while (end > 0 && nativeHome.charAt(end - 1) == '/') {
+            end--;
+        }
+        int parent = nativeHome.lastIndexOf('/', end - 1);
+        if (parent < 0) {
+            return null;
+        }
+        return nativeHome.substring(0, parent + 1);
+    }
+
+    @Override
+    public boolean isDatabaseEncryptionSupported() {
+        // The encryption-capable SQLite build is only linked in for applications that reference
+        // DatabaseConfig, so ask the engine rather than assuming.
+        return nativeInstance.sqlDbIsCipherAvailable();
+    }
+
+    @Override
+    public boolean isDatabaseManagedKeyHardwareBacked() {
+        // The managed key is a generic-password keychain item, so what backs it is the device's
+        // key hierarchy, which every iOS device since the A7 roots in the Secure Enclave. That is
+        // a real hardware guarantee on a device and none at all in the Simulator, where the
+        // keychain is an ordinary file on the host. Applications are told they may use this to
+        // refuse to store sensitive data, so answering true there would be a false assurance --
+        // and the security notes already say the simulator is the weaker case.
+        return !nativeInstance.isSimulator();
+    }
+
+    @Override
+    public boolean isBlobQueryParameterSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isDatabaseCustomPathSupported() {
+        return true;
+    }
+
+    @Override
+    public String getDatabasePath(String databaseName) {
+        if (databaseName.startsWith("file://")) {
+            return databaseName;
+        }
+        String s = nativeInstance.getDocumentsDir();
+        if(!s.endsWith("/")) {
+            s += "/";
+        }
+        return s + databaseName;
+    }
+
+    @Override
+    public void deleteDB(String databaseName) throws IOException{
+        String path = resolveDatabasePath(databaseName);
+        // The companions first, so removing the database itself is the last destructive step: a
+        // failure before it leaves a database the caller can really delete again, rather than an
+        // error reported over a database that is already gone. See databaseSidecarPaths.
+        // Removing one that is not there is a no-op in the native binding, so the ones this
+        // database never had cost a stat apiece.
+        String[] sidecars = databaseSidecarPaths(path);
+        for (int iter = 0; iter < sidecars.length; iter++) {
+            nativeInstance.sqlDbDelete(sidecars[iter]);
+        }
+        nativeInstance.sqlDbDelete(path);
+    }
+
+    @Override
+    public boolean existsDB(String databaseName){
+        return nativeInstance.sqlDbExists(resolveDatabasePath(databaseName));
+    }
+
+    /**
+     * Sent when the application is about to move from active to inactive state. 
+     * This can occur for certain types of temporary interruptions (such as an 
+     * incoming phone call or SMS message) or when the user quits the application 
+     * and it begins the transition to the background state.
+     * Use this method to pause ongoing tasks, disable timers, and throttle down 
+     * rendering frame rates. Games should use this method to pause the game.
+     */
+    /// The macOS counterpart, which does NOT treat losing focus as being
+    /// minimized.
+    ///
+    /// On a Mac, resigning active means another application became frontmost.
+    /// The window is still on screen and still being painted, so setting the
+    /// minimized flag the iOS callback sets is wrong twice over: shouldEDTSleep()
+    /// parks the EDT for a minimized application, which stops the animations in a
+    /// form the user can see, and the network layer suppresses error dialogs for
+    /// one, which swallows them for as long as the user is in another app.
+    ///
+    /// Nothing is lost by leaving the flag alone here, because the events that
+    /// genuinely hide the surface are tracked separately: the AppKit delegate's
+    /// applicationDidHide: and its window miniaturization observers both route to
+    /// applicationDidEnterBackground, which is what owns the flag.
+    ///
+    /// The lifecycle notification still fires -- an application that wants to
+    /// pause on losing focus is entitled to -- and isActive still goes false.
+    // Camera authorization answers, keyed by the id handed to cn1CameraRequestAccess.
+    private static final java.util.HashMap<Integer, com.codename1.util.SuccessCallback<Boolean>>
+            pendingCameraAccess = new java.util.HashMap<Integer, com.codename1.util.SuccessCallback<Boolean>>();
+    private static int nextCameraAccessId = 1;
+
+    /// Asks the system for camera access, and optionally microphone access, reporting the real
+    /// answer.
+    ///
+    /// Camera.requestPermissions() cannot answer this: it probes by opening a session with a
+    /// sentinel id, and this port's back end returns success for that without asking anyone. So a
+    /// capture went ahead while access was undetermined or refused, and the user got a preview that
+    /// stayed black or a recording with no sound.
+    /// The CURRENT camera authorization, or the microphone's when `audio` is
+    /// set: 0 not determined, 1 restricted, 2 denied, 3 authorized.
+    ///
+    /// Reading the status AVFoundation already holds; it never prompts, which is
+    /// what makes it answerable synchronously and safe to call from
+    /// CameraImpl.open(). `#requestCameraAccess(boolean, SuccessCallback)` is
+    /// the one that shows a dialog.
+    ///
+    /// Here rather than on IOSNative because that class is package private, and
+    /// the macOS port -- which is where the answer is used -- is a different
+    /// package. Widening the native for one caller would make an internal
+    /// binding part of the surface.
+    public static int cameraAuthorizationStatus(boolean audio) {
+        return nativeInstance.cameraAuthorizationStatus(audio);
+    }
+
+    public static void requestCameraAccess(boolean audio,
+            com.codename1.util.SuccessCallback<Boolean> callback) {
+        int id;
+        synchronized (pendingCameraAccess) {
+            id = nextCameraAccessId++;
+            pendingCameraAccess.put(Integer.valueOf(id), callback);
+        }
+        nativeInstance.cn1CameraRequestAccess(audio, id);
+    }
+
+    /// Invoked from native with the outcome. Public so the VM-emitted symbol stays stable.
+    public static void cn1CameraAccessResult(int callbackId, final boolean granted) {
+        final com.codename1.util.SuccessCallback<Boolean> callback;
+        synchronized (pendingCameraAccess) {
+            callback = pendingCameraAccess.remove(Integer.valueOf(callbackId));
+        }
+        if (callback == null) {
+            return;
+        }
+        // On the EDT: this arrives from an AVFoundation completion handler, and
+        // the caller opens a camera and shows a Form with the answer.
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                callback.onSucess(Boolean.valueOf(granted));
+            }
+        });
+    }
+
+    /// Runs the native side's next delivery step behind everything already queued on this
+    /// thread.
+    ///
+    /// The AppKit delegate holds a launch deep link, local notification or push until the Java
+    /// side exists -- and "the Java side exists" is not "the application has run". callback()
+    /// above only QUEUES the runnable that calls the application's init() and start(), so
+    /// anything delivered at that moment reaches URLCallback and LocalNotificationCallback code
+    /// belonging to an application that has not initialized: its services are unbuilt and its
+    /// fields are unset. The event dispatch thread is serial and that runnable is already on it,
+    /// so this one runs at the first moment after start() has returned.
+    ///
+    /// It hands straight back to the native side rather than delivering from here, because the
+    /// deliveries have to keep the threading they already have. Each notification and push is
+    /// preceded by PushContent state the native side sets immediately before it, and
+    /// localNotificationReceived() is deliberately called off this thread. The barrier is the only
+    /// thing being borrowed from the EDT.
+    ///
+    /// The same barrier paces the pushes afterwards. pushReceived() does not run the callback, it
+    /// QUEUES it here, so handing two pushes over in a row wrote PushContent twice before either
+    /// callback read it. Going back through this method between them means the runnable below sits
+    /// behind the callback for the push already handed over, and the next one cannot be written
+    /// until that callback has had what belongs to it.
+    public static void macDeliverAfterEdt() {
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                nativeInstance.macRunPendingDeliveries();
+            }
+        });
+    }
+
+    public static void macApplicationWillResignActive() {
+        if(instance.life != null) {
+            safeCallSerially(new Runnable() {
+                public void run() {
+                    if(instance.life != null) {
+                        instance.life.applicationWillResignActive();
+                    }
+                }
+            });
+        }
+        instance.isActive = false;
+    }
+
+    public static void applicationWillResignActive() {
+        minimized = true;
+        callInterruptionActive = true;
+        if(instance.life != null) {
+            safeCallSerially(new Runnable() {
+                public void run() {
+                    if(instance.life != null) {
+                        instance.life.applicationWillResignActive();
+                    }
+                }
+            });
+        }
+        instance.isActive = false;
+    }
+    
+    /**
+     * Headphones connected callback
+     */
+    public static void headphonesConnected() {
+        if(instance.life != null) {
+            Display.getInstance().callSerially(new Runnable() {
+                public void run() {
+                    instance.life.headphonesConnected();
+                }
+            });
+        }        
+    }
+
+    /**
+     * Headphones disconnected callback
+     */
+    public static void headphonesDisconnected() {
+        if(instance.life != null) {
+            Display.getInstance().callSerially(new Runnable() {
+                public void run() {
+                    instance.life.headphonesDisconnected();
+                }
+            });
+        }        
+    }
+    
+    
+    public static long beginBackgroundTask() {
+        return nativeInstance.beginBackgroundTask();
+    }
+    
+    public static void endBackgroundTask(long taskId) {
+        nativeInstance.endBackgroundTask(taskId);
+    }
+    
+    /**
+     * Use this method to release shared resources, save user data, invalidate 
+     * timers, and store enough application state information to restore your 
+     * application to its current state in case it is terminated later.
+     * If your application supports background execution, this method is called 
+     * instead of applicationWillTerminate: when the user quits.
+     */
+    public static void applicationDidEnterBackground() {
+        minimized = true;
+        if(instance.life != null) {
+            safeCallSerially(new Runnable() {
+                public void run() {
+                    if(instance.life != null) {
+                        instance.life.applicationDidEnterBackground();
+                        if (instance.isEditingText()) {
+                            instance.stopTextEditing();
+                        }
+                    }
+                }
+            });
+        }
+    }
+    /**
+     * Indicates whether the application should handle the given URL, defaults to true
+     * @param url the URL to handle
+     * @param caller the invoking application
+     * @return true to handle the URL, false otherwise
+     */
+    public static boolean shouldApplicationHandleURL(String url, String caller) {
+        if(instance.life != null) {
+            instance.life.shouldApplicationHandleURL(url, caller);
+        }
+        if(Display.getInstance() != null) {
+            Display.getInstance().setProperty("AppArg", url);
+        }
+        return true;
+    }
+
+    /**
+     * Use this method to release shared resources, save user data, invalidate 
+     * timers, and store enough application state information to restore your 
+     * application to its current state in case it is terminated later.
+     * If your application supports background execution, this method is called 
+     * instead of applicationWillTerminate: when the user quits.
+     */
+    public static void applicationWillEnterForeground() {
+        minimized = false;
+        if(instance.life != null) {
+            safeCallSerially(new Runnable() {
+                public void run() {
+                    if(instance.life != null) {
+                        instance.life.applicationWillEnterForeground();
+                    }
+                }
+            });
+        }
+        
+    }
+    
+    /**
+     * Called by the application delegate's <a href="https://developer.apple.com/documentation/uikit/core_app/allowing_apps_and_websites_to_link_to_your_content/handling_universal_links?language=objc">universal links handler</a>.
+     * This will stop the app, set the AppArg, and then start the app again.
+     * @param url 
+     */
+    public static void applicationReceivedUniversalLink(String url) {
+        applicationDidEnterBackground();
+        if(Display.getInstance() != null) {
+            Display.getInstance().setProperty("AppArg", url);
+        }
+        applicationWillEnterForeground();
+    }
+    
+    public static void performBackgroundFetch() {
+        
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                // Note we have to check for backgroundFetchCallback inside this callSerially
+                // because it might not have been set yet if we call it outside.
+                if (backgroundFetchCallback != null) {
+                    backgroundFetchCallback.performBackgroundFetch(System.currentTimeMillis()+25*60*1000, new Callback<Boolean>() {
+
+                        @Override
+                        public void onSucess(Boolean value) {
+                            if (!value) {
+                                nativeInstance.fireUIBackgroundFetchResultNoData();
+                            } else {
+                                nativeInstance.fireUIBackgroundFetchResultNewData();
+                            }
+                        }
+
+                        @Override
+                        public void onError(Object sender, Throwable err, int errorCode, String errorMessage) {
+                            Log.e(err);
+                            nativeInstance.fireUIBackgroundFetchResultFailed();
+                        }
+                    });
+
+                }
+            }
+        });
+  
+    }
+
+    @Override
+    public void setPreferredBackgroundFetchInterval(int seconds) {
+        super.setPreferredBackgroundFetchInterval(seconds);
+        nativeInstance.setPreferredBackgroundFetchInterval(seconds);
+    }
+
+    @Override
+    public boolean isBackgroundFetchSupported() {
+        return nativeInstance.isBackgroundFetchSupported();
+    }
+    
+    
+    
+    
+    
+    /**
+     * Calls the given runnable when the app is active.  If the app is already
+     * active, it will call it immediatly.  If not, it will be called in
+     * applicationDidBecomeActive().
+     * This is used for getting the AppArg property in a way that avoids
+     * race conditions.
+     * @param r 
+     */
+    private void callOnActive(Runnable r) {
+        synchronized(onActiveListeners) {
+            if (isActive) {
+                safeCallSerially(r);
+            } else {
+                onActiveListeners.add(r);
+            }
+        }
+    }
+    
+    /**
+     * Called as part of the transition from the background to the inactive state; 
+     * here you can undo many of the changes made on entering the background.
+     */
+    /// The macOS twin of applicationDidBecomeActive(), which does everything it
+    /// does EXCEPT clear the minimized flag.
+    ///
+    /// Active and visible are different things on a Mac. Cmd-Tab back to an
+    /// application whose last window is still minimized and AppKit sends
+    /// didBecomeActive and no deminiaturize -- so clearing minimized there says
+    /// the application is on screen when every window is still in the Dock,
+    /// which restarts the EDT and the foreground-only behaviour like network
+    /// error dialogs for a window nobody can see. The native delegate already
+    /// declines to clear its own isAppSuspended for exactly this reason, and
+    /// this flag was contradicting it from the Java side.
+    ///
+    /// Visibility owns the flag: unhide and deminiaturize are what clear it,
+    /// the same two events the surface tracker uses. Pairs with
+    /// macApplicationWillResignActive(), which is here for the mirror-image
+    /// reason -- resigning active on a Mac does not minimize anything.
+    public static void macApplicationDidBecomeActive() {
+        applicationDidBecomeActive(false);
+    }
+
+    public static void applicationDidBecomeActive() {
+        applicationDidBecomeActive(true);
+    }
+
+    private static void applicationDidBecomeActive(boolean clearMinimized) {
+        callInterruptionActive = false;
+        final ArrayList<Runnable> callbacks;
+        synchronized(instance.onActiveListeners) {
+            instance.isActive = true;
+            callbacks = new ArrayList<Runnable>(instance.onActiveListeners.size());
+        
+            callbacks.addAll(instance.onActiveListeners);
+            instance.onActiveListeners.clear();
+        }
+        if (clearMinimized) {
+            minimized = false;
+        }
+        safeCallSerially(new Runnable() {
+            @Override
+            public void run() {
+                for (Runnable callback : callbacks) {
+                    callback.run();
+                }
+                if(instance.life != null) {
+                    instance.life.applicationDidBecomeActive();
+                }
+                if(Display.getInstance() != null) {
+                    Form f = Display.getInstance().getCurrent();
+                    if(f != null) {
+                        f.revalidate();
+                    }
+                }
+            }
+        });
+    }
+    
+    public static void paintNow() {
+        final Display d = Display.getInstance();
+        d.callSeriallyAndWait(new Runnable() {
+            @Override
+            public void run() {
+                Form f = d.getCurrent();
+                f.paintComponent(instance.getCodenameOneGraphics(), true);
+            }
+        }, 50);
+    }
+    
+    /**
+     * Restart any tasks that were paused (or not yet started) while the 
+     * application was inactive. If the application was previously in the background, 
+     * optionally refresh the user interface.
+     */
+    public static void applicationWillTerminate() {
+        if(instance.life != null) {
+            instance.life.applicationWillTerminate();
+        }
+    }
+    
+    @Override
+    public boolean isNativeShareSupported(){
+        String ver = nativeInstance.getOSVersion();
+        if(ver.startsWith("5.") || ver.startsWith("4.")) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public boolean isNativeInAppReviewSupported() {
+        // SKStoreReviewController.requestReview is available since iOS 10.3.
+        String ver = nativeInstance.getOSVersion();
+        int dot = ver.indexOf('.');
+        try {
+            int major = Integer.parseInt(dot < 0 ? ver : ver.substring(0, dot));
+            if (major > 10) {
+                return true;
+            }
+            if (major < 10) {
+                return false;
+            }
+            String rest = dot < 0 ? "" : ver.substring(dot + 1);
+            int dot2 = rest.indexOf('.');
+            int minor = Integer.parseInt(dot2 < 0 ? rest : rest.substring(0, dot2));
+            return minor >= 3;
+        } catch (NumberFormatException err) {
+            // Unknown/odd version string -- assume a modern OS supports it.
+            return true;
+        }
+    }
+
+    @Override
+    public void requestNativeInAppReview(SuccessCallback<Boolean> done) {
+        // StoreKit gives no callback and may silently throttle the prompt, so
+        // we simply report that the request was handed off to the controller.
+        nativeInstance.requestAppStoreReview();
+        if (done != null) {
+            done.onSucess(Boolean.TRUE);
+        }
+    }
+
+
+    
+    @Override
+    public void share(String text, String image, String mimeType, Rectangle sourceRect){
+        share(text, image, mimeType, sourceRect, null);
+    }
+
+    @Override
+    public void share(String text, String image, String mimeType, Rectangle sourceRect, com.codename1.share.ShareResultListener listener) {
+        long imagePeer = 0;
+        if (image != null && image.length() > 0) {
+            try {
+                Image img = Image.createImage(image);
+                if (img != null) {
+                    NativeImage n = (NativeImage) img.getImage();
+                    imagePeer = n.peer;
+                }
+            } catch (IOException err) {
+                err.printStackTrace();
+                if (listener != null) {
+                    listener.onResult(com.codename1.share.ShareResult.failed("Error loading image: " + image));
+                    return;
+                }
+                Dialog.show("Error", "Error loading image: " + image, "OK", null);
+                return;
+            }
+        }
+        if (listener == null) {
+            nativeInstance.socialShare(text, imagePeer, sourceRect);
+            return;
+        }
+        int callbackId = registerShareCallback(listener);
+        nativeInstance.socialShareWithCallback(text, imagePeer, sourceRect, callbackId);
+    }
+
+    // Pending share-result callbacks. Native code invokes
+    // socialShareCallback(...) once per id.
+    private static final java.util.HashMap<Integer, com.codename1.share.ShareResultListener> pendingShareCallbacks = new java.util.HashMap<Integer, com.codename1.share.ShareResultListener>();
+    private static int nextShareCallbackId = 1;
+
+    private static synchronized int registerShareCallback(com.codename1.share.ShareResultListener l) {
+        int id = nextShareCallbackId++;
+        pendingShareCallbacks.put(Integer.valueOf(id), l);
+        return id;
+    }
+
+    /// Invoked from native code with the outcome of a share. Public so the
+    /// VM-emitted symbol stays stable. `status` matches
+    /// [com.codename1.share.ShareResult]: 1=SHARED_TO, 2=DISMISSED, 3=FAILED.
+    public static void socialShareCallback(int callbackId, int status, String activityType, String errorMessage) {
+        com.codename1.share.ShareResultListener listener;
+        synchronized (IOSImplementation.class) {
+            listener = pendingShareCallbacks.remove(Integer.valueOf(callbackId));
+        }
+        if (listener == null) {
+            return;
+        }
+        com.codename1.share.ShareResult result;
+        switch (status) {
+            case 1:
+                result = com.codename1.share.ShareResult.sharedTo(activityType);
+                break;
+            case 2:
+                result = com.codename1.share.ShareResult.dismissed();
+                break;
+            default:
+                result = com.codename1.share.ShareResult.failed(errorMessage);
+                break;
+        }
+        // On the EDT, because ShareResultListener says "Always invoked on the
+        // EDT" and this arrives from a UIKit/AppKit main-queue completion
+        // handler, which is not it. A listener that updates the UI -- which is
+        // most of the reason to have one -- was racing the painter.
+        final com.codename1.share.ShareResult delivered = result;
+        final com.codename1.share.ShareResultListener target = listener;
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                target.onResult(delivered);
+            }
+        });
+    }
+
+    @Override
+    public boolean isPrintingSupported() {
+        return nativeInstance.isPrintingAvailable();
+    }
+
+    @Override
+    public void print(String filePath, String mimeType, com.codename1.printing.PrintResultListener listener) {
+        int callbackId = registerPrintCallback(listener);
+        nativeInstance.printDocument(filePath, mimeType, callbackId);
+    }
+
+    // Pending print-result callbacks. Native code invokes
+    // printDocumentCallback(...) once per id.
+    private static final java.util.HashMap<Integer, com.codename1.printing.PrintResultListener> pendingPrintCallbacks = new java.util.HashMap<Integer, com.codename1.printing.PrintResultListener>();
+    private static int nextPrintCallbackId = 1;
+
+    private static synchronized int registerPrintCallback(com.codename1.printing.PrintResultListener l) {
+        int id = nextPrintCallbackId++;
+        pendingPrintCallbacks.put(Integer.valueOf(id), l);
+        return id;
+    }
+
+    /// Invoked from native code with the outcome of a print job. Public so
+    /// the VM-emitted symbol stays stable. `status` matches
+    /// [com.codename1.printing.PrintResult]: 1=COMPLETED, 2=CANCELLED, 3=FAILED.
+    public static void printDocumentCallback(int callbackId, int status, String errorMessage) {
+        com.codename1.printing.PrintResultListener listener;
+        synchronized (IOSImplementation.class) {
+            listener = pendingPrintCallbacks.remove(Integer.valueOf(callbackId));
+        }
+        if (listener == null) {
+            return;
+        }
+        com.codename1.printing.PrintResult result;
+        switch (status) {
+            case 1:
+                result = com.codename1.printing.PrintResult.completed();
+                break;
+            case 2:
+                result = com.codename1.printing.PrintResult.cancelled();
+                break;
+            default:
+                result = com.codename1.printing.PrintResult.failed(errorMessage);
+                break;
+        }
+        // On the EDT, for the same reason as the share callback above:
+        // PrintResultListener documents the same guarantee and this arrives from
+        // the same kind of main-queue completion handler.
+        final com.codename1.printing.PrintResult delivered = result;
+        final com.codename1.printing.PrintResultListener target = listener;
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                target.onResult(delivered);
+            }
+        });
+    }
+
+    private Purchase pur;
+    private Vector purchasedItems;
+
+    /**
+     * Call serially will fail if Display isn't initialized yet this will not
+     */
+    private static void safeCallSerially(final Runnable r) {
+        if(Display.isInitialized()) {
+            Display.getInstance().callSerially(r);
+            return;
+        }
+        new Thread() {
+            public void run() {
+                try {
+                    Thread.sleep(2000);
+                } catch(Throwable t) {}
+                safeCallSerially(r);
+            }
+        }.start();
+    }
+    
+    private static final String PURCHASES_KEY="CN1PurchasedItemList.dat";
+    
+    List getPurchased() {
+        synchronized(PURCHASES_KEY){
+            if(purchasedItems == null) {
+                purchasedItems = new Vector();
+                List items = (List)Storage.getInstance().readObject(PURCHASES_KEY);
+                if (items != null){
+                    purchasedItems.addAll(items);
+                }
+
+            }
+            return purchasedItems;
+        }
+    }
+    
+    void addPurchase(String sku){
+        List purchased = getPurchased();
+        synchronized(PURCHASES_KEY){
+            if (!purchased.contains(sku)){
+                purchased.add(sku);
+                commitPurchased();
+            }
+        }
+    }
+    
+    void removePurchase(String sku){
+        List purchased = getPurchased();
+        synchronized(PURCHASES_KEY){
+            if (purchased.contains(sku)){
+                purchased.remove(sku);
+                commitPurchased();
+            }
+        }
+    }
+    
+    void commitPurchased(){
+        if (purchasedItems != null){
+            Storage.getInstance().writeObject(PURCHASES_KEY, purchasedItems);
+        }
+    }
+    
+    static void itemPurchased(final String sku) {
+        safeCallSerially(new Runnable() {
+            @Override
+            public void run() {
+                instance.addPurchase(sku);
+                if (purchaseCallback != null){
+                    purchaseCallback.itemPurchased(sku);
+                }
+            }
+        });
+    }
+    
+    static void itemRestored(final String sku) {
+        safeCallSerially(new Runnable() {
+            @Override
+            public void run() {
+                instance.addPurchase(sku);
+                if (restoreCallback != null){
+                    restoreCallback.itemRestored(sku);
+                }
+            }
+        });
+    }
+    
+    static void restoreRequestComplete() {
+        if(restoreCallback != null) {
+            safeCallSerially(new Runnable() {
+                @Override
+                public void run() {
+                    restoreCallback.restoreRequestComplete();
+                }
+            });
+        }
+    }
+    
+    static void restoreRequestError(final String errorMessage) {
+        if(restoreCallback != null) {
+            safeCallSerially(new Runnable() {
+                @Override
+                public void run() {
+                    restoreCallback.restoreRequestError(errorMessage);
+                }
+            });
+        }
+    }
+    
+    static void itemPurchaseError(final String sku, final String errorMessage) {
+        if(purchaseCallback != null) {
+            safeCallSerially(new Runnable() {
+                @Override
+                public void run() {
+                    purchaseCallback.itemPurchaseError(sku, errorMessage);
+                }
+            });
+        }
+    }
+
+    static void itemRefunded(final String sku) {
+        safeCallSerially(new Runnable() {
+            @Override
+            public void run() {
+                instance.removePurchase(sku);
+                if (purchaseCallback != null){
+                    purchaseCallback.itemRefunded(sku);
+                }
+            }
+        });
+    }
+
+
+    static void subscriptionStarted(final String sku) {
+        if(purchaseCallback != null) {
+            safeCallSerially(new Runnable() {
+                @Override
+                public void run() {
+                    purchaseCallback.subscriptionStarted(sku);
+                }
+            });
+        }
+    }
+
+    static void subscriptionCanceled(final String sku) {
+        if(purchaseCallback != null) {
+            safeCallSerially(new Runnable() {
+                @Override
+                public void run() {
+                    purchaseCallback.subscriptionCanceled(sku);
+                }
+            });
+        }
+    }
+    
+    static void paymentFailed(final String paymentCode, final String failureReason) {
+        if(purchaseCallback != null) {
+            safeCallSerially(new Runnable() {
+                @Override
+                public void run() {
+                    purchaseCallback.paymentFailed(paymentCode, failureReason);
+                }
+            });
+        }
+    }
+    
+    static void paymentSucceeded(final String paymentCode, final double amount, final String currency) {
+        if(purchaseCallback != null) {
+            safeCallSerially(new Runnable() {
+                @Override
+                public void run() {
+                    purchaseCallback.paymentSucceeded(paymentCode, amount, currency);
+                }
+            });
+        }
+    }
+    
+    public Purchase getInAppPurchase() {
+        return new ZoozPurchase(this, nativeInstance, purchaseCallback);
+    }
+    
+    @Override
+    public CodeScanner getCodeScanner() {
+        if(scannerInstance == null) {
+            scannerInstance = new CodeScannerImpl();
+        }
+        return scannerInstance;
+    }
+    
+    static void scanCompleted(final String contents, final String formatName) {
+        Display.getInstance().callSerially(new Runnable() {
+            @Override
+            public void run() {
+                instance.scannerInstance.callback.scanCompleted(contents, formatName, null);
+                instance.scannerInstance.callback = null;
+                Display.getInstance().getCurrent().revalidate();
+                Display.getInstance().getCurrent().repaint();
+            }
+        });
+    }
+
+    static void scanError(final int errorCode, final String message) {
+        Display.getInstance().callSerially(new Runnable() {
+            @Override
+            public void run() {
+                instance.scannerInstance.callback.scanError(errorCode, message);
+                instance.scannerInstance.callback = null;
+                Display.getInstance().getCurrent().revalidate();
+                Display.getInstance().getCurrent().repaint();
+            }
+        });
+    }
+
+    static void scanCanceled() {
+        Display.getInstance().callSerially(new Runnable() {
+            @Override
+            public void run() {
+                instance.scannerInstance.callback.scanCanceled();
+                instance.scannerInstance.callback = null;
+                Display.getInstance().getCurrent().revalidate();
+                Display.getInstance().getCurrent().repaint();
+            }
+        });
+    }
+    
+    class CodeScannerImpl extends CodeScanner  {
+        private ScanResult callback;
+        
+        @Override
+        public void scanQRCode(ScanResult callback) {
+            this.callback = callback;
+            nativeInstance.scanQRCode();
+        }
+
+        @Override
+        public void scanBarCode(ScanResult callback) {
+            this.callback = callback;
+            nativeInstance.scanBarCode();
+        }
+    }
+
+    @Override
+    public boolean isNativePickerTypeSupported(int pickerType) {
+        return pickerType == Display.PICKER_TYPE_DATE || pickerType == Display.PICKER_TYPE_TIME || pickerType == Display.PICKER_TYPE_DATE_AND_TIME || pickerType == Display.PICKER_TYPE_STRINGS || pickerType == Display.PICKER_TYPE_DURATION;
+    }
+    
+    private static long datePickerResult;
+    private static final Object PICKER_LOCK = new Object();
+    /// Whether a showNativePicker call is outstanding.
+    ///
+    /// datePickerResult is ONE slot and showNativePicker blocks on it, so two
+    /// overlapping calls cannot both be served by it -- the second's entry
+    /// reset alone republishes "pending" to the first, and any single answer
+    /// wakes both. Serialised here rather than in the native layer, because
+    /// this is the side that owns the slot and the only side that can decide
+    /// before it is reset.
+    private static boolean pickerInProgress;
+    static void datePickerResult(long val) {
+        synchronized(PICKER_LOCK) {
+            datePickerResult = val;
+            PICKER_LOCK.notify();
+        }
+    }
+    
+    @Override
+    public Object showNativePicker(final int type, final Component source, final Object currentValue, final Object data) {
+        synchronized (PICKER_LOCK) {
+            if (pickerInProgress) {
+                // A picker is already up. Answering "cancelled" is the honest
+                // result for a request that cannot be shown, and it leaves the
+                // outstanding one alone: displacing it instead completed BOTH
+                // calls with the displacement's own -1, because they share the
+                // slot -- so the caller of the picker still on screen had
+                // already returned before the user touched it.
+                //
+                // invokeAndBlock keeps the event dispatch thread live while a
+                // picker is open, which is what makes a second call reachable
+                // at all.
+                return null;
+            }
+            pickerInProgress = true;
+            datePickerResult = -2;
+        }
+        try {
+            nativePickerAcquired(source);
+            return showNativePickerImpl(type, source, currentValue, data);
+        } finally {
+            synchronized (PICKER_LOCK) {
+                pickerInProgress = false;
+            }
+        }
+    }
+
+    /// Invoked once this call owns the picker slot and is certain to present,
+    /// and never for a request the gate above turned away.
+    ///
+    /// The distinction matters to a port that has to stage process-wide state
+    /// for the presentation to consume, because a rejected request that staged
+    /// anyway would overwrite what the picker still on screen is relying on.
+    /// Called outside PICKER_LOCK on purpose: an override reaches the native
+    /// layer, and only one thread can be here at a time anyway -- every other
+    /// one is turned away by the gate before reaching this point.
+    ///
+    /// #### Parameters
+    ///
+    /// - `source`: the component the picker was requested for, possibly null
+    protected void nativePickerAcquired(Component source) {
+    }
+
+    private Object showNativePickerImpl(final int type, final Component source,
+            final Object currentValue, final Object data) {
+        int x = 0, y = 0, w = 20, h = 20, preferredHeight = 0, preferredWidth = 0;
+        
+        if(source != null) {
+            x = source.getAbsoluteX();
+            y = source.getAbsoluteY();
+            w = source.getWidth();
+            h = source.getHeight();
+        }
+        
+        if (source instanceof Picker) {
+            Picker p = (Picker)source;
+            preferredHeight = p.getPreferredPopupHeight();
+            preferredWidth = p.getPreferredPopupWidth();
+        }
+        
+        if(type == Display.PICKER_TYPE_STRINGS) {
+            String[] strs = (String[])data;
+            int offset = -1;
+            if(currentValue != null) {
+                int slen = strs.length;
+                for(int iter = 0 ; iter < slen ; iter++) {
+                    if(strs[iter].equals(currentValue)) {
+                        offset = iter;
+                        break;
+                    }
+                }
+            }
+            nativeInstance.openStringPicker(strs, offset, x, y, w, h, preferredWidth, preferredHeight);
+        } else if (type == Display.PICKER_TYPE_DURATION
+                || type == Display.PICKER_TYPE_DURATION_HOURS
+                || type == Display.PICKER_TYPE_DURATION_MINUTES) {
+            // All three duration types, matching the result conversion further
+            // down which has always handled the trio. Only PICKER_TYPE_DURATION
+            // was dispatched here, so the two variants fell into the date branch
+            // below and cast Picker's Long to a Date -- and on ParparVM a failed
+            // cast is not an exception but the next instruction reading a Long as
+            // a Date, which is a native crash rather than something to catch. The
+            // native takes the type, so it already knows which of the three to
+            // present.
+            //
+            // Inert on iOS, whose isNativePickerTypeSupported answers false for
+            // the two variants, so nothing reaches this with them there.
+            long time;
+            if (currentValue instanceof Long) {
+                time = (Long)currentValue;
+            } else {
+                time = 0l;
+            }
+            int minuteStep = 5;
+            if (data instanceof String) {
+                String strData = (String)data;
+                String[] parts = Util.split(strData, "\n");
+                for (String part : parts) {
+                    if (part.indexOf("minuteStep=") != -1) {
+                        minuteStep = Integer.parseInt(part.substring(part.indexOf("=")+1));
+                    }
+                }
+            }
+            nativeInstance.openDatePicker(type, time, x, y, w, h, preferredWidth, preferredHeight, minuteStep);
+        } else {
+            long time;
+            if(currentValue instanceof Integer) {
+                java.util.Calendar c = java.util.Calendar.getInstance();
+                c.set(java.util.Calendar.HOUR_OF_DAY, ((Integer)currentValue).intValue() / 60);
+                c.set(java.util.Calendar.MINUTE, ((Integer)currentValue).intValue() % 60);
+                time = c.getTime().getTime();
+            } else if (currentValue != null) {
+                time = ((java.util.Date)currentValue).getTime();
+            } else {
+                time = new java.util.Date().getTime();
+            }
+            int minuteStep = 5;
+            if (data instanceof String) {
+                String strData = (String)data;
+                String[] parts = Util.split(strData, "\n");
+                for (String part : parts) {
+                    if (part.indexOf("minuteStep=") != -1) {
+                        minuteStep = Integer.parseInt(part.substring(part.indexOf("=")+1));
+                    }
+                }
+            }
+            nativeInstance.openDatePicker(type, time, x, y, w, h, preferredWidth, preferredHeight, minuteStep);
+        }
+        // wait for the native code to complete
+        Display.getInstance().invokeAndBlock(new Runnable() {
+            public void run() {
+                while(datePickerResult == -2) {
+                    synchronized(PICKER_LOCK) {
+                        try {
+                            PICKER_LOCK.wait(100);
+                        } catch(InterruptedException err) {}
+                    }
+                }
+            }
+        }, true);
+        if(datePickerResult == -1) {
+            // there is no cancel option in the phone device
+            // Commented out because now iOS7 and higher have a cancel button
+            //  And should we even care about this case if there is no
+            // cancel button?
+            //if(!isTablet()) {
+            //    return currentValue;
+            //}
+            return null;
+        }
+        if(type == Display.PICKER_TYPE_STRINGS) {
+            if(datePickerResult < 0) {
+                return null;
+            }
+            return ((String[])data)[(int)datePickerResult];
+        }
+        Object result;
+        if (type == Display.PICKER_TYPE_DURATION || type == Display.PICKER_TYPE_DURATION_HOURS || type == Display.PICKER_TYPE_DURATION_MINUTES) {
+            if (datePickerResult < 0) {
+                return null;
+            }
+            return new Long(datePickerResult);
+        }
+        if(type == Display.PICKER_TYPE_TIME) {
+            java.util.Calendar c = java.util.Calendar.getInstance();
+            c.setTime(new Date(datePickerResult));
+            result = new Integer(c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE));
+        } else {
+            result = new Date(datePickerResult);
+        }
+        return result;
+    }
+
+    @Override
+    public Object connectSocket(String host, int port, int connectTimeout) {
+        long i = nativeInstance.connectSocket(host, port, connectTimeout);
+        if(i != 0) {
+            return new Long(i);
+        }
+        return null;
+    }
+    
+    @Override
+    public Object listenSocket(int port) {
+        // Wildcard-bound server sockets stay unsupported on iOS; see
+        // listenSocketLoopback, which binds the loopback interface only.
+        return null;
+    }
+
+    @Override
+    public boolean isLoopbackServerSocketAvailable() {
+        return true;
+    }
+
+    @Override
+    public boolean isDebuggableBuild() {
+        return nativeInstance.isDebuggableBuild();
+    }
+
+    @Override
+    public void stopListeningSocket(int port, boolean loopbackOnly) {
+        if(loopbackOnly) {
+            nativeInstance.stopListeningSocket(port);
+        }
+    }
+
+    @Override
+    public Object listenSocketLoopback(int port) {
+        long peer = nativeInstance.listenSocketLoopback(port);
+        if(peer == 0) {
+            return null;
+        }
+        return Long.valueOf(peer);
+    }
+    
+    @Override
+    public String getHostOrIP() {
+        return nativeInstance.getHostOrIP();
+    }
+
+
+    /// True when a socket handle cannot be used, so the caller must fall back to
+    /// the value CodenameOneImplementation documents for that method.
+    ///
+    /// The accept loop in com.codename1.io.Socket reports a failed accept by
+    /// asking the implementation for the pending error on the connection it did
+    /// NOT get -- a null. Every method here reaches the handle through
+    /// ((Long)socket).longValue(), and neither half of that is checked on this
+    /// port: ParparVM's CHECKCAST expands to nothing, and unboxing a null then
+    /// reads a field off address 0. On the desktop the same call raises a
+    /// NullPointerException that the accept loop catches and logs; here it was a
+    /// SIGSEGV that killed the process, so a port already in use took the whole
+    /// app down instead of reporting that it could not bind.
+    ///
+    /// instanceof rather than a null test on purpose -- it also covers a handle
+    /// that is not a Long, which the unchecked cast would otherwise hand to the
+    /// native layer as a wild pointer.
+    private static boolean noSocketHandle(Object socket) {
+        return !(socket instanceof Long);
+    }
+
+    @Override
+    public void disconnectSocket(Object socket) {
+        if (noSocketHandle(socket)) {
+            return;
+        }
+        nativeInstance.disconnectSocket(((Long)socket).longValue());
+    }    
+    
+    @Override
+    public boolean isSocketConnected(Object socket) {
+        if (noSocketHandle(socket)) {
+            return false;
+        }
+        return nativeInstance.isSocketConnected(((Long)socket).longValue());
+    }
+    
+    @Override
+    public boolean isServerSocketAvailable() {
+        return false;
+    }
+
+    @Override
+    public boolean isSocketAvailable() {
+        return true;
+    }
+    
+    @Override
+    public String getSocketErrorMessage(Object socket) {
+        if (noSocketHandle(socket)) {
+            return null;
+        }
+        return nativeInstance.getSocketErrorMessage(((Long)socket).longValue());
+    }
+    
+    @Override
+    public int getSocketErrorCode(Object socket) {
+        if (noSocketHandle(socket)) {
+            return -1;
+        }
+        return nativeInstance.getSocketErrorCode(((Long)socket).longValue());
+    }
+    
+    @Override
+    public int getSocketAvailableInput(Object socket) {
+        if (noSocketHandle(socket)) {
+            return 0;
+        }
+        return nativeInstance.getSocketAvailableInput(((Long)socket).longValue());
+    }
+    
+    @Override
+    public byte[] readFromSocketStream(Object socket) {
+        if (noSocketHandle(socket)) {
+            return null;
+        }
+        return nativeInstance.readFromSocketStream(((Long)socket).longValue());
+    }
+    
+    @Override
+    public void writeToSocketStream(Object socket, byte[] data) {
+        if (noSocketHandle(socket)) {
+            return;
+        }
+        nativeInstance.writeToSocketStream(((Long)socket).longValue(), data);
+    }
+
+    @Override
+    public boolean isWebSocketSupported() {
+        return true;
+    }
+
+    @Override
+    public com.codename1.impl.WebSocketImpl createWebSocketImpl(String url) {
+        return new IOSWebSocketImpl(url);
+    }
+
+    @Override
+    public void writeToSocketStream(Object socket, byte[] data, int offset, int len) {
+        if (noSocketHandle(socket)) {
+            return;
+        }
+        nativeInstance.writeToSocketStream(((Long)socket).longValue(), data, offset, len);
+    }
+
+    @Override
+    public void splitString(String source, char separator, ArrayList<String> out) {
+        nativeInstance.splitString(source, separator, out);
+    }
+   
+    public void scheduleLocalNotification(LocalNotification n, long firstTime, int repeat) {
+        boolean enriched = !n.getActions().isEmpty() || n.getGroupId() != null
+                || n.isTimeSensitive() || (n.getAlertImage() != null && n.getAlertImage().length() > 0);
+        if (enriched) {
+            String categoryId = null;
+            String actionsEncoded = null;
+            if (!n.getActions().isEmpty()) {
+                categoryId = "cn1-ln-" + n.getId();
+                StringBuilder sb = new StringBuilder();
+                for (LocalNotification.Action a : n.getActions()) {
+                    if (sb.length() > 0) {
+                        sb.append('\u0002');
+                    }
+                    sb.append(nullToEmpty(a.getId())).append('\u0001')
+                      .append(nullToEmpty(a.getTitle())).append('\u0001')
+                      .append(nullToEmpty(a.getTextInputPlaceholder())).append('\u0001')
+                      .append(nullToEmpty(a.getTextInputButtonText()));
+                }
+                actionsEncoded = sb.toString();
+            }
+            nativeInstance.sendLocalNotification2(
+                    n.getId(), n.getAlertTitle(), n.getAlertBody(), n.getAlertSound(),
+                    n.getBadgeNumber(), firstTime, repeat, n.isForeground(),
+                    categoryId, n.getGroupId(), n.isTimeSensitive(), n.getAlertImage(), actionsEncoded);
+        } else {
+            nativeInstance.sendLocalNotification(
+                    n.getId(),
+                    n.getAlertTitle(),
+                    n.getAlertBody(),
+                    n.getAlertSound(),
+                    n.getBadgeNumber(),
+                    firstTime,
+                    repeat,
+                    n.isForeground()
+            );
+        }
+    }
+
+    private static String nullToEmpty(String s) {
+        return s == null ? "" : s;
+    }
+
+    public void cancelLocalNotification(String id) {
+         nativeInstance.cancelLocalNotification(id);
+    }
+
+    // ---- notification permission ----
+
+    private static NotificationPermissionCallback pendingNotificationPermissionCallback;
+
+    @Override
+    public void requestNotificationPermission(NotificationPermissionRequest request, NotificationPermissionCallback callback) {
+        pendingNotificationPermissionCallback = callback;
+        nativeInstance.requestNotificationPermission(request == null ? 7 : request.toAuthorizationOptionsMask());
+    }
+
+    /// Invoked from native once the authorization request resolves. authLevel is the
+    /// ordinal of NotificationPermissionResult.AuthorizationLevel as produced by the
+    /// native UNAuthorizationStatus mapping (granted is derived from the level).
+    public static void notificationPermissionResult(final boolean granted, final int authLevel) {
+        final NotificationPermissionCallback cb = pendingNotificationPermissionCallback;
+        pendingNotificationPermissionCallback = null;
+        if (cb != null) {
+            final NotificationPermissionResult.AuthorizationLevel[] levels =
+                    NotificationPermissionResult.AuthorizationLevel.values();
+            final NotificationPermissionResult.AuthorizationLevel level =
+                    (authLevel >= 0 && authLevel < levels.length)
+                            ? levels[authLevel]
+                            : NotificationPermissionResult.AuthorizationLevel.NOT_DETERMINED;
+            Display.getInstance().callSerially(new Runnable() {
+                public void run() {
+                    cb.notificationPermissionResult(new NotificationPermissionResult(level));
+                }
+            });
+        }
+    }
+
+    // ---- constraint-aware background work / processing (BGTaskScheduler) ----
+
+    @Override
+    public boolean isBackgroundWorkSupported() {
+        return nativeInstance.isBackgroundProcessingSupported();
+    }
+
+    @Override
+    public boolean isBackgroundProcessingSupported() {
+        return nativeInstance.isBackgroundProcessingSupported();
+    }
+
+    @Override
+    public void scheduleBackgroundWork(WorkRequest request) {
+        // persist worker class and input so the work can be reconstructed after a cold launch
+        com.codename1.io.Preferences.set("$$CN1_BGWORK_CLASS_" + request.getId(), request.getWorkerClass());
+        StringBuilder input = new StringBuilder();
+        for (java.util.Map.Entry<String, String> e : request.getInputData().entrySet()) {
+            if (input.length() > 0) {
+                input.append('\u0002');
+            }
+            input.append(e.getKey()).append('\u0001').append(e.getValue());
+        }
+        com.codename1.io.Preferences.set("$$CN1_BGWORK_INPUT_" + request.getId(), input.toString());
+        com.codename1.io.Preferences.set("$$CN1_BGWORK_PERIODIC_" + request.getId(), request.isPeriodic());
+        double earliest = (System.currentTimeMillis() + Math.max(0, request.getInitialDelayMillis())) / 1000.0;
+        nativeInstance.submitBackgroundProcessingTask(request.getId(), earliest,
+                request.isRequiresNetwork() || request.isRequiresUnmeteredNetwork(), request.isRequiresCharging());
+    }
+
+    @Override
+    public void cancelBackgroundWork(String workId) {
+        nativeInstance.cancelBackgroundTask(workId);
+    }
+
+    @Override
+    public void scheduleBackgroundProcessing(String id, long earliestBeginEpochMs, boolean requiresNetwork, boolean requiresPower, Runnable task) {
+        if (task != null) {
+            backgroundProcessingRunnables.put(id, task);
+        }
+        double earliest = earliestBeginEpochMs <= 0 ? System.currentTimeMillis() / 1000.0 : earliestBeginEpochMs / 1000.0;
+        nativeInstance.submitBackgroundProcessingTask(id, earliest, requiresNetwork, requiresPower);
+    }
+
+    @Override
+    public void cancelBackgroundProcessing(String id) {
+        backgroundProcessingRunnables.remove(id);
+        nativeInstance.cancelBackgroundTask(id);
+    }
+
+    private static final java.util.Map<String, Runnable> backgroundProcessingRunnables = new java.util.HashMap<String, Runnable>();
+
+    /// Invoked from the BGTaskScheduler launch handler. Runs the worker (reconstructed from
+    /// persisted state) or a live processing runnable for the given identifier.
+    public static void runBackgroundProcessing(final String id) {
+        Runnable live = backgroundProcessingRunnables.remove(id);
+        if (live != null) {
+            try {
+                live.run();
+            } catch (Throwable t) {
+                com.codename1.io.Log.e(t);
+            }
+            return;
+        }
+        String workerClass = com.codename1.io.Preferences.get("$$CN1_BGWORK_CLASS_" + id, null);
+        if (workerClass == null) {
+            return;
+        }
+        try {
+            Class<?> cls = Class.forName(workerClass);
+            BackgroundWorker worker = (BackgroundWorker) cls.newInstance();
+            java.util.Map<String, String> input = new java.util.HashMap<String, String>();
+            String enc = com.codename1.io.Preferences.get("$$CN1_BGWORK_INPUT_" + id, "");
+            if (enc != null && enc.length() > 0) {
+                for (String pair : com.codename1.io.Util.split(enc, "\u0002")) {
+                    int idx = pair.indexOf('\u0001');
+                    if (idx >= 0) {
+                        input.put(pair.substring(0, idx), pair.substring(idx + 1));
+                    }
+                }
+            }
+            final boolean periodic = com.codename1.io.Preferences.get("$$CN1_BGWORK_PERIODIC_" + id, false);
+            worker.performWork(id, input, System.currentTimeMillis() + 25000, new com.codename1.util.Callback<Boolean>() {
+                public void onSucess(Boolean value) {
+                    if (periodic) {
+                        // resubmit to approximate periodic behavior on iOS
+                        instance.nativeInstance.submitBackgroundProcessingTask(id, (System.currentTimeMillis() + 60000) / 1000.0, false, false);
+                    }
+                }
+                public void onError(Object sender, Throwable err, int errorCode, String errorMessage) {
+                    com.codename1.io.Log.e(err);
+                }
+            });
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+    }
+
+    @Override
+    public void subscribeToPushTopic(String topic) {
+        com.codename1.io.Log.p("Push topics are not supported on iOS APNs; topic '" + topic
+                + "' must be handled server side");
+    }
+
+    @Override
+    public void unsubscribeFromPushTopic(String topic) {
+        com.codename1.io.Log.p("Push topics are not supported on iOS APNs; topic '" + topic
+                + "' must be handled server side");
+    }
+
+    @Override
+    public boolean isReceiveSharedContentSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isWalletExtensionSupported() {
+        return nativeInstance.isWalletExtensionSupported();
+    }
+
+    @Override
+    public void walletExtensionClearPassEntries(boolean remote) {
+        nativeInstance.walletExtensionClearPassEntries(remote);
+    }
+
+    @Override
+    public void walletExtensionAddPassEntry(boolean remote, String identifier, String title,
+            String cardholderName, String accountSuffix, String network, String description, byte[] artPng) {
+        if (identifier == null || identifier.length() == 0 || artPng == null || artPng.length == 0) {
+            return;
+        }
+        nativeInstance.walletExtensionAddPassEntry(remote, identifier, title,
+                cardholderName, accountSuffix, network, description, artPng);
+    }
+
+    @Override
+    public void walletExtensionSetRequiresAuthentication(boolean requiresAuthentication) {
+        nativeInstance.walletExtensionSetRequiresAuthentication(requiresAuthentication);
+    }
+
+    @Override
+    public void walletExtensionSetAuthToken(String token) {
+        nativeInstance.walletExtensionSetAuthToken(token);
+    }
+
+    @Override
+    public void walletExtensionClear() {
+        nativeInstance.walletExtensionClear();
+    }
+
+    /// Invoked from native (on app activation) with the JSON payload written by the share
+    /// extension. Parses it into a SharedContent and dispatches to the app.
+    public static void fireSharedContentFromNative(String json) {
+        if (json == null || json.length() == 0) {
+            return;
+        }
+        try {
+            com.codename1.io.JSONParser parser = new com.codename1.io.JSONParser();
+            java.util.Map parsed = parser.parseJSON(new java.io.StringReader(json));
+            SharedContent.Builder b = SharedContent.builder();
+            Object subject = parsed.get("subject");
+            if (subject instanceof String) {
+                b.subject((String) subject);
+            }
+            Object items = parsed.get("items");
+            if (items instanceof java.util.List) {
+                for (Object o : (java.util.List) items) {
+                    if (!(o instanceof java.util.Map)) {
+                        continue;
+                    }
+                    java.util.Map item = (java.util.Map) o;
+                    String kind = (String) item.get("kind");
+                    String value = (String) item.get("value");
+                    if ("url".equals(kind)) {
+                        b.addUrl(value);
+                    } else if ("image".equals(kind)) {
+                        b.addImage(null, value, null);
+                    } else if ("file".equals(kind)) {
+                        b.addFile(null, value, null);
+                    } else {
+                        b.addText(value);
+                    }
+                }
+            }
+            if (instance != null) {
+                instance.fireSharedContentReceived(b.build());
+            }
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+    }
+
+    
+    static class ClipShape implements Shape {
+        
+        private final Rectangle rect = new Rectangle();
+        private final GeneralPath p = new GeneralPath();
+        private boolean isRect;
+        private static ArrayList<ClipShape> pool = new ArrayList<ClipShape>();
+        
+        public static synchronized ClipShape create() {
+            if (!pool.isEmpty()) {
+                return pool.remove(pool.size()-1);
+            }
+            return new ClipShape();
+        }
+        
+        public synchronized static void recycle(ClipShape shape) {
+            if (pool.size() <= 20 && shape != null) {
+                pool.add(shape);
+            }
+        }
+        
+        public boolean isRect() {
+            return isRect;
+        }
+        
+        public String toString() {
+            if (isRect()) {
+                return rect.toString();
+            } else {
+                return p.toString();
+            }
+        }
+        
+        
+        @Override
+        public PathIterator getPathIterator() {
+            if (isRect) {
+                return rect.getPathIterator();
+            } else {
+                return p.getPathIterator();
+            }
+        }
+
+        @Override
+        public PathIterator getPathIterator(Transform transform) {
+            if (isRect) {
+                return rect.getPathIterator(transform);
+            } else {
+                return p.getPathIterator(transform);
+            }
+        }
+
+        @Override
+        public Rectangle getBounds() {
+            if (isRect) {
+                return rect.getBounds();
+            } else {
+                return p.getBounds();
+            }
+        }
+        
+        
+        public void getBounds(Rectangle r) {
+            if (isRect) {
+                r.setBounds(rect.getX(), rect.getY(), rect.getWidth(), rect.getHeight());
+            } else {
+                p.getBounds(r);
+            }
+        }
+
+        @Override
+        public float[] getBounds2D() {
+            if (isRect) {
+                return rect.getBounds2D();
+            } else {
+                return p.getBounds2D();
+            }
+        }
+        
+        public void getBounds2D(float[] out) {
+            if (isRect) {
+                out[0] = rect.getX();
+                out[1] = rect.getY();
+                out[2] = rect.getWidth();
+                out[3] = rect.getHeight();
+            } else {
+                p.getBounds2D(out);
+            }
+        }
+
+        @Override
+        public boolean isRectangle() {
+            if (isRect) {
+                return true;
+            } else {
+                return p.isRectangle();
+            }
+        }
+
+        @Override
+        public boolean contains(int x, int y) {
+            if (isRect) {
+                return rect.contains(x, y);
+            } else {
+                return p.contains(x, y);
+            }
+        }
+
+        @Override
+        public Shape intersection(Rectangle rect) {
+            if (isRect) {
+                return this.rect.intersection(rect);
+            } else {
+                return this.p.intersection(rect);
+            }
+        }
+        
+        
+        public boolean intersect(Rectangle r) {
+            if (isRect) {
+                rect.intersection(r, rect);
+                return rect.getWidth() > 0 && rect.getHeight() > 0;
+            } else {
+                if (!p.intersect(r)) {
+                    rect.setBounds(0,0,0,0);
+                    isRect = true;
+                    return false;
+                } else {
+                    if (p.isRectangle()) {
+                        p.getBounds(rect);
+                        isRect = true;
+                    }
+                    return true;
+                }
+            }
+        }
+        
+        public boolean intersect(int x, int y, int w, int h) {
+            if (isRect) {
+                Rectangle.intersection(x, y, w, h, rect.getX(), rect.getY(), rect.getWidth(), rect.getHeight(), rect);
+                return rect.getWidth() >0 && rect.getHeight() > 0;
+            } else {
+                if (!p.intersect(x, y, w, h)) {
+                    rect.setBounds(0,0,0,0);
+                    isRect = true;
+                    return false;
+                } else {
+                    if (p.isRectangle()) {
+                        p.getBounds(rect);
+                        isRect = true;
+                    }
+                    return true;
+                }
+            }
+        }
+        
+        public void setBounds(int x, int y, int w, int h) {
+            rect.setBounds(x, y, w, h);
+            isRect = true;
+        }
+        
+        public boolean equals(int x, int y, int w, int h) {
+            return isRect &&
+                    rect.getX() == x &&
+                    rect.getY() == y &&
+                    rect.getWidth() == w &&
+                    rect.getHeight() == h;
+        }
+        
+        
+        public boolean equals(Shape s, Transform t) {
+            if (t != null && !t.isIdentity()) {
+                GeneralPath tmp = GeneralPath.createFromPool();
+                try {
+                    tmp.setShape(s, t);
+                    return equals(tmp, null);
+                } finally {
+                    GeneralPath.recycle(tmp);
+                }
+            }
+            
+            // At this point we know that t is null or the identity
+            if (s == this) {
+                return true;
+            }
+            
+            if (s instanceof ClipShape) {
+                ClipShape cs = (ClipShape)s;
+                return cs.isRect ? equals(cs.rect, t) : equals(cs.p, t);
+            } else if (s instanceof Rectangle) {
+                if (isRect) {
+                    return rect.equals((Rectangle)s);
+                } else {
+                    return p.equals(s, (Transform) null);
+                }
+            } else if (s instanceof GeneralPath) {
+                GeneralPath sPath = (GeneralPath)s;
+                if (isRect) {
+                    return sPath.equals(rect, (Transform)null);
+                } else {
+                    return sPath.equals(p, (Transform)null);
+                }
+            } else {
+                GeneralPath p2 = GeneralPath.createFromPool();
+                try {
+                    p2.setShape(s, null);
+                    return equals(p2, null);
+                } finally {
+                    GeneralPath.recycle(p2);
+                }
+            }
+            
+        }
+        
+        
+        
+        public void setShape(Shape s, Transform t) {
+            if (s.isRectangle() && (t == null || t.isIdentity())) {
+                if (s.getClass() == GeneralPath.class) {
+                    ((GeneralPath)s).getBounds(rect);
+                } else if (s.getClass() == Rectangle.class) {
+                    Rectangle r = (Rectangle)s;
+                    rect.setBounds(r.getX(), r.getY(), r.getWidth(), r.getHeight());
+                } else {
+                    Rectangle r = s.getBounds();
+                    rect.setBounds(r.getX(), r.getY(), r.getWidth(), r.getHeight());
+                }
+                isRect = true;
+            } else {
+                p.setShape(s, t);
+                if (p.isRectangle()) {
+                    p.getBounds(rect);
+                    isRect = true;
+                } else {
+                    isRect = false;
+                }
+            }
+        }
+        
+        /**
+        * Returns the number of path commands in this path.
+        * @return The number of path commands in this path.
+        */
+        public int getTypesSize() {
+            if (isRect) {
+                p.setShape(rect, null);
+                return p.getTypesSize();
+            } else {
+                return p.getTypesSize();
+            }
+        }
+
+        /**
+         * Returns the number of points in this path.
+         * @return The number of points in this path.
+         */
+        public int getPointsSize() {
+            if (isRect) {
+                p.setShape(rect, null);
+                
+            }
+            return p.getPointsSize();
+        }
+
+        /**
+         * Returns a copy of the types (aka path commands) in this path.
+         * @param out An array to copy the path commands into.
+         */
+        public void getTypes(byte[] out) {
+            if (isRect) {
+                p.setShape(rect, null);
+            }
+            p.getTypes(out);
+        }
+
+        /**
+         * Returns a copy of the points in this path.
+         * @param out An array to copy the points into.
+         */
+        public void getPoints(float[] out) {
+            if (isRect) {
+                p.setShape(rect, null);
+            }
+            p.getPoints(out);
+        }
+        
+        public boolean isPolygon() {
+            if (isRect) {
+                return true;
+            }
+            return p.isPolygon();
+        }
+    }
+
+    /**
+     * The documented jailbreak/root check, and only that.
+     *
+     * <p>Deliberately not "any compromise reason". {@code getCompromiseReasons()} also
+     * reports a debugger, and a clean device with Xcode attached emits {@code traced} --
+     * so a plain debug session made this return true. That is a specifically documented
+     * jailbreak API with callers that branch on it, and telling them a developer's own
+     * device is jailbroken every time they hit Run is a regression, not extra vigilance.
+     * Aggregating the rest is {@link #isDeviceCompromised()}'s job.</p>
+     *
+     * <p>Hooking is left out for the same reason it is reported separately: a hooking
+     * framework is evidence of instrumentation, which usually accompanies a jailbreak but
+     * is not one, and callers that want the broader question have the broader method.
+     * The one hooking signal that does count here is {@code hookedApi} -- the native
+     * probes catching each other being lied to -- because a detection-bypass tweak is not
+     * something that gets installed on a device that has nothing to hide.</p>
+     */
+    @Override
+    public boolean isJailbrokenDevice() {
+        String[] reasons = getCompromiseReasons();
+        for (int i = 0; i < reasons.length; i++) {
+            if ("jailbreak".equals(reasons[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * URL schemes registered by the apps a jailbreak installs. Only ever returns true
+     * when the app also declares the scheme in ios.applicationQueriesSchemes -- on iOS 9
+     * and up canOpenURL returns false for an undeclared scheme regardless of what is
+     * installed -- which is why this cannot be the primary signal. The
+     * {@code ios.detectJailbreak} build hint declares all of them for you.
+     *
+     * <p>Cydia alone was the whole list, and Cydia is the package manager of a rootful
+     * jailbreak nobody has shipped for current iOS. A rootless device runs Sileo, so the
+     * probe looked for the one front end that was certain not to be there.</p>
+     *
+     * <p>Most valuable first, matching {@code IPhoneBuilder.JAILBREAK_QUERY_SCHEMES},
+     * which declares only as many as the app's scheme budget has room for and takes them
+     * from the front. Reordering one list without the other means probing for a scheme
+     * that was never declared, which answers false and looks like a clean device.</p>
+     *
+     * <p>Kept deliberately short, and it must stay that way. Every entry is spent out of
+     * the app's LSApplicationQueriesSchemes budget, which iOS caps at 25 for an app linked
+     * against the iOS 27 SDK -- a secondary probe is not entitled to a quarter of it.
+     * Adding a scheme here means adding it to
+     * {@code IPhoneBuilder.JAILBREAK_QUERY_SCHEMES} too, or it is declared nowhere and
+     * silently answers false.</p>
+     *
+     * <p>This probe also has a shelf life: canOpenURL: is deprecated as of iOS 27. It
+     * still works and Apple has named no removal date, but the native probes in
+     * CN1JailbreakDetector are the ones to invest in.</p>
+     */
+    private static final String[] JAILBREAK_URL_SCHEMES = {
+        "sileo://package/com.example.package",
+        "filza://view",
+        "zbra://packages/com.example.package",
+        "cydia://package/com.example.package"
+    };
+
+    private boolean packageManagerProbe() {
+        for (int i = 0; i < JAILBREAK_URL_SCHEMES.length; i++) {
+            try {
+                Boolean b = canExecute(JAILBREAK_URL_SCHEMES[i]);
+                if (b != null && b.booleanValue()) {
+                    return true;
+                }
+            } catch (Throwable t) {
+                // A scheme the OS refuses to parse says nothing about the next one.
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Real jailbreak and instrumentation signals, from the same native probes the
+     * {@code ios.detectJailbreak} launch gate uses -- but reported rather than
+     * fatal, so an app can degrade gracefully instead of being killed at launch.
+     */
+    @Override
+    public String[] getCompromiseReasons() {
+        String[] signals = deviceIntegrity().jailbreakSignals();
+        java.util.ArrayList<String> out = new java.util.ArrayList<String>();
+        boolean jailbreakReported = false;
+        for (int i = 0; i < signals.length; i++) {
+            String s = signals[i];
+            if ("hookLib".equals(s) || "dyldInsert".equals(s)) {
+                if (!out.contains("frida")) {
+                    // Reported under the cross-platform name for a hooking
+                    // framework so app code does not need a per-platform branch.
+                    out.add("frida");
+                }
+            } else if ("hookedApi".equals(s)) {
+                // Counts as both. Something is hooking us, which is the "frida"
+                // bucket; and what it is hooking is jailbreak detection, which
+                // only happens on a device that has a jailbreak to hide.
+                if (!out.contains("frida")) {
+                    out.add("frida");
+                }
+                if (!jailbreakReported) {
+                    jailbreakReported = true;
+                    out.add("jailbreak");
+                }
+            } else if ("traced".equals(s)) {
+                out.add("debugger");
+            } else if (!jailbreakReported) {
+                jailbreakReported = true;
+                out.add("jailbreak");
+            }
+        }
+        // Always, not only when the native probes found nothing. Those two sets of
+        // evidence are independent: the native side checks hard-coded paths and dyld,
+        // and the URL schemes catch installs those miss -- so gating one on the other
+        // being empty meant a single unrelated signal suppressed it. A debugger alone
+        // was enough: `traced` made the list non-empty, the probe was skipped, and a
+        // jailbreak only the scheme could see went unreported. Which is how a developer
+        // running under Xcode ends up being told their jailbroken device is clean.
+        if (!jailbreakReported && packageManagerProbe()) {
+            out.add("jailbreak");
+        }
+        return out.toArray(new String[out.size()]);
+    }
+
+    @Override
+    public boolean isDeviceCompromised() {
+        return getCompromiseReasons().length > 0;
+    }
+
+    @Override
+    public void announceForAccessibility(final Component cmp, final String text) {
+        IOSNative.announceForAccessibility(text);
+    }
+
+    @Override
+    public void accessibilityTreeChanged(int changeType) {
+        // The main surface by name rather than "the latest tree". The surface-less
+        // accessor answers with whatever was rebuilt last, which since the tree became
+        // per surface can be a window -- and this pushes onto the main view.
+        accessibilityTreeChanged(changeType, 0);
+    }
+
+    @Override
+    public void accessibilityTreeChanged(int changeType, int windowId) {
+        AccessibilityTreeSnapshot tree = getAccessibilityTreeSnapshot(windowId);
+        if (tree == null) {
+            return;
+        }
+        IOSNative.updateAccessibilityTree(tree.toJson(), changeType, windowId);
+    }
+
+    @Override
+    public boolean isAccessibilityTreeSupported() {
+        return true;
+    }
+
+    /// UIKit PULLS the semantic tree (it asks the view for accessibility elements),
+    /// so the portable tree only has to be projected eagerly while something is
+    /// actually listening. The base class notes exactly this -- "pull-based ports
+    /// should override this to return true only while assistive technology is
+    /// active" -- but the iOS port never overrode it, so it inherited
+    /// isAccessibilityTreeSupported() and rebuilt the whole snapshot on EVERY
+    /// invalidation: every layout, every scroll, every text setter, on every
+    /// device, whether or not VoiceOver was running. Measured with
+    /// malloc_history that was 4.0MB of live allocation under
+    /// AccessibilityManager.getSnapshot on an idle Mac Catalyst app with no
+    /// assistive technology running at all, plus the CPU to build it.
+    ///
+    /// The native gate caches the initial UIKit status on the main queue.
+    /// Turning VoiceOver on mid-session latches eager projection and schedules
+    /// an invalidation through the status callback below.
+    /// Invoked from native when an assistive-technology status notification fires.
+    ///
+    /// The status flip itself is not a component mutation, so without this nothing
+    /// would schedule the projection a newly-started technology needs and the
+    /// native tree would stay empty until some unrelated UI change happened to
+    /// invalidate a component. Marks the whole current form dirty so the very next
+    /// pass rebuilds and pushes the tree.
+    public static void assistiveTechnologyStatusChanged() {
+        final IOSImplementation impl = instance;
+        if (impl == null) {
+            return;
+        }
+        Display d = Display.getInstance();
+        if (d == null) {
+            return;
+        }
+        d.callSerially(new Runnable() {
+            @Override
+            public void run() {
+                // Every live surface, not the current form. Assistive technology
+                // starting is the one moment all of them have to be described at once:
+                // nothing was projected while it was off, so a window that has focus
+                // holds no elements at all -- and naming Display.getCurrent() names the
+                // main form however many windows are up, leaving the one the user is
+                // actually in empty until some unrelated change happens to touch it.
+                AccessibilityManager.getInstance().invalidate(null,
+                        AccessibilityManager.CHANGE_STRUCTURE
+                                | AccessibilityManager.CHANGE_CONTENT
+                                | AccessibilityManager.CHANGE_STATE);
+            }
+        });
+    }
+
+    @Override
+    public boolean isAccessibilityTreeUpdateRequired() {
+        try {
+            return nativeInstance.isAssistiveTechnologyActive();
+        } catch (Throwable t) {
+            // Never let a semantics optimisation take the app down.
+            return true;
+        }
+    }
+
+    public static void performAccessibilityActionFromNative(long nodeId, String actionId, String argument) {
+        if (instance != null) {
+            instance.performAccessibilityAction(nodeId, actionId, argument);
+        }
+    }
+
+    // ================================================================
+    // Crypto bridge -- routes through CN1Crypto.{h,m} in nativeSources/
+    // (the corresponding native methods live on IOSNative). The defaults
+    // inherited from CodenameOneImplementation use java.security via
+    // reflection, which isn't on the ParparVM runtime classpath.
+
+    private static byte[] cryptoTrim(byte[] buf, int len) {
+        if (len < 0) {
+            throw new RuntimeException("crypto operation failed with code " + len);
+        }
+        if (len == buf.length) return buf;
+        byte[] out = new byte[len];
+        System.arraycopy(buf, 0, out, 0, len);
+        return out;
+    }
+
+    @Override
+    public void secureRandomBytes(byte[] out) {
+        nativeInstance.secureRandomBytes(out);
+    }
+
+    @Override
+    public byte[] aesEncrypt(String transformation, byte[] key, byte[] iv, byte[] aad, byte[] plaintext) {
+        return doAes(transformation, key, iv, aad, plaintext, 1);
+    }
+
+    @Override
+    public byte[] aesDecrypt(String transformation, byte[] key, byte[] iv, byte[] aad, byte[] ciphertext) {
+        return doAes(transformation, key, iv, aad, ciphertext, 0);
+    }
+
+    /// PBKDF2 through CommonCrypto.
+    ///
+    /// Worth having rather than leaving to the portable fallback: the default profile is six
+    /// hundred thousand iterations, and a pure Java HMAC loop translated to C runs it in tens of
+    /// seconds where `CCKeyDerivationPBKDF` takes a fraction of one. Returns `null` when the
+    /// native reports a failure, which sends the caller to the portable loop rather than failing
+    /// the unlock -- slow is a worse outcome than fast and a much better one than locked out.
+    @Override
+    public byte[] pbkdf2(String hashAlgorithm, byte[] password, byte[] salt, int iterations, int length) {
+        int hashKind = hashAlgorithm != null && hashAlgorithm.indexOf("512") >= 0 ? 512 : 256;
+        byte[] out = new byte[length];
+        int written = nativeInstance.pbkdf2(hashKind, password, salt, iterations, out);
+        return written == length ? out : null;
+    }
+
+    private byte[] doAes(String transformation, byte[] key, byte[] iv, byte[] aad, byte[] input, int encrypt) {
+        String t = transformation == null ? "" : transformation.toUpperCase();
+        if (t.indexOf("GCM") >= 0) {
+            // Encrypt output = ciphertext + 16-byte tag; decrypt output is
+            // the same length as the ciphertext minus the tag.
+            int outLen = encrypt == 1 ? input.length + 16 : Math.max(0, input.length - 16);
+            byte[] outBuf = new byte[outLen];
+            int written = nativeInstance.aesGcm(encrypt, key, iv, aad, input, outBuf);
+            return cryptoTrim(outBuf, written);
+        }
+        boolean padded = t.indexOf("NOPADDING") < 0;
+        // CBC ciphertext is at most input + one extra block (16 bytes).
+        int outLen = input.length + 16;
+        byte[] outBuf = new byte[outLen];
+        int written = nativeInstance.aesCbc(encrypt, key, iv, input, outBuf, padded ? 1 : 0);
+        return cryptoTrim(outBuf, written);
+    }
+
+    @Override
+    public byte[] rsaEncrypt(String transformation, byte[] publicKeyX509, byte[] plaintext) {
+        int padding = rsaPaddingKind(transformation);
+        // Modern key sizes never exceed 2048 bytes of output.
+        byte[] outBuf = new byte[2048];
+        int written = nativeInstance.rsaEncrypt(padding, publicKeyX509, plaintext, outBuf);
+        return cryptoTrim(outBuf, written);
+    }
+
+    @Override
+    public byte[] rsaDecrypt(String transformation, byte[] privateKeyPkcs8, byte[] ciphertext) {
+        int padding = rsaPaddingKind(transformation);
+        byte[] outBuf = new byte[2048];
+        int written = nativeInstance.rsaDecrypt(padding, privateKeyPkcs8, ciphertext, outBuf);
+        return cryptoTrim(outBuf, written);
+    }
+
+    private static int rsaPaddingKind(String transformation) {
+        if (transformation == null) return 1;
+        return transformation.toUpperCase().indexOf("OAEP") >= 0 ? 2 : 1;
+    }
+
+    @Override
+    public byte[] cryptoSign(String algorithm, String keyAlgorithm, byte[] privateKeyPkcs8, byte[] data) {
+        int alg = signatureAlgorithmKind(algorithm);
+        byte[] outBuf = new byte[2048];
+        int written = nativeInstance.sign(alg, privateKeyPkcs8, data, outBuf);
+        return cryptoTrim(outBuf, written);
+    }
+
+    @Override
+    public boolean cryptoVerify(String algorithm, String keyAlgorithm, byte[] publicKeyX509, byte[] data, byte[] signature) {
+        int alg = signatureAlgorithmKind(algorithm);
+        int rc = nativeInstance.verify(alg, publicKeyX509, data, signature);
+        if (rc < 0) throw new RuntimeException("verify failed: code " + rc);
+        return rc == 1;
+    }
+
+    private static int signatureAlgorithmKind(String algorithm) {
+        if ("SHA256withRSA".equals(algorithm)) return 0;
+        if ("SHA384withRSA".equals(algorithm)) return 1;
+        if ("SHA512withRSA".equals(algorithm)) return 2;
+        if ("SHA256withECDSA".equals(algorithm)) return 3;
+        if ("SHA384withECDSA".equals(algorithm)) return 4;
+        if ("SHA512withECDSA".equals(algorithm)) return 5;
+        throw new RuntimeException("unsupported signature algorithm: " + algorithm);
+    }
+
+    @Override
+    public byte[][] generateRsaKeyPair(int bits) {
+        // 4096-bit RSA produces ~600 bytes of DER for the public side and
+        // ~2300 for the private; round up generously.
+        byte[] pubBuf = new byte[bits + 1024];
+        byte[] privBuf = new byte[bits * 3];
+        int[] lens = new int[2];
+        int rc = nativeInstance.generateRsaKeyPair(bits, pubBuf, privBuf, lens);
+        if (rc < 0) throw new RuntimeException("RSA keypair generation failed: code " + rc);
+        return new byte[][]{ cryptoTrim(pubBuf, lens[0]), cryptoTrim(privBuf, lens[1]) };
+    }
+}

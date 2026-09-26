@@ -1,0 +1,118 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+public class JsPrimitiveArraySemanticsApp {
+    static int result;
+
+    public static void main(String[] args) {
+        int score = 0;
+
+        byte[] types = new byte[] {0, 1, 2, 3, 4};
+        if (types[0] == 0) {
+            score |= 1;
+        }
+        if (types[1] == 1) {
+            score |= 2;
+        }
+        if (types[2] == 2) {
+            score |= 4;
+        }
+        if (types[3] == 3) {
+            score |= 8;
+        }
+        if (types[4] == 4) {
+            score |= 16;
+        }
+
+        float[] points = new float[] {1, 2, 3, 4, 5, 6};
+        if (points[0] == 1f && points[5] == 6f) {
+            score |= 32;
+        }
+
+        float[] copy = new float[6];
+        System.arraycopy(points, 0, copy, 0, points.length);
+        if (copy[1] == 2f && copy[4] == 5f) {
+            score |= 64;
+        }
+
+        float[] partial = new float[] {99, 99, 99, 99, 99, 99};
+        System.arraycopy(points, 2, partial, 1, 3);
+        if (partial[0] == 99f && partial[1] == 3f && partial[2] == 4f && partial[3] == 5f && partial[4] == 99f) {
+            score |= 128;
+        }
+
+        int[] shiftRight = new int[] {1, 2, 3, 4, 5};
+        System.arraycopy(shiftRight, 1, shiftRight, 2, 3);
+        if (shiftRight[0] == 1 && shiftRight[1] == 2 && shiftRight[2] == 2
+                && shiftRight[3] == 3 && shiftRight[4] == 4) {
+            score |= 256;
+        }
+
+        int[] shiftLeft = new int[] {1, 2, 3, 4, 5};
+        System.arraycopy(shiftLeft, 1, shiftLeft, 0, 4);
+        if (shiftLeft[0] == 2 && shiftLeft[1] == 3 && shiftLeft[2] == 4
+                && shiftLeft[3] == 5 && shiftLeft[4] == 5) {
+            score |= 512;
+        }
+
+        byte[] defaultByte = new byte[1];
+        int[] indexedByDefault = new int[] {73};
+        if (indexedByDefault[defaultByte[0]] == 73) {
+            score |= 1024;
+        }
+
+        boolean[] defaultBoolean = new boolean[1];
+        char[] defaultChar = new char[1];
+        short[] defaultShort = new short[1];
+        int[] defaultInt = new int[1];
+        if (!defaultBoolean[0] && defaultChar[0] == '\0'
+                && defaultShort[0] == 0 && defaultInt[0] == 0) {
+            score |= 2048;
+        }
+
+        long[] defaultLong = new long[1];
+        float[] defaultFloat = new float[1];
+        double[] defaultDouble = new double[1];
+        if (defaultLong[0] == 0L && defaultFloat[0] == 0f && defaultDouble[0] == 0d) {
+            score |= 4096;
+        }
+
+        Object[] defaultObject = new Object[1];
+        String[] defaultString = new String[1];
+        if (defaultObject[0] == null && defaultString[0] == null) {
+            score |= 8192;
+        }
+
+        int[][] allocatedPrimitiveMatrix = new int[1][1];
+        int[][] jaggedPrimitiveMatrix = new int[1][];
+        Object[][] jaggedReferenceMatrix = new Object[1][];
+        if (allocatedPrimitiveMatrix[0][0] == 0
+                && jaggedPrimitiveMatrix[0] == null
+                && jaggedReferenceMatrix[0] == null) {
+            score |= 16384;
+        }
+
+        result = score;
+        System.exit(score);
+    }
+}

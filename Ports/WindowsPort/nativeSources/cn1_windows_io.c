@@ -1,0 +1,1196 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+/*
+ * Native filesystem, storage, drive enumeration and clipboard services for the
+ * Codename One Windows (Win32) port. All paths cross the bridge as Java Strings
+ * and are converted to UTF-16 via cn1WinJavaStringToWide so the wide Win32 APIs
+ * (CreateFileW, FindFirstFileW, ...) are used throughout and Unicode paths work.
+ * File handles are passed back to Java as (JAVA_LONG)(intptr_t)HANDLE; 0 means
+ * failure.
+ */
+
+#ifdef _WIN32
+
+#include "cn1_windows.h"
+
+extern JAVA_OBJECT newStringFromCString(CODENAME_ONE_THREAD_STATE, const char* str);
+#include <shlobj.h>
+#include <shellapi.h>  /* ShellExecuteW -- not pulled in by WIN32_LEAN_AND_MEAN */
+#include <commdlg.h>   /* GetOpenFileNameW / GetSaveFileNameW (comdlg32) */
+#include <dpapi.h>     /* CryptProtectData / CryptUnprotectData (crypt32) */
+#include <stdio.h>
+#include <wchar.h>
+
+/*
+ * The element class for a String[] in generated ParparVM code is
+ * class_array1__java_lang_String (verified in vm/.../cn1_globals.m initConstantPool,
+ * which builds the String[] constant pool with
+ *   allocArray(threadStateData, n, &class_array1__java_lang_String, sizeof(JAVA_OBJECT), 1)).
+ * It is not declared in cn1_globals.h, so we forward-declare it here; this should
+ * be verified at the first Windows build.
+ */
+extern struct clazz class_array1__java_lang_String;
+
+/* ------------------------------------------------------------ small helpers */
+
+/*
+ * Convert a freshly produced wide string into a Java String. Returns JAVA_NULL
+ * on conversion failure. The caller still owns (and must free) the WCHAR* input.
+ */
+static JAVA_OBJECT cn1WinWideToJavaString(CODENAME_ONE_THREAD_STATE, const WCHAR* wide) {
+    int needed;
+    char* utf8;
+    JAVA_OBJECT result;
+    if (wide == NULL) {
+        return JAVA_NULL;
+    }
+    needed = WideCharToMultiByte(CP_UTF8, 0, wide, -1, NULL, 0, NULL, NULL);
+    if (needed <= 0) {
+        return JAVA_NULL;
+    }
+    utf8 = (char*)malloc((size_t)needed);
+    if (utf8 == NULL) {
+        return JAVA_NULL;
+    }
+    if (WideCharToMultiByte(CP_UTF8, 0, wide, -1, utf8, needed, NULL, NULL) <= 0) {
+        free(utf8);
+        return JAVA_NULL;
+    }
+    result = newStringFromCString(threadStateData, utf8);
+    free(utf8);
+    return result;
+}
+
+/* ------------------------------------------------------------------- files */
+
+/* Reason the last open failed. The port reports "could not open X" from Java,
+ * where the thread's last-error value is long gone; without this the only way
+ * to tell a missing directory from a sharing violation was another CI run. */
+/* Per-thread: two threads failing an open at once would otherwise overwrite
+ * each other and lastIoError() could report the wrong reason. */
+static __declspec(thread) DWORD cn1WinLastIoError;
+/* Set when the open failed before CreateFileW was ever reached, so the thread's
+ * last-error value belongs to some earlier unrelated call. Reporting that value
+ * would name a plausible but wrong reason, which is worse than saying nothing:
+ * the whole point of this record is to explain a failure without another run. */
+static __declspec(thread) int cn1WinLastIoHadNoPath;
+
+static void cn1WinRecordIoError(DWORD error) {
+    cn1WinLastIoHadNoPath = 0;
+    cn1WinLastIoError = error;
+}
+
+static void cn1WinRecordMissingPath(void) {
+    cn1WinLastIoHadNoPath = 1;
+    cn1WinLastIoError = 0;
+}
+
+JAVA_OBJECT com_codename1_impl_windows_WindowsNative_lastIoError___R_java_lang_String(CODENAME_ONE_THREAD_STATE) {
+    char buffer[256];
+    if (cn1WinLastIoHadNoPath) {
+        return newStringFromCString(threadStateData, "no path supplied");
+    }
+    _snprintf(buffer, sizeof(buffer), "Windows error %lu", (unsigned long) cn1WinLastIoError);
+    buffer[sizeof(buffer) - 1] = 0;
+    return newStringFromCString(threadStateData, buffer);
+}
+
+JAVA_LONG com_codename1_impl_windows_WindowsNative_fileOpenRead___java_lang_String_R_long(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT32 len = 0;
+    WCHAR* path = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    HANDLE h;
+    DWORD error;
+    if (path == NULL) {
+        cn1WinRecordMissingPath();
+        return 0;
+    }
+    h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL,
+                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    /* Captured before free(), which is free to clobber the thread's last error. */
+    error = GetLastError();
+    free(path);
+    if (h == INVALID_HANDLE_VALUE) {
+        cn1WinRecordIoError(error);
+        return 0;
+    }
+    return (JAVA_LONG)(intptr_t)h;
+}
+
+JAVA_LONG com_codename1_impl_windows_WindowsNative_fileOpenWrite___java_lang_String_boolean_R_long(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1, JAVA_BOOLEAN __cn1Arg2) {
+    UINT32 len = 0;
+    WCHAR* path = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    HANDLE h;
+    DWORD error;
+    if (path == NULL) {
+        cn1WinRecordMissingPath();
+        return 0;
+    }
+    if (__cn1Arg2) {
+        /* append: open or create, then seek to end */
+        h = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, NULL,
+                        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (h != INVALID_HANDLE_VALUE) {
+            SetFilePointer(h, 0, NULL, FILE_END);
+        }
+    } else {
+        /* truncate: CREATE_ALWAYS discards any existing content */
+        h = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, NULL,
+                        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    }
+    error = GetLastError();
+    free(path);
+    if (h == INVALID_HANDLE_VALUE) {
+        cn1WinRecordIoError(error);
+        return 0;
+    }
+    return (JAVA_LONG)(intptr_t)h;
+}
+
+JAVA_INT com_codename1_impl_windows_WindowsNative_fileRead___long_byte_1ARRAY_int_int_R_int(CODENAME_ONE_THREAD_STATE, JAVA_LONG __cn1Arg1, JAVA_OBJECT __cn1Arg2, JAVA_INT __cn1Arg3, JAVA_INT __cn1Arg4) {
+    HANDLE h = (HANDLE)(intptr_t)__cn1Arg1;
+    char* data;
+    DWORD readBytes = 0;
+    BOOL ok;
+    if (h == NULL || h == INVALID_HANDLE_VALUE || __cn1Arg2 == JAVA_NULL || __cn1Arg4 <= 0) {
+        return -1;
+    }
+    data = (char*)(*(JAVA_ARRAY)__cn1Arg2).data;
+    ok = ReadFile(h, data + __cn1Arg3, (DWORD)__cn1Arg4, &readBytes, NULL);
+    if (!ok) {
+        return -1;
+    }
+    /* 0 bytes read at this point means EOF; Java InputStream contract wants -1 */
+    if (readBytes == 0) {
+        return -1;
+    }
+    return (JAVA_INT)readBytes;
+}
+
+JAVA_INT com_codename1_impl_windows_WindowsNative_fileWrite___long_byte_1ARRAY_int_int_R_int(CODENAME_ONE_THREAD_STATE, JAVA_LONG __cn1Arg1, JAVA_OBJECT __cn1Arg2, JAVA_INT __cn1Arg3, JAVA_INT __cn1Arg4) {
+    HANDLE h = (HANDLE)(intptr_t)__cn1Arg1;
+    char* data;
+    DWORD written = 0;
+    if (h == NULL || h == INVALID_HANDLE_VALUE || __cn1Arg2 == JAVA_NULL || __cn1Arg4 <= 0) {
+        return 0;
+    }
+    data = (char*)(*(JAVA_ARRAY)__cn1Arg2).data;
+    if (!WriteFile(h, data + __cn1Arg3, (DWORD)__cn1Arg4, &written, NULL)) {
+        return 0;
+    }
+    return (JAVA_INT)written;
+}
+
+JAVA_VOID com_codename1_impl_windows_WindowsNative_fileClose___long(CODENAME_ONE_THREAD_STATE, JAVA_LONG __cn1Arg1) {
+    HANDLE h = (HANDLE)(intptr_t)__cn1Arg1;
+    if (h != NULL && h != INVALID_HANDLE_VALUE) {
+        CloseHandle(h);
+    }
+}
+
+/*
+ * Creates a file only if it does not exist, and says which of the two happened.
+ *
+ * CREATE_NEW is decided by the filesystem, so two processes racing here cannot both be told they
+ * created it. That is what a first managed database key needs: without it both processes generate
+ * a key, each overwrites the other, and the database ends up encrypted under one that no longer
+ * exists anywhere.
+ *
+ * 1 created, 0 already there, -1 the attempt failed for another reason.
+ */
+/*
+ * Takes an exclusive lock on a file, creating it if needed, and answers the handle holding it.
+ *
+ * A lock rather than the file's existence, because Windows closes the handle -- and so releases
+ * the lock -- when the process ends however it ends. A process that died between creating a gate
+ * file and storing its value left that file behind forever, and every later attempt read it as a
+ * live writer, so the key could never be created again. There is nothing to leave behind here.
+ *
+ * Opened without sharing, so a second caller waits in CreateFileW rather than proceeding as
+ * though the entry were absent. 0 when the lock could not be taken.
+ */
+JAVA_LONG com_codename1_impl_windows_WindowsNative_fileLockExclusive___java_lang_String_R_long(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT32 len = 0;
+    WCHAR* path = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    HANDLE handle;
+    int attempt;
+    if (path == NULL) {
+        return 0;
+    }
+    /* Retried rather than failed: a holder releases within milliseconds, and CreateFileW answers
+     * ERROR_SHARING_VIOLATION immediately rather than waiting like flock does. */
+    for (attempt = 0; attempt < 600; attempt++) {
+        handle = CreateFileW(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL, NULL);
+        if (handle != INVALID_HANDLE_VALUE) {
+            free(path);
+            return (JAVA_LONG) (intptr_t) handle;
+        }
+        if (GetLastError() != ERROR_SHARING_VIOLATION) {
+            break;
+        }
+        Sleep(50);
+    }
+    free(path);
+    return 0;
+}
+
+/* Releases what fileLockExclusive took; closing the handle drops the lock. */
+JAVA_VOID com_codename1_impl_windows_WindowsNative_fileUnlock___long(CODENAME_ONE_THREAD_STATE, JAVA_LONG handle) {
+    if (handle != 0) {
+        CloseHandle((HANDLE) (intptr_t) handle);
+    }
+}
+
+JAVA_INT com_codename1_impl_windows_WindowsNative_fileCreateExclusive___java_lang_String_R_int(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT32 len = 0;
+    WCHAR* path = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    HANDLE handle;
+    DWORD error;
+    if (path == NULL) {
+        return -1;
+    }
+    handle = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (handle != INVALID_HANDLE_VALUE) {
+        CloseHandle(handle);
+        free(path);
+        return 1;
+    }
+    error = GetLastError();
+    free(path);
+    return error == ERROR_FILE_EXISTS ? 0 : -1;
+}
+
+JAVA_BOOLEAN com_codename1_impl_windows_WindowsNative_fileExists___java_lang_String_R_boolean(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT32 len = 0;
+    WCHAR* path = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    DWORD attrs;
+    if (path == NULL) {
+        return JAVA_FALSE;
+    }
+    attrs = GetFileAttributesW(path);
+    free(path);
+    return (attrs != INVALID_FILE_ATTRIBUTES) ? JAVA_TRUE : JAVA_FALSE;
+}
+
+/*
+ * Upper-case a string the way the filesystem does.
+ *
+ * NTFS decides that two names are one file with an upcase table, and CharUpperW is that table --
+ * not the process locale. String.toLowerCase on this target folds through towlower, which reads
+ * the C locale and commonly maps ASCII alone, so two spellings of a non-ASCII name folded apart
+ * and derived two different managed keys: the second open of an intact database then reported a
+ * wrong key.
+ *
+ * Deliberately text and not a file handle. A managed key has to be found again after its database
+ * has been deleted and recreated, so its alias cannot depend on the file existing.
+ */
+JAVA_OBJECT com_codename1_impl_windows_WindowsNative_caseFold___java_lang_String_R_java_lang_String(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT32 len = 0;
+    WCHAR* text = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    int bytes;
+    char* utf8;
+    JAVA_OBJECT out;
+    if (text == NULL) {
+        return JAVA_NULL;
+    }
+    CharUpperW(text);
+    bytes = WideCharToMultiByte(CP_UTF8, 0, text, -1, NULL, 0, NULL, NULL);
+    if (bytes <= 0) {
+        free(text);
+        return JAVA_NULL;
+    }
+    utf8 = (char*) malloc((size_t) bytes);
+    if (utf8 == NULL) {
+        free(text);
+        return JAVA_NULL;
+    }
+    if (WideCharToMultiByte(CP_UTF8, 0, text, -1, utf8, bytes, NULL, NULL) <= 0) {
+        free(utf8);
+        free(text);
+        return JAVA_NULL;
+    }
+    free(text);
+    out = newStringFromCString(threadStateData, utf8);
+    free(utf8);
+    return out;
+}
+
+JAVA_OBJECT com_codename1_impl_windows_WindowsNative_fileIdentity___java_lang_String_R_java_lang_String(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT32 len = 0;
+    WCHAR* path = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    HANDLE h;
+    BY_HANDLE_FILE_INFORMATION info;
+    char identity[96];
+    if (path == NULL) {
+        return JAVA_NULL;
+    }
+    h = CreateFileW(path, FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    free(path);
+    if (h == INVALID_HANDLE_VALUE) {
+        /* No file, no identity. The caller falls back to the name, which is all there is to go on
+         * before the file exists. */
+        return JAVA_NULL;
+    }
+    if (!GetFileInformationByHandle(h, &info)) {
+        CloseHandle(h);
+        return JAVA_NULL;
+    }
+    CloseHandle(h);
+    snprintf(identity, sizeof(identity), "winfile:%lu:%lu:%lu",
+            (unsigned long) info.dwVolumeSerialNumber,
+            (unsigned long) info.nFileIndexHigh,
+            (unsigned long) info.nFileIndexLow);
+    return newStringFromCString(threadStateData, identity);
+}
+
+JAVA_BOOLEAN com_codename1_impl_windows_WindowsNative_fileIsDirectory___java_lang_String_R_boolean(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT32 len = 0;
+    WCHAR* path = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    DWORD attrs;
+    if (path == NULL) {
+        return JAVA_FALSE;
+    }
+    attrs = GetFileAttributesW(path);
+    free(path);
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        return JAVA_FALSE;
+    }
+    return (attrs & FILE_ATTRIBUTE_DIRECTORY) ? JAVA_TRUE : JAVA_FALSE;
+}
+
+JAVA_LONG com_codename1_impl_windows_WindowsNative_fileLength___java_lang_String_R_long(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT32 len = 0;
+    WCHAR* path = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    WIN32_FILE_ATTRIBUTE_DATA fad;
+    JAVA_LONG result;
+    if (path == NULL) {
+        return 0;
+    }
+    if (!GetFileAttributesExW(path, GetFileExInfoStandard, &fad)) {
+        free(path);
+        return 0;
+    }
+    free(path);
+    result = ((JAVA_LONG)fad.nFileSizeHigh << 32) | (JAVA_LONG)fad.nFileSizeLow;
+    return result;
+}
+
+JAVA_VOID com_codename1_impl_windows_WindowsNative_fileDelete___java_lang_String(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT32 len = 0;
+    WCHAR* path = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    DWORD attrs;
+    if (path == NULL) {
+        return;
+    }
+    attrs = GetFileAttributesW(path);
+    if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+        RemoveDirectoryW(path);
+    } else {
+        DeleteFileW(path);
+    }
+    free(path);
+}
+
+JAVA_VOID com_codename1_impl_windows_WindowsNative_fileMkdir___java_lang_String(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT32 len = 0;
+    WCHAR* path = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    if (path == NULL) {
+        return;
+    }
+    CreateDirectoryW(path, NULL);
+    free(path);
+}
+
+JAVA_VOID com_codename1_impl_windows_WindowsNative_fileRename___java_lang_String_java_lang_String(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1, JAVA_OBJECT __cn1Arg2) {
+    UINT32 len1 = 0, len2 = 0;
+    WCHAR* path = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len1);
+    /*
+     * FileSystemStorage.rename documents newName as "relative to the current
+     * folder" -- a leaf name -- and the Linux port resolves it that way. This
+     * passed it straight to MoveFileExW as a full target, so a leaf name moved
+     * the file into the process working directory instead of renaming it in
+     * place. WAVWriter.close() does exactly that (it renames the recording to
+     * <name>.pcm via new File(...).getName()) and then reopens the .pcm, which
+     * was not where it expected: AudioMixerApiTest failed on Windows with
+     * "No such file" for a file the port had quietly moved elsewhere.
+     *
+     * A leaf name is now joined to the source's parent directory. An absolute
+     * target -- one carrying a drive letter, a UNC prefix or a leading
+     * separator -- is still honoured as-is, so any caller relying on the old
+     * behaviour keeps working.
+     */
+    WCHAR* newName = cn1WinJavaStringToWide(threadStateData, __cn1Arg2, &len2);
+    WCHAR* target = NULL;
+    if (path != NULL && newName != NULL) {
+        int absolute = (newName[0] == L'\\' || newName[0] == L'/'
+                        || (newName[0] != 0 && newName[1] == L':'));
+        if (absolute) {
+            MoveFileExW(path, newName, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED);
+        } else {
+            WCHAR* lastBack = wcsrchr(path, L'\\');
+            WCHAR* lastFwd = wcsrchr(path, L'/');
+            WCHAR* sep;
+            /* Resolve the absent cases before comparing. An ordinary Windows
+             * path has no forward slash and a normalized one has no backslash,
+             * so one of these is NULL almost every time -- and relational
+             * comparison of a null pointer against a pointer into `path` is
+             * undefined behaviour, not merely unusual. An optimizing build is
+             * free to decide it either way, and picking NULL would drop the
+             * parent directory and put the rename back in the working
+             * directory, which is the bug this join exists to fix. Both
+             * operands below point into `path`, where `>` is well defined. */
+            if (lastBack == NULL) {
+                sep = lastFwd;
+            } else if (lastFwd == NULL) {
+                sep = lastBack;
+            } else {
+                sep = lastBack > lastFwd ? lastBack : lastFwd;
+            }
+            size_t dirLen = sep != NULL ? (size_t) (sep - path) + 1 : 0;
+            size_t nameLen = wcslen(newName);
+            target = (WCHAR*) malloc((dirLen + nameLen + 1) * sizeof(WCHAR));
+            if (target != NULL) {
+                if (dirLen > 0) {
+                    memcpy(target, path, dirLen * sizeof(WCHAR));
+                }
+                memcpy(target + dirLen, newName, (nameLen + 1) * sizeof(WCHAR));
+                MoveFileExW(path, target, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED);
+            }
+        }
+    }
+    if (target != NULL) {
+        free(target);
+    }
+    if (path != NULL) {
+        free(path);
+    }
+    if (newName != NULL) {
+        free(newName);
+    }
+}
+
+JAVA_OBJECT com_codename1_impl_windows_WindowsNative_fileList___java_lang_String_R_java_lang_String_1ARRAY(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT32 len = 0;
+    WCHAR* dir = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    WCHAR* pattern;
+    size_t patternLen;
+    WIN32_FIND_DATAW fd;
+    HANDLE find;
+    /* dynamically grown list of malloc'd Java String references */
+    JAVA_OBJECT* names = NULL;
+    int count = 0;
+    int capacity = 0;
+    JAVA_OBJECT arr;
+    int i;
+
+    if (dir == NULL) {
+        return JAVA_NULL;
+    }
+
+    /* build "<dir>\*" search pattern; +3 covers a separator, '*' and NUL */
+    patternLen = (size_t)len + 3;
+    pattern = (WCHAR*)malloc(patternLen * sizeof(WCHAR));
+    if (pattern == NULL) {
+        free(dir);
+        return JAVA_NULL;
+    }
+    if (len > 0 && (dir[len - 1] == L'\\' || dir[len - 1] == L'/')) {
+        _snwprintf(pattern, patternLen, L"%s*", dir);
+    } else {
+        _snwprintf(pattern, patternLen, L"%s\\*", dir);
+    }
+    free(dir);
+
+    find = FindFirstFileW(pattern, &fd);
+    free(pattern);
+    if (find == INVALID_HANDLE_VALUE) {
+        DWORD err = GetLastError();
+        /* an empty directory yields ERROR_FILE_NOT_FOUND: return empty array */
+        if (err == ERROR_FILE_NOT_FOUND || err == ERROR_NO_MORE_FILES) {
+            return allocArray(threadStateData, 0, &class_array1__java_lang_String, sizeof(JAVA_OBJECT), 1);
+        }
+        return JAVA_NULL;
+    }
+
+    do {
+        JAVA_OBJECT str;
+        if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) {
+            continue;
+        }
+        str = cn1WinWideToJavaString(threadStateData, fd.cFileName);
+        if (str == JAVA_NULL) {
+            continue;
+        }
+        if (count == capacity) {
+            int newCap = (capacity == 0) ? 16 : capacity * 2;
+            JAVA_OBJECT* grown = (JAVA_OBJECT*)realloc(names, (size_t)newCap * sizeof(JAVA_OBJECT));
+            if (grown == NULL) {
+                /* out of memory: abandon, return what we cannot safely keep */
+                free(names);
+                FindClose(find);
+                return JAVA_NULL;
+            }
+            names = grown;
+            capacity = newCap;
+        }
+        names[count++] = str;
+    } while (FindNextFileW(find, &fd));
+
+    FindClose(find);
+
+    /* allocate the Java String[] and copy collected references in */
+    arr = allocArray(threadStateData, count, &class_array1__java_lang_String, sizeof(JAVA_OBJECT), 1);
+    if (arr != JAVA_NULL) {
+        JAVA_OBJECT* elements = (JAVA_OBJECT*)(*(JAVA_ARRAY)arr).data;
+        for (i = 0; i < count; i++) {
+            elements[i] = names[i];
+        }
+    }
+    free(names);
+    return arr;
+}
+
+JAVA_OBJECT com_codename1_impl_windows_WindowsNative_storageDir___R_java_lang_String(CODENAME_ONE_THREAD_STATE) {
+    WCHAR base[MAX_PATH];
+    WCHAR dir[MAX_PATH];
+    if (SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, SHGFP_TYPE_CURRENT, base) != S_OK) {
+        return JAVA_NULL;
+    }
+    _snwprintf(dir, MAX_PATH, L"%s\\CodenameOne", base);
+    dir[MAX_PATH - 1] = L'\0';
+    /* ensure the directory exists; ignore "already exists" */
+    CreateDirectoryW(dir, NULL);
+    return cn1WinWideToJavaString(threadStateData, dir);
+}
+
+/* The directory containing the running executable (no trailing separator).
+ * Resources shipped alongside the exe -- the native theme, app assets -- are
+ * resolved relative to this by getResourceAsStream. */
+JAVA_OBJECT com_codename1_impl_windows_WindowsNative_executableDir___R_java_lang_String(CODENAME_ONE_THREAD_STATE) {
+    WCHAR path[MAX_PATH];
+    WCHAR* lastSlash;
+    DWORD n = GetModuleFileNameW(NULL, path, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) {
+        return JAVA_NULL;
+    }
+    lastSlash = wcsrchr(path, L'\\');
+    if (lastSlash != NULL) {
+        *lastSlash = L'\0';
+    }
+    return cn1WinWideToJavaString(threadStateData, path);
+}
+
+JAVA_OBJECT com_codename1_impl_windows_WindowsNative_fileRoots___R_java_lang_String_1ARRAY(CODENAME_ONE_THREAD_STATE) {
+    /* GetLogicalDriveStringsW fills a NUL-separated, double-NUL-terminated list */
+    DWORD needed = GetLogicalDriveStringsW(0, NULL);
+    WCHAR* buffer;
+    DWORD written;
+    WCHAR* p;
+    JAVA_OBJECT* names = NULL;
+    int count = 0;
+    int capacity = 0;
+    JAVA_OBJECT arr;
+    int i;
+
+    if (needed == 0) {
+        return JAVA_NULL;
+    }
+    buffer = (WCHAR*)malloc((size_t)needed * sizeof(WCHAR));
+    if (buffer == NULL) {
+        return JAVA_NULL;
+    }
+    written = GetLogicalDriveStringsW(needed, buffer);
+    if (written == 0 || written >= needed) {
+        free(buffer);
+        return JAVA_NULL;
+    }
+
+    for (p = buffer; *p != L'\0'; p += wcslen(p) + 1) {
+        JAVA_OBJECT str = cn1WinWideToJavaString(threadStateData, p);
+        if (str == JAVA_NULL) {
+            continue;
+        }
+        if (count == capacity) {
+            int newCap = (capacity == 0) ? 8 : capacity * 2;
+            JAVA_OBJECT* grown = (JAVA_OBJECT*)realloc(names, (size_t)newCap * sizeof(JAVA_OBJECT));
+            if (grown == NULL) {
+                free(names);
+                free(buffer);
+                return JAVA_NULL;
+            }
+            names = grown;
+            capacity = newCap;
+        }
+        names[count++] = str;
+    }
+    free(buffer);
+
+    arr = allocArray(threadStateData, count, &class_array1__java_lang_String, sizeof(JAVA_OBJECT), 1);
+    if (arr != JAVA_NULL) {
+        JAVA_OBJECT* elements = (JAVA_OBJECT*)(*(JAVA_ARRAY)arr).data;
+        for (i = 0; i < count; i++) {
+            elements[i] = names[i];
+        }
+    }
+    free(names);
+    return arr;
+}
+
+JAVA_LONG com_codename1_impl_windows_WindowsNative_fileRootSize___java_lang_String_R_long(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT32 len = 0;
+    WCHAR* root = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    ULARGE_INTEGER freeToCaller, totalBytes, totalFree;
+    if (root == NULL) {
+        return 0;
+    }
+    if (!GetDiskFreeSpaceExW(root, &freeToCaller, &totalBytes, &totalFree)) {
+        free(root);
+        return 0;
+    }
+    free(root);
+    return (JAVA_LONG)totalBytes.QuadPart;
+}
+
+JAVA_LONG com_codename1_impl_windows_WindowsNative_fileRootFree___java_lang_String_R_long(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT32 len = 0;
+    WCHAR* root = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    ULARGE_INTEGER freeToCaller, totalBytes, totalFree;
+    if (root == NULL) {
+        return 0;
+    }
+    if (!GetDiskFreeSpaceExW(root, &freeToCaller, &totalBytes, &totalFree)) {
+        free(root);
+        return 0;
+    }
+    free(root);
+    /* free bytes available to the calling user (honours quotas) */
+    return (JAVA_LONG)freeToCaller.QuadPart;
+}
+
+JAVA_BOOLEAN com_codename1_impl_windows_WindowsNative_fileIsHidden___java_lang_String_R_boolean(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT32 len = 0;
+    WCHAR* path = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    DWORD attrs;
+    if (path == NULL) {
+        return JAVA_FALSE;
+    }
+    attrs = GetFileAttributesW(path);
+    free(path);
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        return JAVA_FALSE;
+    }
+    return (attrs & FILE_ATTRIBUTE_HIDDEN) ? JAVA_TRUE : JAVA_FALSE;
+}
+
+JAVA_VOID com_codename1_impl_windows_WindowsNative_fileSetHidden___java_lang_String_boolean(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1, JAVA_BOOLEAN __cn1Arg2) {
+    UINT32 len = 0;
+    WCHAR* path = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    DWORD attrs;
+    if (path == NULL) {
+        return;
+    }
+    attrs = GetFileAttributesW(path);
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        free(path);
+        return;
+    }
+    if (__cn1Arg2) {
+        attrs |= FILE_ATTRIBUTE_HIDDEN;
+    } else {
+        attrs &= ~FILE_ATTRIBUTE_HIDDEN;
+    }
+    SetFileAttributesW(path, attrs);
+    free(path);
+}
+
+/* --------------------------------------------------------------- clipboard */
+
+JAVA_VOID com_codename1_impl_windows_WindowsNative_clipboardSetText___java_lang_String(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT32 len = 0;
+    WCHAR* text = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, &len);
+    size_t bytes;
+    HGLOBAL mem;
+    void* dst;
+    if (text == NULL) {
+        return;
+    }
+    if (!OpenClipboard(cn1Win.hwnd)) {
+        free(text);
+        return;
+    }
+    EmptyClipboard();
+    /* CF_UNICODETEXT requires a NUL-terminated WCHAR block in moveable memory */
+    bytes = ((size_t)len + 1) * sizeof(WCHAR);
+    mem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (mem == NULL) {
+        CloseClipboard();
+        free(text);
+        return;
+    }
+    dst = GlobalLock(mem);
+    if (dst == NULL) {
+        GlobalFree(mem);
+        CloseClipboard();
+        free(text);
+        return;
+    }
+    memcpy(dst, text, bytes);
+    GlobalUnlock(mem);
+    if (SetClipboardData(CF_UNICODETEXT, mem) == NULL) {
+        /* ownership only transfers on success; free on failure */
+        GlobalFree(mem);
+    }
+    CloseClipboard();
+    free(text);
+}
+
+JAVA_OBJECT com_codename1_impl_windows_WindowsNative_clipboardGetText___R_java_lang_String(CODENAME_ONE_THREAD_STATE) {
+    HANDLE data;
+    const WCHAR* wide;
+    JAVA_OBJECT result;
+    if (!OpenClipboard(cn1Win.hwnd)) {
+        return JAVA_NULL;
+    }
+    data = GetClipboardData(CF_UNICODETEXT);
+    if (data == NULL) {
+        CloseClipboard();
+        return JAVA_NULL;
+    }
+    wide = (const WCHAR*)GlobalLock(data);
+    if (wide == NULL) {
+        CloseClipboard();
+        return JAVA_NULL;
+    }
+    result = cn1WinWideToJavaString(threadStateData, wide);
+    GlobalUnlock(data);
+    CloseClipboard();
+    return result;
+}
+
+/*
+ * Image clipboard. PNG bytes are stored verbatim under a privately registered
+ * "PNG" clipboard format (RegisterClipboardFormatW). This round-trips within the
+ * app and interoperates with apps that read the "PNG" format (Chrome, Firefox,
+ * GIMP). CF_DIB interop with Explorer is intentionally skipped to avoid C/C++
+ * WIC/COM interop from this C translation unit.
+ */
+JAVA_VOID com_codename1_impl_windows_WindowsNative_clipboardSetImage___byte_1ARRAY(
+        CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    UINT cf;
+    BYTE* bytes;
+    DWORD len;
+    HGLOBAL mem;
+    void* dst;
+    if (__cn1Arg1 == JAVA_NULL) {
+        return;
+    }
+    bytes = (BYTE*) (*(JAVA_ARRAY) __cn1Arg1).data;
+    len = (DWORD) (*(JAVA_ARRAY) __cn1Arg1).length;
+    cf = RegisterClipboardFormatW(L"PNG");
+    if (cf == 0) {
+        return;
+    }
+    if (!OpenClipboard(cn1Win.hwnd)) {
+        return;
+    }
+    EmptyClipboard();
+    mem = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T) len);
+    if (mem == NULL) {
+        CloseClipboard();
+        return;
+    }
+    dst = GlobalLock(mem);
+    if (dst == NULL) {
+        GlobalFree(mem);
+        CloseClipboard();
+        return;
+    }
+    memcpy(dst, bytes, (size_t) len);
+    GlobalUnlock(mem);
+    if (SetClipboardData(cf, mem) == NULL) {
+        /* ownership only transfers on success; free on failure */
+        GlobalFree(mem);
+    }
+    CloseClipboard();
+}
+
+JAVA_OBJECT com_codename1_impl_windows_WindowsNative_clipboardGetImage___R_byte_1ARRAY(
+        CODENAME_ONE_THREAD_STATE) {
+    UINT cf;
+    HANDLE data;
+    SIZE_T sz;
+    void* p;
+    JAVA_OBJECT result;
+    cf = RegisterClipboardFormatW(L"PNG");
+    if (cf == 0) {
+        return JAVA_NULL;
+    }
+    if (!OpenClipboard(cn1Win.hwnd)) {
+        return JAVA_NULL;
+    }
+    data = GetClipboardData(cf);
+    if (data == NULL) {
+        CloseClipboard();
+        return JAVA_NULL;
+    }
+    sz = GlobalSize(data);
+    p = GlobalLock(data);
+    if (p == NULL || sz == 0) {
+        if (p != NULL) {
+            GlobalUnlock(data);
+        }
+        CloseClipboard();
+        return JAVA_NULL;
+    }
+    result = allocArray(threadStateData, (int) sz, &class_array1__JAVA_BYTE, sizeof(JAVA_ARRAY_BYTE), 1);
+    if (result != JAVA_NULL) {
+        memcpy((*(JAVA_ARRAY) result).data, p, (size_t) sz);
+    }
+    GlobalUnlock(data);
+    CloseClipboard();
+    return result;
+}
+
+/*
+ * File clipboard via CF_HDROP. Each incoming path is converted to UTF-16; a path
+ * that starts with "file:" is minimally normalized to a plain Win32 path (strip
+ * the scheme and leading slashes, turn '/' into '\'). The paths are packed into a
+ * DROPFILES structure followed by a double-NUL-terminated wide string list, the
+ * shape CF_HDROP requires.
+ */
+JAVA_VOID com_codename1_impl_windows_WindowsNative_clipboardSetFiles___java_lang_String_1ARRAY(
+        CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    int n, i;
+    JAVA_OBJECT* elems;
+    WCHAR** paths;
+    size_t totalChars;
+    HGLOBAL mem;
+    DROPFILES* df;
+    WCHAR* cursor;
+    if (__cn1Arg1 == JAVA_NULL) {
+        return;
+    }
+    n = (int) (*(JAVA_ARRAY) __cn1Arg1).length;
+    if (n <= 0) {
+        return;
+    }
+    elems = (JAVA_OBJECT*) (*(JAVA_ARRAY) __cn1Arg1).data;
+    paths = (WCHAR**) calloc((size_t) n, sizeof(WCHAR*));
+    if (paths == NULL) {
+        return;
+    }
+    totalChars = 0;
+    for (i = 0; i < n; i++) {
+        UINT32 l = 0;
+        WCHAR* w = cn1WinJavaStringToWide(threadStateData, elems[i], &l);
+        if (w != NULL && wcsncmp(w, L"file:", 5) == 0) {
+            WCHAR* src = w + 5;
+            WCHAR* plain;
+            while (*src == L'/') {
+                src++;
+            }
+            plain = (WCHAR*) malloc((wcslen(src) + 1) * sizeof(WCHAR));
+            if (plain != NULL) {
+                size_t j = 0;
+                for (; src[j] != 0; j++) {
+                    plain[j] = (src[j] == L'/') ? L'\\' : src[j];
+                }
+                plain[j] = 0;
+                free(w);
+                w = plain;
+            }
+        }
+        paths[i] = w;
+        if (w != NULL) {
+            totalChars += wcslen(w) + 1; /* path + its NUL separator */
+        }
+    }
+    totalChars += 1; /* final NUL -> double-NUL terminated list */
+
+    mem = GlobalAlloc(GMEM_MOVEABLE, sizeof(DROPFILES) + totalChars * sizeof(WCHAR));
+    if (mem == NULL) {
+        for (i = 0; i < n; i++) {
+            if (paths[i] != NULL) {
+                free(paths[i]);
+            }
+        }
+        free(paths);
+        return;
+    }
+    df = (DROPFILES*) GlobalLock(mem);
+    if (df == NULL) {
+        GlobalFree(mem);
+        for (i = 0; i < n; i++) {
+            if (paths[i] != NULL) {
+                free(paths[i]);
+            }
+        }
+        free(paths);
+        return;
+    }
+    ZeroMemory(df, sizeof(DROPFILES));
+    df->pFiles = sizeof(DROPFILES);
+    df->fWide = TRUE;
+    cursor = (WCHAR*) ((BYTE*) df + sizeof(DROPFILES));
+    for (i = 0; i < n; i++) {
+        if (paths[i] != NULL) {
+            size_t l = wcslen(paths[i]);
+            memcpy(cursor, paths[i], (l + 1) * sizeof(WCHAR));
+            cursor += l + 1;
+        }
+    }
+    *cursor = 0; /* trailing NUL closes the double-NUL terminated list */
+    GlobalUnlock(mem);
+
+    for (i = 0; i < n; i++) {
+        if (paths[i] != NULL) {
+            free(paths[i]);
+        }
+    }
+    free(paths);
+
+    if (!OpenClipboard(cn1Win.hwnd)) {
+        GlobalFree(mem);
+        return;
+    }
+    EmptyClipboard();
+    if (SetClipboardData(CF_HDROP, mem) == NULL) {
+        GlobalFree(mem);
+    }
+    CloseClipboard();
+}
+
+JAVA_OBJECT com_codename1_impl_windows_WindowsNative_clipboardGetFiles___R_java_lang_String_1ARRAY(
+        CODENAME_ONE_THREAD_STATE) {
+    HANDLE data;
+    HDROP drop;
+    UINT count, i;
+    JAVA_OBJECT arr;
+    if (!OpenClipboard(cn1Win.hwnd)) {
+        return JAVA_NULL;
+    }
+    data = GetClipboardData(CF_HDROP);
+    if (data == NULL) {
+        CloseClipboard();
+        return JAVA_NULL;
+    }
+    drop = (HDROP) data;
+    count = DragQueryFileW(drop, 0xFFFFFFFF, NULL, 0);
+    arr = allocArray(threadStateData, (int) count, &class_array1__java_lang_String, sizeof(JAVA_OBJECT), 1);
+    if (arr != JAVA_NULL) {
+        JAVA_OBJECT* elements = (JAVA_OBJECT*) (*(JAVA_ARRAY) arr).data;
+        for (i = 0; i < count; i++) {
+            WCHAR path[MAX_PATH];
+            path[0] = 0;
+            /* the HDROP is owned by the clipboard: query only, no DragFinish */
+            if (DragQueryFileW(drop, i, path, MAX_PATH) > 0) {
+                elements[i] = cn1WinWideToJavaString(threadStateData, path);
+            }
+        }
+    }
+    CloseClipboard();
+    return arr;
+}
+
+/* ----------------------------------------------------------- shell / launch */
+
+/*
+ * Hands a URI or filesystem path to the Windows shell (ShellExecuteW "open").
+ * The OS routes it to whatever handler the user has registered: http(s) -> the
+ * default browser, tel: -> the dialer, sms: -> the Messaging app, mailto: ->
+ * the mail client, a path -> its associated program. This is the honest desktop
+ * behaviour -- nothing is fabricated; if no handler is registered ShellExecuteW
+ * returns <= 32 and we report failure so the caller (e.g. dial / sendSMS) can
+ * surface it instead of pretending it worked. Returns JAVA_TRUE on success.
+ */
+JAVA_BOOLEAN com_codename1_impl_windows_WindowsNative_shellOpen___java_lang_String_R_boolean(
+        CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    WCHAR* target;
+    HINSTANCE rc;
+    if (__cn1Arg1 == JAVA_NULL) {
+        return JAVA_FALSE;
+    }
+    target = cn1WinJavaStringToWide(threadStateData, __cn1Arg1, NULL);
+    if (target == NULL) {
+        return JAVA_FALSE;
+    }
+    rc = ShellExecuteW(cn1Win.hwnd, L"open", target, NULL, NULL, SW_SHOWNORMAL);
+    free(target);
+    /* ShellExecuteW returns a fake HINSTANCE > 32 on success, an error code <= 32
+     * otherwise (per the Win32 contract). */
+    return ((INT_PTR) rc) > 32 ? JAVA_TRUE : JAVA_FALSE;
+}
+
+/* ------------------------------------------------------- file open/save dialog */
+
+/*
+ * Cross-thread request for the modal file dialog. The EDT fills it, sends it to
+ * the pump thread (which owns the window) via WM_CN1_FILEDIALOG, and reads back
+ * `result` once SendMessage returns. The buffer lives on the EDT's stack, valid
+ * for the whole blocking call.
+ */
+typedef struct CN1FileDialogReq {
+    JAVA_INT save;   /* 1 = save dialog, 0 = open dialog        */
+    JAVA_INT type;   /* gallery type: 0 image, 1 video, 2 all   */
+    WCHAR* title;    /* dialog title (owned by caller), or NULL */
+    WCHAR result[MAX_PATH];
+} CN1FileDialogReq;
+
+/* OPENFILENAME filters are double-NUL-terminated "label\0pattern\0..." blocks.
+ * One static block per gallery type keeps the picker honest about what it shows. */
+static const WCHAR CN1_FILTER_IMAGE[] =
+        L"Images\0*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp\0All Files\0*.*\0";
+static const WCHAR CN1_FILTER_VIDEO[] =
+        L"Videos\0*.mp4;*.mov;*.avi;*.m4v;*.mkv;*.webm\0All Files\0*.*\0";
+static const WCHAR CN1_FILTER_ALL[] =
+        L"All Files\0*.*\0";
+
+/* Runs on the pump thread (dispatched from cn1WinWndProc on WM_CN1_FILEDIALOG).
+ * Shows the modal common dialog owned by the main window and writes the chosen
+ * path into req->result (empty on cancel). */
+LRESULT cn1WinFileDialogHandleMessage(WPARAM wp) {
+    CN1FileDialogReq* req = (CN1FileDialogReq*) wp;
+    OPENFILENAMEW ofn;
+    BOOL ok;
+    if (req == NULL) {
+        return 0;
+    }
+    req->result[0] = 0;
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = cn1Win.hwnd;
+    ofn.lpstrFile = req->result;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrTitle = req->title;
+    ofn.lpstrFilter = req->type == 1 ? CN1_FILTER_VIDEO
+            : (req->type == 0 ? CN1_FILTER_IMAGE : CN1_FILTER_ALL);
+    ofn.nFilterIndex = 1;
+    /* OFN_NOCHANGEDIR: a picker must not move the process's working directory. */
+    if (req->save) {
+        ofn.Flags = OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_OVERWRITEPROMPT;
+        ok = GetSaveFileNameW(&ofn);
+    } else {
+        ofn.Flags = OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+        ok = GetOpenFileNameW(&ofn);
+    }
+    if (!ok) {
+        req->result[0] = 0;
+    }
+    return 0;
+}
+
+/*
+ * Shows a native file open/save dialog and returns the chosen path (or JAVA_NULL
+ * on cancel / headless). The dialog is modal and must run on the window-owning
+ * pump thread, so we hand it over with a *blocking* SendMessage: the EDT parks
+ * (yielding its thread state so the GC is never held up) until the user has
+ * chosen, exactly the desktop semantics callers expect from a picker.
+ */
+JAVA_OBJECT com_codename1_impl_windows_WindowsNative_fileDialog___boolean_int_java_lang_String_R_java_lang_String(
+        CODENAME_ONE_THREAD_STATE, JAVA_BOOLEAN save, JAVA_INT type, JAVA_OBJECT title) {
+    CN1FileDialogReq req;
+    /* Headless screenshot mode has no window to own the dialog. */
+    if (cn1Win.hwnd == NULL) {
+        return JAVA_NULL;
+    }
+    req.save = save ? 1 : 0;
+    req.type = type;
+    req.title = title != JAVA_NULL ? cn1WinJavaStringToWide(threadStateData, title, NULL) : NULL;
+    req.result[0] = 0;
+    CN1_YIELD_THREAD;
+    SendMessageW(cn1Win.hwnd, WM_CN1_FILEDIALOG, (WPARAM) &req, 0);
+    CN1_RESUME_THREAD;
+    if (req.title != NULL) {
+        free(req.title);
+    }
+    if (req.result[0] == 0) {
+        return JAVA_NULL;
+    }
+    return cn1WinWideToJavaString(threadStateData, req.result);
+}
+
+/* ------------------------------------------------- DPAPI secure storage */
+
+/*
+ * Windows Data Protection API (DPAPI). CryptProtectData encrypts a blob with a
+ * key derived from the current Windows user's logon credentials, so the
+ * ciphertext can only be decrypted by the same user on the same machine -- the
+ * OS-backed at-rest secret store the port's SecureStorage uses for non-prompting
+ * secrets (API keys / tokens read on every network call). CRYPTPROTECT_UI_FORBIDDEN
+ * keeps it fully non-interactive. The Java side persists the returned ciphertext
+ * through the normal CN1 Storage; only this crypto step is native. Returns the
+ * encrypted bytes, or JAVA_NULL on failure.
+ */
+JAVA_OBJECT com_codename1_impl_windows_WindowsNative_dpapiProtect___byte_1ARRAY_R_byte_1ARRAY(
+        CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    DATA_BLOB in, out;
+    JAVA_OBJECT result;
+    if (__cn1Arg1 == JAVA_NULL) {
+        return JAVA_NULL;
+    }
+    in.cbData = (DWORD) (*(JAVA_ARRAY) __cn1Arg1).length;
+    in.pbData = (BYTE*) (*(JAVA_ARRAY) __cn1Arg1).data;
+    out.cbData = 0;
+    out.pbData = NULL;
+    if (!CryptProtectData(&in, L"cn1securestorage", NULL, NULL, NULL,
+            CRYPTPROTECT_UI_FORBIDDEN, &out)) {
+        return JAVA_NULL;
+    }
+    result = allocArray(threadStateData, (int) out.cbData, &class_array1__JAVA_BYTE, sizeof(JAVA_ARRAY_BYTE), 1);
+    if (result != JAVA_NULL) {
+        memcpy((*(JAVA_ARRAY) result).data, out.pbData, out.cbData);
+    }
+    LocalFree(out.pbData);
+    return result;
+}
+
+/* Inverse of dpapiProtect: decrypts a CryptProtectData blob for the current
+ * user, returning the plaintext bytes (JAVA_NULL if the blob is corrupt or was
+ * produced by a different user/machine). */
+JAVA_OBJECT com_codename1_impl_windows_WindowsNative_dpapiUnprotect___byte_1ARRAY_R_byte_1ARRAY(
+        CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1Arg1) {
+    DATA_BLOB in, out;
+    JAVA_OBJECT result;
+    if (__cn1Arg1 == JAVA_NULL) {
+        return JAVA_NULL;
+    }
+    in.cbData = (DWORD) (*(JAVA_ARRAY) __cn1Arg1).length;
+    in.pbData = (BYTE*) (*(JAVA_ARRAY) __cn1Arg1).data;
+    out.cbData = 0;
+    out.pbData = NULL;
+    if (!CryptUnprotectData(&in, NULL, NULL, NULL, NULL,
+            CRYPTPROTECT_UI_FORBIDDEN, &out)) {
+        return JAVA_NULL;
+    }
+    result = allocArray(threadStateData, (int) out.cbData, &class_array1__JAVA_BYTE, sizeof(JAVA_ARRAY_BYTE), 1);
+    if (result != JAVA_NULL) {
+        memcpy((*(JAVA_ARRAY) result).data, out.pbData, out.cbData);
+    }
+    LocalFree(out.pbData);
+    return result;
+}
+
+#endif /* _WIN32 */

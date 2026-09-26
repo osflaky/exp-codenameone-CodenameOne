@@ -1,0 +1,275 @@
+/*
+ * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores
+ * CA 94065 USA or visit www.oracle.com if you need additional information or
+ * have any questions.
+ */
+package com.codename1.ui;
+
+/// An image that stores its data as an integer RGB array internally,
+/// this image cannot be manipulated via Graphics primitives however its
+/// array is accessible and modifiable programmatically. This is very useful
+/// for 2 distinct use cases.
+///
+/// The first use case allows us to manipulate images in
+/// a custom way while still preserving alpha information where applicable.
+///
+/// The second use case allows us to store images in the Java heap which is useful
+/// for some constrained devices. In small devices images are often stored
+/// in a separate "heap" which runs out eventually, this allows us to place
+/// the image in the Java heap which is potentially more wasteful but might
+/// sometimes be more abundant.
+///
+/// Note that unless specified otherwise most methods inherited from Image will
+/// fail when invoked on this subclass often with a NullPointerException. This
+/// image can be drawn on graphics as usual
+///
+/// @author Shai Almog
+public class RGBImage extends Image {
+    private int width;
+    private int height;
+    private int[] rgb;
+    private boolean opaque;
+
+    /// Converts an image to an RGB image after which the original image can be GC'd
+    ///
+    /// #### Parameters
+    ///
+    /// - `img`: the image to convert to an RGB image
+    public RGBImage(Image img) {
+        super(null);
+        width = img.getWidth();
+        height = img.getHeight();
+        rgb = img.getRGBCached();
+    }
+
+    /// Creates an RGB image from scratch the array isn't copied and can be saved
+    /// and manipulated
+    ///
+    /// #### Parameters
+    ///
+    /// - `rgb`: AARRGGBB array
+    ///
+    /// - `width`: width of image
+    ///
+    /// - `height`: height of image
+    public RGBImage(int[] rgb, int width, int height) {
+        super(null);
+        this.width = width;
+        this.height = height;
+        this.rgb = rgb;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Image subImage(int x, int y, int width, int height, boolean processAlpha) {
+        int[] arr = new int[width * height];
+        int alen = arr.length;
+        for (int iter = 0; iter < alen; iter++) {
+            int destY = iter / width;
+            int destX = iter % width;
+            int offset = x + destX + ((y + destY) * this.width);
+            arr[iter] = rgb[offset];
+        }
+
+        return new RGBImage(arr, width, height);
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Image scaled(int width, int height) {
+        int srcWidth = getWidth();
+        int srcHeight = getHeight();
+
+        // no need to scale
+        if (srcWidth == width && srcHeight == height) {
+            return this;
+        }
+        int[] currentArray = new int[srcWidth];
+        int[] destinationArray = new int[width * height];
+        scaleArray(srcWidth, srcHeight, height, width, currentArray, destinationArray);
+
+        // currently we only support byte data...
+        return new RGBImage(destinationArray, width, height);
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void scale(int width, int height) {
+        int srcWidth = getWidth();
+        int srcHeight = getHeight();
+
+        // no need to scale
+        if (srcWidth == width && srcHeight == height) {
+            return;
+        }
+        int[] currentArray = new int[srcWidth];
+        int[] destinationArray = new int[width * height];
+        scaleArray(srcWidth, srcHeight, height, width, currentArray, destinationArray);
+
+        this.width = width;
+        this.height = height;
+        this.rgb = destinationArray;
+    }
+
+    /// Unsupported in the current version, this method will be implemented in a future release
+    @Override
+    public Image rotate(int degrees) {
+        throw new RuntimeException("The rotate method is not supported by RGB images at the moment");
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Image modifyAlpha(byte alpha) {
+        int[] arr = Image.allocateRgbArray(rgb.length);
+        System.arraycopy(rgb, 0, arr, 0, rgb.length);
+        if (Image.isSimdOptimizationsEnabled() && arr.length >= 16) {
+            int alphaInt = (((int) alpha) << 24) & 0xff000000;
+            Image.replaceAlphaPreserveTransparentSimd(arr, 0, alphaInt, arr.length);
+        } else {
+            int alphaInt = (((int) alpha) << 24) & 0xff000000;
+            int rlen = rgb.length;
+            for (int iter = 0; iter < rlen; iter++) {
+                if ((arr[iter] & 0xff000000) != 0) {
+                    arr[iter] = (arr[iter] & 0xffffff) | alphaInt;
+                }
+            }
+        }
+        return new RGBImage(arr, width, height);
+    }
+
+    /// This method is unsupported in this image type
+    @Override
+    public Graphics getGraphics() {
+        throw new RuntimeException("RGBImage objects can't be modified via graphics");
+    }
+
+
+    /// Returns a mutable array that can be used to change the appearance of the image
+    /// arranged as AARRGGBB.
+    ///
+    /// #### Returns
+    ///
+    /// ARGB int array
+    @Override
+    public int[] getRGB() {
+        return rgb;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    void getRGB(int[] rgbData,
+                int offset,
+                int x,
+                int y,
+                int width,
+                int height) {
+        int startPoint = y * this.width + x;
+        for (int rows = 0; rows < height; rows++) {
+            int currentRow = rows * width;
+            if (width >= 0) {
+                System.arraycopy(rgb, startPoint + 0, rgbData, offset + currentRow + 0, width);
+            }
+            startPoint += this.width;
+        }
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected void drawImage(Graphics g, Object nativeGraphics, int x, int y) {
+        g.drawRGB(rgb, 0, x, y, width, height, !opaque);
+    }
+
+    /// {@inheritDoc}
+    ///
+    /// `RGBImage` has no native peer, so the inherited scaled-draw path
+    /// (`g.drawImageWH(image, ...)`) renders nothing. Instead, build a
+    /// translate + scale affine transform on top of the graphics context's
+    /// current transform and emit `drawRGB` at the image's native size --
+    /// the platform pipeline (iOS Metal, Android Skia, Graphics2D, ...)
+    /// performs the actual scaling in hardware / native code.
+    ///
+    /// `Graphics.setTransform` is used (rather than `translateMatrix` +
+    /// `scale`) because on ports where `impl.isTranslationSupported()` is
+    /// false (iOS), prior `g.translate(int, int)` calls accumulate into a
+    /// per-Graphics integer translate that is baked into draw coordinates
+    /// **before** the impl matrix is applied. A naked `translateMatrix` /
+    /// `scale` composition would therefore multiply that accumulator by
+    /// the scale factor, shifting the on-screen position. `setTransform`
+    /// conjugates the matrix with `T(xTranslate, yTranslate)`, cancelling
+    /// the accumulator so the result lands at the requested coordinates
+    /// on every port.
+    @Override
+    protected void drawImage(Graphics g, Object nativeGraphics, int x, int y, int w, int h) {
+        if (w <= 0 || h <= 0) {
+            return;
+        }
+        if (w == width && h == height) {
+            g.drawRGB(rgb, 0, x, y, width, height, !opaque);
+            return;
+        }
+        Transform saved = Transform.makeIdentity();
+        g.getTransform(saved);
+        try {
+            Transform scaled = saved.copy();
+            scaled.translate(x, y);
+            scaled.scale(((float) w) / width, ((float) h) / height);
+            g.setTransform(scaled);
+            g.drawRGB(rgb, 0, 0, 0, width, height, !opaque);
+        } finally {
+            g.setTransform(saved);
+        }
+    }
+
+    /// Indicates if an image should be treated as opaque, this can improve support
+    /// for fast drawing of RGB images without alpha support.
+    @Override
+    public boolean isOpaque() {
+        return opaque;
+    }
+
+    /// Sets whether this image should be treated as fully opaque.
+    ///
+    /// #### Parameters
+    ///
+    /// - `opaque`: `true` to treat this image as opaque.
+    @Override
+    public void setOpaque(boolean opaque) {
+        this.opaque = opaque;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public int getWidth() {
+        return width;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public int getHeight() {
+        return height;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public boolean requiresDrawImage() {
+        return true;
+    }
+}

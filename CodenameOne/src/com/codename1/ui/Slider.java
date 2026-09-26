@@ -1,0 +1,1152 @@
+/*
+ * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores
+ * CA 94065 USA or visit www.oracle.com if you need additional information or
+ * have any questions.
+ */
+package com.codename1.ui;
+
+import com.codename1.ui.accessibility.AccessibilityManager;
+
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.events.ActionSource;
+import com.codename1.ui.events.DataChangedListener;
+import com.codename1.ui.geom.Dimension;
+import com.codename1.ui.plaf.Border;
+import com.codename1.ui.plaf.RoundBorder;
+import com.codename1.ui.plaf.Style;
+import com.codename1.ui.plaf.UIManager;
+import com.codename1.ui.util.EventDispatcher;
+
+/// The slider component serves both as a slider widget to allow users to select
+/// a value on a scale via touch/arrows and also to indicate progress. The slider
+/// defaults to percentage display but can represent any positive set of values.
+///
+/// `Slider` is very versatile and can be used to represent things as diverse as the 5 star ranking UI
+/// demonstrated below. Notice that for the UI to work correctly you need to enclose it in a layout that preserves
+/// its preferred size like flow layout.
+///
+/// ```java
+/// public void showForm() {
+///   Form hi = new Form("Star Slider", new BoxLayout(BoxLayout.Y_AXIS));
+///   hi.add(FlowLayout.encloseCenter(createStarRankSlider()));
+///   hi.show();
+/// }
+///
+/// private void initStarRankStyle(Style s, Image star) {
+///     s.setBackgroundType(Style.BACKGROUND_IMAGE_TILE_BOTH);
+///     s.setBorder(Border.createEmpty());
+///     s.setBgImage(star);
+///     s.setBgTransparency(0);
+/// }
+///
+/// private Slider createStarRankSlider() {
+///     Slider starRank = new Slider();
+///     starRank.setEditable(true);
+///     starRank.setMinValue(0);
+///     starRank.setMaxValue(10);
+///     Font fnt = Font.createTrueTypeFont("native:mainLight", "native:mainLight").
+///             derive(Display.getInstance().convertToPixels(5, true), Font.STYLE_PLAIN);
+///     Style s = new Style(0xffff33, 0, fnt, (byte)0);
+///     Image fullStar = FontImage.createMaterial(FontImage.MATERIAL_STAR, s).toImage();
+///     s.setOpacity(100);
+///     s.setFgColor(0);
+///     Image emptyStar = FontImage.createMaterial(FontImage.MATERIAL_STAR, s).toImage();
+///     initStarRankStyle(starRank.getSliderEmptySelectedStyle(), emptyStar);
+///     initStarRankStyle(starRank.getSliderEmptyUnselectedStyle(), emptyStar);
+///     initStarRankStyle(starRank.getSliderFullSelectedStyle(), fullStar);
+///     initStarRankStyle(starRank.getSliderFullUnselectedStyle(), fullStar);
+///     starRank.setPreferredSize(new Dimension(fullStar.getWidth() * 5, fullStar.getHeight()));
+///     return starRank;
+/// }
+/// ```
+///
+/// Slider can be used as a progress indicator for network operations when combined with the
+/// `com.codename1.components.SliderBridge` component:
+///
+/// ```java
+/// Form hi = new Form("Download Progress", new BorderLayout());
+/// Slider progress = new Slider();
+/// Button download = new Button("Download");
+/// download.addActionListener((e) -> {
+///     ConnectionRequest cr = new ConnectionRequest("https://www.codenameone.com/img/blog/new_icon.png", false);
+///     SliderBridge.bindProgress(cr, progress);
+///     NetworkManager.getInstance().addToQueueAndWait(cr);
+///     if(cr.getResponseCode() == 200) {
+///         hi.add(BorderLayout.CENTER, new ScaleImageLabel(EncodedImage.create(cr.getResponseData())));
+///         hi.revalidate();
+///     }
+/// });
+/// hi.add(BorderLayout.SOUTH, progress).add(BorderLayout.NORTH, download);
+/// hi.show();
+/// ```
+///
+/// @author Shai Almog
+public class Slider extends Label implements ActionSource {
+    private final EventDispatcher listeners = new EventDispatcher();
+    private final EventDispatcher actionListeners = new EventDispatcher();
+    private int actionEventValue;
+    private int value;
+    private int maxValue = 100;
+    private int minValue = 0;
+    private boolean vertical;
+    private boolean editable;
+    private int increments = 4;
+    private int previousX = -1;
+    private int previousY = -1;
+    private Style sliderFull;
+    private Style sliderFullSelected;
+    private boolean paintingFull;
+    private boolean renderPercentageOnTop;
+    private boolean renderValueOnTop;
+
+    private boolean infinite = false;
+    private float infiniteDirection = 0.03f;
+    private Image thumbImage;
+    private String fullUIID = "Slider";
+
+
+    /// The default constructor uses internal rendering to draw its state
+    public Slider() {
+        this("Slider", "Slider");
+    }
+
+    private Slider(String uiid, String fullUIID) {
+        setFocusable(false);
+        setUIID(uiid);
+        this.fullUIID = fullUIID;
+        setAlignment(CENTER);
+
+        // This is necessary for the Android theme to make sure that the progress bar
+        // is rendered vertically centered.  Otherwise the thumb image will be
+        // rendered below it (on y axis) rather than over-top of it.
+        putClientProperty("@centerAlignHBorderBool", true);
+    }
+
+    /// Creates an infinite progress slider
+    ///
+    /// #### Returns
+    ///
+    /// a slider instance that has no end value
+    public static Slider createInfinite() {
+        Slider s = new Slider();
+        s.infinite = true;
+        return s;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public final void setUIID(String id) {
+        super.setUIID(id);
+        initStyles(id);
+    }
+
+    private void initStyles(String id) {
+        sliderFull = getUIManager().getComponentStyle(id + "Full");
+        sliderFullSelected = getUIManager().getComponentSelectedStyle(id + "Full");
+        initCustomStyle(sliderFull);
+        initCustomStyle(sliderFullSelected);
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected boolean isStickyDrag() {
+        return true;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void initComponent() {
+        if (infinite) {
+            TopLevelSupport.registerAnimatedInternal(this, this);
+            if (thumbImage == null) {
+                thumbImage = UIManager.getInstance().getThemeImageConstant("sliderThumbImage");
+            }
+        }
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void deinitialize() {
+        if (infinite) {
+            // Matches the registration, which goes through the top level. Resolving
+            // the form here leaked the animation for every infinite slider inside a
+            // Window, where that form is null.
+            TopLevelSupport.deregisterAnimatedInternal(this, this);
+        }
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public boolean animate() {
+        if (infinite) {
+            super.animate();
+            float f = (infiniteDirection * ((float) maxValue));
+            if (((int) f) == 0) {
+                if (f < 0) {
+                    f = -1;
+                } else {
+                    f = 1;
+                }
+            }
+            value += ((int) f);
+            if (value >= maxValue) {
+                value = maxValue;
+                infiniteDirection *= (-1);
+            }
+            if (value <= 0) {
+                value = 0;
+                infiniteDirection *= (-1);
+            }
+            return true;
+        }
+        return super.animate();
+    }
+
+    /// The infinite slider functionality is used to animate
+    /// progress for which there is no defined value.
+    ///
+    /// #### Returns
+    ///
+    /// true for infinite progress
+    public boolean isInfinite() {
+        return infinite;
+    }
+
+    /// Activates/disables the infinite slider functionality used to animate
+    /// progress for which there is no defined value.
+    ///
+    /// #### Parameters
+    ///
+    /// - `i`: true for infinite progress
+    public void setInfinite(boolean i) {
+        if (infinite != i) {
+            infinite = i;
+            setShouldCalcPreferredSize(true);
+            if (isInitialized()) {
+                if (i) {
+                    TopLevelSupport.registerAnimatedInternal(this, this);
+                } else {
+                    TopLevelSupport.deregisterAnimatedInternal(this, this);
+                }
+            }
+        }
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void refreshTheme(boolean merge) {
+        super.refreshTheme(merge);
+        if (sliderFull != null) {
+            deinitializeCustomStyle(sliderFull);
+            deinitializeCustomStyle(sliderFullSelected);
+            initStyles("Slider");
+        }
+    }
+
+    /// Indicates the value of progress made
+    ///
+    /// #### Returns
+    ///
+    /// the progress on the slider
+    public int getProgress() {
+        return value;
+    }
+
+    /// Indicates the value of progress made, this method is thread safe and
+    /// can be invoked from any thread although discretion should still be kept
+    /// so one thread doesn't regress progress made by another thread...
+    ///
+    /// #### Parameters
+    ///
+    /// - `value`: new value for progress
+    public void setProgress(int value) {
+        if (this.value != value) {
+            fireDataChanged(DataChangedListener.CHANGED, value);
+        }
+        setProgressInternal(value);
+    }
+
+    /// Gets the progress of the slider at the point where the provided ActionEvent
+    /// was triggered.
+    ///
+    /// #### Parameters
+    ///
+    /// - `evt`: An ActionEvent that originated from this slider.
+    ///
+    /// #### Returns
+    ///
+    /// The progress of the slider.
+    ///
+    public int getProgress(ActionEvent evt) {
+        if (evt instanceof SliderActionEvent) {
+            return ((SliderActionEvent) evt).value;
+        }
+        return value;
+    }
+
+    /// Internal slider-value updater used by drag/keyboard/setProgress paths.
+    /// Exposed as `protected` so subclasses (e.g. range-slider style multi-
+    /// thumb sliders) can route their own input through the same value-set +
+    /// repaint pipeline as the built-in handlers. See #1523.
+    protected void setProgressInternal(int value) {
+        int oldValue = this.value;
+        this.value = value;
+        if (oldValue != value) {
+            accessibilityChanged(AccessibilityManager.CHANGE_VALUE);
+        }
+        if (renderValueOnTop || renderPercentageOnTop) {
+            super.setText(formattedValue(value));
+        } else {
+            if (isInitialized()) {
+                repaint();
+            }
+        }
+    }
+
+    /// Allows formatting the appearance of the progress when text is drawn on top
+    ///
+    /// #### Parameters
+    ///
+    /// - `value`: the value of the slider
+    ///
+    /// #### Returns
+    ///
+    /// a string formatted version
+    protected String formattedValue(int value) {
+        if (renderValueOnTop) {
+            return ("" + value);
+        }
+        if (renderPercentageOnTop) {
+            return (value + "%");
+        }
+        return ("");
+    }
+
+    /// Returns the `com.codename1.ui.plaf.Style` used to paint the slider when its full
+    ///
+    /// #### Returns
+    ///
+    /// the Style object that shows a completely full style.
+    public Style getSliderFullUnselectedStyle() {
+        return sliderFull;
+    }
+
+    /// Returns the `com.codename1.ui.plaf.Style` used to paint the slider when its full and selected
+    ///
+    /// #### Returns
+    ///
+    /// the Style object that shows a completely full style.
+    public Style getSliderFullSelectedStyle() {
+        return sliderFullSelected;
+    }
+
+    /// Returns the `com.codename1.ui.plaf.Style` used to paint the slider when its full
+    ///
+    /// #### Returns
+    ///
+    /// the Style object that shows a completely full style.
+    public Style getSliderEmptyUnselectedStyle() {
+        return super.getUnselectedStyle();
+    }
+
+    /// Returns the `com.codename1.ui.plaf.Style` used to paint the slider when its full and selected
+    ///
+    /// #### Returns
+    ///
+    /// the Style object that shows a completely full style.
+    public Style getSliderEmptySelectedStyle() {
+        return super.getSelectedStyle();
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Style getStyle() {
+        if (paintingFull) {
+            if (sliderFull == null) {
+                initStyles(fullUIID);
+            }
+            if (hasFocus()) {
+                return sliderFullSelected;
+            }
+            return sliderFull;
+        }
+        return super.getStyle();
+    }
+
+    /// Return the size we would generally like for the component
+    @Override
+    protected Dimension calcPreferredSize() {
+        Style style = getStyle();
+        int prefW = 0;
+        int prefH = 0;
+        if (style.getBorder() != null) {
+            prefW = Math.max(style.getBorder().getMinimumWidth(), prefW);
+            prefH = Math.max(style.getBorder().getMinimumHeight(), prefH);
+        }
+        if (thumbImage != null) {
+            prefW = Math.max(thumbImage.getWidth(), prefW);
+            prefH = Math.max(thumbImage.getHeight(), prefH);
+        }
+        // we don't really need to be in the font height but this provides
+        // a generally good indication for size expectations
+        if (Display.getInstance().isTouchScreenDevice() && isEditable()) {
+            if (vertical) {
+                prefW = Math.max(prefW, Font.getDefaultFont().charWidth('X') * 2);
+                prefH = Math.max(prefH, Display.getInstance().getDisplayHeight() / 2);
+            } else {
+                prefW = Math.max(prefW, Display.getInstance().getDisplayWidth() / 2);
+                prefH = Math.max(prefH, Font.getDefaultFont().getHeight() * 2);
+            }
+        } else {
+            if (vertical) {
+                prefW = Math.max(prefW, Font.getDefaultFont().charWidth('X'));
+                prefH = Math.max(prefH, Display.getInstance().getDisplayHeight() / 2);
+            } else {
+                prefW = Math.max(prefW, Display.getInstance().getDisplayWidth() / 2);
+                prefH = Math.max(prefH, Font.getDefaultFont().getHeight());
+            }
+        }
+        // A progress bar that paints a thin native capsule should also MEASURE as one.
+        // Without this its preferred height is a full font height -- 19px against a 3px
+        // Fluent bar and an 8px Adwaita one -- so layout reserves six times the space the
+        // platform does, and the capsule is centred in a box the user cannot see. The
+        // widget looks almost right and sits wrong.
+        //
+        // Gated on exactly what makes it paint that way, so nothing that renders the
+        // legacy full-height fill changes size.
+        if (usesNativeProgressStyles()) {
+            String progressTrackMM = getUIManager().getThemeConstant("progressTrackThicknessMM", null);
+            if (progressTrackMM != null) {
+                try {
+                    float tmm = Float.parseFloat(progressTrackMM.trim());
+                    if (tmm > 0) {
+                        int trackHeight = Math.max(2, Display.getInstance().convertToPixels(tmm));
+                        // Overlay text still needs a full font-height box; the painter centers
+                        // the thin track inside that box without clipping the Label text.
+                        prefH = isRenderPercentageOnTop() || isRenderValueOnTop()
+                                ? Math.max(trackHeight, Math.max(prefH, style.getFont().getHeight()))
+                                : trackHeight;
+                    }
+                } catch (NumberFormatException notANumber) {
+                    // Malformed constant: keep the font-height default rather than guess.
+                }
+            }
+        }
+        if (prefH != 0) {
+            prefH += style.getVerticalPadding();
+        }
+        if (prefW != 0) {
+            prefW += style.getHorizontalPadding();
+        }
+        return new Dimension(prefW, prefH);
+    }
+
+    private boolean usesNativeProgressStyles() {
+        if (infinite || vertical || isEditable() || thumbImage != null) {
+            return false;
+        }
+        // Reserve legacy height before any state transition can expose custom artwork.
+        // Pressed also matters when this slider inherits state from a lead component.
+        Style hover = getHoverStyle();
+        return isNativeProgressStyle(getUnselectedStyle())
+                && isNativeProgressStyle(getSelectedStyle())
+                && isNativeProgressStyle(getDisabledStyle())
+                && isNativeProgressStyle(getPressedStyle())
+                && (hover == null || isNativeProgressStyle(hover))
+                && isNativeProgressStyle(getSliderFullUnselectedStyle())
+                && isNativeProgressStyle(getSliderFullSelectedStyle());
+    }
+
+    private boolean isNativeProgressStyle(Style style) {
+        if (style.getBgImage() != null || !isDefaultBackgroundPainter(style)) {
+            return false;
+        }
+        byte background = style.getBackgroundType();
+        if (background != Style.BACKGROUND_NONE && background != Style.BACKGROUND_IMAGE_SCALED) {
+            return false;
+        }
+        Border border = style.getBorder();
+        if (border == null) {
+            return (style.getBgTransparency() & 0xff) == 255;
+        }
+        // Bundled themes use plain pill borders. Keep those native, but preserve
+        // application borders, gradients, images and painters through the legacy path.
+        if (border.getClass() != RoundBorder.class) {
+            return false;
+        }
+        RoundBorder round = (RoundBorder) border;
+        return round.isRectangle() && !round.isOnlyLeftRounded() && !round.isOnlyRightRounded()
+                && round.getColor() == style.getBgColor() && round.getOpacity() == 255
+                && (round.getStrokeOpacity() == 0 || round.getStrokeThickness() == 0)
+                && round.getShadowOpacity() == 0;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void styleChanged(String propertyName, Style source) {
+        super.styleChanged(propertyName, source);
+        // Background customization can switch both the renderer and its preferred height.
+        setShouldCalcPreferredSize(true);
+    }
+
+    /// Paint the progress indicator
+    @Override
+    public void paintComponentBackground(Graphics g) {
+        // Native progress indicators are thin capsules even when their component
+        // receives a taller touch/layout box.  Keep this opt-in so legacy themes
+        // and progress bars with image backgrounds retain their existing painter.
+        if (usesNativeProgressStyles()) {
+            String progressTrackMM = getUIManager().getThemeConstant("progressTrackThicknessMM", null);
+            if (progressTrackMM != null && paintNativeProgress(g, progressTrackMM)) {
+                return;
+            }
+        }
+        // Opt-in native-slider look (Material 3): a thin rounded track with the
+        // active portion in the accent colour and a vertical bar thumb, instead of
+        // the legacy full-height fill. Gated on the sliderTrackThicknessMM theme
+        // constant AND isEditable() so progress bars (non-editable sliders) and
+        // every theme that doesn't set the constant keep the existing rendering.
+        if (!infinite && !vertical && isEditable()) {
+            String trackMM = getUIManager().getThemeConstant("sliderTrackThicknessMM", null);
+            if (trackMM != null && paintNativeSlider(g, trackMM)) {
+                return;
+            }
+        }
+        super.paintComponentBackground(g);
+        int clipX = g.getClipX();
+        int clipY = g.getClipY();
+        int clipW = g.getClipWidth();
+        int clipH = g.getClipHeight();
+        //g.pushClip();
+        int width = getWidth();
+        int height = getHeight();
+
+        int voffset = (thumbImage != null) ? thumbImage.getHeight() : 0;
+
+        int y = getY();
+        if (infinite) {
+            int blockSize = getWidth() / 5;
+            int x = getX() + (int) ((((float) value) / ((float) maxValue - minValue)) * (getWidth() - blockSize));
+            g.clipRect(x, y, blockSize, height - 1);
+        } else {
+            if (vertical) {
+                int actualHeight = (int) ((((float) value) / ((float) maxValue - minValue)) * (getHeight() - voffset));
+                y += height - actualHeight - voffset;
+            } else {
+                width = (int) ((((float) value) / ((float) maxValue - minValue)) * getWidth());
+            }
+
+            g.clipRect(getX(), y, width, height);
+        }
+
+        // paint the selected style
+        paintingFull = true;
+        super.paintComponentBackground(g);
+        paintingFull = false;
+
+        g.setClip(clipX, clipY, clipW, clipH);
+        //g.popClip();
+        if (thumbImage != null && !infinite) {
+            if (!vertical) {
+                int xPos = getX() + width - thumbImage.getWidth() / 2;
+                xPos = Math.max(getX(), xPos);
+                xPos = Math.min(getX() + getWidth() - thumbImage.getWidth(), xPos);
+                g.drawImage(thumbImage, xPos,
+                        y + height / 2 - thumbImage.getHeight() / 2);
+            } else {
+                int yPos = y; // + height - thumbImage.getHeight() / 2;
+                //yPos = Math.max(getY(), yPos);
+                //yPos = Math.min(getY() + getHeight() - thumbImage.getHeight(), yPos);
+                g.drawImage(thumbImage, getX() + width / 2 - thumbImage.getWidth() / 2,
+                        yPos);
+            }
+        }
+    }
+
+    /// Paints the Material-3 style slider: a thin rounded track (inactive colour
+    /// from the Slider style, active colour from the SliderFull style) plus a
+    /// vertical rounded bar thumb at the current value. Returns false (so the
+    /// caller falls back to the legacy painter) when the track constant is
+    /// malformed or non-positive. Horizontal, finite, editable sliders only.
+    private boolean paintNativeSlider(Graphics g, String trackMM) {
+        float tmm;
+        try {
+            tmm = Float.parseFloat(trackMM.trim());
+        } catch (NumberFormatException notANumber) {
+            return false;
+        }
+        if (tmm <= 0) {
+            return false;
+        }
+        Display d = Display.getInstance();
+        int track = Math.max(2, d.convertToPixels(tmm));
+        String thumbC = getUIManager().getThemeConstant("sliderThumbWidthMM", null);
+        int thumbW = Math.max(3, track);
+        if (thumbC != null) {
+            try {
+                thumbW = Math.max(3, d.convertToPixels(Float.parseFloat(thumbC.trim())));
+            } catch (NumberFormatException notANumber) {
+                thumbW = Math.max(3, track);   // malformed constant -> track-derived default
+            }
+        }
+        int x0 = getX();
+        int y0 = getY();
+        int w = getWidth();
+        int h = getHeight();
+        int range = maxValue - minValue;
+        int valueW = range <= 0 ? 0 : (int) (((float) (value - minValue) / (float) range) * w);
+        int bandY = y0 + (h - track) / 2;
+        int trackColor;
+        int fullColor;
+        // The thumb takes the Slider style's foreground colour so a native theme can
+        // give it a distinct tone (Material 3 renders the bar thumb neutral-grey,
+        // not the accent of the active track).
+        int thumbColor;
+        if (isEnabled()) {
+            trackColor = getSliderEmptyUnselectedStyle().getBgColor();
+            fullColor = getSliderFullSelectedStyle().getBgColor();
+            thumbColor = getSliderEmptyUnselectedStyle().getFgColor();
+        } else {
+            // A disabled M3 slider greys EVERY part - the active track is never
+            // the accent (which would be a bright purple in dark mode). Pull the
+            // greyed tones from the *.disabled styles so light and dark each match.
+            UIManager uim = getUIManager();
+            Style sdis = uim.getComponentCustomStyle(getUIID(), "dis");
+            Style fdis = uim.getComponentCustomStyle(getUIID() + "Full", "dis");
+            trackColor = sdis.getBgColor();
+            fullColor = fdis.getBgColor();
+            thumbColor = sdis.getFgColor();
+        }
+        boolean aa = g.isAntiAliasingSupported();
+        boolean priorAa = g.isAntiAliased();
+        if (aa) {
+            g.setAntiAliased(true);
+        }
+        int thumbX = Math.max(x0, Math.min(x0 + w - thumbW, x0 + valueW - thumbW / 2));
+        // Thumb height: Material's bar thumb spans the component height (a tall pill);
+        // iOS 26's slider thumb is a short horizontal capsule (wider than tall). Themes
+        // opt into the iOS look via sliderThumbHeightMM; without it the Material
+        // full-height pill is preserved.
+        int thumbH = Math.max(track, h);
+        String thumbHC = getUIManager().getThemeConstant("sliderThumbHeightMM", null);
+        if (thumbHC != null) {
+            try {
+                thumbH = Math.max(track, d.convertToPixels(Float.parseFloat(thumbHC.trim())));
+            } catch (NumberFormatException notANumber) {
+                thumbH = Math.max(track, h);   // malformed constant -> full-height default
+            }
+        }
+        int thumbY = y0 + (h - thumbH) / 2;
+        // iOS renders ONE continuous track under the thumb (no M3 gap, no stop
+        // indicator); themes opt in via sliderContinuousTrackBool.
+        boolean continuousTrack = getUIManager().isThemeConstant("sliderContinuousTrackBool", false);
+        if (continuousTrack) {
+            g.setColor(trackColor);
+            g.fillRoundRect(x0, bandY, w, track, track, track);
+            if (valueW > 0) {
+                g.setColor(fullColor);
+                g.fillRoundRect(x0, bandY, Math.min(w, valueW), track, track, track);
+            }
+        } else {
+            // Material 3: TWO rounded segments with a gap on each side of the thumb;
+            // each is a full pill on its OUTER end, subtly rounded on the inner end.
+            int gap = Math.max(2, d.convertToPixels(0.6f));
+            int innerArc = Math.max(2, d.convertToPixels(0.35f));
+            int inStart = Math.min(x0 + w, thumbX + thumbW + gap);
+            int inW = x0 + w - inStart;
+            if (inW > 0) {
+                g.setColor(trackColor);
+                g.fillRoundRect(inStart, bandY, inW, track, track, track);
+                if (inW >= track) {
+                    g.fillRoundRect(inStart, bandY, track, track, innerArc, innerArc);
+                }
+            }
+            int acW = Math.max(0, (thumbX - gap) - x0);
+            if (acW > 0) {
+                g.setColor(fullColor);
+                g.fillRoundRect(x0, bandY, acW, track, track, track);
+                if (acW >= track) {
+                    g.fillRoundRect(x0 + acW - track, bandY, track, track, innerArc, innerArc);
+                }
+            }
+            // M3 "stop indicator": a small dot near the inactive (far) end.
+            int dotD = Math.max(3, track / 6);
+            g.setColor(fullColor);
+            g.fillArc(x0 + w - track / 2 - dotD / 2, y0 + (h - dotD) / 2, dotD, dotD, 0, 360);
+        }
+        // Optional soft drop-shadow under the thumb (the iOS knob casts one; without
+        // it a white knob is invisible on a light background). sliderThumbShadowSizeMM
+        // sets the spread; a few concentric low-alpha rings approximate a soft blur.
+        String shadowC = getUIManager().getThemeConstant("sliderThumbShadowSizeMM", null);
+        int shadow = 0;
+        if (shadowC != null) {
+            try {
+                shadow = d.convertToPixels(Float.parseFloat(shadowC.trim()));
+            } catch (NumberFormatException notANumber) {
+                shadow = 0;   // malformed constant -> no shadow
+            }
+        }
+        if (shadow > 0) {
+            int drop = Math.max(1, shadow / 2);
+            for (int i = shadow; i >= 1; i--) {
+                g.setColor(0x000000);
+                int oldAlpha = g.concatenateAlpha(10);
+                int sArc = Math.min(thumbW, thumbH) + 2 * i;
+                g.fillRoundRect(thumbX - i, thumbY - i + drop, thumbW + 2 * i, thumbH + 2 * i,
+                        sArc, sArc);
+                g.setAlpha(oldAlpha);
+            }
+        }
+        g.setColor(thumbColor);
+        // Use the smaller dimension as the corner arc so the knob is a true capsule
+        // whether it is taller than wide (Material) or wider than tall (iOS).
+        int thumbArc = Math.min(thumbW, thumbH);
+        g.fillRoundRect(thumbX, thumbY, thumbW, thumbH, thumbArc, thumbArc);
+        if (aa) {
+            g.setAntiAliased(priorAa);
+        }
+        return true;
+    }
+
+    /// Paints a thin, continuous pill track for native progress indicators.
+    /// Empty/full colours come from the regular Slider UIID pair so light/dark
+    /// and runtime palette overrides continue to work normally.
+    private boolean paintNativeProgress(Graphics g, String trackMM) {
+        float tmm;
+        try {
+            tmm = Float.parseFloat(trackMM.trim());
+        } catch (NumberFormatException notANumber) {
+            return false;
+        }
+        if (tmm <= 0) {
+            return false;
+        }
+        int track = Math.max(2, Display.getInstance().convertToPixels(tmm));
+        int x = getX();
+        int y = getY() + (getHeight() - track) / 2;
+        int width = getWidth();
+        int range = maxValue - minValue;
+        int fullWidth = range <= 0 ? 0
+                : (int) (((float) (value - minValue) / (float) range) * width);
+
+        boolean aa = g.isAntiAliasingSupported();
+        boolean priorAa = g.isAntiAliased();
+        if (aa) {
+            g.setAntiAliased(true);
+        }
+        g.setColor(super.getStyle().getBgColor());
+        g.fillRoundRect(x, y, width, track, track, track);
+        if (fullWidth > 0) {
+            g.setColor((hasFocus() ? getSliderFullSelectedStyle() : getSliderFullUnselectedStyle()).getBgColor());
+            g.fillRoundRect(x, y, Math.min(width, fullWidth), track, track, track);
+        }
+        if (aa) {
+            g.setAntiAliased(priorAa);
+        }
+        return true;
+    }
+
+    /// Indicates the slider is vertical
+    ///
+    /// #### Returns
+    ///
+    /// true if the slider is vertical
+    public boolean isVertical() {
+        return vertical;
+    }
+
+    /// Indicates the slider is vertical
+    ///
+    /// #### Parameters
+    ///
+    /// - `vertical`: true if the slider is vertical
+    public void setVertical(boolean vertical) {
+        if (this.vertical != vertical) {
+            this.vertical = vertical;
+            setShouldCalcPreferredSize(true);
+        }
+    }
+
+    /// Indicates the slider is modifyable
+    ///
+    /// #### Returns
+    ///
+    /// true if the slider is editable
+    @Override
+    public boolean isEditable() {
+        return editable;
+    }
+
+    /// Indicates the slider is modifyable
+    ///
+    /// #### Parameters
+    ///
+    /// - `editable`: true if the slider is editable
+    public void setEditable(boolean editable) {
+        if (this.editable != editable) {
+            setShouldCalcPreferredSize(true);
+        }
+        this.editable = editable;
+        setFocusable(editable);
+    }
+
+    @Override
+    public void pointerPressed(int x, int y) {
+        if (Display.getInstance().getImplementation().isScrollWheeling()) {
+            return;
+        }
+        if (!editable) {
+            return;
+        }
+        if (vertical) {
+            // turn the coordinate to a local coordinate and invert it
+            y = Math.abs(getHeight() - (y - getAbsoluteY()));
+            setProgressInternal((int) (Math.min(maxValue, ((float) y) / ((float) getHeight()) * maxValue)));
+        } else {
+            x = Math.abs(x - getAbsoluteX());
+            setProgressInternal((int) (Math.min(maxValue, ((float) x) / ((float) getWidth()) * maxValue)));
+        }
+        value = Math.max(value, minValue);
+        actionEventValue = value;
+        if (vertical) {
+            if (previousY < y) {
+                fireDataChanged(DataChangedListener.ADDED, value);
+            } else {
+                fireDataChanged(DataChangedListener.REMOVED, value);
+            }
+            previousY = y;
+        } else {
+            if (previousX < x) {
+                fireDataChanged(DataChangedListener.ADDED, value);
+            } else {
+                fireDataChanged(DataChangedListener.REMOVED, value);
+            }
+            previousX = x;
+
+        }
+
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void pointerDragged(int x, int y) {
+        if (Display.getInstance().getImplementation().isScrollWheeling()) {
+            return;
+        }
+        if (!editable) {
+            return;
+        }
+        if (vertical && previousY == -1) {
+            previousY = y - getAbsoluteY();
+            return;
+        }
+        if (!vertical && previousX == -1) {
+            previousX = x - getAbsoluteX();
+            return;
+        }
+        int per = 0;
+        if (vertical) {
+            // turn the coordinate to a local coordinate and invert it
+            y = Math.max(getHeight() - (y - getAbsoluteY()), 0);
+            per = (int) (Math.min(maxValue, ((float) y) / ((float) getHeight()) * maxValue));
+        } else {
+            x = Math.max(x - getAbsoluteX(), 0);
+            per = (int) (Math.min(maxValue, ((float) x) / ((float) getWidth()) * maxValue));
+        }
+        per = Math.max(per, minValue);
+        if (per != getProgress()) {
+            setProgressInternal(per);
+            actionEventValue = value;
+            if (vertical) {
+                if (previousY < y) {
+                    fireDataChanged(DataChangedListener.ADDED, value);
+                } else {
+                    fireDataChanged(DataChangedListener.REMOVED, value);
+                }
+                previousY = y;
+            } else {
+                if (previousX < x) {
+                    fireDataChanged(DataChangedListener.ADDED, value);
+                } else {
+                    fireDataChanged(DataChangedListener.REMOVED, value);
+                }
+                previousX = x;
+            }
+        }
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected void fireClicked() {
+        setHandlesInput(!handlesInput());
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected boolean isSelectableInteraction() {
+        return editable;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void pointerReleased(int x, int y) {
+        if (Display.getInstance().getImplementation().isScrollWheeling()) {
+            return;
+        }
+        if (!editable) {
+            return;
+        }
+        fireActionEventImpl();
+        previousX = -1;
+        previousY = -1;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void keyReleased(int code) {
+        super.keyReleased(code);
+        fireActionEventImpl();
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void keyPressed(int code) {
+        if (editable && handlesInput()) {
+            int game = Display.getInstance().getGameAction(code);
+            switch (game) {
+                case Display.GAME_UP:
+                    if (vertical) {
+                        setProgressInternal(Math.min(maxValue, value + increments));
+                        fireDataChanged(DataChangedListener.ADDED, value);
+                    } else {
+                        setHandlesInput(false);
+                    }
+                    break;
+                case Display.GAME_DOWN:
+                    if (vertical) {
+                        setProgressInternal(Math.max(minValue, value - increments));
+                        fireDataChanged(DataChangedListener.REMOVED, value);
+                    } else {
+                        setHandlesInput(false);
+                    }
+                    break;
+                case Display.GAME_LEFT:
+                    if (!vertical) {
+                        setProgressInternal(Math.max(minValue, value - increments));
+                        fireDataChanged(DataChangedListener.REMOVED, value);
+                    } else {
+                        setHandlesInput(false);
+                    }
+                    break;
+                case Display.GAME_RIGHT:
+                    if (!vertical) {
+                        setProgressInternal(Math.min(maxValue, value + increments));
+                        fireDataChanged(DataChangedListener.ADDED, value);
+                    } else {
+                        setHandlesInput(false);
+                    }
+                    break;
+                case Display.GAME_FIRE:
+                    if (!Display.getInstance().isThirdSoftButton()) {
+                        fireClicked();
+                    }
+                    break;
+                default:
+                    break;
+            }
+        } else {
+            if (!Display.getInstance().isThirdSoftButton() &&
+                    Display.getInstance().getGameAction(code) == Display.GAME_FIRE) {
+                fireClicked();
+            }
+        }
+        super.keyPressed(code);
+    }
+
+    /// The increments when the user presses a key to the left/right/up/down etc.
+    ///
+    /// #### Returns
+    ///
+    /// increment value
+    public int getIncrements() {
+        return increments;
+    }
+
+    /// The increments when the user presses a key to the left/right/up/down etc.
+    ///
+    /// #### Parameters
+    ///
+    /// - `increments`: increment value
+    public void setIncrements(int increments) {
+        this.increments = increments;
+    }
+
+    private void fireDataChanged(int event, int val) {
+        listeners.fireDataChangeEvent(val, event);
+    }
+
+    private void fireActionEventImpl() {
+        actionListeners.fireActionEvent(new SliderActionEvent(this));
+    }
+
+    /// Adds a listener to data changed events, notice that the status argument to the data change listener
+    /// shouldn't be relied upon.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: new listener
+    public void addDataChangedListener(DataChangedListener l) {
+        listeners.addListener(l);
+    }
+
+    /// Removes a listener from data changed events, notice that the status argument to the data change listener
+    /// shouldn't be relied upon.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: listener to remove
+    public void removeDataChangedListener(DataChangedListener l) {
+        listeners.removeListener(l);
+    }
+
+    /// Action listeners give a more coarse event only when the user lifts the finger from the slider
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: the listener
+    @Override
+    public void addActionListener(ActionListener l) {
+        actionListeners.addListener(l);
+    }
+
+    /// Action listeners give a more coarse event only when the user lifts the finger from the slider
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: the listener
+    @Override
+    public void removeActionListener(ActionListener l) {
+        actionListeners.removeListener(l);
+    }
+
+    /// Indicates that the value of the slider should be rendered with a percentage sign
+    /// on top of the slider.
+    ///
+    /// #### Returns
+    ///
+    /// true if so
+    public boolean isRenderPercentageOnTop() {
+        return renderPercentageOnTop;
+    }
+
+    /// Indicates that the value of the slider should be rendered with a percentage sign
+    /// on top of the slider.
+    ///
+    /// #### Parameters
+    ///
+    /// - `renderPercentageOnTop`: true to render percentages
+    public void setRenderPercentageOnTop(boolean renderPercentageOnTop) {
+        if (this.renderPercentageOnTop != renderPercentageOnTop) {
+            this.renderPercentageOnTop = renderPercentageOnTop;
+            setShouldCalcPreferredSize(true);
+        }
+    }
+
+    /// #### Returns
+    ///
+    /// the renderValueOnTop
+    public boolean isRenderValueOnTop() {
+        return renderValueOnTop;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `renderValueOnTop`: the renderValueOnTop to set
+    public void setRenderValueOnTop(boolean renderValueOnTop) {
+        if (this.renderValueOnTop != renderValueOnTop) {
+            this.renderValueOnTop = renderValueOnTop;
+            setShouldCalcPreferredSize(true);
+        }
+    }
+
+    /// #### Returns
+    ///
+    /// the maxValue
+    public int getMaxValue() {
+        return maxValue;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `maxValue`: the maxValue to set
+    public void setMaxValue(int maxValue) {
+        this.maxValue = maxValue;
+    }
+
+    /// #### Returns
+    ///
+    /// the minValue
+    public int getMinValue() {
+        return minValue;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `minValue`: the minValue to set
+    public void setMinValue(int minValue) {
+        this.minValue = minValue;
+    }
+
+    /// The thumb image is drawn on top of the current progress
+    ///
+    /// #### Returns
+    ///
+    /// the thumbImage
+    public Image getThumbImage() {
+        return thumbImage;
+    }
+
+    /// The thumb image is drawn on top of the current progress
+    ///
+    /// #### Parameters
+    ///
+    /// - `thumbImage`: the thumbImage to set
+    public void setThumbImage(Image thumbImage) {
+        this.thumbImage = thumbImage;
+        setShouldCalcPreferredSize(true);
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected boolean shouldBlockSideSwipe() {
+        return editable && !vertical;
+    }
+
+    private static class SliderActionEvent extends ActionEvent {
+        private final int value;
+
+        private SliderActionEvent(Slider source) {
+            super(source, ActionEvent.Type.PointerPressed);
+            this.value = source.actionEventValue;
+        }
+    }
+}

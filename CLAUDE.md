@@ -1,0 +1,661 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Build System
+
+The project is transitioning from Ant to Maven. **Maven is the preferred build system.**
+
+### Building from Source
+
+**Requirements:**
+- JDK 8 (required for the core framework build)
+- JDK 11 through 25 (required at *runtime* for the simulator and "Run as desktop app")
+- JDK 17 (required for Android port)
+- Apache Maven 3.6+
+- macOS with Xcode (for iOS port only)
+
+**Quick Start:**
+
+```bash
+# Setup workspace (downloads JDKs, builds core, installs archetypes)
+./scripts/setup-workspace.sh -DskipTests
+source tools/env.sh
+
+# Build everything
+cd maven
+mvn install -Plocal-dev-javase
+```
+
+**Build Individual Components:**
+
+```bash
+# Core modules only
+cd maven
+mvn install -Plocal-dev-javase -DskipTests
+
+# Android port (requires JAVA17_HOME set)
+./scripts/build-android-port.sh -DskipTests
+
+# iOS port (macOS only)
+./scripts/build-ios-port.sh -DskipTests
+```
+
+**Important Build Notes:**
+- The `-Plocal-dev-javase` profile is necessary for building the javase port
+- Artifacts are installed to local Maven repository at `~/.m2/repository`
+- The build requires `cn1-binaries` repository (automatically cloned to `../cn1-binaries` by setup script)
+- Build client is installed to `~/.codenameone/CodeNameOneBuildClient.jar`
+
+### Testing
+
+```bash
+# Run JavaSE unit tests (Ant)
+ant test-javase
+
+# Run Maven tests
+cd maven
+mvn test -Plocal-dev-javase
+
+# Run samples application
+ant samples
+```
+
+## Project Architecture
+
+### ParparVM (iOS Translation)
+
+Located in `vm/`, ParparVM is Codename One's iOS VM that translates Java bytecode to C code:
+
+- **`ByteCodeTranslator/`** - Translates bytecode to C
+- **`JavaAPI/`** - Minimal Java runtime for iOS
+
+**Key characteristics:**
+- Translates Java bytecode → C code → native iOS binary via Xcode
+- Concurrent garbage collector (non-blocking)
+- Generates standard Xcode projects
+- No JNI overhead - direct C code invocation
+- Targets Java 5, parsing Java 8 class files directly
+
+**Build output:** Valid Xcode project that can be opened, debugged, and profiled with native tools.
+
+## Development Workflow
+
+### Creating a Test Project
+
+Use the Codename One initializr to generate a Maven project:
+```bash
+# Visit https://start.codenameone.com
+# Or use Maven archetypes after setup-workspace.sh
+```
+
+To use locally-built version, edit the generated `pom.xml`:
+```xml
+<properties>
+    <cn1.version>8.0-SNAPSHOT</cn1.version>
+    <cn1.plugin.version>8.0-SNAPSHOT</cn1.plugin.version>
+</properties>
+```
+
+### Java Version Constraints
+
+- **Core framework**: Must use Java 5 source/target for backward compatibility
+- **Tooling/Plugins**: Can use Java 8+
+- **Tests**: Can use Java 11+
+- **Android build**: Requires JDK 17 in JAVA17_HOME
+- **Main JAVA_HOME (for building the framework)**: Must be JDK 8
+- **Runtime JDK for simulator / desktop run**: JDK 11 through 25 is supported. The Codename One Maven plugin checks this on entry to `cn1:run` and `cn1:debug` and aborts with a friendly error when an older JDK is in use. The build-time goals (`generate-desktop-app-wrapper`, `prepare-simulator-classpath`, the `executable-jar` profile) are not gated -- they still work on JDK 8 because they only generate icons / classpath metadata.
+
+### Static Analysis Gates
+
+PR CI (`.github/workflows/pr.yml`, Java 8 leg) runs SpotBugs over
+`core-unittests`, `android`, `ios`, `ByteCodeTranslator` and
+`codenameone-maven-plugin`, then enforces the result in
+`.github/scripts/generate-quality-report.py`.
+
+- **SpotBugs is a zero-findings gate.** *Any* finding of *any* pattern in *any*
+  of those projects fails the build, and a project that produces no SpotBugs
+  report at all fails it too (see `QUALITY_REPORT_REQUIRED_SPOTBUGS`). There is
+  no per-pattern allow-list, so a pattern nobody anticipated still fails.
+- **Record intentional exceptions in the project's `spotbugs-exclude.xml`**
+  (`maven/core-unittests/`, `Ports/Android/`, `Ports/iOSPort/`,
+  `vm/ByteCodeTranslator/`, `maven/codenameone-maven-plugin/`), scoped to the
+  class or method it applies to and with a comment explaining why. Keep the
+  generated report at zero rather than tolerating known noise.
+- PMD and Checkstyle still gate on their own lists in the same script.
+
+To reproduce the SpotBugs gate locally:
+
+```bash
+source tools/env.sh   # JDK 8
+cd maven && mvn -B -DskipTests=true -Pcompile-android \
+  -pl android,ios,codenameone-maven-plugin -am verify
+mvn -B -DunitTests -DskipTests=true -pl core-unittests verify
+mvn -B -DskipTests=true -f ../vm/ByteCodeTranslator/pom.xml verify
+```
+
+**Run the `core-unittests` line too, and do not skip it because the first
+command "already covered" that module -- it does not.** `core-unittests` is
+declared inside the `unittests` profile, so `-am` never reaches it and its
+`target/spotbugsXml.xml` is left exactly as some earlier run wrote it. Reading
+that file after the first command reports whatever was true last time, which is
+how a real finding was declared clean locally and then failed `build-test (8)`.
+Delete the report before re-running if you want to be certain you are reading
+this run's answer.
+
+Note the module analyses the **core** classes, not just its own tests: a
+finding there names a `com.codename1.*` framework class, and adding a caller or
+removing one can make a previously-used private method dead.
+
+Findings land in each module's `target/spotbugsXml.xml`.
+
+### Android removes API, and nothing used to notice
+
+Codename One issue #5701: API 37 deleted
+`android.hardware.fingerprint.FingerprintManager` and
+`Context.FINGERPRINT_SERVICE`, the port named both from files every generated
+application compiles, and an unmodified Hello World failed
+`:app:compileDebugJavaWithJavac` in sources the developer never wrote. Every
+check in the tree was green, and structurally had to be:
+
+- The port's Maven build compiles against the **cn1-binaries `android.jar`**,
+  which is old enough to still *contain* whatever a new platform removed.
+- The only place port sources meet a current platform is the **generated Gradle
+  project**, and `scripts/build-android-app.sh` pins its compile SDK so the
+  screenshot baselines and the emulator leg stay reproducible.
+
+Two checks close that, both in `scripts-android.yml` and both on the default
+leg only -- what they compare is the platform jar, not the JDK.
+
+```bash
+source tools/env.sh
+scripts/check-android-api-removals.py                 # offline, ~1 min
+scripts/check-android-api-removals.py --require-all   # what CI runs
+scripts/verify-android-app-compile-sdk.sh <gradle-project-dir> 37
+```
+
+`check-android-api-removals.py` compiles `Ports/Android/src` twice from the
+same sources, against two platform jars, and reports the errors that appear
+only against the newer one. **The comparison is what makes it work without a
+perfect classpath**: the port excludes its optional packages (`ai`, `ar`,
+`cipher`, `nearby`) from the module build, so their dependencies are absent and
+they cannot compile here at all -- but they fail identically against both jars
+and cancel out. Error lines are compared whole, line numbers included, which is
+exact because both runs see byte-identical source.
+
+The platform goes on the **boot** class path, not the class path. Through
+`-cp` it supplies `android.*` and nothing else -- `java.*` keeps resolving from
+the host JDK's system modules, because the class path cannot override the core
+library -- so the gate was blind to Android's `java.*`. Measured with
+`java.lang.ProcessHandle`, which Android has never shipped: 0 errors through
+`-cp`, 1 through `-bootclasspath`. That forces `-source/-target 8`, which javac
+requires before it honours `-bootclasspath` at all.
+
+One trap it has to defend against: **a second `android.jar` on the classpath
+silently defeats it.** The port's Maven compile classpath carries the
+cn1-binaries stub, javac resolves the platform jar first, misses the removed
+class, falls through to the stub and finds it -- so the target compile succeeds
+on exactly the symbol the gate exists to catch. Any entry named `android.jar`
+is therefore dropped from a supplied classpath.
+
+`verify-android-app-compile-sdk.sh` is the end-to-end half: it re-pins the
+project the primary build already produced and assembles it again, so AAPT, the
+manifest merger, aar metadata and packaging go through the newer platform too.
+It reuses the generated sources and the warm Gradle cache, so it costs one more
+assemble rather than another build.
+
+**Not covered: runtime.** No API 37 emulator runs anywhere -- the leg is at
+`api-level: 36`, and moving it would reseed every Android screenshot baseline.
+Android 17 behaviour changes are still unverified.
+
+#### API 37 is the first release with no unsuffixed platform
+
+`sdkmanager` offers `platforms;android-37.0`, `android-37.1` and
+`android-37.2`, and nothing called `android-37`. Consequences that have each
+already cost a fix:
+
+- **Installing by the bare number is a silent no-op.** `sdkmanager
+  "platforms;android-37"` exits 0 and installs nothing; the build then fails
+  much later on a missing target. Ask for `android-37.0`.
+- **The platform string the builder carries now has a dot in it.** It reaches
+  `Integer.parseInt` in `AndroidGradleBuilder`, which threw outright on the
+  legacy `android.useGradle8=false` path and made `compileSdkInt` answer 0 --
+  the value every caller reads as "could not be determined", so the manifest
+  fragments lost the compile SDK they check attribute values against. Reduce a
+  platform name to its API level before comparing it, and note that gathering
+  its digits (`"37.2"` -> 372) is worse than parsing it: 372 compares greater
+  than every floor in the class and defeats all of them silently.
+- **`android.suppressUnsupportedCompileSdk` wants the resolved name.** AGP
+  8.13.2 builds fine at `compileSdk 37` but warns, and it asks to be suppressed
+  with `37.0`, not the `37` the build requested. The property is a
+  comma-separated list, so both spellings go in rather than guessing.
+- **Prefer the `sdkmanager` inside the SDK root you are building against.** The
+  one on `PATH` can belong to a different root (the Homebrew cask), where it
+  installs the platform somewhere the build never looks. It also needs JDK 17
+  or newer, so a script that has sourced `tools/env.sh` (JDK 8) must run it
+  with `JAVA17_HOME`.
+
+Removals are recorded in the platform's own
+`data/api-versions.xml`, and against the **minor** they happened in, never the
+bare major -- a query for `removed="37"` matches nothing, while `37.0` and
+`37.1` are the real answers. The gate prints the whole set when it fails.
+
+### Build hints
+
+A build hint is a `codename1.arg.<name>=<value>` line the builders read as
+`request.getArg(name, default)`. An undeclared name is accepted, never read, and
+silently does nothing, so every hint must be declared in exactly one place:
+
+- **`CodenameOne/src/com/codename1/annotations/buildhints`** if it has an
+  annotation. Hand-written, and the source of truth -- see its
+  `package-info.java`.
+- **`maven/build-hint-catalog`** otherwise: dynamic families, build-service-only
+  hints, the long tail.
+
+Nothing is generated into the tree. `BuildHintCodeGenerator` renders the
+annotated hints into `cn1-build-hints.json` for the editors that cannot read
+bytecode, and into the developer guide's table -- both during a build, neither
+committed. Every module that needs the data file renders it into its own
+`target/classes`: `maven/javase`, `maven/codenameone-maven-plugin` and
+`scripts/settings/common`. The catalog cannot render its own, because the
+generator lives in `build-hint-tools`, which depends on it.
+
+Adding a hint to a builder means declaring it in the same change:
+
+```bash
+source tools/env.sh
+scripts/gen-build-hint-annotations.sh --check  # the render still works (CI)
+scripts/check-build-hint-catalog.sh            # every hint the code reads is declared
+```
+
+`scripts/build-hint-catalog-baseline.txt` is an **empty** ratchet: a new entry
+means a hint went in undeclared. Do not re-run `tools/build-hint-bootstrap/`; it
+seeded the catalog once and would overwrite hand edits.
+
+### Never rely on ClassCastException
+
+**ParparVM's `CHECKCAST` is unchecked.** `BC_CHECKCAST` expands to nothing and the
+optimizer drops the instruction, so a failed cast does *not* throw on iOS -- the
+wrong object is handed to the next instruction and the target type's fields get
+read out of it. That is a native crash no Java `catch` can see (issue #5531).
+
+Never write a cast whose failure you expect to handle:
+
+```java
+// WRONG -- the handler never runs on iOS
+try { return Double.parseDouble((String) o); } catch (Exception e) { return def; }
+
+// RIGHT -- works on every platform
+if (o instanceof Number) { return ((Number) o).doubleValue(); }
+```
+
+`scripts/check-cast-semantics.sh` enforces this in PR CI (Java 8 leg). It reports
+a `CHECKCAST` inside a `try` whose handler catches `ClassCastException` or a
+supertype, and holds the result against `scripts/cast-semantics-baseline.txt` --
+a ratchet of pre-existing debt, not an allow-list. **New code must not add
+entries**; delete one when you fix the method. An `instanceof`-guarded cast is
+recognized and never reported. Note the rule is about the *cast*: a
+`catch (ClassCastException)` with no cast under it is fine, because an
+*explicitly thrown* ClassCastException propagates normally.
+
+The scope is what a translation actually sees -- `maven/core`, `maven/ios` and
+`vm/JavaAPI`. **The Android port is not covered**, and adding it back would be a
+mistake: ART implements `CHECKCAST` to spec, so a `catch (Throwable)` around a
+`(NotificationManager) getSystemService(...)` there is live, correct code, and
+`Ports/Android` is never translated. That is the same reason `Ports/CLDC11` is
+out of scope.
+
+Run it locally (needs core/ios/JavaAPI built; unbuilt modules are skipped with a
+note):
+
+```bash
+source tools/env.sh
+scripts/check-cast-semantics.sh
+scripts/check-cast-semantics.sh --write-baseline   # after fixing a method
+```
+
+### Never case-fold a protocol token with `toLowerCase()`
+
+`String.toLowerCase()` and `toUpperCase()` are **locale sensitive**, and Codename
+One has no `java.util.Locale` to ask for the root locale instead -- the overload
+that takes one does not exist in `vm/JavaAPI` or `Ports/CLDC11`. On a device set to
+Turkish or Azerbaijani, the `I` of `"IMAGE/PNG".toLowerCase()` folds to a dotless
+i, so the result is not equal to `image/png` and every comparison against a
+constant fails. Nothing throws; the feature is simply inert for those users.
+
+Anything that is ASCII by specification -- a MIME type, a URI scheme, a file
+extension, an HTTP header name, a hex digit -- must therefore be folded by hand or
+compared without folding at all:
+
+- **Comparing two strings?** `equalsIgnoreCase`, or `regionMatches(true, ...)` for
+  a prefix. Both compare character by character and are locale independent, and
+  neither allocates.
+- **Storing or keying a canonical form?** A private ASCII fold. There are several
+  in the tree already -- `ClipboardContent.asciiLower`,
+  `AndroidImplementation.asciiLower`, `WebSocketImpl.asciiLower`,
+  `DefaultCalendarHttpTransport.asciiLowerCase` -- all the same six lines. Copy one
+  rather than widening a class's API to share it.
+
+There is no gate for this yet, and the tree still has ~160 unswept
+`toLowerCase()`/`toUpperCase()` calls across the ports (cookie parsing, crypto
+transformation names, font matching, `url.toLowerCase().startsWith("http")`).
+Sweeping them is worth doing on its own; do not fold it into an unrelated change.
+
+### Never write a control character into source
+
+A raw control byte -- NUL, US, SOH, DEL -- typed straight into a file instead of
+as an escape is invisible in an editor and makes the file *binary* to the tools
+around it. `grep` then prints nothing at all for that file: not an error, not
+"binary file matches", just success with no output, so a search reads as "the
+symbol is not there". `git diff` degrades to "Binary files differ" and
+`javac -encoding ascii` refuses the file outright.
+
+The byte is never required. Every language here has an escape that compiles to
+the identical value, so `scripts/check-control-characters.py` is absolute:
+**no baseline and no exclusions**, and a finding is always fixed by writing the
+escape (`'\0'`, `"\u001f"`, `\x1f`). TAB, LF and CR are the only control
+characters allowed. It covers every tracked text file -- source, scripts,
+config and docs -- because this tree had corrupted files in several of them.
+
+It runs as its own workflow (`.github/workflows/check-control-characters.yml`)
+rather than inside `pr.yml`, whose `paths` filter excludes `scripts/**` and
+`docs/**` and would let a PR touching only those skip the check.
+
+```bash
+scripts/check-control-characters.py            # every tracked text file
+scripts/check-control-characters.py PATH ...   # just these
+```
+
+Note the related Java trap the gate cannot see, because it is a compile error:
+`\u` followed by anything that is not four hex digits is illegal *anywhere* in a
+Java file, comments included -- javac processes unicode escapes before it parses
+comments. Write "backslash-u" in prose, or double the backslash.
+
+### Working with Native Code
+
+Platform-specific native code locations:
+- **iOS**: `Ports/iOSPort/nativeSources/` (Objective-C)
+- **Android**: Within Android port module (Java/Kotlin)
+- **JavaSE**: Within JavaSE port (Java)
+
+#### Prebuilt Android `.so` files must be 16 KB page aligned
+
+Google Play requires every **64-bit** shared library in an upload to be linked
+for 16 KB memory pages -- API 35+ uploads since 2025-11-01, Wear OS uploads
+containing native code from 2026-09-15. Each `PT_LOAD` segment needs `p_align`
+of `0x4000` or more (<https://developer.android.com/guide/practices/page-sizes>).
+
+Alignment is settled at **link** time. AGP aligns the ZIP entries and bundletool
+reports the outcome, but nothing downstream can move a segment inside a prebuilt
+`.so`, so a Codename One artifact that gets it wrong ships a broken app the
+developer cannot fix from their own sources. And it is silent: the app builds
+and runs on every 4 KB device, and only Play review or a real 16 KB device says
+otherwise.
+
+Build any Android native artifact with **NDK r28 or newer**. r28 is the first
+release that links this way by default, and the first whose prebuilt
+`libc++_shared.so` and `libomp.so` are aligned -- those are copied out of the
+NDK, so `-Wl,-z,max-page-size=16384` cannot fix them on r26/r27.
+
+Separately, the NDK's own floor has been API 21 since r26, so any AAR built
+here needs `minSdk 21` and an entry in `PlatformFeatureCatalog` with
+`.androidMinimumSdk(21)` to lift the application's default floor of 19 past the
+manifest merger. A lower `minSdk` in the library is a claim the `.so` files do
+not honour -- check `.note.android.ident`, which records the API level the
+slice was really compiled against.
+
+`scripts/check-16k-page-alignment.py` gates this over every tracked archive and
+loose `.so` in the tree, in its own workflow
+(`.github/workflows/check-16k-page-alignment.yml`) rather than inside `pr.yml`,
+whose `paths` filter would let a PR that only adds a native artifact skip it.
+Containers and libraries are found by magic bytes, not by extension, so a
+`.cn1lib` or any future container is covered.
+
+The rule reaches only 64-bit libraries under Android packaging. 32-bit slices
+are exempt because 16 KB pages are a 64-bit feature, and a desktop `.so` --
+which a cn1lib can ship through `nativelinux`/`nativese` -- is correct at
+0x1000. Integrity is not scoped that way: a `.so` that is not an ELF, or is
+truncated, fails wherever it sits.
+
+```bash
+scripts/check-16k-page-alignment.py            # every tracked artifact
+scripts/check-16k-page-alignment.py --verbose  # list everything scanned
+```
+
+#### ParparVM native names are checked, and getting one wrong is silent
+
+ParparVM encodes the **whole Java signature in the C function name**. For
+`boolean isBiometricsSupported()` on `com.codename1.impl.ios.IOSNative`:
+
+```c
+JAVA_BOOLEAN com_codename1_impl_ios_IOSNative_isBiometricsSupported___R_boolean(
+        CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1ThisObject)
+```
+
+Three rules, all easy to get wrong by hand:
+
+- `__` opens the argument list and **every argument adds its own leading `_`**, so
+  a no-arg method ends in `__` and a one-int method ends in `___int` -- three
+  underscores.
+- A non-void return appends **`_R` plus that same per-type `_`**: `_R_boolean`,
+  `_R_java_lang_String`. Omitting it still compiles.
+- Array dimensions collapse to one token: `byte[][]` is `byte_2ARRAY`, never
+  `byte_1ARRAY_1ARRAY`.
+- Instance methods take `JAVA_OBJECT` after the thread state; static ones do not.
+
+**Neither the compiler nor the linker catches a mistake here.** A misspelled name
+is just a different function, so it compiles and links; the correctly named symbol
+is then absent, and since a native method is kept alive *by* its symbol appearing
+in the native sources (`BytecodeMethod.isMethodUsedByNative`), the dead-code pass
+reads that absence as "unused" and drops the Java method. The build is green and
+the feature is inert on the device. A right name with a wrong *prototype* is worse:
+C links on the name alone, so it runs and reads its arguments out of the wrong
+registers.
+
+`NativeSignatureVerifier` gates this, in two places -- **both of them ours, neither
+of them on by default in a customer build**:
+
+- **A translation** (iOS, native Windows, native Linux) verifies the generated
+  project -- app, cn1libs and the native-interface glue the builders inject -- and
+  fails before emitting any C. This is **opt-in**: it does nothing unless
+  `CN1_NATIVE_VERIFY` or `-Dparparvm.nativeVerify` says `strict` or `warn`. Making
+  the old soft failure hard would change the outcome of app builds that succeed
+  today, so our CI opts in (`CN1_NATIVE_VERIFY: strict` at workflow level in
+  `pr.yml`, `parparvm-tests.yml` and `parparvm-tests-windows.yml`, inherited by
+  every forked translation) and nobody else has to. The `nativeVerify` build hint
+  turns it on for a single build. With the check on, the per-symbol opt-out for a
+  native that lives in a prebuilt `.a`/`.framework` is
+  `cn1-native-verify-ignore.txt` beside the native sources.
+- **PR CI** runs the same verifier offline over our own ports, which needs no
+  device build. This half is a CI tool rather than part of any build, so it is
+  always strict:
+
+```bash
+source tools/env.sh
+scripts/check-native-signatures.sh          # skips ports that are not built
+scripts/check-native-signatures.sh --require-all   # what CI runs
+```
+
+Findings come in three kinds. `MISSING` and `SIGNATURE` fail the build. `ORPHAN`
+-- a C function whose name is a near miss for one of ours and that nothing else
+calls -- is a warning: it is dead code, not a broken build. Note the offline gate
+reads `target/classes`, so **a stale port build reports natives that no longer
+exist**; rebuild the module before believing a finding.
+
+#### The right name is not enough in C++
+
+A native defined in a `.cpp` or `.mm` file gets its name **mangled** unless it is
+declared `extern "C"`. The file compiles, the symbol it exports is not the one the
+generated code calls, and the link fails on the device in a file nobody touched --
+naming a symbol that is visibly right there in the source.
+
+`NativeSignatureVerifier` cannot see it. It checks that a native's *name* matches
+its Java method, and a mangled function has the right name too; linkage is not part
+of a name. #5845 shipped exactly this in `cn1_windows_window.cpp` and only a real
+Windows build caught it.
+
+`scripts/check-native-cpp-linkage.py` closes that, over every tracked `.cpp`, `.cc`,
+`.cxx` and `.mm`. It needs no compiler and no build output. Like the control-character
+gate it has **no baseline and no exclusions**: a native without C linkage is never
+intentional, and the fix is always one line. The script is re-included in `pr.yml`'s
+`paths` (both triggers) so a change that weakens the gate cannot merge unexercised.
+
+```bash
+scripts/check-native-cpp-linkage.py            # every tracked C++ translation unit
+scripts/check-native-cpp-linkage.py PATH ...   # just these
+```
+
+Note what it deliberately does not report: a port-internal C++ helper, whose mangling
+is correct, and a prototype, which needs no linkage of its own -- only a *definition*
+whose symbol the generated code will call.
+
+#### A framework an app gets by accident is a framework it can lose
+
+The iOS port referenced the `UTType` class while `ByteCodeTranslator` linked
+`UniformTypeIdentifiers.framework` only on the macOS branch -- and *every* iOS CI
+job stayed green for five days while *every* customer archive failed with
+`Undefined symbols: "_OBJC_CLASS_$_UTType"`.
+
+Nothing declared the framework in either case. The sample application CI builds
+simply supplies it by accident, three different ways, none of which a plain
+application has:
+
+- **A Swift autolink hint.** `import SwiftUI` makes swiftc stamp
+  `-framework UniformTypeIdentifiers` into the object as an `LC_LINKER_OPTION`,
+  and the linker honours it. The sample has Swift in its app target (App Intents,
+  Live Activity surfaces); an ordinary Codename One app has none.
+- **`CLANG_ENABLE_MODULES`.** `IPhoneBuilder` turns it on for the Metal build,
+  for pods, the watch and the VPN extension. With modules on, a plain
+  `#import <Framework/Header.h>` autolinks too -- so the *same source* links on
+  the Metal build and fails on the GL one.
+- **CocoaPods.** A pod's own dependencies are on the link line either way.
+
+So the rule is: **a framework the port's natives reference must be declared in
+`ByteCodeTranslator.includeFrameworks`**, never left to an autolink hint. Weakly
+(`optionalFrameworks`, which emits `ATTRIBUTES = (Weak, )`) when the API is newer
+than the lowest `ios.deployment_target`, so a device without the framework still
+launches -- the uses are `@available` fenced. Classify it in `WatchNativeBuilder`
+in the same change, the way the watch partition test asks.
+
+`scripts/check-ios-framework-links.py` gates this. It runs over the project
+`build-ios-app.sh` already generated, so it costs seconds, and it answers one
+question: *every symbol our natives reference that an SDK framework defines -- is
+it defined by a framework this project declares?* It compiles the port's natives
+with the project's own settings (prefix header, defines, per-file `-fobjc-arc`,
+modules where the project asks) and then resolves the undefined symbols against
+the declared set alone. **Autolink cannot hide anything from it**: a hint is a
+load command, not a definition, so `nm` still reports the symbol undefined, and
+the probe it links to confirm a finding carries no hints at all.
+
+Two properties worth keeping if you touch it. A native that fails to compile is
+**fatal**, not skipped -- a partial set reporting success is the exact failure
+this replaces. And the SDK symbol index self-tests (a symbol floor, plus two
+known symbols that must resolve to `Foundation` and `UIKit`), because a text
+index that silently parses to nothing reports every project clean.
+
+```bash
+scripts/check-ios-framework-links.py <generated-ios-source-dir>
+scripts/check-ios-framework-links.py <dir> --sdk iphonesimulator --verbose
+```
+
+Scope is the **iOS application target and our own port natives**. Translated C
+only calls into natives, and a cn1lib's natives are its author's to declare. The
+watch, tv and macOS slices are not covered yet.
+
+
+### Integration Tests
+
+Located in `maven/integration-tests/`:
+```bash
+cd maven/integration-tests
+./cn1app-archetype-test.sh      # Test archetype generation
+./android-native-interface-test.sh  # Test Android native interfaces
+```
+
+## Common Patterns
+
+### Resource Files
+
+Resources are managed via `.res` files:
+- `CodenameOne/src/CN1Resource.res` - Default resources
+- Edit with Designer tool or programmatically
+
+### Theme and Styling
+
+- CSS-based styling supported
+- Material Design font included: `CodenameOne/src/material-design-font.ttf`
+- Theme files are part of `.res` resources
+
+### Version Management
+
+Version is centrally managed in `maven/pom.xml`:
+```bash
+# Update version
+cd maven
+bash update-version.sh 8.0.1
+```
+
+## Deployment and Release
+
+### Release Deployment
+
+Releases go to the Codename One Maven repository at
+<https://repo.codenameone.com/maven2> (Cloudflare R2), **not** to Maven Central.
+Central keeps every version published before the cutover and nothing is removed
+from it, but it receives no new ones. Do not add a Central publication step back;
+the reasons and the rules the publishing scripts enforce are in
+`maven/scripts/r2/README.md`.
+
+`central-publishing-maven-plugin` is still what builds a release. That is not a
+leftover: it stages a complete Maven layout with all four checksums and `.asc`
+signatures, which is exactly the tree R2 needs. Every build passes
+`-DskipPublishing=true`, so it stages and never uploads. It still needs a `central`
+server entry in `settings.xml` or it NPEs before staging, which is why the release
+workflow keeps `server-id: central` with no credentials attached.
+
+See `maven/README.adoc` for the full process. Summary:
+1. Update to release version: `bash update-version.sh X.Y.Z`
+2. Push tags, **one at a time** (triggers `.github/workflows/release.yml`) --
+   a third tag pushed during a running release replaces the pending second one
+   and it is never published
+3. Update to next SNAPSHOT: `bash update-version.sh X.Y.Z+1-SNAPSHOT`
+
+Some artifacts are resolved by a release at a version that is not the release's
+own -- `codenameone-designer` and `codenameone-javase-svg` at
+`cn1.designer.version`, and `cn1-builder-resources-{common,android}` at their
+pinned version. They are published nowhere but Maven Central, so they have to be
+copied into the repository once. `maven/scripts/r2/frozen-coordinates.py`
+**derives** that set from the tree; do not replace it with a hand-written list,
+which was wrong twice in its single commit of existence. After bumping any such
+pin, run the *Seed frozen artifacts to R2* workflow before the next release tag.
+The release refuses to build while a pinned version is absent from the
+repository, so the ordering is enforced rather than remembered.
+
+### Build Server
+
+Codename One uses build servers for cloud builds. The build client (`CodeNameOneBuildClient.jar`) communicates with these servers for Android/iOS builds when not building locally.
+
+## Debugging and Troubleshooting
+
+### Simulator
+
+The JavaSE port serves as the simulator with:
+- Fast startup (no emulator overhead)
+- Live code reload support
+- CSS live updates
+- Component inspector
+- Network monitor
+- Interactive Groovy console
+
+### Native Debugging
+
+- **iOS**: Open generated Xcode project, use Xcode debugger and Instruments
+- **Android**: Standard Android debugging via Android Studio
+
+### Common Issues
+
+- **JDK version mismatch**: Ensure JAVA_HOME is JDK 8 for building the framework, JAVA17_HOME is JDK 17 for the Android port
+- **`Unrecognized option: --add-exports=...`** when running the simulator or desktop app: the project is being executed on a JDK older than 11. Switch to JDK 11 through 25 (Eclipse Temurin from <https://adoptium.net>) and re-run. The Codename One Maven plugin now detects this and prints a friendly error before the JVM is forked.
+- **Missing cn1-binaries**: Run `setup-workspace.sh` or manually clone to `../cn1-binaries`
+- **Build client missing**: Copy `maven/CodeNameOneBuildClient.jar` to `~/.codenameone/`
+- **macOS ARM JDK8**: Setup script downloads x64 version (works via Rosetta)

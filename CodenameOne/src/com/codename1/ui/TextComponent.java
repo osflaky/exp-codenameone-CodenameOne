@@ -1,0 +1,656 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+package com.codename1.ui;
+
+import com.codename1.ui.animations.ComponentAnimation;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.layouts.BorderLayout;
+import com.codename1.ui.layouts.FlowLayout;
+import com.codename1.ui.layouts.LayeredLayout;
+
+/// Encapsulates a text field and label into a single component. This allows the UI to adapt for iOS/Android
+/// behavior differences and support features like floating hint when necessary. It also includes platform specific
+/// error handling logic.
+///
+/// It is highly recommended to use text components in the context of a `com.codename1.ui.layouts.TextModeLayout`
+/// This allows the layout to implicitly adapt to the on-top mode and use a box layout Y mode for iOS and other
+/// platforms.
+///
+/// This class supports several theme constants:
+///
+/// - `textComponentErrorColor` a hex RGB color which defaults to null in which case this has no effect.
+/// When defined this will change the color of the border and label to the given color to match the material design
+/// styling.
+///
+/// - `textComponentErrorLineBorderBool` when set to `false`, this will prevent the text component from
+/// applying an underline border when there is a validation error. Defaults to `true`.
+///
+/// - `textComponentOnTopBool` toggles the on top mode see `#onTopMode(boolean)`
+///
+/// - `textComponentAnimBool` toggles the animation mode see `#focusAnimation(boolean)`
+///
+/// - `textComponentFieldUIID` sets the UIID of the text field to something other than `TextField`
+/// which is useful for platforms such as iOS where the look of the text field is different within the text component
+///
+/// The following code demonstrates a simple set of inputs and validation as it appears in iOS, Android and with
+/// validation errors
+///
+/// ```java
+/// TextModeLayout tl = new TextModeLayout(3, 2);
+/// Form f = new Form("Pixel Perfect", tl);
+///
+/// TextComponent title = new TextComponent().label("Title");
+/// TextComponent price = new TextComponent().label("Price");
+/// TextComponent location = new TextComponent().label("Location");
+/// PickerComponent date = PickerComponent.createDate(new Date()).label("Date");
+/// TextComponent description = new TextComponent().label("Description").multiline(true);
+///
+/// Validator val = new Validator();
+/// val.addConstraint(title, new LengthConstraint(2));
+/// val.addConstraint(price, new NumericConstraint(true));
+///
+/// f.add(tl.createConstraint().widthPercentage(60), title);
+/// f.add(tl.createConstraint().widthPercentage(40), date);
+/// f.add(location);
+/// f.add(price);
+/// f.add(tl.createConstraint().horizontalSpan(2), description);
+/// f.setEditOnShow(title.getField());
+///
+/// f.show();
+/// ```
+///
+/// @author Shai Almog
+public class TextComponent extends InputComponent {
+    private static final int animationSpeed = 100;
+    private Container animationLayer;
+    private Runnable hintAnimationCleanup;
+    private final TextField field = new TextField() {
+        @Override
+        void paintHint(Graphics g) {
+            if (isFocusAnimation()) {
+                if (!hasFocus()) {
+                    super.paintHint(g);
+                }
+            } else {
+                super.paintHint(g);
+            }
+        }
+
+        @Override
+        void focusGainedInternal() {
+            super.focusGainedInternal();
+            if (isInitialized() && isFocusAnimation()) {
+                getLabel().setFocus(true);
+                syncHintPosition();
+            }
+        }
+
+        @Override
+        void focusLostInternal() {
+            super.focusLostInternal();
+            if (isInitialized() && isFocusAnimation()) {
+                getLabel().setFocus(false);
+                syncHintPosition();
+            }
+        }
+    };
+    private Boolean focusAnimation;
+
+    /// Moves the hint into or out of the floating label position so it matches the current focus,
+    /// animating the transition. Focus can change again while that animation is queued -- selecting the
+    /// next field before typing anything is enough -- so the transition is driven from the focus state
+    /// rather than from the step it happens to be on, only one runs at a time, and the state is
+    /// re-checked once it completes.
+    private void syncHintPosition() {
+        if (hintAnimationCleanup != null || animationLayer == null || !isInitialized() || !isFocusAnimation()) {
+            return;
+        }
+        if (field.hasFocus()) {
+            if (!getLabel().isVisible()) {
+                animateHintToLabel();
+            }
+        } else if (getText().length() > 0) {
+            // Content arrived while the reverse transition was queued, so the transition hid a label
+            // that a field with text has to keep -- the hint is not painted once there is text, which
+            // would leave nothing naming the field. Nothing to animate, only a state to correct.
+            if (!getLabel().isVisible()) {
+                field.setHint("");
+                getLabel().setVisible(true);
+            }
+        } else if (getLabel().isVisible() && isOnTopMode()) {
+            animateLabelToHint();
+        }
+    }
+
+    private void animateHintToLabel() {
+        final Label text = new Label(field.getHint(), "TextHint");
+        field.setHint("");
+        final Label placeholder = new Label();
+        Component.setSameSize(placeholder, field);
+        animationLayer.add(BorderLayout.NORTH, text);
+        animationLayer.add(BorderLayout.CENTER, placeholder);
+        text.setX(field.getX());
+        text.setY(field.getY());
+        text.setWidth(field.getWidth());
+        text.setHeight(field.getHeight());
+        hintAnimationCleanup = new Runnable() {
+            @Override
+            public void run() {
+                Component.setSameSize(field);
+                removeAnimationLabel(text);
+                removeAnimationLabel(placeholder);
+                getLabel().setVisible(true);
+            }
+        };
+        ComponentAnimation anim = ComponentAnimation.compoundAnimation(animationLayer.createAnimateLayout(animationSpeed), text.createStyleAnimation("FloatingHint", animationSpeed));
+        field.getAnimationManager().addAnimation(anim, new Runnable() {
+            @Override
+            public void run() {
+                finishHintAnimation();
+                syncHintPosition();
+            }
+        });
+    }
+
+    private void animateLabelToHint() {
+        final Label text = new Label(getLabel().getText(), getLabel().getUIID());
+        final Label placeholder = new Label();
+        Component.setSameSize(placeholder, getLabel());
+        animationLayer.add(BorderLayout.NORTH, placeholder);
+        animationLayer.add(BorderLayout.CENTER, text);
+        text.setX(getLabel().getX());
+        text.setY(getLabel().getY());
+        text.setWidth(getLabel().getWidth());
+        text.setHeight(getLabel().getHeight());
+        String hintLabelUIID = "TextHint";
+        if (field.getHintLabel() != null) {
+            hintLabelUIID = field.getHintLabel().getUIID();
+        }
+        hintAnimationCleanup = new Runnable() {
+            @Override
+            public void run() {
+                field.setHint(getLabel().getText());
+                getLabel().setVisible(false);
+                Component.setSameSize(getLabel());
+                removeAnimationLabel(text);
+                removeAnimationLabel(placeholder);
+            }
+        };
+        ComponentAnimation anim = ComponentAnimation.compoundAnimation(animationLayer.createAnimateLayout(animationSpeed), text.createStyleAnimation(hintLabelUIID, animationSpeed));
+        field.getAnimationManager().addAnimation(anim, new Runnable() {
+            @Override
+            public void run() {
+                finishHintAnimation();
+                syncHintPosition();
+            }
+        });
+    }
+
+    /// Takes one of the transition's temporary labels back out of the animation layer.
+    ///
+    /// `com.codename1.ui.Component#remove()` is not usable here. The cleanup runs from an animation
+    /// completion, and selecting the next field before typing anything leaves that field's own
+    /// transition queued behind this one -- so the animation manager is still animating, and
+    /// `com.codename1.ui.Container#removeComponent(Component)` takes its deferred path, which
+    /// queues the removal as an animation that reports `isInProgress()` false and is therefore
+    /// completed without ever being stepped. The removal is dropped and the label stays in the
+    /// hierarchy, painting on top of the field's own hint (issue #5600).
+    ///
+    /// Removing directly is safe precisely here: the animation over this layer is the one that just
+    /// finished, and the transitions queued behind it belong to other components' layers.
+    private void removeAnimationLabel(Label label) {
+        if (label.getParent() == animationLayer) { //NOPMD CompareObjectsWithEquals
+            animationLayer.removeComponentImplNoAnimationSafety(label);
+        } else {
+            label.remove();
+        }
+    }
+
+    /// Puts the transition in its end state exactly once, whether it got there by completing or by
+    /// being abandoned. `com.codename1.ui.Form#deinitializeImpl()` flushes the animation queue
+    /// without running completion callbacks, so a form torn down mid-transition would otherwise keep
+    /// the temporary labels in the animation layer, with `#syncHintPosition()` permanently guarded off.
+    private void finishHintAnimation() {
+        Runnable cleanup = hintAnimationCleanup;
+        if (cleanup != null) {
+            hintAnimationCleanup = null;
+            cleanup.run();
+        }
+    }
+
+    /// Puts the hint where the current focus says it belongs, with no animation.
+    ///
+    /// Committing an abandoned transition's end state is not enough on its own, because focus may
+    /// have moved on while that transition was still queued: focus a field, select the next one
+    /// before typing, then leave the form, and the first field would come to rest showing the
+    /// floating label over an empty, unfocused field with no hint. Returning to the form fires no
+    /// focus event for it, so nothing would correct that until the next focus cycle.
+    private void snapHintToFocus() {
+        if (animationLayer == null || !isFocusAnimation()) {
+            return;
+        }
+        if (field.hasFocus() || getText().length() > 0) {
+            // focused, or holding content: either way the label belongs above the field
+            field.setHint("");
+            getLabel().setVisible(true);
+        } else if (isOnTopMode()) {
+            field.setHint(getLabel().getText());
+            getLabel().setVisible(false);
+        }
+    }
+
+    @Override
+    protected void deinitialize() {
+        finishHintAnimation();
+        snapHintToFocus();
+        super.deinitialize();
+    }
+
+    /// Default constructor allows us to create an arbitrary text component
+    public TextComponent() {
+        initInput();
+    }
+
+    private void updateLabel() {
+        if (isFocusAnimation() &&
+                (field.getText() == null || field.getText().length() == 0)) {
+            field.setHint(getLabel().getText());
+            getLabel().setVisible(false);
+        } else {
+            getLabel().setVisible(true);
+        }
+    }
+
+    @Override
+    void constructUI() {
+        if (getComponentCount() == 0) {
+            if (isOnTopMode() && isFocusAnimation()) {
+                getLabel().setUIID("FloatingHint");
+                setLayout(new LayeredLayout());
+                Container tfContainer;
+                if (action != null) {
+                    tfContainer = BorderLayout.center(
+                            LayeredLayout.encloseIn(
+                                    field,
+                                    FlowLayout.encloseRightMiddle(action)
+                            )
+                    );
+                } else {
+                    tfContainer = BorderLayout.center(field);
+                }
+                tfContainer.add(BorderLayout.NORTH, getLabel()).
+                        add(BorderLayout.SOUTH,
+                                LayeredLayout.encloseIn(
+                                        getErrorMessage(),
+                                        getDescriptionMessage()));
+                add(tfContainer);
+
+                Label errorMessageFiller = new Label();
+                Component.setSameSize(errorMessageFiller, getErrorMessage());
+                animationLayer = BorderLayout.south(errorMessageFiller);
+                add(animationLayer);
+                updateLabel();
+            } else {
+                super.constructUI();
+            }
+        }
+    }
+
+    /// Returns the editor component e.g. text field picker etc.
+    ///
+    /// #### Returns
+    ///
+    /// the editor component
+    @Override
+    public Component getEditor() {
+        return field;
+    }
+
+    @Override
+    void refreshForGuiBuilder() {
+        if (guiBuilderMode) {
+            if (animationLayer != null) {
+                animationLayer.remove();
+            }
+            super.refreshForGuiBuilder();
+        }
+    }
+
+    /// The focus animation mode forces the hint and text to be identical and animates the hint to the label when
+    /// focus is in the text field as is common on Android. This can be customized using the theme constant
+    /// `textComponentAnimBool` which is true by default on Android. Notice that this is designed for the
+    /// `onTopMode` and might not work if that is set to false...
+    ///
+    /// #### Returns
+    ///
+    /// true if the text should be on top
+    public boolean isFocusAnimation() {
+        if (focusAnimation != null) {
+            return focusAnimation.booleanValue();
+        }
+        return getUIManager().isThemeConstant("textComponentAnimBool", false);
+    }
+
+    /// The focus animation mode forces the hint and text to be identical and animates the hint to the label when
+    /// focus is in the text field as is common on Android. This can be customized using the theme constant
+    /// `textComponentAnimBool` which is true by default on Android. Notice that this is designed for the
+    /// `onTopMode` and might not work if that is set to false...
+    ///
+    /// #### Parameters
+    ///
+    /// - `focusAnimation`: true for the label to animate into place on focus, false otherwise
+    ///
+    /// #### Returns
+    ///
+    /// this for chaining calls E.g. `TextComponent tc = new TextComponent().text("Text").label("Label");`
+    public TextComponent focusAnimation(boolean focusAnimation) {
+        this.focusAnimation = Boolean.valueOf(focusAnimation);
+        refreshForGuiBuilder();
+        return this;
+    }
+
+    /// Sets the text of the field
+    ///
+    /// #### Parameters
+    ///
+    /// - `text`: the text
+    ///
+    /// #### Returns
+    ///
+    /// this for chaining calls E.g. `TextComponent tc = new TextComponent().text("Text").label("Label");`
+    public TextComponent text(String text) {
+        field.setText(text);
+        updateLabel();
+        refreshForGuiBuilder();
+        return this;
+    }
+
+    /// Overridden for covariant return type
+    /// {@inheritDoc}
+    @Override
+    public TextComponent onTopMode(boolean onTopMode) {
+        return (TextComponent) super.onTopMode(onTopMode);
+    }
+
+    /// Overridden for covariant return type
+    /// {@inheritDoc}
+    @Override
+    public TextComponent action(char icon) {
+        super.action(icon);
+        return this;
+    }
+
+    /// Overridden for covariant return type
+    /// {@inheritDoc}
+    @Override
+    public TextComponent actionClick(ActionListener c) {
+        super.actionClick(c);
+        return this;
+    }
+
+    /// Overridden for covariant return type
+    /// {@inheritDoc}
+    @Override
+    public TextComponent errorMessage(String errorMessage) {
+        super.errorMessage(errorMessage);
+        return this;
+    }
+
+    /// Overridden for covariant return type
+    /// {@inheritDoc}
+    @Override
+    public TextComponent descriptionMessage(String descriptionMessage) {
+        super.descriptionMessage(descriptionMessage);
+        return this;
+    }
+
+    /// Overridden for covariant return type
+    /// {@inheritDoc}
+    @Override
+    public TextComponent label(String text) {
+        super.label(text);
+        return this;
+    }
+
+    /// Overridden for covariant return type
+    /// {@inheritDoc}
+    @Override
+    public TextComponent actionAsButton(boolean asButton) {
+        return (TextComponent) super.actionAsButton(asButton);
+    }
+
+    /// Overridden for covariant return type
+    /// {@inheritDoc}
+    @Override
+    public TextComponent actionUIID(String uiid) {
+        return (TextComponent) super.actionUIID(uiid);
+    }
+
+    /// Overridden for covariant return type
+    /// {@inheritDoc}
+    @Override
+    public TextComponent actionText(String text) {
+        return (TextComponent) super.actionText(text);
+    }
+
+    /// Convenience method for setting the label and hint together
+    ///
+    /// #### Parameters
+    ///
+    /// - `text`: the text and hint
+    ///
+    /// #### Returns
+    ///
+    /// this for chaining calls E.g. `TextComponent tc = new TextComponent().text("Text").label("Label");`
+    public TextComponent labelAndHint(String text) {
+        super.label(text);
+        hint(text);
+        return this;
+    }
+
+    /// Sets the hint of the field
+    ///
+    /// #### Parameters
+    ///
+    /// - `hint`: the text of the hint
+    ///
+    /// #### Returns
+    ///
+    /// this for chaining calls E.g. `TextComponent tc = new TextComponent().text("Text").label("Label");`
+    public TextComponent hint(String hint) {
+        field.setHint(hint);
+        refreshForGuiBuilder();
+        return this;
+    }
+
+    /// Sets the hint of the field
+    ///
+    /// #### Parameters
+    ///
+    /// - `hint`: the icon for the hint
+    ///
+    /// #### Returns
+    ///
+    /// this for chaining calls E.g. `TextComponent tc = new TextComponent().text("Text").label("Label");`
+    public TextComponent hint(Image hint) {
+        field.setHintIcon(hint);
+        refreshForGuiBuilder();
+        return this;
+    }
+
+    /// Sets the text field to multiline or single line
+    ///
+    /// #### Parameters
+    ///
+    /// - `multiline`: true for multiline, false otherwise
+    ///
+    /// #### Returns
+    ///
+    /// this for chaining calls E.g. `TextComponent tc = new TextComponent().text("Text").label("Label");`
+    public TextComponent multiline(boolean multiline) {
+        field.setSingleLineTextArea(!multiline);
+        refreshForGuiBuilder();
+        return this;
+    }
+
+    /// Sets the columns in the text field
+    ///
+    /// #### Parameters
+    ///
+    /// - `columns`: the number of columns which is used for preferred size calculations
+    ///
+    /// #### Returns
+    ///
+    /// this for chaining calls E.g. `TextComponent tc = new TextComponent().text("Text").label("Label");`
+    public TextComponent columns(int columns) {
+        field.setColumns(columns);
+        refreshForGuiBuilder();
+        return this;
+    }
+
+    /// Sets the rows in the text field
+    ///
+    /// #### Parameters
+    ///
+    /// - `rows`: the number of rows which is used for preferred size calculations
+    ///
+    /// #### Returns
+    ///
+    /// this for chaining calls E.g. `TextComponent tc = new TextComponent().text("Text").label("Label");`
+    public TextComponent rows(int rows) {
+        field.setRows(rows);
+        refreshForGuiBuilder();
+        return this;
+    }
+
+    /// Sets the constraint for text input matching the constraints from the text area class
+    ///
+    /// #### Parameters
+    ///
+    /// - `constraint`: @param constraint one of the constants from the `com.codename1.ui.TextArea` class see
+    /// `com.codename1.ui.TextArea#setConstraint(int)`
+    ///
+    /// #### Returns
+    ///
+    /// this for chaining calls E.g. `TextComponent tc = new TextComponent().text("Text").label("Label");`
+    public TextComponent constraint(int constraint) {
+        field.setConstraint(constraint);
+        return this;
+    }
+
+    /// Allows us to invoke setters/getters and bind listeners to the text field
+    ///
+    /// #### Returns
+    ///
+    /// the text field instance
+    public TextField getField() {
+        return field;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String[] getPropertyNames() {
+        return new String[]{"text", "label", "hint", "multiline", "columns", "rows", "constraint"};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Class[] getPropertyTypes() {
+        return new Class[]{String.class, String.class, String.class, Boolean.class, Integer.class, Integer.class, Integer.class};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String[] getPropertyTypeNames() {
+        return new String[]{"String", "String", "String", "Boolean", "Integer", "Integer", "Integer"};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Object getPropertyValue(String name) {
+        if ("text".equals(name)) {
+            return field.getText();
+        }
+        if ("hint".equals(name)) {
+            return field.getHint();
+        }
+        if ("multiline".equals(name)) {
+            return Boolean.valueOf(!field.isSingleLineTextArea());
+        }
+        if ("columns".equals(name)) {
+            return field.getColumns();
+        }
+        if ("rows".equals(name)) {
+            return field.getRows();
+        }
+        if ("constraint".equals(name)) {
+            return field.getConstraint();
+        }
+
+        return super.getPropertyValue(name);
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String setPropertyValue(String name, Object value) {
+        if ("text".equals(name)) {
+            text((String) value);
+            return null;
+        }
+        if ("hint".equals(name)) {
+            hint((String) value);
+            return null;
+        }
+        if ("multiline".equals(name)) {
+            field.setSingleLineTextArea(!((Boolean) value).booleanValue());
+            return null;
+        }
+        if ("columns".equals(name)) {
+            field.setColumns((Integer) value);
+            return null;
+        }
+        if ("rows".equals(name)) {
+            field.setRows((Integer) value);
+            return null;
+        }
+        if ("constraint".equals(name)) {
+            field.setConstraint((Integer) value);
+            return null;
+        }
+        return super.setPropertyValue(name, value);
+    }
+
+    /// Returns the text in the field `com.codename1.ui.TextArea#getText()`
+    ///
+    /// #### Returns
+    ///
+    /// the text
+    public String getText() {
+        return field.getText();
+    }
+
+
+
+
+}

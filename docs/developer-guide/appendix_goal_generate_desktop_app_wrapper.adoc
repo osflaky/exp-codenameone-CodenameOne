@@ -1,0 +1,6 @@
+=== Generate desktop app wrapper (`generate-desktop-app-wrapper`)
+
+Generates the bootstrapping wrapper class for the Java SE desktop app. This is used by the `Java SE` module of <<cn1app-archetype>> projects.
+
+You shouldn't need to call this goal directly.
+

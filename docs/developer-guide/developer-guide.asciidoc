@@ -1,0 +1,264 @@
+:xrefstyle: full
+:listing-caption: Listing
+:sectnums:
+:pdf-page-size: A4
+//:pdf-page-size: [8.75in, 11.25in]
+:doctype: book
+:media: prepress
+:icons: font
+:source-highlighter: rouge
+:toc: macro
+:toclevels: 4
+:chapter-label:
+:toc-title: Contents
+:toc-placement: manual
+:tip-caption: :bulb:
+:autofit-option:
+//:hide-uri-scheme:
+:uuid: 92CA37B2-EB2B-4B8F-AC7C-1ED13683F7FB
+:cover-image: book-cover.svg
+:front-cover-image: image:{cover-image}[Front Cover]
+:lang: en-US
+:revdate: 2025-10-20
+:revnumber: DEV-SNAPSHOT
+:doctitle: Codename One Developer Guide
+:author: Codename One Documentation Team; Shai Almog; Steve Hannah; Chen Fishbein
+:description: Build native mobile apps in Java
+:keywords: java, android, ios, iphone, mobile development
+:copyright: Codename One, all rights reserved
+:publication-type: book
+:producer: Codename One Ltd.
+:cn1-release-version: 7.0.210
+ifdef::env-CN1_RELEASE_VERSION[:cn1-release-version: {env:CN1_RELEASE_VERSION}]
+
+:cn1-plugin-release-version: {cn1-release-version}
+ifdef::env-CN1_PLUGIN_RELEASE_VERSION[:cn1-plugin-release-version: {env:CN1_PLUGIN_RELEASE_VERSION}]
+
+:cn1-snapshot-version: {cn1-release-version}-SNAPSHOT
+
+= {doctitle}
+{author}
+
+toc::[]
+
+include::About-This-Guide.asciidoc[]
+
+= Getting started
+
+include::Introduction.asciidoc[]
+
+include::Maven-Project-Workflow.asciidoc[]
+
+= Core concepts
+
+include::The-EDT---Event-Dispatch-Thread.asciidoc[]
+
+include::Events.asciidoc[]
+
+include::Device-Input-And-Form-Factors.asciidoc[]
+
+= User interface
+
+include::basics.asciidoc[]
+
+include::The-Components-Of-Codename-One.asciidoc[]
+
+include::component-selector.asciidoc[]
+
+include::Rich-Text-And-Code-Editing.asciidoc[]
+
+include::Accessibility-Semantics.asciidoc[]
+
+include::Animations.asciidoc[]
+
+= Theming and styling
+
+include::Advanced-Theming.asciidoc[]
+
+include::Native-Themes.asciidoc[]
+
+include::css.asciidoc[]
+
+= Graphics and games
+
+include::graphics.asciidoc[]
+
+include::SVG-Transcoder.asciidoc[]
+
+include::3D-Graphics.asciidoc[]
+
+include::Augmented-Reality.asciidoc[]
+
+include::Virtual-Reality.asciidoc[]
+
+include::Game-Development.asciidoc[]
+
+include::Game-Builder.asciidoc[]
+
+include::Game-Assets.asciidoc[]
+
+= Data, media and networking
+
+include::io.asciidoc[]
+
+include::Network-Connectivity.asciidoc[]
+
+include::Annotation-JSON-XML-Mapping.asciidoc[]
+
+include::Annotation-Component-Binding.asciidoc[]
+
+include::Annotation-SQLite-ORM.asciidoc[]
+
+include::Media-And-Audio.asciidoc[]
+
+include::Video-IO.asciidoc[]
+
+include::Video-Capture-Constraints.asciidoc[]
+
+= Server side
+
+include::Backend.asciidoc[]
+
+= Device and platform services
+
+include::Push-Notifications.asciidoc[]
+
+include::Notifications-And-Background-Execution.asciidoc[]
+
+include::Calendar-Integration.asciidoc[]
+
+include::External-Surfaces.asciidoc[]
+
+include::Maps.asciidoc[]
+
+include::In-Car-Experiences.asciidoc[]
+
+include::Motion-Sensors.asciidoc[]
+
+include::Near-Field-Communication.asciidoc[]
+
+include::Bluetooth.asciidoc[]
+
+include::Nearby-Devices.asciidoc[]
+
+include::Call-Management.asciidoc[]
+
+include::VPN.asciidoc[]
+
+include::Health.asciidoc[]
+
+include::Smart-Home.asciidoc[]
+
+include::Printing.asciidoc[]
+
+include::Deep-Links-Routing.asciidoc[]
+
+include::State-Restoration-And-Continuity.asciidoc[]
+
+include::App-Intents.asciidoc[]
+
+include::Document-Provider.asciidoc[]
+
+include::Apple-Wallet-Extension.asciidoc[]
+
+include::Miscellaneous-Features.asciidoc[]
+
+= AI and agents
+
+include::Ai-And-Speech.asciidoc[]
+
+include::MCP-Headless-API.asciidoc[]
+
+= Security and identity
+
+include::security.asciidoc[]
+
+include::App-Shield.asciidoc[]
+
+include::App-Hardening.asciidoc[]
+
+include::Biometric-Authentication.asciidoc[]
+
+include::Authentication-And-Identity.asciidoc[]
+
+include::Phone-Number-Verification.asciidoc[]
+
+= Monetization and analytics
+
+include::Commerce.asciidoc[]
+
+include::Monetization.asciidoc[]
+
+include::Advertising.asciidoc[]
+
+include::Analytics.asciidoc[]
+
+include::App-Review.asciidoc[]
+
+include::Crash-Protection.asciidoc[]
+
+= Testing, performance and debugging
+
+include::Testing-with-JUnit.adoc[]
+
+include::performance.asciidoc[]
+
+include::On-Device-Debugging.asciidoc[]
+
+include::On-Device-Debugging-Android.asciidoc[]
+
+= Build, sign and ship
+
+include::signing.asciidoc[]
+
+include::App-Store-Submission.asciidoc[]
+
+= Platform guides
+
+include::Working-With-iOS.asciidoc[]
+
+include::Working-With-Javascript.asciidoc[]
+
+include::Working-with-Mac-OS-X.asciidoc[]
+
+include::Working-with-Mac-Catalyst.asciidoc[]
+
+include::Working-With-Windows.asciidoc[]
+
+include::Working-With-Linux.asciidoc[]
+
+include::Desktop-Integration.asciidoc[]
+
+include::Desktop-Windows.asciidoc[]
+
+include::Wearables.asciidoc[]
+
+include::TVPlatforms.asciidoc[]
+
+= Under the hood
+
+include::Advanced-Topics-Under-The-Hood.asciidoc[]
+
+include::Working-With-CodenameOne-Sources.asciidoc[]
+
+include::Skin-Designer.asciidoc[]
+
+= Appendices
+
+include::Promises.asciidoc[]
+
+include::Plugins.asciidoc[]
+
+include::Maven-Appendix-Archetypes.adoc[]
+
+include::Maven-Appendix-Goals.adoc[]
+
+include::Maven-Appendix-API.adoc[]
+
+include::Maven-Appendix-Control-Center.adoc[]
+
+include::Maven-Appendix-Rich-Properties.adoc[]
+
+= Historical reference
+
+include::Working-with-UWP.asciidoc[]

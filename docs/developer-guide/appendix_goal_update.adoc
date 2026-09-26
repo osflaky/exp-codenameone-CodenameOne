@@ -1,0 +1,20 @@
+[#update-goal]
+=== Update Codename One (`update`)
+
+Updates Codename One. This updates tools that live inside `$HOME/.codenameone`, such as the GUI builder, and tries to update the `cn1.version` and `cn1.plugin.version` properties in the project's `pom.xml`. The standalone Settings editor is resolved from Maven using `cn1.plugin.version` when you run `mvn cn1:settings`.
+
+==== Usage example
+
+[source,bash]
+----
+include::../demos/common/src/main/snippets/developer-guide/appendix-goal-update.sh[tag=appendix-goal-update-bash-001,indent=0]
+----
+
+**Parameters**
+
+newVersion::
+(Optional) The version to update to. This should be a published Codename One version. Will accept a value of "LATEST" to cause it to resolve to the latest version in the Codename One Maven repository. `LATEST` never downgrades a project: if the newest version offered is older than the one the project already uses, the goal reports it and leaves `cn1.version` and `cn1.plugin.version` untouched.
++
+If this parameter is omitted, then it will be implicitly set to `LATEST`, but it won't update the `cn1.version` or `cn1.plugin.version` properties if they're set to a SNAPSHOT version.
+
+See <<updating>> for more information about updating Codename One.

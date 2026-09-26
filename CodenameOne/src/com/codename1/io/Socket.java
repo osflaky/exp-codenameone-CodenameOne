@@ -1,0 +1,575 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+package com.codename1.io;
+
+import com.codename1.ui.Display;
+
+import java.io.EOFException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/// Class implementing the socket API
+///
+/// @author Shai Almog
+public final class Socket {
+    private Socket() {
+    }
+
+    /// Returns true if sockets are supported in this port, false otherwise
+    ///
+    /// #### Returns
+    ///
+    /// true if sockets are supported in this port, false otherwise
+    public static boolean isSupported() {
+        return Util.getImplementation().isSocketAvailable();
+    }
+
+    /// Returns true if server sockets are supported in this port, if this method returns
+    /// false invocations of listen will always fail
+    ///
+    /// #### Returns
+    ///
+    /// true if server sockets are supported in this port, false otherwise
+    ///
+    /// #### Deprecated
+    ///
+    /// @deprecated server sockets are only supported on Android and Desktop and as such
+    /// we recommend against using them
+    public static boolean isServerSocketSupported() {
+        return Util.getImplementation().isServerSocketAvailable();
+    }
+
+    /// Returns true if this port can listen on the LOOPBACK interface only, so the
+    /// channel is reachable from the device itself but not from the network.
+    ///
+    /// This is a strictly narrower capability than [#isServerSocketSupported()], which
+    /// binds the wildcard address and therefore publishes the port on every network
+    /// interface. A port must implement loopback binding explicitly; there is no
+    /// fallback to a wildcard bind, because silently widening the reach of a channel a
+    /// caller asked to keep local would be the wrong failure.
+    ///
+    /// #### Returns
+    ///
+    /// true if [#listenLoopback(int, Class)] is usable on this port
+    public static boolean isLoopbackServerSocketSupported() {
+        return Util.getImplementation().isLoopbackServerSocketAvailable();
+    }
+
+    /// Connect to a remote host
+    ///
+    /// #### Parameters
+    ///
+    /// - `host`: the host
+    ///
+    /// - `port`: the connection port
+    ///
+    /// - `sc`: callback for when the connection is established or fails
+    public static void connect(final String host, final int port, final SocketConnection sc) {
+        if (host.indexOf('.') > -1 && host.indexOf(':') > -1) {
+            throw new IllegalArgumentException("Port should be provided separately");
+        }
+        Display.getInstance().startThread(new Runnable() {
+            @Override
+            public void run() {
+                Object connection = Util.getImplementation().connectSocket(host, port, sc.getConnectTimeout());
+                if (connection != null) {
+                    sc.setConnected(true);
+                    sc.input = new SocketInputStream(connection, sc);
+                    sc.output = new SocketOutputStream(connection, sc);
+                    sc.connectionEstablished(sc.input, sc.output);
+                } else {
+                    sc.setConnected(false);
+                    if (connection == null) {
+                        sc.connectionError(-1, "Failed to connect");
+                    } else {
+                        sc.connectionError(Util.getImplementation().getSocketErrorCode(connection), Util.getImplementation().getSocketErrorMessage(connection));
+                    }
+                }
+            }
+        }, "Connection to " + host).start();
+    }
+
+    /// Connect to a remote host
+    ///
+    /// #### Parameters
+    ///
+    /// - `host`: the host
+    ///
+    /// - `port`: the connection port
+    ///
+    /// - `sc`: callback for when the connection is established or fails
+    public static Close connectWithClose(final String host, final int port, final SocketConnection sc) {
+        if (host.indexOf('.') > -1 && host.indexOf(':') > -1) {
+            throw new IllegalArgumentException("Port should be provided separately");
+        }
+        final Object[] connection = new Object[1];
+        Display.getInstance().startThread(new Runnable() {
+            @Override
+            public void run() {
+                connection[0] = Util.getImplementation().connectSocket(host, port, sc.getConnectTimeout());
+                if (connection[0] != null) {
+                    sc.setConnected(true);
+                    sc.input = new SocketInputStream(connection[0], sc);
+                    sc.output = new SocketOutputStream(connection[0], sc);
+                    sc.connectionEstablished(sc.input, sc.output);
+                } else {
+                    sc.setConnected(false);
+                    if (connection[0] == null) {
+                        sc.connectionError(-1, "Failed to connect");
+                    } else {
+                        sc.connectionError(Util.getImplementation().getSocketErrorCode(connection[0]),
+                                Util.getImplementation().getSocketErrorMessage(connection[0]));
+                    }
+                }
+            }
+        }, "Connection to " + host).start();
+        return new Close() {
+            @Override
+            public void close() throws IOException {
+                while (connection[0] == null) {
+                    try {
+                        Thread.sleep(200);
+                    } catch (InterruptedException e) {
+                        Log.e(e);
+                        throw new RuntimeException(e.getMessage(), e);
+                    }
+                }
+                if (Util.getImplementation().isSocketConnected(connection[0])) {
+                    Util.getImplementation().disconnectSocket(connection[0]);
+                }
+                connection[0] = null;
+            }
+        };
+    }
+
+    /// Listen to incoming connections on port
+    ///
+    /// #### Parameters
+    ///
+    /// - `port`: the device port
+    ///
+    /// - `scClass`: @param scClass class of callback for when the connection is established or fails, this class
+    /// will be instantiated for every incoming connection and must have a public no argument constructor.
+    ///
+    /// #### Returns
+    ///
+    /// StopListening instance that allows the the caller to stop listening on a server socket
+    ///
+    /// #### Deprecated
+    ///
+    /// @deprecated server sockets are only supported on Android and Desktop and as such
+    /// we recommend against using them
+    public static StopListening listen(final int port, final Class scClass) {
+        return listenImpl(port, scClass, false);
+    }
+
+    /// Listens on the given port on the LOOPBACK interface only, so the channel is
+    /// reachable from this device but not from the network. Otherwise identical to
+    /// [#listen(int, Class)]: `scClass` is instantiated per incoming connection and
+    /// must have a public no-argument constructor.
+    ///
+    /// Use this for anything that is local by nature - a debug or automation channel,
+    /// an on-device tool talking to a companion process. Callers that genuinely want to
+    /// serve the network should use [#listen(int, Class)] and say so.
+    ///
+    /// Fails (never falls back to a wildcard bind) when
+    /// [#isLoopbackServerSocketSupported()] is false.
+    ///
+    /// #### Parameters
+    ///
+    /// - `port`: the device port
+    ///
+    /// - `scClass`: class of callback for each incoming connection
+    ///
+    /// #### Returns
+    ///
+    /// StopListening instance that allows the caller to stop listening
+    ///
+    /// #### Throws
+    ///
+    /// - `IllegalStateException`: if this platform cannot bind a loopback server socket.
+    /// Thrown here rather than on the listener thread so a caller cannot walk away
+    /// believing it is listening when nothing ever bound.
+    public static StopListening listenLoopback(final int port, final Class scClass) {
+        if (!isLoopbackServerSocketSupported()) {
+            throw new IllegalStateException("This platform cannot bind a loopback server "
+                    + "socket; check Socket.isLoopbackServerSocketSupported() first");
+        }
+        return listenImpl(port, scClass, true);
+    }
+
+    private static StopListening listenImpl(final int port, final Class scClass, final boolean loopbackOnly) {
+        class Listener implements StopListening, Runnable {
+            /// Written by stop() on the caller's thread and read by the accept loop on
+            /// another, so it needs a memory barrier rather than a plain field. Without
+            /// one the loop can miss the write, and since closing the listening socket
+            /// makes the port's cache hand out a FRESH socket on the next call, the
+            /// listener would quietly resurrect itself instead of stopping.
+            private final AtomicBoolean stopped = new AtomicBoolean();
+
+            /// The backoff after a failed accept. It starts short, doubles while the
+            /// failure persists and is capped, so a port that can never be bound settles
+            /// into one attempt every few seconds instead of two a second forever. Reset
+            /// as soon as an accept succeeds, so a listener that saw one bad moment is not
+            /// left sluggish. Slept in slices so a stop is still noticed promptly.
+            private static final int BACKOFF_MIN_MS = 50;
+            private static final int BACKOFF_MAX_MS = 5000;
+            private static final int BACKOFF_SLICE_MS = 50;
+            private int backoffMs = BACKOFF_MIN_MS;
+
+            @Override
+            public void run() {
+                try {
+                    while (!stopped.get()) {
+                        final Object connection = loopbackOnly
+                                ? Util.getImplementation().listenSocketLoopback(port)
+                                : Util.getImplementation().listenSocket(port);
+                        if (stopped.get()) {
+                            // stop() was called while this thread sat inside accept. The
+                            // connection that unblocked it belongs to a listener the caller
+                            // has already abandoned, so hand it back rather than serving it.
+                            if (connection != null) {
+                                Util.getImplementation().disconnectSocket(connection);
+                            }
+                            break;
+                        }
+                        if (connection == null && stopped.get()) {
+                            // Closing the listening socket is how a stop is delivered, and
+                            // it surfaces here as a failed accept. Reporting that through
+                            // connectionError would announce a fault that never happened.
+                            break;
+                        }
+                        final SocketConnection sc = (SocketConnection) scClass.newInstance();
+                        if (connection != null) {
+                            backoffMs = BACKOFF_MIN_MS;   // healthy again
+                            sc.setConnected(true);
+                            Display.getInstance().startThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    sc.input = new SocketInputStream(connection, sc);
+                                    sc.output = new SocketOutputStream(connection, sc);
+                                    sc.connectionEstablished(sc.input, sc.output);
+                                    sc.setConnected(false);
+                                }
+                            }, "Connection " + port).start();
+                        } else {
+                            sc.connectionError(Util.getImplementation().getSocketErrorCode(connection), Util.getImplementation().getSocketErrorMessage(connection));
+                            // A listener whose accept fails immediately and keeps failing --
+                            // a port that cannot be bound, say -- would otherwise spin at
+                            // full speed, burning a core and filling the log. Pause so a
+                            // persistent failure is slow and visible instead of hot. Only
+                            // the failure path waits; a served connection never gets here.
+                            //
+                            // Slept in slices, re-testing the flag between them, so a stop
+                            // arriving during the pause is acted on within a slice rather
+                            // than after the whole backoff.
+                            int waited = 0;
+                            while (waited < backoffMs && !stopped.get()) {
+                                int slice = Math.min(BACKOFF_SLICE_MS, backoffMs - waited);
+                                try {
+                                    Thread.sleep(slice);
+                                } catch (InterruptedException interrupted) {
+                                    break;   // the loop re-tests stopped straight away
+                                }
+                                waited += slice;
+                            }
+                            if (backoffMs < BACKOFF_MAX_MS) {
+                                backoffMs = Math.min(backoffMs * 2, BACKOFF_MAX_MS);
+                            }
+                        }
+                    }
+                } catch (InstantiationException err) {
+                    // instansiating the class has caused a problem
+                    Log.e(err);
+                } catch (IllegalAccessException err) {
+                    // instansiating the class has caused a problem
+                    Log.e(err);
+                } catch (RuntimeException err) {
+                    // instansiating the class has caused a problem
+                    Log.e(err);
+                }
+            }
+
+            @Override
+            public void stop() {
+                stopped.set(true);
+                // Closing the listening socket is what brings the thread back out of
+                // accept. Without it the flag is only noticed the next time a client
+                // connects, so the thread lingers, and a listener restarted on the same
+                // port shares the cached socket -- letting this abandoned thread win the
+                // race for the first connection and drop it.
+                Util.getImplementation().stopListeningSocket(port, loopbackOnly);
+            }
+
+        }
+        Listener l = new Listener();
+        Display.getInstance().startThread(l, "Listening on " + port).start();
+        return l;
+    }
+
+    /// Returns the hostname or ip address of the device if available/applicable
+    ///
+    /// #### Returns
+    ///
+    /// the hostname or ip address of the device if available/applicable
+    public static String getHostOrIP() {
+        return Util.getImplementation().getHostOrIP();
+    }
+
+    interface Close {
+        void close() throws IOException;
+    }
+
+    /// This interface can be invoked to stop listening on a server socket
+    public interface StopListening {
+        /// Stop listening
+        void stop();
+    }
+
+    static class SocketInputStream extends InputStream {
+        private final Object impl;
+        private final SocketConnection con;
+        private byte[] buffer;
+        private int bufferOffset;
+        private boolean closed;
+
+        SocketInputStream(Object impl, SocketConnection con) {
+            this.impl = impl;
+            this.con = con;
+        }
+
+        @Override
+        public boolean markSupported() {
+            return false;
+        }
+
+        @Override
+        public synchronized void reset() throws IOException {
+        }
+
+        @Override
+        public synchronized void close() throws IOException {
+            if (!closed) {
+                closed = true;
+                if (Util.getImplementation().isSocketConnected(impl)) {
+                    Util.getImplementation().disconnectSocket(impl);
+                    con.setConnected(false);
+                }
+            }
+        }
+
+        @Override
+        public int available() throws IOException {
+            return Util.getImplementation().getSocketAvailableInput(impl);
+        }
+
+        private void throwEOF() throws IOException {
+            if (closed) {
+                throw new EOFException();
+            }
+        }
+
+        // try to read some data into the buffer if we think there is some
+        // available, but don't wait if there is not.  This is used to get
+        // additional data for a read that has more room in it's buffer.
+        @SuppressWarnings("PMD.EmptyCatchBlock")
+        private boolean getDataIfAvailable() {
+            try {
+                if (available() > 0) {
+                    buffer = Util.getImplementation().readFromSocketStream(impl);
+                    bufferOffset = 0;
+                    return ((buffer != null) && (buffer.length > 0));
+                }
+            } catch (IOException e) {
+                // we don't really expect an IOException here, but if one
+                // does occur, leave peacefully so the caller can return the
+                // data he has.
+            }
+            // we got nothing.
+            return (false);
+        }
+
+        // get some data in the input buffer.  Return true if we did
+        // and false if we can't and never can.  This does not return
+        // until either data is available or it never will be.
+        //
+        // ddyer 12/2015.
+        // Observed on IOS, isSocketConnected returned true even though
+        // closing it has been tried.  Add closed to the set of conditions
+        // ddyer 4/2017
+        private boolean getSomeData() {    // upon entry, there may be data leftover from the previous call to read
+            while (!closed
+                    && ((buffer == null)
+                    || (bufferOffset >= buffer.length))) {    // we want new data, but if the socket is closed we won't get it.
+                if (!Util.getImplementation().isSocketConnected(impl)) {
+                    return (false);    // we'll never get data
+                }
+                buffer = Util.getImplementation().readFromSocketStream(impl);
+                bufferOffset = 0;
+
+                if (((buffer == null) || (buffer.length == 0))
+                        && !closed
+                        && Util.getImplementation().isSocketConnected(impl)) {    // wait a while if there's still hope
+                    try {
+                        Thread.sleep(10);
+                    } catch (InterruptedException err) {
+                    }
+                }
+            }
+            return ((buffer != null) && (buffer.length > 0));
+        }
+
+        // [ddyer 12/2015]
+        // rewritten to fix a bug that caused data loss if the the output
+        // and input buffer both ran out at the same time, then rewritten
+        // again for clarity and to avoid waiting forever when the data stream
+        // is closed while waiting for the first batch of data.  The old version
+        // used a recursive call to read which might have gone an indefinite
+        // number of levels deep, but this version does not.
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            throwEOF();
+            // eventually a read should timeout and return what it has
+            if (!getSomeData()) {
+                return (-1);    // nothing available ever
+            }
+            int bytesRead = 0;
+
+            // copy the available data, limited by whichever buffer is smaller
+            do {
+                while ((bytesRead < len) && (bufferOffset < buffer.length)) {
+                    b[off + bytesRead++] = buffer[bufferOffset++];
+                }
+            }
+            // if there's more room and data is already available, go for it.
+            while ((bytesRead < len) && getDataIfAvailable());
+
+            // otherwise return with what we have
+            return (bytesRead);
+        }
+
+        @Override
+        public int read(byte[] b) throws IOException {
+            throwEOF();
+            return read(b, 0, b.length);
+        }
+
+        @Override
+        public int read() throws IOException {
+            throwEOF();
+            byte[] b = new byte[1];
+            int v = read(b);
+            if (v == -1) {
+                return -1;
+            }
+            return b[0] & 0xff;
+        }
+
+        // PMD thinks we need to override finalize. Ugh.
+        @SuppressWarnings("PMD.MissingOverride")
+        protected void finalize() throws Throwable {
+            try {
+                close();
+            } catch (Throwable err) {
+                Log.e(err);
+            }
+        }
+    }
+
+    static class SocketOutputStream extends OutputStream {
+        private final Object impl;
+        private final SocketConnection con;
+
+        SocketOutputStream(Object impl, SocketConnection con) {
+            this.impl = impl;
+            this.con = con;
+        }
+
+        @Override
+        public synchronized void close() throws IOException {
+            if (con.isConnected() && Util.getImplementation().isSocketConnected(impl)) {
+                Util.getImplementation().disconnectSocket(impl);
+                con.setConnected(false);
+            }
+        }
+
+        @Override
+        public void flush() throws IOException {
+        }
+
+        private void handleSocketError() {
+            int code = Util.getImplementation().getSocketErrorCode(impl);
+            String msg = Util.getImplementation().getSocketErrorMessage(impl);
+            if (code > 0 || msg != null) {
+                con.connectionError(code, msg);
+            }
+        }
+
+        // Routes all the write overloads through a single guarded path. The native
+        // socket handle can be torn down (e.g. the connection dropped) while a writer
+        // thread is still pushing data; before this guard that surfaced as an opaque
+        // NullPointerException deep in the platform implementation rather than an
+        // IOException the caller can handle. See issue #5139.
+        private void writeImpl(byte[] b, int off, int len) throws IOException {
+            if (impl == null) {
+                throw new IOException("Socket is not connected");
+            }
+            Util.getImplementation().writeToSocketStream(impl, b, off, len);
+            handleSocketError();
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            if (b == null) {
+                throw new NullPointerException();
+            }
+            if (off < 0 || len < 0 || off > b.length - len) {
+                throw new IndexOutOfBoundsException();
+            }
+            writeImpl(b, off, len);
+        }
+
+        @Override
+        public void write(byte[] b) throws IOException {
+            writeImpl(b, 0, b.length);
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            writeImpl(new byte[]{(byte) b}, 0, 1);
+        }
+
+        // PMD thinks we need to override finalize. Ugh.
+        @SuppressWarnings("PMD.MissingOverride")
+        protected void finalize() throws Throwable {
+            try {
+                close();
+            } catch (Throwable err) {
+                Log.e(err);
+            }
+        }
+    }
+}

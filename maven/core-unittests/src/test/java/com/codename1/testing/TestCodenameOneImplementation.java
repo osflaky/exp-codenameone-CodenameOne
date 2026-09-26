@@ -1,0 +1,5961 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+package com.codename1.testing;
+
+import com.codename1.capture.VideoCaptureConstraints;
+import com.codename1.contacts.Contact;
+import com.codename1.db.Cursor;
+import com.codename1.db.Database;
+import com.codename1.db.Row;
+import com.codename1.db.RowExt;
+import com.codename1.impl.CodenameOneImplementation;
+import com.codename1.io.ConnectionRequest;
+import com.codename1.io.NetworkManager;
+import com.codename1.io.Util;
+import com.codename1.payment.Purchase;
+import com.codename1.l10n.L10NManager;
+import com.codename1.location.LocationManager;
+import com.codename1.media.AudioBuffer;
+import com.codename1.media.Media;
+import com.codename1.media.MediaManager;
+import com.codename1.media.MediaRecorderBuilder;
+import com.codename1.media.VideoIO;
+import com.codename1.messaging.Message;
+import com.codename1.notifications.LocalNotification;
+import com.codename1.ui.Button;
+import com.codename1.ui.Component;
+import com.codename1.ui.Container;
+import com.codename1.ui.Display;
+import com.codename1.ui.Form;
+import com.codename1.ui.Image;
+import com.codename1.ui.PeerComponent;
+import com.codename1.ui.Stroke;
+import com.codename1.ui.TextArea;
+import com.codename1.ui.TextField;
+import com.codename1.ui.TextSelection;
+import com.codename1.ui.Transform;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.events.MessageEvent;
+import com.codename1.ui.geom.Dimension;
+import com.codename1.ui.util.ImageIO;
+import com.codename1.ui.geom.Rectangle;
+import com.codename1.ui.geom.Shape;
+import com.codename1.ui.plaf.UIManager;
+import com.codename1.util.AsyncResource;
+import com.codename1.util.SuccessCallback;
+import java.io.Closeable;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Hashtable;
+import java.util.Enumeration;
+import java.util.Deque;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import java.util.function.Function;
+
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+
+/**
+ * Lightweight {@link CodenameOneImplementation} used by unit tests.  It provides deterministic,
+ * in-memory implementations for the storage, file system, and networking APIs that are required by
+ * tests exercising {@link NetworkManager} and related infrastructure.
+ */
+public class TestCodenameOneImplementation extends CodenameOneImplementation {
+    private final Map<String, byte[]> storageEntries = new ConcurrentHashMap<>();
+    private final List<StorageOutput> openStorageWrites = new CopyOnWriteArrayList<>();
+    private boolean storageWriteFailsOnClose;
+    private final Map<String, TestFile> fileSystem = new ConcurrentHashMap<>();
+    private final Map<String, TestConnection> connections = new ConcurrentHashMap<>();
+    private final Map<String, TestSocket> sockets = new ConcurrentHashMap<>();
+    private final CopyOnWriteArrayList<ConnectionRequest> queuedRequests = new CopyOnWriteArrayList<ConnectionRequest>();
+    private final Map<String, TestDatabase> databases = new ConcurrentHashMap<String, TestDatabase>();
+    private final Map<String, Contact> contacts = new ConcurrentHashMap<String, Contact>();
+    private final List<ScheduledNotification> scheduledNotifications = new CopyOnWriteArrayList<ScheduledNotification>();
+    private final AtomicInteger contactIdCounter = new AtomicInteger(1);
+    private final AtomicReference<Contact[]> contactPickerSelection =
+            new AtomicReference<Contact[]>(new Contact[0]);
+    private final AtomicBoolean contactPickerSupported = new AtomicBoolean();
+    private final List<ContactPickerRequest> contactPickerRequests =
+            new CopyOnWriteArrayList<ContactPickerRequest>();
+    private boolean getAllContactsFast;
+    private boolean databaseCustomPathSupported;
+    private String[] lastSentMessageRecipients;
+    private String lastSentMessageSubject;
+    private Message lastSentMessage;
+    private int refreshContactsCount;
+
+    /// Native drag and drop, faked so the framework's outbound path can be exercised without a
+    /// real operating system drag: the last operation prepared and the last one started are
+    /// recorded, and startNativeDrag reports success only while nativeDragAndDropSupported is on.
+    private boolean nativeDragAndDropSupported;
+    private com.codename1.ui.NativeDragOperation preparedNativeDrag;
+    private com.codename1.ui.NativeDragOperation startedNativeDrag;
+    private int cancelledNativeDrags;
+    private boolean nativeDragStartRefused;
+    private int nativeDragSourceRegistrations;
+    private int nativeDropTargetRegistrations;
+
+    private final TestFont defaultFont = new TestFont(8, 16);
+    private int displayWidth = 1080;
+    private int displayHeight = 1920;
+    private Dimension desktopSize = new Dimension(displayWidth, displayHeight);
+    private Dimension lastWindowSize;
+    private Rectangle windowBounds = new Rectangle(0, 0, displayWidth, displayHeight);
+    private Rectangle displaySafeArea = null;
+    private int deviceDensity = Display.DENSITY_MEDIUM;
+    private boolean portrait = true;
+    private boolean tablet = false;
+    private boolean touchDevice = true;
+    private boolean timeoutSupported;
+    private boolean timeoutInvoked;
+    private int timeoutValue;
+    private boolean translationSupported;
+    private boolean translateInvoked;
+    private boolean shapeSupported;
+    private boolean drawShapeInvoked;
+    private boolean fillShapeInvoked;
+    private Shape lastClipShape;
+    private Shape lastDrawShape;
+    private Shape lastFillShape;
+    private Stroke lastDrawStroke;
+    private final Deque<FillOperation> fillOperations = new ArrayDeque<FillOperation>();
+    private final Deque<GradientOperation> gradientOperations = new ArrayDeque<GradientOperation>();
+    private String[] accessPointIds = new String[0];
+    private final Map<String, Integer> accessPointTypes = new HashMap<>();
+    private final Map<String, String> accessPointNames = new HashMap<>();
+    private String currentAccessPoint;
+    private boolean vpnDetectionSupported;
+    private boolean vpnActive;
+    private boolean callDetectionSupported;
+    private boolean inCall;
+    private LocationManager locationManager;
+    private com.codename1.bluetooth.Bluetooth bluetooth;
+    private com.codename1.health.Health health;
+    private L10NManager localizationManager;
+    private ImageIO imageIO;
+    private VideoIO videoIO;
+    private boolean gaussianBlurSupported;
+    private int gaussianBlurInvocations;
+    private MediaRecorderBuilderHandler mediaRecorderBuilderHandler;
+    private MediaRecorderHandler mediaRecorderHandler;
+    private boolean animation;
+    private String[] availableRecordingMimeTypes = new String[]{"audio/wav"};
+    private Media mediaRecorder;
+    private boolean trueTypeSupported = true;
+    private static TestCodenameOneImplementation instance;
+    private String executeURL;
+    private boolean largerTextEnabled;
+    private float largerTextScale = 1f;
+
+    private boolean autoProcessConnections = true;
+    private Map<String, String> properties = new HashMap<>();
+    private boolean blockCopyAndPaste;
+    private PeerComponent browserComponent;
+    private final List<String> browserExecuted = new ArrayList<>();
+    private final Map<PeerComponent, String> browserUrls = new HashMap<PeerComponent, String>();
+    private boolean editorNativePeerSupported = false;
+    private boolean textInputSupported = true;
+    private String lastEditorType;
+    private PeerComponent lastEditorPeer;
+    private final List<String> editorCommands = new ArrayList<String>();
+    private Function<String, String> editorQueryResponder;
+    private AsyncResource<Media> backgroundMediaAsync;
+    private Media backgroundMedia;
+    private Media media;
+    private AsyncResource<Media> mediaAsync;
+    private final Map<String, AsyncResource<Media>> mediaAsyncByUri = new ConcurrentHashMap<String, AsyncResource<Media>>();
+    private Purchase inAppPurchase;
+    private InAppPurchaseFactory inAppPurchaseFactory;
+    private int startRemoteControlInvocations;
+    private int stopRemoteControlInvocations;
+    private boolean mutableImagesFast = true;
+    private boolean nativeTitle;
+    private boolean desktop;
+    private String desktopTitleBarMode = "toolbar";
+    private java.util.Vector lastNativeCommands;
+    private int softkeyCount = 2;
+    private boolean thirdSoftButton = false;
+    private boolean nativeFontSchemeSupported = true;
+    private Map<String, InputStream> resourceAsStreams = new HashMap<>();
+    private Object nativeBrowserWindow;
+    private final List<ActionListener> nativeBrowserWindowOnLoadListener = new ArrayList<>();
+    private String nativeBrowserWindowTitle;
+    private Dimension nativeBrowserWindowSize;
+    private final List<ActionListener> nativeBrowserWindowCloseListener = new ArrayList<>();
+    private boolean nativeBrowserWindowShowInvoked;
+    private boolean nativeBrowserWindowCleanupInvoked;
+    private boolean nativeBrowserWindowHideInvoked;
+    private boolean nativeImageCacheSupported;
+    private int initializeTextSelectionCount;
+    private int deinitializeTextSelectionCount;
+    private TextSelection lastInitializedTextSelection;
+    private TextSelection lastDeinitializedTextSelection;
+    private int copySelectionInvocations;
+    private TextSelection lastCopiedTextSelection;
+    private String lastCopiedText;
+    private final Map<Object, HeavyButtonPeerState> heavyButtonPeers = new HashMap<Object, HeavyButtonPeerState>();
+    private boolean requiresHeavyButton;
+    private boolean allowKeyEventReentry;
+    private final List<String> systemOutMessages = new ArrayList<String>();
+    private ActionListener logListener;
+    private final List<Object> cleanupCalls = new ArrayList<Object>();
+    private int flushStorageCacheInvocations;
+    private Boolean[] nativePickerTypeSupported = null;
+    private int nativePickerTypeSupportedIndex = 0;
+    private boolean socketAvailable = true;
+    private boolean serverSocketAvailable;
+    private String appHomePath = "file://app/";
+    private String hostOrIp;
+    private int openGalleryCallCount;
+    private ActionListener lastOpenGalleryResponse;
+    private int lastOpenGalleryType;
+    private int openImageGalleryCallCount;
+    private ActionListener lastOpenImageGalleryResponse;
+    private int galleryTypeSupportedCallCount;
+    private int lastGalleryTypeQuery;
+    private final Map<Integer, Boolean> galleryTypeSupport = new HashMap<Integer, Boolean>();
+    private String nextCapturePhotoPath = "file://test-photo.jpg";
+    private String nextCaptureVideoPath = "file://test-video.mp4";
+    private String nextCaptureAudioPath = "file://test-audio.wav";
+    private MediaRecorderBuilder lastMediaRecorderBuilder;
+    private VideoCaptureConstraints lastVideoConstraints;
+    private final List<AudioCaptureFrame> audioCaptureFrames = new ArrayList<AudioCaptureFrame>();
+    private TextArea activeTextEditor;
+    private Function<String, byte[]> connectionResponseProvider;
+    private Function<String, String> browserScriptResponder;
+    private final Map<String, String[]> sslCertificatesByUrl = new ConcurrentHashMap<String, String[]>();
+    private boolean sslCertificatesSupported;
+    private final Map<String, MockResponse> mockResponses = new ConcurrentHashMap<String, MockResponse>();
+    private Boolean hasDragStarted;
+
+    @Override
+    public String toString() {
+        return "TestCodenameOneImplementation{" +
+                "storageEntries=" + storageEntries +
+                ", fileSystem=" + fileSystem +
+                ", connections=" + connections +
+                ", sockets=" + sockets +
+                ", queuedRequests=" + queuedRequests +
+                ", databases=" + databases +
+                ", contacts=" + contacts +
+                ", scheduledNotifications=" + scheduledNotifications +
+                ", contactIdCounter=" + contactIdCounter +
+                ", getAllContactsFast=" + getAllContactsFast +
+                ", databaseCustomPathSupported=" + databaseCustomPathSupported +
+                ", lastSentMessageRecipients=" + Arrays.toString(lastSentMessageRecipients) +
+                ", lastSentMessageSubject='" + lastSentMessageSubject + '\'' +
+                ", lastSentMessage=" + lastSentMessage +
+                ", refreshContactsCount=" + refreshContactsCount +
+                ", defaultFont=" + defaultFont +
+                ", displayWidth=" + displayWidth +
+                ", displayHeight=" + displayHeight +
+                ", desktopSize=" + desktopSize +
+                ", lastWindowSize=" + lastWindowSize +
+                ", windowBounds=" + windowBounds +
+                ", deviceDensity=" + deviceDensity +
+                ", portrait=" + portrait +
+                ", tablet=" + tablet +
+                ", touchDevice=" + touchDevice +
+                ", timeoutSupported=" + timeoutSupported +
+                ", timeoutInvoked=" + timeoutInvoked +
+                ", timeoutValue=" + timeoutValue +
+                ", translationSupported=" + translationSupported +
+                ", translateInvoked=" + translateInvoked +
+                ", shapeSupported=" + shapeSupported +
+                ", drawShapeInvoked=" + drawShapeInvoked +
+                ", fillShapeInvoked=" + fillShapeInvoked +
+                ", lastClipShape=" + lastClipShape +
+                ", lastDrawShape=" + lastDrawShape +
+                ", lastFillShape=" + lastFillShape +
+                ", lastDrawStroke=" + lastDrawStroke +
+                ", fillOperations=" + fillOperations +
+                ", gradientOperations=" + gradientOperations +
+                ", accessPointIds=" + Arrays.toString(accessPointIds) +
+                ", accessPointTypes=" + accessPointTypes +
+                ", accessPointNames=" + accessPointNames +
+                ", currentAccessPoint='" + currentAccessPoint + '\'' +
+                ", locationManager=" + locationManager +
+                ", localizationManager=" + localizationManager +
+                ", imageIO=" + imageIO +
+                ", gaussianBlurSupported=" + gaussianBlurSupported +
+                ", gaussianBlurInvocations=" + gaussianBlurInvocations +
+                ", mediaRecorderBuilderHandler=" + mediaRecorderBuilderHandler +
+                ", mediaRecorderHandler=" + mediaRecorderHandler +
+                ", animation=" + animation +
+                ", availableRecordingMimeTypes=" + Arrays.toString(availableRecordingMimeTypes) +
+                ", mediaRecorder=" + mediaRecorder +
+                ", trueTypeSupported=" + trueTypeSupported +
+                ", executeURL='" + executeURL + '\'' +
+                ", autoProcessConnections=" + autoProcessConnections +
+                ", properties=" + properties +
+                ", blockCopyAndPaste=" + blockCopyAndPaste +
+                ", browserComponent=" + browserComponent +
+                ", browserExecuted=" + browserExecuted +
+                ", browserUrls=" + browserUrls +
+                ", backgroundMediaAsync=" + backgroundMediaAsync +
+                ", backgroundMedia=" + backgroundMedia +
+                ", media=" + media +
+                ", mediaAsync=" + mediaAsync +
+                ", mediaAsyncByUri=" + mediaAsyncByUri +
+                ", inAppPurchase=" + inAppPurchase +
+                ", startRemoteControlInvocations=" + startRemoteControlInvocations +
+                ", stopRemoteControlInvocations=" + stopRemoteControlInvocations +
+                ", mutableImagesFast=" + mutableImagesFast +
+                ", nativeTitle=" + nativeTitle +
+                ", softkeyCount=" + softkeyCount +
+                ", thirdSoftButton=" + thirdSoftButton +
+                ", nativeFontSchemeSupported=" + nativeFontSchemeSupported +
+                ", resourceAsStreams=" + resourceAsStreams +
+                ", nativeBrowserWindow=" + nativeBrowserWindow +
+                ", nativeBrowserWindowOnLoadListener=" + nativeBrowserWindowOnLoadListener +
+                ", nativeBrowserWindowTitle='" + nativeBrowserWindowTitle + '\'' +
+                ", nativeBrowserWindowSize=" + nativeBrowserWindowSize +
+                ", nativeBrowserWindowCloseListener=" + nativeBrowserWindowCloseListener +
+                ", nativeBrowserWindowShowInvoked=" + nativeBrowserWindowShowInvoked +
+                ", nativeBrowserWindowCleanupInvoked=" + nativeBrowserWindowCleanupInvoked +
+                ", nativeBrowserWindowHideInvoked=" + nativeBrowserWindowHideInvoked +
+                ", nativeImageCacheSupported=" + nativeImageCacheSupported +
+                ", initializeTextSelectionCount=" + initializeTextSelectionCount +
+                ", deinitializeTextSelectionCount=" + deinitializeTextSelectionCount +
+                ", lastInitializedTextSelection=" + lastInitializedTextSelection +
+                ", lastDeinitializedTextSelection=" + lastDeinitializedTextSelection +
+                ", copySelectionInvocations=" + copySelectionInvocations +
+                ", lastCopiedTextSelection=" + lastCopiedTextSelection +
+                ", lastCopiedText='" + lastCopiedText + '\'' +
+                ", heavyButtonPeers=" + heavyButtonPeers +
+                ", requiresHeavyButton=" + requiresHeavyButton +
+                ", allowKeyEventReentry=" + allowKeyEventReentry +
+                ", systemOutMessages=" + systemOutMessages +
+                ", logListener=" + logListener +
+                ", cleanupCalls=" + cleanupCalls +
+                ", flushStorageCacheInvocations=" + flushStorageCacheInvocations +
+                ", nativePickerTypeSupported=" + Arrays.toString(nativePickerTypeSupported) +
+                ", nativePickerTypeSupportedIndex=" + nativePickerTypeSupportedIndex +
+                ", socketAvailable=" + socketAvailable +
+                ", serverSocketAvailable=" + serverSocketAvailable +
+                ", appHomePath='" + appHomePath + '\'' +
+                ", hostOrIp='" + hostOrIp + '\'' +
+                ", openGalleryCallCount=" + openGalleryCallCount +
+                ", lastOpenGalleryResponse=" + lastOpenGalleryResponse +
+                ", lastOpenGalleryType=" + lastOpenGalleryType +
+                ", openImageGalleryCallCount=" + openImageGalleryCallCount +
+                ", lastOpenImageGalleryResponse=" + lastOpenImageGalleryResponse +
+                ", galleryTypeSupportedCallCount=" + galleryTypeSupportedCallCount +
+                ", lastGalleryTypeQuery=" + lastGalleryTypeQuery +
+                ", galleryTypeSupport=" + galleryTypeSupport +
+                ", nextCapturePhotoPath='" + nextCapturePhotoPath + '\'' +
+                ", nextCaptureVideoPath='" + nextCaptureVideoPath + '\'' +
+                ", nextCaptureAudioPath='" + nextCaptureAudioPath + '\'' +
+                ", lastMediaRecorderBuilder=" + lastMediaRecorderBuilder +
+                ", lastVideoConstraints=" + lastVideoConstraints +
+                ", audioCaptureFrames=" + audioCaptureFrames +
+                ", activeTextEditor=" + activeTextEditor +
+                ", connectionResponseProvider=" + connectionResponseProvider +
+                ", browserScriptResponder=" + browserScriptResponder +
+                ", sslCertificatesByUrl=" + sslCertificatesByUrl +
+                ", sslCertificatesSupported=" + sslCertificatesSupported +
+                ", mockResponses=" + mockResponses +
+                ", incomingConnections=" + incomingConnections +
+                '}';
+    }
+
+    public static class MockResponse {
+        int code;
+        String message;
+        byte[] body;
+
+        public MockResponse(int code, String message, byte[] body) {
+            this.code = code;
+            this.message = message;
+            this.body = body;
+        }
+
+        @Override
+        public String toString() {
+            return "MockResponse{" +
+                    "code=" + code +
+                    ", message='" + message + '\'' +
+                    ", body=" + Arrays.toString(body) +
+                    '}';
+        }
+    }
+
+    public void addNetworkMockResponse(String url, int code, String message, byte[] body) {
+        mockResponses.put(url, new MockResponse(code, message, body));
+    }
+
+    public void clearNetworkMocks() {
+        mockResponses.clear();
+    }
+
+
+    public TestCodenameOneImplementation() {
+        this(true);
+        instance = this;
+    }
+
+    public static class HeavyButtonPeerState {
+        private final List<ActionListener> listeners = new ArrayList<ActionListener>();
+        private int x;
+        private int y;
+        private int width;
+        private int height;
+        private boolean initCalled;
+        private boolean deinitCalled;
+        private int updateCount;
+
+        public List<ActionListener> getListeners() {
+            return listeners;
+        }
+
+        public int getX() {
+            return x;
+        }
+
+        public int getY() {
+            return y;
+        }
+
+        public int getWidth() {
+            return width;
+        }
+
+        public int getHeight() {
+            return height;
+        }
+
+        public boolean isInitCalled() {
+            return initCalled;
+        }
+
+        public boolean isDeinitCalled() {
+            return deinitCalled;
+        }
+
+        public int getUpdateCount() {
+            return updateCount;
+        }
+
+        @Override
+        public String toString() {
+            return "HeavyButtonPeerState{" +
+                    "listeners=" + listeners +
+                    ", x=" + x +
+                    ", y=" + y +
+                    ", width=" + width +
+                    ", height=" + height +
+                    ", initCalled=" + initCalled +
+                    ", deinitCalled=" + deinitCalled +
+                    ", updateCount=" + updateCount +
+                    '}';
+        }
+    }
+
+    @Override
+    public InputStream getResourceAsStream(Class cls, String resource) {
+        if(resource.equals("/CN1Resource.res")) {
+            return getClass().getResourceAsStream("/CN1Resource.res");
+        }
+        return resourceAsStreams.get(resource);
+    }
+
+    public void putResource(String s, InputStream i) {
+        resourceAsStreams.put(s, i);
+    }
+
+    public void setSupportsNativeImageCache(boolean supported) {
+        nativeImageCacheSupported = supported;
+    }
+
+    public void resetTextSelectionTracking() {
+        initializeTextSelectionCount = 0;
+        deinitializeTextSelectionCount = 0;
+        lastInitializedTextSelection = null;
+        lastDeinitializedTextSelection = null;
+        copySelectionInvocations = 0;
+        lastCopiedTextSelection = null;
+        lastCopiedText = null;
+    }
+
+    @Override
+    public void systemOut(String content) {
+        systemOutMessages.add(content);
+    }
+
+    public List<String> getSystemOutMessages() {
+        return systemOutMessages;
+    }
+
+    public void clearSystemOutMessages() {
+        systemOutMessages.clear();
+    }
+
+    @Override
+    public void setLogListener(ActionListener al) {
+        super.setLogListener(al);
+        logListener = al;
+    }
+
+    public ActionListener getLogListener() {
+        return logListener;
+    }
+
+    public void fireLogEvent(String message) {
+        if (logListener != null) {
+            logListener.actionPerformed(new ActionEvent(message, ActionEvent.Type.Log));
+        }
+    }
+
+    public int getInitializeTextSelectionCount() {
+        return initializeTextSelectionCount;
+    }
+
+    public int getDeinitializeTextSelectionCount() {
+        return deinitializeTextSelectionCount;
+    }
+
+    public TextSelection getLastInitializedTextSelection() {
+        return lastInitializedTextSelection;
+    }
+
+    public TextSelection getLastDeinitializedTextSelection() {
+        return lastDeinitializedTextSelection;
+    }
+
+    public int getCopySelectionInvocations() {
+        return copySelectionInvocations;
+    }
+
+    public TextSelection getLastCopiedTextSelection() {
+        return lastCopiedTextSelection;
+    }
+
+    public String getLastCopiedText() {
+        return lastCopiedText;
+    }
+
+    public void setRequiresHeavyButton(boolean requiresHeavyButton) {
+        this.requiresHeavyButton = requiresHeavyButton;
+    }
+
+    public void resetHeavyButtonTracking() {
+        heavyButtonPeers.clear();
+    }
+
+    public HeavyButtonPeerState getHeavyButtonPeerState(Object peer) {
+        return heavyButtonPeers.get(peer);
+    }
+
+    @Override
+    public boolean isNativeTitle() {
+        return nativeTitle;
+    }
+
+    public void setNativeTitle(boolean nativeTitle) {
+        this.nativeTitle = nativeTitle;
+    }
+
+    @Override
+    public boolean isDesktop() {
+        return desktop;
+    }
+
+    public void setDesktop(boolean desktop) {
+        this.desktop = desktop;
+    }
+
+    @Override
+    public String getDesktopTitleBarMode() {
+        return desktopTitleBarMode;
+    }
+
+    public void setDesktopTitleBarMode(String mode) {
+        this.desktopTitleBarMode = mode;
+    }
+
+    /// Mirrors the real ports' split between "the project asked for this" and "this is what the
+    /// platform answers when nobody asked", which is the distinction a theme constant is allowed
+    /// to fill. Null unless a test sets it, so every existing test keeps reaching
+    /// getDesktopTitleBarMode as before.
+    @Override
+    public String getConfiguredDesktopTitleBarMode() {
+        return configuredDesktopTitleBarMode;
+    }
+
+    public void setConfiguredDesktopTitleBarMode(String mode) {
+        this.configuredDesktopTitleBarMode = mode;
+    }
+
+    private String configuredDesktopTitleBarMode;
+
+    @Override
+    public boolean isShiftKeyDown() {
+        return shiftKeyDown;
+    }
+
+    public void setShiftKeyDown(boolean shiftKeyDown) {
+        this.shiftKeyDown = shiftKeyDown;
+    }
+
+    private boolean shiftKeyDown;
+
+    @Override
+    public void setNativeCommands(java.util.Vector commands) {
+        this.lastNativeCommands = commands;
+    }
+
+    /// Defaults TRUE so the existing desktop-chrome tests, which were written when every
+    /// implementation was assumed to have a menu bar, keep asserting what they always did.
+    /// The fallback tests set it false, which is what a port with no native menu reports.
+    @Override
+    public boolean isNativeCommandsSupported() {
+        return nativeCommandsSupported;
+    }
+
+    public void setNativeCommandsSupported(boolean nativeCommandsSupported) {
+        this.nativeCommandsSupported = nativeCommandsSupported;
+    }
+
+    private boolean nativeCommandsSupported = true;
+
+    /** @return the commands last pushed via setNativeCommands, for desktop-chrome assertions. */
+    public java.util.Vector getLastNativeCommands() {
+        return lastNativeCommands;
+    }
+
+    @Override
+    public boolean areMutableImagesFast() {
+        return mutableImagesFast;
+    }
+
+    public void setMutableImagesFast(boolean mutableImagesFast) {
+        this.mutableImagesFast = mutableImagesFast;
+    }
+
+    @Override
+    public boolean supportsNativeImageCache() {
+        return nativeImageCacheSupported;
+    }
+
+    private AsyncResource<Media> resolveMediaAsync(String uri) {
+        if (uri != null && mediaAsyncByUri.containsKey(uri)) {
+            return mediaAsyncByUri.get(uri);
+        }
+        return mediaAsync;
+    }
+
+    @Override
+    public AsyncResource<Media> createBackgroundMediaAsync(String uri) {
+        return backgroundMediaAsync;
+    }
+
+    public void setBackgroundMediaAsync(AsyncResource<Media> backgroundMediaAsync) {
+        this.backgroundMediaAsync = backgroundMediaAsync;
+    }
+
+    public void setBackgroundMedia(Media backgroundMedia) {
+        this.backgroundMedia = backgroundMedia;
+    }
+
+    @Override
+    public Media createBackgroundMedia(String uri) throws IOException {
+        return backgroundMedia;
+    }
+
+    @Override
+    public AsyncResource<Media> createMediaAsync(String uri, boolean video, Runnable onCompletion) {
+        return resolveMediaAsync(uri);
+    }
+
+    @Override
+    public Media createMedia(String uri, boolean isVideo, Runnable onCompletion) throws IOException {
+        return media;
+    }
+
+    @Override
+    public Media createMedia(InputStream stream, String mimeType, Runnable onCompletion) throws IOException {
+        return media;
+    }
+
+    public void setMedia(Media media) {
+        this.media = media;
+    }
+
+    public void setMediaAsync(AsyncResource<Media> mediaAsync) {
+        this.mediaAsync = mediaAsync;
+    }
+
+    public void setMediaAsync(String uri, AsyncResource<Media> asyncResource) {
+        if (uri == null) {
+            mediaAsync = asyncResource;
+        } else if (asyncResource == null) {
+            mediaAsyncByUri.remove(uri);
+        } else {
+            mediaAsyncByUri.put(uri, asyncResource);
+        }
+    }
+
+    public void clearMediaAsyncMappings() {
+        mediaAsyncByUri.clear();
+    }
+
+    public void completeMediaAsync(String uri, Media value) {
+        AsyncResource<Media> async = resolveMediaAsync(uri);
+        if (async != null) {
+            async.complete(value);
+        }
+    }
+
+    public void failMediaAsync(String uri, Throwable error) {
+        AsyncResource<Media> async = resolveMediaAsync(uri);
+        if (async != null) {
+            async.error(error);
+        }
+    }
+
+    @Override
+    public void initializeTextSelection(TextSelection aThis) {
+        initializeTextSelectionCount++;
+        lastInitializedTextSelection = aThis;
+    }
+
+    @Override
+    public void deinitializeTextSelection(TextSelection aThis) {
+        deinitializeTextSelectionCount++;
+        lastDeinitializedTextSelection = aThis;
+    }
+
+    @Override
+    public void copySelectionToClipboard(TextSelection sel) {
+        copySelectionInvocations++;
+        lastCopiedTextSelection = sel;
+        if (sel == null) {
+            lastCopiedText = null;
+            return;
+        }
+        String text = sel.getSelectionAsText();
+        if (text == null || text.length() == 0) {
+            TextArea area = findFirstTextArea(sel.getSelectionRoot());
+            if (area == null) {
+                Form current = Display.getInstance().getCurrent();
+                if (current != null) {
+                    area = findFirstTextArea(current);
+                }
+            }
+            if (area != null) {
+                text = area.getText();
+            }
+        }
+        lastCopiedText = text;
+    }
+
+    private TextArea findFirstTextArea(Component root) {
+        if (root instanceof TextArea) {
+            return (TextArea) root;
+        }
+        if (root instanceof Container) {
+            Container container = (Container) root;
+            int count = container.getComponentCount();
+            for (int i = 0; i < count; i++) {
+                TextArea area = findFirstTextArea(container.getComponentAt(i));
+                if (area != null) {
+                    return area;
+                }
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public void startRemoteControl() {
+        startRemoteControlInvocations++;
+    }
+
+    @Override
+    public void stopRemoteControl() {
+        stopRemoteControlInvocations++;
+    }
+
+    @Override
+    public Object createHeavyButton(Button aThis) {
+        HeavyButtonPeerState state = new HeavyButtonPeerState();
+        heavyButtonPeers.put(state, state);
+        return state;
+    }
+
+    @Override
+    public void addHeavyActionListener(Object peer, ActionListener l) {
+        HeavyButtonPeerState state = heavyButtonPeers.get(peer);
+        if (state != null) {
+            state.getListeners().add(l);
+        }
+    }
+
+    @Override
+    public void removeHeavyActionListener(Object peer, ActionListener l) {
+        HeavyButtonPeerState state = heavyButtonPeers.get(peer);
+        if (state != null) {
+            state.getListeners().remove(l);
+        }
+    }
+
+    @Override
+    public void updateHeavyButtonBounds(Object peer, int x, int y, int width, int height) {
+        HeavyButtonPeerState state = heavyButtonPeers.get(peer);
+        if (state != null) {
+            state.x = x;
+            state.y = y;
+            state.width = width;
+            state.height = height;
+            state.updateCount++;
+        }
+    }
+
+    @Override
+    public void initHeavyButton(Object peer) {
+        HeavyButtonPeerState state = heavyButtonPeers.get(peer);
+        if (state != null) {
+            state.initCalled = true;
+        }
+    }
+
+    @Override
+    public void deinitializeHeavyButton(Object peer) {
+        HeavyButtonPeerState state = heavyButtonPeers.get(peer);
+        if (state != null) {
+            state.deinitCalled = true;
+        }
+    }
+
+    @Override
+    public boolean requiresHeavyButtonForCopyToClipboard() {
+        return requiresHeavyButton;
+    }
+
+    public int getStartRemoteControlInvocations() {
+        return startRemoteControlInvocations;
+    }
+
+    public int getStopRemoteControlInvocations() {
+        return stopRemoteControlInvocations;
+    }
+
+    @Override
+    public AsyncResource<Media> createMediaAsync(InputStream stream, String mimeType, Runnable onCompletion) {
+        return mediaAsync;
+    }
+
+    private TestWindowManager windowManager;
+
+    /// Returns the fake window manager, or null when multi-window support is off.
+    /// Null is the capability query, so the default -- no manager -- is the
+    /// unsupported platform every mobile port reports.
+    @Override
+    public com.codename1.impl.WindowManager getWindowManager() {
+        return windowManager;
+    }
+
+    /// Turns desktop windowing on or off for a test.
+    public TestWindowManager setMultiWindowSupported(boolean supported) {
+        windowManager = supported ? new TestWindowManager() : null;
+        return windowManager;
+    }
+
+    /// Whether semantic invalidations are projected eagerly, off by default as on any
+    /// port with no assistive technology attached.
+    private boolean accessibilityTreeSupported;
+
+    /// Turns eager accessibility projection on or off for a test.
+    ///
+    /// #### Parameters
+    ///
+    /// - `supported`: true to have invalidations schedule a rebuild
+    public void setAccessibilityTreeSupported(boolean supported) {
+        this.accessibilityTreeSupported = supported;
+    }
+
+    @Override
+    public boolean isAccessibilityTreeSupported() {
+        return accessibilityTreeSupported;
+    }
+
+    private boolean minimized;
+
+    /// Models an application that has been put into the background.
+    ///
+    /// A modal show is refused outright while minimized -- it returns at once without
+    /// installing anything -- so this is how a test reaches the paths that have to cope
+    /// with a show that did not happen.
+    ///
+    /// #### Parameters
+    ///
+    /// - `minimized`: true to report the application as minimized
+    public void setMinimized(boolean minimized) {
+        this.minimized = minimized;
+    }
+
+    @Override
+    public boolean isMinimized() {
+        return minimized;
+    }
+
+    private final java.util.List<int[]> accessibilityNotifications =
+            new java.util.ArrayList<int[]>();
+
+    /// Every surface the framework said had changed, as {changeType, windowId} pairs.
+    ///
+    /// A port that pushes the tree into a native view is told which surface it is
+    /// describing; recorded here so a test can assert the window was named rather than
+    /// the main surface being described over and over.
+    public java.util.List<int[]> getAccessibilityNotifications() {
+        return new java.util.ArrayList<int[]>(accessibilityNotifications);
+    }
+
+    public void clearAccessibilityNotifications() {
+        accessibilityNotifications.clear();
+    }
+
+    @Override
+    public void accessibilityTreeChanged(int changeType, int windowId) {
+        accessibilityNotifications.add(new int[]{changeType, windowId});
+        super.accessibilityTreeChanged(changeType, windowId);
+    }
+
+    private Boolean accessibilityTreeUpdateRequired;
+
+    /// Models a port that exposes the tree but never projects it eagerly.
+    ///
+    /// The default ties this to `#isAccessibilityTreeSupported()`, which is the
+    /// Android shape: assistive technology is active, so every invalidation schedules a
+    /// rebuild. Ports that are pulled from instead -- the desktop and iOS bridges ask
+    /// for a tree when they want one -- report false here while still supporting it, and
+    /// then nothing rebuilds a surface behind the manager's back.
+    ///
+    /// #### Parameters
+    ///
+    /// - `required`: true or false to force it, null to follow whether it is supported
+    public void setAccessibilityTreeUpdateRequired(Boolean required) {
+        this.accessibilityTreeUpdateRequired = required;
+    }
+
+    @Override
+    public boolean isAccessibilityTreeUpdateRequired() {
+        if (accessibilityTreeUpdateRequired != null) {
+            return accessibilityTreeUpdateRequired.booleanValue();
+        }
+        return super.isAccessibilityTreeUpdateRequired();
+    }
+
+    /// Returns the fake window manager as its concrete type, for assertions.
+    public TestWindowManager getTestWindowManager() {
+        return windowManager;
+    }
+
+    @Override
+    public Object createNativeBrowserWindow(String startURL) {
+        return nativeBrowserWindow;
+    }
+
+    public void setNativeBrowserWindow(Object nativeBrowserWindow) {
+        this.nativeBrowserWindow = nativeBrowserWindow;
+    }
+
+    @Override
+    public void nativeBrowserWindowAddCloseListener(Object window, ActionListener l) {
+        nativeBrowserWindowCloseListener.add(l);
+    }
+
+    @Override
+    public void nativeBrowserWindowRemoveCloseListener(Object window, ActionListener l) {
+        nativeBrowserWindowCloseListener.remove(l);
+    }
+
+    public List<ActionListener> getNativeBrowserWindowCloseListener() {
+        return nativeBrowserWindowCloseListener;
+    }
+
+    @Override
+    public void nativeBrowserWindowShow(Object window) {
+        nativeBrowserWindowShowInvoked = true;
+    }
+
+    public boolean isNativeBrowserWindowShowInvoked() {
+        return nativeBrowserWindowShowInvoked;
+    }
+
+    @Override
+    public void nativeBrowserWindowCleanup(Object window) {
+        nativeBrowserWindowCleanupInvoked = true;
+    }
+
+    @Override
+    public void nativeBrowserWindowHide(Object window) {
+        nativeBrowserWindowHideInvoked = true;
+    }
+
+    public boolean isNativeBrowserWindowCleanupInvoked() {
+        return nativeBrowserWindowCleanupInvoked;
+    }
+
+    public boolean isNativeBrowserWindowHideInvoked() {
+        return nativeBrowserWindowHideInvoked;
+    }
+
+    @Override
+    public void addNativeBrowserWindowOnLoadListener(Object window, ActionListener l) {
+        nativeBrowserWindowOnLoadListener.add(l);
+    }
+
+    @Override
+    public void removeNativeBrowserWindowOnLoadListener(Object window, ActionListener l) {
+        nativeBrowserWindowOnLoadListener.remove(l);
+    }
+
+    public List<ActionListener> getNativeBrowserWindowOnLoadListener() {
+        return nativeBrowserWindowOnLoadListener;
+    }
+
+    @Override
+    public void nativeBrowserWindowSetTitle(Object window, String title) {
+        nativeBrowserWindowTitle = title;
+    }
+
+    public String getNativeBrowserWindowTitle() {
+        return nativeBrowserWindowTitle;
+    }
+
+    @Override
+    public void nativeBrowserWindowSetSize(Object window, int width, int height) {
+        nativeBrowserWindowSize = new Dimension(width, height);
+    }
+
+    public Dimension getNativeBrowserWindowSize() {
+        return nativeBrowserWindowSize;
+    }
+
+    private com.codename1.impl.CameraImpl cameraImpl;
+
+    /**
+     * Installs the {@link com.codename1.impl.CameraImpl} backend that
+     * {@link com.codename1.camera.Camera} sees through
+     * {@code Display.getCameraBackend()}. Pass {@code null} (the default) to
+     * model a platform with no low-level camera support.
+     */
+    public void setCameraImpl(com.codename1.impl.CameraImpl cameraImpl) {
+        this.cameraImpl = cameraImpl;
+    }
+
+    @Override
+    public com.codename1.impl.CameraImpl createCameraImpl() {
+        return cameraImpl;
+    }
+
+    private com.codename1.impl.ARImpl arImpl;
+
+    /**
+     * Installs the {@link com.codename1.impl.ARImpl} backend that
+     * {@link com.codename1.ar.AR} sees through {@code Display.getARBackend()}.
+     * Pass {@code null} (the default) to model a platform with no AR support.
+     */
+    public void setARImpl(com.codename1.impl.ARImpl arImpl) {
+        this.arImpl = arImpl;
+    }
+
+    @Override
+    public com.codename1.impl.ARImpl createARImpl() {
+        return arImpl;
+    }
+
+    private com.codename1.impl.VisionImpl visionImpl;
+    private Runnable visionImplCreationHook;
+    private com.codename1.impl.InferenceImpl inferenceImpl;
+    private com.codename1.impl.LanguageImpl languageImpl;
+
+    public void setVisionImpl(com.codename1.impl.VisionImpl visionImpl) {
+        this.visionImpl = visionImpl;
+    }
+
+    /**
+     * Installs a test hook invoked immediately before the vision backend is
+     * returned from {@link #createVisionImpl()}. Tests can use this to hold
+     * backend creation at a deterministic concurrency boundary.
+     *
+     * @param hook hook to invoke, or {@code null} to clear it
+     */
+    public void setVisionImplCreationHook(Runnable hook) {
+        visionImplCreationHook = hook;
+    }
+
+    @Override
+    public com.codename1.impl.VisionImpl createVisionImpl() {
+        if (visionImplCreationHook != null) {
+            visionImplCreationHook.run();
+        }
+        return visionImpl;
+    }
+
+    public void setInferenceImpl(com.codename1.impl.InferenceImpl inferenceImpl) {
+        this.inferenceImpl = inferenceImpl;
+    }
+
+    @Override
+    public com.codename1.impl.InferenceImpl createInferenceImpl() {
+        return inferenceImpl;
+    }
+
+    public void setLanguageImpl(com.codename1.impl.LanguageImpl languageImpl) {
+        this.languageImpl = languageImpl;
+    }
+
+    @Override
+    public com.codename1.impl.LanguageImpl createLanguageImpl() {
+        return languageImpl;
+    }
+
+    private com.codename1.sensors.MotionSensorManager motionSensorManager;
+
+    /**
+     * Installs the {@link com.codename1.sensors.MotionSensorManager} returned
+     * by {@code Display.getMotionSensorManager()}. Pass {@code null} (the
+     * default) to fall back to the base implementation's unsupported manager.
+     */
+    public void setMotionSensorManager(com.codename1.sensors.MotionSensorManager mgr) {
+        this.motionSensorManager = mgr;
+    }
+
+    @Override
+    public com.codename1.sensors.MotionSensorManager getMotionSensorManager() {
+        if (motionSensorManager != null) {
+            return motionSensorManager;
+        }
+        return super.getMotionSensorManager();
+    }
+
+    @Override
+    public PeerComponent createBrowserComponent(Object browserComponent) {
+        if(this.browserComponent == null) {
+            return new PeerComponent(new Object()) {
+            };
+        }
+        return this.browserComponent;
+    }
+
+    public void setBrowserComponent(PeerComponent browserComponent) {
+        this.browserComponent = browserComponent;
+    }
+
+    private boolean locationButtonSupported;
+    private boolean locationButtonReady = true;
+    private SuccessCallback<Boolean> locationButtonCallback;
+    private final java.util.List<SuccessCallback<Boolean>> locationButtonCallbacks =
+            new java.util.ArrayList<SuccessCallback<Boolean>>();
+    private int locationButtonTextType = -1;
+    private int locationButtonBackgroundColor;
+    private int locationButtonTextColor;
+
+    @Override
+    public boolean isLocationButtonSupported() {
+        return locationButtonSupported;
+    }
+
+    @Override
+    public PeerComponent createLocationButton(int textType, int backgroundColor,
+            int textColor, SuccessCallback<Boolean> onPermissionResult) {
+        if (!locationButtonSupported) {
+            return null;
+        }
+        locationButtonTextType = textType;
+        locationButtonBackgroundColor = backgroundColor;
+        locationButtonTextColor = textColor;
+        locationButtonCallback = onPermissionResult;
+        locationButtonCallbacks.add(onPermissionResult);
+        return new PeerComponent(new Object()) {
+        };
+    }
+
+    @Override
+    public boolean isLocationButtonReady(PeerComponent button) {
+        return button != null && locationButtonReady;
+    }
+
+    /// Plays a platform whose control was created but whose session never
+    /// opened -- present, blank, and reporting no failure.
+    public void setLocationButtonReady(boolean locationButtonReady) {
+        this.locationButtonReady = locationButtonReady;
+    }
+
+    /// Makes the fake implementation claim, or stop claiming, a system-rendered
+    /// location button.
+    public void setLocationButtonSupported(boolean locationButtonSupported) {
+        this.locationButtonSupported = locationButtonSupported;
+        if (!locationButtonSupported) {
+            locationButtonCallback = null;
+            locationButtonCallbacks.clear();
+            locationButtonTextType = -1;
+        }
+    }
+
+    /// The callback the component handed the "platform", so a test can play the
+    /// part of a user tapping the system button.
+    public SuccessCallback<Boolean> getLocationButtonCallback() {
+        return locationButtonCallback;
+    }
+
+    /// Every callback handed over, in creation order, so a test can play two
+    /// buttons on one form independently.
+    public java.util.List<SuccessCallback<Boolean>> getLocationButtonCallbacks() {
+        return locationButtonCallbacks;
+    }
+
+    public int getLocationButtonTextType() {
+        return locationButtonTextType;
+    }
+
+    public int getLocationButtonBackgroundColor() {
+        return locationButtonBackgroundColor;
+    }
+
+    public int getLocationButtonTextColor() {
+        return locationButtonTextColor;
+    }
+
+    @Override
+    public void browserExecute(PeerComponent browserPeer, String javaScript) {
+        browserExecuted.add(javaScript);
+    }
+
+    @Override
+    public boolean supportsBrowserExecuteAndReturnString(PeerComponent internal) {
+        return true;
+    }
+
+    @Override
+    public String browserExecuteAndReturnString(PeerComponent internal, String javaScript) {
+        browserExecuted.add(javaScript);
+        if (browserScriptResponder != null) {
+            String resp = browserScriptResponder.apply(javaScript);
+            if (resp != null) {
+                return resp;
+            }
+        }
+        return javaScript;
+    }
+
+    public void setBrowserScriptResponder(Function<String, String> responder) {
+        this.browserScriptResponder = responder;
+    }
+
+    public void setNativeBrowserTypeSupported(boolean supported) {
+        // Just a flag for testing support
+    }
+
+    @Override
+    public void setBrowserURL(PeerComponent internal, String url) {
+        browserUrls.put(internal, url);
+    }
+
+    @Override
+    public void setBrowserURL(PeerComponent internal, String url, Map headers) {
+        browserUrls.put(internal, url);
+    }
+
+    @Override
+    public String getBrowserURL(PeerComponent internal) {
+        return browserUrls.get(internal);
+    }
+
+    public List<String> getBrowserExecuted() {
+        return browserExecuted;
+    }
+
+    // --- Native editor SPI test backing (RichTextArea / CodeEditor) ---
+    // When editorNativePeerSupported is true the editor components run against this
+    // deterministic native backend instead of the BrowserComponent fallback, which lets
+    // unit tests exercise the full command/query/event machinery without a real web view.
+
+    @Override
+    public PeerComponent createNativeEditorPeer(Object editorComponent, String editorType) {
+        if (!editorNativePeerSupported) {
+            return null;
+        }
+        lastEditorType = editorType;
+        lastEditorPeer = new PeerComponent(new Object()) {
+        };
+        return lastEditorPeer;
+    }
+
+    @Override
+    public void editorPeerCommand(PeerComponent peer, String name, String arg) {
+        editorCommands.add(name + ":" + (arg == null ? "" : arg));
+    }
+
+    @Override
+    public String editorPeerQuery(PeerComponent peer, String name, String arg) {
+        if (editorQueryResponder != null) {
+            String r = editorQueryResponder.apply(name + ":" + (arg == null ? "" : arg));
+            if (r != null) {
+                return r;
+            }
+        }
+        return "";
+    }
+
+    public void setEditorNativePeerSupported(boolean supported) {
+        this.editorNativePeerSupported = supported;
+    }
+
+    public boolean isEditorNativePeerSupported() {
+        return editorNativePeerSupported;
+    }
+
+    @Override
+    public boolean isTextInputSupported() {
+        return textInputSupported;
+    }
+
+    public void setTextInputSupported(boolean supported) {
+        textInputSupported = supported;
+    }
+
+    public String getLastEditorType() {
+        return lastEditorType;
+    }
+
+    public PeerComponent getLastEditorPeer() {
+        return lastEditorPeer;
+    }
+
+    public List<String> getEditorCommands() {
+        return editorCommands;
+    }
+
+    public String getLastEditorCommand() {
+        return editorCommands.isEmpty() ? null : editorCommands.get(editorCommands.size() - 1);
+    }
+
+    /// Configures the canned response for editorPeerQuery. The responder receives "name:arg"
+    /// and returns the value to hand back to the editor, or null to fall through to "".
+    public void setEditorQueryResponder(Function<String, String> responder) {
+        this.editorQueryResponder = responder;
+    }
+
+    @Override
+    public void blockCopyPaste(boolean blockCopyPaste) {
+        this.blockCopyAndPaste = blockCopyPaste;
+    }
+
+    public boolean isBlockCopyAndPaste() {
+        return blockCopyAndPaste;
+    }
+
+    public static TestCodenameOneImplementation getInstance() {
+        return instance;
+    }
+
+    @Override
+    public void execute(String url) {
+        this.executeURL = url;
+    }
+
+    public String getExecuteURL() {
+        return executeURL;
+    }
+
+    @Override
+    public String[] getAvailableRecordingMimeTypes() {
+        return availableRecordingMimeTypes;
+    }
+
+    public void setAvailableRecordingMimeTypes(String[] availableRecordingMimeTypes) {
+        this.availableRecordingMimeTypes = availableRecordingMimeTypes;
+    }
+
+    public void setAnimation(boolean animation) {
+        this.animation = animation;
+    }
+
+    @Override
+    public boolean isAnimation(Object nativeImage) {
+        return animation;
+    }
+
+    @Override
+    public boolean animateImage(Object nativeImage, long lastFrame) {
+        return animation;
+    }
+
+    public TestCodenameOneImplementation(boolean timeoutSupported) {
+        this.timeoutSupported = timeoutSupported;
+    }
+
+    private String socketKey(String host, int port) {
+        return host + ":" + port;
+    }
+
+    public void setSocketAvailable(boolean socketAvailable) {
+        this.socketAvailable = socketAvailable;
+    }
+
+    public void setServerSocketAvailable(boolean serverSocketAvailable) {
+        this.serverSocketAvailable = serverSocketAvailable;
+    }
+
+    public TestSocket registerSocket(String host, int port) {
+        String key = socketKey(host, port);
+        TestSocket socket = new TestSocket(host, port);
+        sockets.put(key, socket);
+        return socket;
+    }
+
+    public TestSocket getSocket(String host, int port) {
+        return sockets.get(socketKey(host, port));
+    }
+
+    public void clearSockets() {
+        sockets.clear();
+    }
+
+    public void setAppHomePath(String appHomePath) {
+        if (appHomePath == null) {
+            this.appHomePath = "";
+        } else {
+            this.appHomePath = appHomePath;
+        }
+    }
+
+    public void setHostOrIP(String hostOrIp) {
+        this.hostOrIp = hostOrIp;
+    }
+
+    public void putFile(String path, byte[] data) {
+        if (data == null) {
+            fileSystem.remove(path);
+            return;
+        }
+        fileSystem.put(path, TestFile.file(Arrays.copyOf(data, data.length)));
+    }
+
+    public byte[] getFileContent(String path) {
+        TestFile file = fileSystem.get(path);
+        if (file == null) {
+            return null;
+        }
+        return Arrays.copyOf(file.content, file.content.length);
+    }
+
+    public void clearFileSystem() {
+        fileSystem.clear();
+    }
+
+    public void reset() {
+        minimized = false;
+        usesInvokeAndBlockForEditString = false;
+        windowManager = null;
+        desktop = false;
+        nativeTitle = false;
+        desktopTitleBarMode = "toolbar";
+        configuredDesktopTitleBarMode = null;
+        shiftKeyDown = false;
+        nativeCommandsSupported = true;
+        lastNativeCommands = null;
+        clearFileSystem();
+        clearSockets();
+        clearConnections();
+        clearStorage();
+        clearQueuedRequests();
+        clearScheduledNotifications();
+        clearContacts();
+        clearMediaAsyncMappings();
+        clearSystemOutMessages();
+        clearNetworkMocks();
+        clearSslCertificates();
+        databases.clear();
+        browserExecuted.clear();
+        browserUrls.clear();
+        editorNativePeerSupported = false;
+        textInputSupported = true;
+        lastEditorType = null;
+        lastEditorPeer = null;
+        editorCommands.clear();
+        editorQueryResponder = null;
+        mediaAsync = null;
+        hasDragStarted = null;
+        backgroundMediaAsync = null;
+        backgroundMedia = null;
+        media = null;
+        browserComponent = null;
+        properties.clear();
+        cleanupCalls.clear();
+        heavyButtonPeers.clear();
+        nativeBrowserWindowOnLoadListener.clear();
+        nativeBrowserWindowCloseListener.clear();
+        nativeBrowserWindow = null;
+        browserScriptResponder = null;
+        connectionResponseProvider = null;
+        logListener = null;
+        timeoutInvoked = false;
+        translateInvoked = false;
+        drawShapeInvoked = false;
+        fillShapeInvoked = false;
+        lastDrawShape = null;
+        lastFillShape = null;
+        lastClipShape = null;
+        lastDrawStroke = null;
+        fillOperations.clear();
+        gradientOperations.clear();
+        activeTextEditor = null;
+        blockCopyAndPaste = false;
+        executeURL = null;
+        animation = false;
+        mediaRecorder = null;
+        mediaRecorderHandler = null;
+        mediaRecorderBuilderHandler = null;
+        locationManager = null;
+        bluetooth = null;
+        health = null;
+        localizationManager = null;
+        imageIO = null;
+        inAppPurchase = null;
+        inAppPurchaseFactory = null;
+        contactIdCounter.set(1);
+        accessPointIds = new String[0];
+        accessPointTypes.clear();
+        accessPointNames.clear();
+        currentAccessPoint = null;
+        vpnDetectionSupported = false;
+        vpnActive = false;
+        callDetectionSupported = false;
+        inCall = false;
+        startRemoteControlInvocations = 0;
+        stopRemoteControlInvocations = 0;
+        nativeTitle = false;
+        softkeyCount = 2;
+        thirdSoftButton = false;
+        nativeFontSchemeSupported = true;
+        nativeImageCacheSupported = false;
+        resetTextSelectionTracking();
+        resetHeavyButtonTracking();
+        flushStorageCacheInvocations = 0;
+        nativePickerTypeSupported = null;
+        socketAvailable = true;
+        serverSocketAvailable = false;
+        loopbackSupportedOnlyOnFirstQuery = false;
+        stoppedListeners.clear();
+        loopbackQueried = false;
+        debuggableBuild = true;
+        appHomePath = "file://app/";
+        hostOrIp = null;
+        resetGalleryTracking();
+        nextCapturePhotoPath = "file://test-photo.jpg";
+        nextCaptureVideoPath = "file://test-video.mp4";
+        nextCaptureAudioPath = "file://test-audio.wav";
+        lastMediaRecorderBuilder = null;
+        lastVideoConstraints = null;
+        audioCaptureFrames.clear();
+        incomingConnections.clear();
+        resourceAsStreams.clear();
+        deviceDensity = Display.DENSITY_MEDIUM;
+        displayWidth = 1080;
+        displayHeight = 1920;
+        desktopSize = new Dimension(displayWidth, displayHeight);
+        windowBounds = new Rectangle(0, 0, displayWidth, displayHeight);
+        displaySafeArea = null;
+        lastWindowSize = null;
+        nativeTitle = false;
+        softkeyCount = 2;
+        thirdSoftButton = false;
+        mutableImagesFast = true;
+        largerTextEnabled = false;
+        largerTextScale = 1f;
+        nativeTheme = null;
+        cameraImpl = null;
+        arImpl = null;
+        visionImplCreationHook = null;
+        motionSensorManager = null;
+        platformName = "test";
+    }
+
+    public List<Object> getCleanupCalls() {
+        return new ArrayList<Object>(cleanupCalls);
+    }
+
+    public void resetCleanupCalls() {
+        cleanupCalls.clear();
+    }
+
+    public int getFlushStorageCacheInvocations() {
+        return flushStorageCacheInvocations;
+    }
+
+    public void resetFlushStorageCacheInvocations() {
+        flushStorageCacheInvocations = 0;
+    }
+
+    public void setDisplaySize(int width, int height) {
+        this.displayWidth = width;
+        this.displayHeight = height;
+    }
+
+    /**
+     * Sets a custom display safe area to simulate devices with notches or safe area insets.
+     * Pass {@code null} to revert to the default behavior (full display area).
+     */
+    public void setDisplaySafeArea(Rectangle safeArea) {
+        this.displaySafeArea = safeArea;
+    }
+
+    @Override
+    public Rectangle getDisplaySafeArea(Rectangle rect) {
+        if (displaySafeArea != null) {
+            if (rect == null) {
+                rect = new Rectangle();
+            }
+            rect.setBounds(displaySafeArea.getX(), displaySafeArea.getY(),
+                    displaySafeArea.getWidth(), displaySafeArea.getHeight());
+            return rect;
+        }
+        return super.getDisplaySafeArea(rect);
+    }
+
+    public void setDeviceDensity(int density) {
+        this.deviceDensity = density;
+    }
+
+    public void setPortrait(boolean portrait) {
+        this.portrait = portrait;
+    }
+
+    public void setTouchDevice(boolean touchDevice) {
+        this.touchDevice = touchDevice;
+    }
+
+    public void setTimeoutSupported(boolean timeoutSupported) {
+        this.timeoutSupported = timeoutSupported;
+    }
+
+    public void setAccessPoints(String[] ids, Map<String, Integer> types, Map<String, String> names) {
+        this.accessPointIds = ids == null ? new String[0] : ids.clone();
+        this.accessPointTypes.clear();
+        if (types != null) {
+            this.accessPointTypes.putAll(types);
+        }
+        this.accessPointNames.clear();
+        if (names != null) {
+            this.accessPointNames.putAll(names);
+        }
+    }
+
+
+    public void setVPNState(boolean detectionSupported, boolean active) {
+        this.vpnDetectionSupported = detectionSupported;
+        this.vpnActive = active;
+    }
+
+    public void setCallState(boolean detectionSupported, boolean active) {
+        this.callDetectionSupported = detectionSupported;
+        this.inCall = active;
+    }
+
+    @Override
+    public LocationManager getLocationManager() {
+        return locationManager;
+    }
+
+    public void setLocationManager(LocationManager locationManager) {
+        this.locationManager = locationManager;
+    }
+
+    /**
+     * Returns the scripted Bluetooth entry point installed via
+     * {@link #setBluetooth(com.codename1.bluetooth.Bluetooth)}. Defaults to
+     * {@code null} so {@code Bluetooth.getInstance()} falls back to the
+     * no-op base instance, mirroring ports without Bluetooth support.
+     */
+    @Override
+    public com.codename1.bluetooth.Bluetooth getBluetooth() {
+        return bluetooth;
+    }
+
+    /**
+     * Scripts the Bluetooth stack returned by {@link #getBluetooth()};
+     * cleared back to {@code null} by {@link #reset()}.
+     */
+    public void setBluetooth(com.codename1.bluetooth.Bluetooth bluetooth) {
+        this.bluetooth = bluetooth;
+    }
+
+    /**
+     * Returns the scripted health entry point installed via
+     * {@link #setHealth(com.codename1.health.Health)}. Defaults to
+     * {@code null} so {@code Health.getInstance()} falls back to the no-op
+     * base instance, mirroring ports without health support.
+     */
+    @Override
+    public com.codename1.health.Health getHealth() {
+        return health;
+    }
+
+    /**
+     * Scripts the health stack returned by {@link #getHealth()}; cleared
+     * back to {@code null} by {@link #reset()}.
+     */
+    public void setHealth(com.codename1.health.Health health) {
+        this.health = health;
+    }
+
+    public void setLocalizationManager(L10NManager localizationManager) {
+        this.localizationManager = localizationManager;
+    }
+
+    public void setImageIO(ImageIO imageIO) {
+        this.imageIO = imageIO;
+    }
+
+    public void setVideoIO(VideoIO videoIO) {
+        this.videoIO = videoIO;
+    }
+
+    public void setMediaRecorderHandler(MediaRecorderHandler handler) {
+        this.mediaRecorderHandler = handler;
+    }
+
+    public boolean wasTimeoutInvoked() {
+        return timeoutInvoked;
+    }
+
+    public int getTimeoutValue() {
+        return timeoutValue;
+    }
+
+    public void resetTimeoutTracking() {
+        timeoutInvoked = false;
+        timeoutValue = 0;
+    }
+
+    public void setTranslationSupported(boolean translationSupported) {
+        this.translationSupported = translationSupported;
+    }
+
+    public boolean wasTranslateInvoked() {
+        return translateInvoked;
+    }
+
+    public void resetTranslateTracking() {
+        translateInvoked = false;
+    }
+
+    public void setShapeSupported(boolean shapeSupported) {
+        this.shapeSupported = shapeSupported;
+    }
+
+    public boolean wasDrawShapeInvoked() {
+        return drawShapeInvoked;
+    }
+
+    public boolean wasFillShapeInvoked() {
+        return fillShapeInvoked;
+    }
+
+    public Shape getLastClipShape() {
+        return lastClipShape;
+    }
+
+    public Shape getLastDrawShape() {
+        return lastDrawShape;
+    }
+
+    public Shape getLastFillShape() {
+        return lastFillShape;
+    }
+
+    public Stroke getLastDrawStroke() {
+        return lastDrawStroke;
+    }
+
+    public void clearGraphicsOperations() {
+        fillOperations.clear();
+        gradientOperations.clear();
+    }
+
+    public List<FillOperation> getFillOperationsSnapshot() {
+        return new ArrayList<FillOperation>(fillOperations);
+    }
+
+    public List<GradientOperation> getGradientOperationsSnapshot() {
+        return new ArrayList<GradientOperation>(gradientOperations);
+    }
+
+    public GradientOperation getLastGradientOperation() {
+        return gradientOperations.isEmpty() ? null : gradientOperations.peekLast();
+    }
+
+    public void resetShapeTracking() {
+        drawShapeInvoked = false;
+        fillShapeInvoked = false;
+        lastDrawShape = null;
+        lastFillShape = null;
+        lastDrawStroke = null;
+    }
+
+    public void resetClipTracking() {
+        lastClipShape = null;
+    }
+
+    @Override
+    public void resetAffine(Object nativeGraphics) {
+        if (nativeGraphics instanceof TestGraphics) {
+            ((TestGraphics) nativeGraphics).transform.setIdentity();
+        }
+    }
+
+    @Override
+    public void scale(Object nativeGraphics, float x, float y) {
+        if (nativeGraphics instanceof TestGraphics) {
+            TestTransform t = ((TestGraphics) nativeGraphics).transform;
+            TestTransform s = new TestTransform();
+            s.setScale(x, y, 1f);
+            t.concatenate(s);
+        }
+    }
+
+    @Override
+    public boolean isTranslateMatrixSupported() {
+        return true;
+    }
+
+    @Override
+    public void translateMatrix(Object nativeGraphics, float x, float y) {
+        if (nativeGraphics instanceof TestGraphics) {
+            TestTransform t = ((TestGraphics) nativeGraphics).transform;
+            TestTransform translation = new TestTransform();
+            translation.setTranslation(x, y, 0f);
+            t.concatenate(translation);
+        }
+    }
+
+
+    @Override
+    public void rotate(Object nativeGraphics, float angle, int pivotX, int pivotY) {
+    }
+
+    @Override
+    public void shear(Object nativeGraphics, float x, float y) {
+    }
+
+    @Override
+    public boolean isTransformSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isTransformSupported(Object graphics) {
+        return true;
+    }
+
+    @Override
+    public Object makeTransformIdentity() {
+        return new TestTransform();
+    }
+
+    @Override
+    public void setTransformIdentity(Object transform) {
+        ((TestTransform) transform).setIdentity();
+    }
+
+    @Override
+    public Object makeTransformTranslation(float translateX, float translateY, float translateZ) {
+        TestTransform transform = new TestTransform();
+        transform.setTranslation(translateX, translateY, translateZ);
+        return transform;
+    }
+
+    @Override
+    public void setTransformTranslation(Object transform, float translateX, float translateY, float translateZ) {
+        ((TestTransform) transform).setTranslation(translateX, translateY, translateZ);
+    }
+
+    @Override
+    public Object makeTransformScale(float scaleX, float scaleY, float scaleZ) {
+        TestTransform transform = new TestTransform();
+        transform.setScale(scaleX, scaleY, scaleZ);
+        return transform;
+    }
+
+    @Override
+    public void setTransformScale(Object transform, float scaleX, float scaleY, float scaleZ) {
+        ((TestTransform) transform).setScale(scaleX, scaleY, scaleZ);
+    }
+
+    @Override
+    public Object makeTransformRotation(float angle, float x, float y, float z) {
+        TestTransform transform = new TestTransform();
+        transform.setRotation(angle, x, y);
+        return transform;
+    }
+
+    @Override
+    public void setTransformRotation(Object transform, float angle, float x, float y, float z) {
+        ((TestTransform) transform).setRotation(angle, x, y);
+    }
+
+    @Override
+    public Object makeTransformAffine(double m00, double m10, double m01, double m11, double m02, double m12) {
+        TestTransform transform = new TestTransform();
+        transform.setAffine((float) m00, (float) m01, (float) m02, (float) m10, (float) m11, (float) m12);
+        return transform;
+    }
+
+    @Override
+    public void setTransformAffine(Object nativeTransform, double m00, double m10, double m01, double m11, double m02, double m12) {
+        ((TestTransform) nativeTransform).setAffine((float) m00, (float) m01, (float) m02, (float) m10, (float) m11, (float) m12);
+    }
+
+    @Override
+    public Object makeTransformInverse(Object nativeTransform) {
+        return ((TestTransform) nativeTransform).createInverse();
+    }
+
+    @Override
+    public void setTransformInverse(Object nativeTransform) {
+        ((TestTransform) nativeTransform).invert();
+    }
+
+    @Override
+    public void concatenateTransform(Object left, Object right) {
+        ((TestTransform) left).concatenate((TestTransform) right);
+    }
+
+    @Override
+    public void copyTransform(Object src, Object dest) {
+        ((TestTransform) dest).copyFrom((TestTransform) src);
+    }
+
+    @Override
+    public boolean transformNativeEqualsImpl(Object t1, Object t2) {
+        if (t1 == t2) {
+            return true;
+        }
+        if (t1 == null || t2 == null) {
+            return false;
+        }
+        return ((TestTransform) t1).equals((TestTransform) t2);
+    }
+
+    @Override
+    public void transformPoint(Object nativeTransform, float[] in, float[] out) {
+        if (nativeTransform == null) {
+            int len = Math.min(in.length, out.length);
+            System.arraycopy(in, 0, out, 0, len);
+            return;
+        }
+        ((TestTransform) nativeTransform).transformPoint(in, out);
+    }
+
+    // -----------------------------------------------------------------
+    // CodenameOneImplementation abstract methods
+    // -----------------------------------------------------------------
+
+    @Override
+    public void init(Object m) {
+    }
+
+    @Override
+    public int getDisplayWidth() {
+        return displayWidth;
+    }
+
+    @Override
+    public int getDisplayHeight() {
+        return displayHeight;
+    }
+
+    @Override
+    public Dimension getDesktopSize() {
+        return desktopSize;
+    }
+
+    public void setDesktopSize(Dimension desktopSize) {
+        this.desktopSize = desktopSize;
+    }
+
+    @Override
+    public Rectangle getWindowBounds() {
+        if (windowBounds == null) {
+            return new Rectangle(0, 0, displayWidth, displayHeight);
+        }
+        return new Rectangle(windowBounds);
+    }
+
+    public void setWindowBounds(Rectangle windowBounds) {
+        this.windowBounds = windowBounds;
+    }
+
+    @Override
+    public void setInitialWindowSizeHintPercent(Dimension hint) {
+        super.setInitialWindowSizeHintPercent(hint);
+        if (hint != null && desktopSize != null) {
+            int width = Math.min(desktopSize.getWidth(), Math.max(1, Math.round(desktopSize.getWidth() * (hint.getWidth() / 100f))));
+            int height = Math.min(desktopSize.getHeight(), Math.max(1, Math.round(desktopSize.getHeight() * (hint.getHeight() / 100f))));
+            setWindowSize(width, height);
+        }
+    }
+
+    @Override
+    public void setWindowSize(int width, int height) {
+        lastWindowSize = new Dimension(width, height);
+        displayWidth = width;
+        displayHeight = height;
+        windowBounds = new Rectangle(windowBounds == null ? 0 : windowBounds.getX(), windowBounds == null ? 0 : windowBounds.getY(), width, height);
+    }
+
+    public Dimension getLastWindowSize() {
+        return lastWindowSize == null ? null : new Dimension(lastWindowSize);
+    }
+
+    @Override
+    public void editString(com.codename1.ui.Component cmp, int maxSize, int constraint, String text, int initiatingKeycode) {
+        if (cmp instanceof TextArea) {
+            TextArea area = (TextArea) cmp;
+            activeTextEditor = area;
+            if (cmp instanceof TextField) {
+                TextField field = (TextField) cmp;
+                if (shouldInsertCharacter(field.isEditable(), initiatingKeycode)) {
+                    insertCharacter(field, (char) initiatingKeycode, maxSize);
+                    return;
+                }
+                field.setText(text);
+                return;
+            }
+            if (shouldInsertCharacter(area.isEditable(), initiatingKeycode)) {
+                insertCharacter(area, (char) initiatingKeycode, maxSize);
+                return;
+            }
+            area.setText(text);
+            return;
+        }
+    }
+
+    @Override
+    public boolean isEditingText() {
+        if (allowKeyEventReentry && getEditingText() != null) {
+            return false;
+        }
+        return super.isEditingText();
+    }
+
+    @Override
+    public boolean isEditingText(com.codename1.ui.Component c) {
+        if (allowKeyEventReentry && c == getEditingText()) {
+            return false;
+        }
+        return super.isEditingText(c);
+    }
+
+    private boolean shouldInsertCharacter(boolean editable, int initiatingKeycode) {
+        if (!editable) {
+            return false;
+        }
+        if (initiatingKeycode <= 0) {
+            return false;
+        }
+        char c = (char) initiatingKeycode;
+        return !Character.isISOControl(c) || c == '\n' || c == '\r' || c == '\t';
+    }
+
+    private void insertCharacter(TextArea area, char character, int maxSize) {
+        String current = area.getText();
+        if (current == null) {
+            current = "";
+        }
+        if (maxSize > 0 && current.length() >= maxSize) {
+            return;
+        }
+        int cursor = area.getCursorPosition();
+        if (cursor < 0 || cursor > current.length()) {
+            cursor = current.length();
+        }
+        char adjustedCharacter = applyAutoCapitalization(area, character, current, cursor);
+        StringBuilder sb = new StringBuilder(current.length() + 1);
+        sb.append(current, 0, cursor);
+        sb.append(adjustedCharacter);
+        if (cursor < current.length()) {
+            sb.append(current.substring(cursor));
+        }
+        area.setText(sb.toString());
+        if (area instanceof TextField) {
+            ((TextField) area).setCursorPosition(cursor + 1);
+        }
+    }
+
+    private TextArea getActiveEditingArea() {
+        Component editing = getEditingText();
+        if (editing instanceof TextArea) {
+            return (TextArea) editing;
+        }
+        Display display = Display.getInstance();
+        if (display == null) {
+            return null;
+        }
+        Form current = display.getCurrent();
+        if (current == null) {
+            return null;
+        }
+        Component focused = current.getFocused();
+        if (focused instanceof TextArea) {
+            return (TextArea) focused;
+        }
+        if (current != null) {
+            TextArea firstTextArea = findFirstTextArea(current.getContentPane());
+            if (firstTextArea != null) {
+                activeTextEditor = firstTextArea;
+                return firstTextArea;
+            }
+        }
+        if (activeTextEditor != null) {
+            return activeTextEditor;
+        }
+        return null;
+    }
+
+    private TextArea findFirstTextArea(Container container) {
+        if (container == null) {
+            return null;
+        }
+        int componentCount = container.getComponentCount();
+        for (int i = 0; i < componentCount; i++) {
+            Component child = container.getComponentAt(i);
+            if (child instanceof TextArea) {
+                return (TextArea) child;
+            }
+            if (child instanceof Container) {
+                TextArea nested = findFirstTextArea((Container) child);
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        }
+        return null;
+    }
+
+    private char applyAutoCapitalization(TextArea area, char character, String currentText, int cursorPosition) {
+        if (!Character.isLetter(character)) {
+            return character;
+        }
+        int constraint = area.getConstraint();
+        boolean initialCapsSentence = (constraint & TextArea.INITIAL_CAPS_SENTENCE) == TextArea.INITIAL_CAPS_SENTENCE;
+        boolean initialCapsWord = (constraint & TextArea.INITIAL_CAPS_WORD) == TextArea.INITIAL_CAPS_WORD;
+        if (!initialCapsSentence && !initialCapsWord) {
+            return character;
+        }
+        int index = cursorPosition - 1;
+        if (initialCapsSentence) {
+            while (index >= 0 && Character.isWhitespace(currentText.charAt(index))) {
+                index--;
+            }
+            if (index < 0 || currentText.charAt(index) == '.' || currentText.charAt(index) == '!' || currentText.charAt(index) == '?') {
+                return Character.toUpperCase(character);
+            }
+        }
+        if (initialCapsWord) {
+            if (index < 0 || Character.isWhitespace(currentText.charAt(index))) {
+                return Character.toUpperCase(character);
+            }
+        }
+        return character;
+    }
+
+    @Override
+    public boolean isAsyncEditMode() {
+        return true;
+    }
+
+    /// Whether the port is one of those that edit through invokeAndBlock, which is what
+    /// makes TextArea stop the previous editor and resume the new one from a timer.
+    /// False by default, as the real default is, so the path is only exercised by a test
+    /// that asks for it.
+    private boolean usesInvokeAndBlockForEditString;
+
+    /// Turns the invokeAndBlock editing path on for a test.
+    ///
+    /// #### Parameters
+    ///
+    /// - `uses`: true to report that this port edits through invokeAndBlock
+    public void setUsesInvokeAndBlockForEditString(boolean uses) {
+        usesInvokeAndBlockForEditString = uses;
+    }
+
+    @Override
+    public boolean usesInvokeAndBlockForEditString() {
+        return usesInvokeAndBlockForEditString;
+    }
+
+    @Override
+    public void stopTextEditing() {
+        activeTextEditor = null;
+        hideTextEditor();
+    }
+
+    public void dispatchKeyPress(final int keyCode) {
+        Display display = Display.getInstance();
+        if (display == null) {
+            return;
+        }
+        final TextArea editing = getActiveEditingArea();
+        final boolean reenter = beginAllowingEditDuringKey(keyCode);
+        if (editing != null && shouldInsertCharacter(editing.isEditable(), keyCode)) {
+            insertCharacter(editing, (char) keyCode, editing.getMaxSize());
+        } else {
+            display.keyPressed(keyCode);
+            display.keyReleased(keyCode);
+        }
+        if (reenter) {
+            display.callSerially(new Runnable() {
+                public void run() {
+                    allowKeyEventReentry = false;
+                }
+            });
+        }
+    }
+
+    public void dispatchPointerPress(int x, int y) {
+        sendPointerEventToCurrentForm(true, x, y);
+    }
+
+    public void dispatchPointerRelease(int x, int y) {
+        sendPointerEventToCurrentForm(false, x, y);
+    }
+
+    @Override
+    protected boolean hasDragStarted(int x, int y) {
+        if(hasDragStarted != null) {
+            return hasDragStarted;
+        }
+        return super.hasDragStarted(x, y);
+    }
+
+    public void setHasDragStarted(boolean b) {
+        hasDragStarted = b;
+    }
+
+    public void dispatchPointerDrag(final int x, final int y) {
+        final Display display = Display.getInstance();
+        assertNotNull(display);
+
+        Runnable r = () -> {
+            Form current = display.getCurrent();
+            assertNotNull(current);
+            current.pointerDragged(x, y);
+        };
+
+        if (display.isEdt()) {
+            r.run();
+        } else {
+            display.callSerially(r);
+        }
+    }
+
+    public void dispatchPointerPressAndRelease(int x, int y) {
+        dispatchPointerPress(x, y);
+        dispatchPointerRelease(x, y);
+    }
+
+    public void dispatchScrollToVisible(final Container container, final int scrollY) {
+        if (container == null) {
+            return;
+        }
+        final Display display = Display.getInstance();
+        if (display == null) {
+            return;
+        }
+
+        Runnable r = new Runnable() {
+            public void run() {
+                int height = Math.max(1, container.getHeight());
+                container.scrollRectToVisible(0, scrollY, container.getWidth(), height, container);
+            }
+        };
+
+        if (display.isEdt()) {
+            r.run();
+        } else {
+            display.callSeriallyAndWait(r);
+        }
+    }
+
+    public void pressComponent(Component component) {
+        assertNotNull(component);
+        int x = component.getAbsoluteX() + component.getWidth() / 2;
+        int y = component.getAbsoluteY() + component.getHeight() / 2;
+        dispatchPointerPress(x, y);
+    }
+
+    public void releaseComponent(Component component) {
+        assertNotNull(component);
+        int x = component.getAbsoluteX() + component.getWidth() / 2;
+        int y = component.getAbsoluteY() + component.getHeight() / 2;
+        dispatchPointerRelease(x, y);
+    }
+
+    public void tapComponent(Component component) {
+        assertNotNull(component);
+        int x = component.getAbsoluteX() + component.getWidth() / 2;
+        int y = component.getAbsoluteY() + component.getHeight() / 2;
+        dispatchPointerPressAndRelease(x, y);
+    }
+
+    private void sendPointerEventToCurrentForm(final boolean pressed, final int x, final int y) {
+        if (pressed) {
+            super.pointerPressed(x, y);
+        } else {
+            super.pointerReleased(x, y);
+        }
+    }
+
+    public void tapListRow(com.codename1.ui.List list, int rowIndex) {
+        assertNotNull(list);
+        int visibleRows = Math.min(Math.max(1, list.getMinElementHeight()), list.getModel().getSize());
+        int rowHeight = list.getHeight() / visibleRows;
+        int x = list.getAbsoluteX() + list.getWidth() / 2;
+        int y = list.getAbsoluteY() + Math.max(0, rowIndex) * rowHeight + rowHeight / 2;
+        dispatchPointerPressAndRelease(x, y);
+    }
+
+    private boolean beginAllowingEditDuringKey(int keyCode) {
+        TextArea area = getActiveEditingArea();
+        if (area == null) {
+            return false;
+        }
+        if (!shouldInsertCharacter(area.isEditable(), keyCode)) {
+            return false;
+        }
+        if (area instanceof TextField) {
+            TextField tf = (TextField) area;
+            if (!tf.isQwertyInput()) {
+                return false;
+            }
+        }
+        allowKeyEventReentry = true;
+        return true;
+    }
+
+    @Override
+    public void flushGraphics(int x, int y, int width, int height) {
+    }
+
+    @Override
+    public void flushGraphics() {
+    }
+
+    @Override
+    public void getRGB(Object nativeImage, int[] arr, int offset, int x, int y, int width, int height) {
+        TestImage img = (TestImage) nativeImage;
+        img.getRGB(arr, offset, x, y, width, height);
+    }
+
+    @Override
+    public Object createImage(int[] rgb, int width, int height) {
+        return TestImage.fromRgb(rgb, width, height);
+    }
+
+    @Override
+    public Object createImage(String path) throws IOException {
+        TestFile file = fileSystem.get(path);
+        if (file == null) {
+            throw new IOException("Missing file " + path);
+        }
+        return TestImage.fromEncoded(file.content);
+    }
+
+    @Override
+    public Object createImage(InputStream i) throws IOException {
+        byte[] data = Util.readInputStream(i);
+        return TestImage.fromEncoded(data);
+    }
+
+    @Override
+    public Object createMutableImage(int width, int height, int fillColor) {
+        return TestImage.mutable(width, height, fillColor);
+    }
+
+    @Override
+    public Object createImage(byte[] bytes, int offset, int len) {
+        byte[] data = Arrays.copyOfRange(bytes, offset, offset + len);
+        return TestImage.fromEncoded(data);
+    }
+
+    @Override
+    public int getImageWidth(Object i) {
+        return ((TestImage) i).width;
+    }
+
+    @Override
+    public int getImageHeight(Object i) {
+        return ((TestImage) i).height;
+    }
+
+    @Override
+    public Object scale(Object nativeImage, int width, int height) {
+        TestImage img = (TestImage) nativeImage;
+        return img.scale(width, height);
+    }
+
+    @Override
+    public int getSoftkeyCount() {
+        return softkeyCount;
+    }
+
+    public void setSoftkeyCount(int softkeyCount) {
+        this.softkeyCount = softkeyCount;
+    }
+
+    @Override
+    public boolean isThirdSoftButton() {
+        return thirdSoftButton;
+    }
+
+    public void setThirdSoftButton(boolean thirdSoftButton) {
+        this.thirdSoftButton = thirdSoftButton;
+    }
+
+    @Override
+    public int[] getSoftkeyCode(int index) {
+        return new int[]{index};
+    }
+
+    @Override
+    public int getClearKeyCode() {
+        return -8;
+    }
+
+    @Override
+    public int getBackspaceKeyCode() {
+        return -8;
+    }
+
+    @Override
+    public int getBackKeyCode() {
+        return -1;
+    }
+
+    @Override
+    public int getGameAction(int keyCode) {
+        return keyCode;
+    }
+
+    @Override
+    public int getKeyCode(int gameAction) {
+        return gameAction;
+    }
+
+    @Override
+    public boolean isTouchDevice() {
+        return touchDevice;
+    }
+
+    @Override
+    public boolean isTranslationSupported() {
+        return translationSupported;
+    }
+
+    @Override
+    public void translate(Object graphics, int x, int y) {
+        translateInvoked = true;
+        TestGraphics g = (TestGraphics) graphics;
+        g.translateX += x;
+        g.translateY += y;
+    }
+
+    @Override
+    public int getTranslateX(Object graphics) {
+        return ((TestGraphics) graphics).translateX;
+    }
+
+    @Override
+    public int getTranslateY(Object graphics) {
+        return ((TestGraphics) graphics).translateY;
+    }
+
+    @Override
+    public int getColor(Object graphics) {
+        return ((TestGraphics) graphics).color;
+    }
+
+    @Override
+    public void setColor(Object graphics, int RGB) {
+        ((TestGraphics) graphics).color = RGB;
+    }
+
+    @Override
+    public void setAlpha(Object graphics, int alpha) {
+        ((TestGraphics) graphics).alpha = alpha;
+    }
+
+    @Override
+    public int getAlpha(Object graphics) {
+        return ((TestGraphics) graphics).alpha;
+    }
+
+    public Object getFont(Object graphics) {
+        return ((TestGraphics) graphics).font;
+    }
+
+    @Override
+    public void setNativeFont(Object graphics, Object font) {
+        ((TestGraphics) graphics).font = (TestFont) font;
+    }
+
+    @Override
+    public int getClipX(Object graphics) {
+        return ((TestGraphics) graphics).clipX;
+    }
+
+    @Override
+    public int getClipY(Object graphics) {
+        return ((TestGraphics) graphics).clipY;
+    }
+
+    @Override
+    public int getClipWidth(Object graphics) {
+        return ((TestGraphics) graphics).clipWidth;
+    }
+
+    @Override
+    public int getClipHeight(Object graphics) {
+        return ((TestGraphics) graphics).clipHeight;
+    }
+
+    @Override
+    public void setClip(Object graphics, Shape shape) {
+        lastClipShape = shape;
+        if (shape == null) {
+            setClip(graphics, 0, 0, getDisplayWidth(), getDisplayHeight());
+            return;
+        }
+        Rectangle bounds = shape.getBounds();
+        setClip(graphics, bounds.getX(), bounds.getY(), bounds.getWidth(), bounds.getHeight());
+    }
+
+    @Override
+    public void setClip(Object graphics, int x, int y, int width, int height) {
+        TestGraphics g = (TestGraphics) graphics;
+        g.clipX = x;
+        g.clipY = y;
+        g.clipWidth = width;
+        g.clipHeight = height;
+    }
+
+    @Override
+    public void clipRect(Object graphics, int x, int y, int width, int height) {
+        TestGraphics g = (TestGraphics) graphics;
+        int newX = Math.max(g.clipX, x);
+        int newY = Math.max(g.clipY, y);
+        int newW = Math.max(0, Math.min(g.clipX + g.clipWidth, x + width) - newX);
+        int newH = Math.max(0, Math.min(g.clipY + g.clipHeight, y + height) - newY);
+        g.clipX = newX;
+        g.clipY = newY;
+        g.clipWidth = newW;
+        g.clipHeight = newH;
+    }
+
+    @Override
+    public boolean isShapeSupported(Object nativeGraphics) {
+        return shapeSupported;
+    }
+
+    @Override
+    public void drawShape(Object graphics, Shape shape, Stroke stroke) {
+        drawShapeInvoked = true;
+        lastDrawShape = shape;
+        lastDrawStroke = stroke;
+    }
+
+    @Override
+    public void fillShape(Object graphics, Shape shape) {
+        fillShapeInvoked = true;
+        lastFillShape = shape;
+    }
+
+    @Override
+    public void drawLine(Object graphics, int x1, int y1, int x2, int y2) {
+    }
+
+    @Override
+    public void fillRect(Object graphics, int x, int y, int width, int height) {
+        if (!(graphics instanceof TestGraphics)) {
+            return;
+        }
+        TestGraphics g = (TestGraphics) graphics;
+        fillArea(g, x, y, width, height);
+    }
+
+    @Override
+    public void drawRect(Object graphics, int x, int y, int width, int height) {
+        if (!(graphics instanceof TestGraphics)) {
+            return;
+        }
+        TestGraphics g = (TestGraphics) graphics;
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        int drawWidth = Math.max(1, width);
+        int drawHeight = Math.max(1, height);
+        fillArea(g, x, y, drawWidth, 1);
+        if (drawHeight > 1) {
+            fillArea(g, x, y + drawHeight - 1, drawWidth, 1);
+        }
+        if (drawHeight > 2) {
+            fillArea(g, x, y + 1, 1, drawHeight - 2);
+            if (drawWidth > 1) {
+                fillArea(g, x + drawWidth - 1, y + 1, 1, drawHeight - 2);
+            }
+        }
+    }
+
+    private void fillArea(TestGraphics g, int x, int y, int width, int height) {
+        fillArea(g, x, y, width, height, currentColor(g));
+    }
+
+    private void fillArea(TestGraphics g, int x, int y, int width, int height, int argb) {
+        if (g.image == null || width <= 0 || height <= 0) {
+            return;
+        }
+        int translatedX = x + g.translateX;
+        int translatedY = y + g.translateY;
+        int clipLeft = g.clipX;
+        int clipTop = g.clipY;
+        int clipRight = clipLeft + Math.max(0, g.clipWidth);
+        int clipBottom = clipTop + Math.max(0, g.clipHeight);
+
+        int startX = Math.max(translatedX, clipLeft);
+        int startY = Math.max(translatedY, clipTop);
+        int endX = Math.min(translatedX + width, clipRight);
+        int endY = Math.min(translatedY + height, clipBottom);
+
+        if (startX >= endX || startY >= endY) {
+            return;
+        }
+
+        int recordedWidth = endX - startX;
+        int recordedHeight = endY - startY;
+        recordFillOperation(startX, startY, recordedWidth, recordedHeight, argb);
+
+        for (int row = startY; row < endY; row++) {
+            if (row < 0 || row >= g.image.height) {
+                continue;
+            }
+            int offset = row * g.image.width;
+            for (int col = startX; col < endX; col++) {
+                if (col < 0 || col >= g.image.width) {
+                    continue;
+                }
+                g.image.argb[offset + col] = argb;
+            }
+        }
+    }
+
+    private int currentColor(TestGraphics g) {
+        int alpha = g.alpha;
+        if (alpha < 0) {
+            alpha = 0;
+        } else if (alpha > 255) {
+            alpha = 255;
+        }
+        return (alpha << 24) | (g.color & 0x00ffffff);
+    }
+
+    private void recordFillOperation(int x, int y, int width, int height, int color) {
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        if (fillOperations.size() >= 256) {
+            fillOperations.removeFirst();
+        }
+        fillOperations.addLast(new FillOperation(x, y, width, height, color));
+    }
+
+    private void recordGradientOperation(GradientOperation operation) {
+        if (gradientOperations.size() >= 64) {
+            gradientOperations.removeFirst();
+        }
+        gradientOperations.addLast(operation);
+    }
+
+    @Override
+    public void drawRoundRect(Object graphics, int x, int y, int width, int height, int arcWidth, int arcHeight) {
+    }
+
+    @Override
+    public void fillRoundRect(Object graphics, int x, int y, int width, int height, int arcWidth, int arcHeight) {
+    }
+
+    @Override
+    public Boolean canExecute(String url) {
+        return url.startsWith("scheme:");
+    }
+
+    @Override
+    public void fillArc(Object graphics, int x, int y, int width, int height, int startAngle, int arcAngle) {
+    }
+
+    @Override
+    public void drawArc(Object graphics, int x, int y, int width, int height, int startAngle, int arcAngle) {
+    }
+
+    @Override
+    public void drawString(Object graphics, String str, int x, int y) {
+    }
+
+    @Override
+    public void fillLinearGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height, boolean horizontal) {
+        if (graphics instanceof TestGraphics) {
+            TestGraphics g = (TestGraphics) graphics;
+            int translatedX = x + g.translateX;
+            int translatedY = y + g.translateY;
+            recordGradientOperation(new GradientOperation(translatedX, translatedY, Math.max(0, width), Math.max(0, height), startColor, endColor, horizontal));
+            if (width <= 0 || height <= 0) {
+                return;
+            }
+            if (horizontal) {
+                int split = Math.max(1, width / 2);
+                fillArea(g, x, y, split, height, startColor);
+                fillArea(g, x + split, y, Math.max(0, width - split), height, endColor);
+            } else {
+                int split = Math.max(1, height / 2);
+                fillArea(g, x, y, width, split, startColor);
+                fillArea(g, x, y + split, width, Math.max(0, height - split), endColor);
+            }
+            return;
+        }
+        super.fillLinearGradient(graphics, startColor, endColor, x, y, width, height, horizontal);
+    }
+
+    @Override
+    public void drawImage(Object graphics, Object img, int x, int y) {
+    }
+
+    /**
+     * Rasterizes the RGB array into the destination {@link TestImage} backing the
+     * supplied graphics, applying the current affine transform stored on the
+     * {@link TestGraphics}. Used by tests that exercise scaled image draws --
+     * the production no-op was insufficient because pixel-level assertions need
+     * actual output. The mapping is inverse, nearest-neighbour, so an integer
+     * scale yields exact source pixel replication.
+     */
+    @Override
+    public void drawRGB(Object graphics, int[] rgbData, int offset, int x, int y, int w, int h, boolean processAlpha) {
+        if (!(graphics instanceof TestGraphics) || w <= 0 || h <= 0) {
+            return;
+        }
+        TestGraphics g = (TestGraphics) graphics;
+        if (g.image == null) {
+            return;
+        }
+
+        float[] corner = new float[2];
+        float[] mapped = new float[2];
+        float minDestX = Float.POSITIVE_INFINITY, minDestY = Float.POSITIVE_INFINITY;
+        float maxDestX = Float.NEGATIVE_INFINITY, maxDestY = Float.NEGATIVE_INFINITY;
+        for (int c = 0; c < 4; c++) {
+            corner[0] = (c & 1) == 0 ? x : x + w;
+            corner[1] = (c & 2) == 0 ? y : y + h;
+            g.transform.transformPoint(corner, mapped);
+            if (mapped[0] < minDestX) minDestX = mapped[0];
+            if (mapped[1] < minDestY) minDestY = mapped[1];
+            if (mapped[0] > maxDestX) maxDestX = mapped[0];
+            if (mapped[1] > maxDestY) maxDestY = mapped[1];
+        }
+
+        int clipRight = g.clipX + Math.max(0, g.clipWidth);
+        int clipBottom = g.clipY + Math.max(0, g.clipHeight);
+        int destStartX = Math.max((int) Math.floor(minDestX), g.clipX);
+        int destStartY = Math.max((int) Math.floor(minDestY), g.clipY);
+        int destEndX = Math.min((int) Math.ceil(maxDestX), clipRight);
+        int destEndY = Math.min((int) Math.ceil(maxDestY), clipBottom);
+        if (destStartX >= destEndX || destStartY >= destEndY) {
+            return;
+        }
+
+        TestTransform inv = g.transform.createInverse();
+        int imgW = g.image.width;
+        int imgH = g.image.height;
+        float[] destSample = new float[2];
+        float[] srcSample = new float[2];
+        for (int dy = destStartY; dy < destEndY; dy++) {
+            if (dy < 0 || dy >= imgH) {
+                continue;
+            }
+            int rowOffset = dy * imgW;
+            for (int dx = destStartX; dx < destEndX; dx++) {
+                if (dx < 0 || dx >= imgW) {
+                    continue;
+                }
+                destSample[0] = dx + 0.5f;
+                destSample[1] = dy + 0.5f;
+                inv.transformPoint(destSample, srcSample);
+                int sx = (int) Math.floor(srcSample[0]) - x;
+                int sy = (int) Math.floor(srcSample[1]) - y;
+                if (sx < 0 || sx >= w || sy < 0 || sy >= h) {
+                    continue;
+                }
+                int srcIdx = offset + sy * w + sx;
+                if (srcIdx < 0 || srcIdx >= rgbData.length) {
+                    continue;
+                }
+                int srcArgb = rgbData[srcIdx];
+                int dstIdx = rowOffset + dx;
+                if (!processAlpha || (srcArgb & 0xff000000) == 0xff000000) {
+                    g.image.argb[dstIdx] = srcArgb;
+                } else {
+                    int srcAlpha = (srcArgb >>> 24) & 0xff;
+                    if (srcAlpha == 0) {
+                        continue;
+                    }
+                    int srcR = (srcArgb >>> 16) & 0xff;
+                    int srcG = (srcArgb >>> 8) & 0xff;
+                    int srcB = srcArgb & 0xff;
+                    int dstArgb = g.image.argb[dstIdx];
+                    int dstR = (dstArgb >>> 16) & 0xff;
+                    int dstG = (dstArgb >>> 8) & 0xff;
+                    int dstB = dstArgb & 0xff;
+                    int outR = (srcR * srcAlpha + dstR * (255 - srcAlpha)) / 255;
+                    int outG = (srcG * srcAlpha + dstG * (255 - srcAlpha)) / 255;
+                    int outB = (srcB * srcAlpha + dstB * (255 - srcAlpha)) / 255;
+                    g.image.argb[dstIdx] = 0xff000000 | (outR << 16) | (outG << 8) | outB;
+                }
+            }
+        }
+    }
+
+    @Override
+    public void setTransform(Object graphics, Transform transform) {
+        if (!(graphics instanceof TestGraphics)) {
+            super.setTransform(graphics, transform);
+            return;
+        }
+        TestGraphics g = (TestGraphics) graphics;
+        if (transform == null || transform.isIdentity()) {
+            g.transform.setIdentity();
+            return;
+        }
+        Object nativeT = transform.getNativeTransform();
+        if (nativeT instanceof TestTransform) {
+            g.transform.copyFrom((TestTransform) nativeT);
+        } else {
+            g.transform.setIdentity();
+        }
+    }
+
+    @Override
+    public Transform getTransform(Object graphics) {
+        if (!(graphics instanceof TestGraphics)) {
+            return super.getTransform(graphics);
+        }
+        TestTransform t = ((TestGraphics) graphics).transform;
+        return Transform.makeAffine(t.m00, t.m10, t.m01, t.m11, t.m02, t.m12);
+    }
+
+    @Override
+    public void getTransform(Object graphics, Transform t) {
+        if (!(graphics instanceof TestGraphics)) {
+            super.getTransform(graphics, t);
+            return;
+        }
+        TestTransform src = ((TestGraphics) graphics).transform;
+        t.setAffine(src.m00, src.m10, src.m01, src.m11, src.m02, src.m12);
+    }
+
+    @Override
+    public Object getNativeGraphics() {
+        return new TestGraphics(displayWidth, displayHeight);
+    }
+
+    @Override
+    public Object getNativeGraphics(Object image) {
+        TestImage img = (TestImage) image;
+        if (img.graphics == null) {
+            img.graphics = new TestGraphics(img.width, img.height);
+        }
+        img.graphics.image = img;
+        img.graphics.clipX = 0;
+        img.graphics.clipY = 0;
+        img.graphics.clipWidth = img.width;
+        img.graphics.clipHeight = img.height;
+        return img.graphics;
+    }
+
+    @Override
+    public int charsWidth(Object nativeFont, char[] ch, int offset, int length) {
+        return font(nativeFont).charsWidth(ch, offset, length);
+    }
+    
+    private TestFont font(Object nativeFont) {
+        return nativeFont == null ? defaultFont : (TestFont) nativeFont;
+    }
+
+    @Override
+    public int stringWidth(Object nativeFont, String str) {
+        return font(nativeFont).stringWidth(str);
+    }
+
+    @Override
+    public int charWidth(Object nativeFont, char ch) {
+        return font(nativeFont).charWidth(ch);
+    }
+
+    @Override
+    public int getHeight(Object nativeFont) {
+        return font(nativeFont).height;
+    }
+
+    @Override
+    public Object getDefaultFont() {
+        return defaultFont;
+    }
+
+    @Override
+    public Object createFont(int face, int style, int size) {
+        return new TestFont(defaultFont.charWidth, defaultFont.height);
+    }
+
+    @Override
+    public Object loadTrueTypeFont(String fontName, String fileName) {
+        if(fontName != null && fontName.toLowerCase().contains("missing") ||
+                fileName != null && fileName.toLowerCase().contains("missing")) {
+            return null;
+        }
+        return new TestFont(defaultFont.charWidth, defaultFont.height);
+    }
+
+    @Override
+    public Object deriveTrueTypeFont(Object font, float size, int weight) {
+        return new TestFont(defaultFont.charWidth, defaultFont.height);
+    }
+
+    @Override
+    public Object loadNativeFont(String lookup) {
+        return new TestFont(defaultFont.charWidth, defaultFont.height);
+    }
+
+    @Override
+    public boolean isTrueTypeSupported() {
+        return trueTypeSupported;
+    }
+
+    public void setTrueTypeSupported(boolean trueTypeSupported) {
+        this.trueTypeSupported = trueTypeSupported;
+    }
+
+    @Override
+    public boolean isNativeFontSchemeSupported() {
+        return nativeFontSchemeSupported;
+    }
+
+    public void setNativeFontSchemeSupported(boolean nativeFontSchemeSupported) {
+        this.nativeFontSchemeSupported = nativeFontSchemeSupported;
+    }
+
+    /**
+     * Theme installed by {@link #installNativeTheme()}, or null when this
+     * implementation reports no native theme. Lets a test reproduce the
+     * layered {@code @includeNativeBool} install the device ports perform,
+     * where building the app theme re-enters the theme build with only the
+     * native theme's entries visible.
+     */
+    private Hashtable nativeTheme;
+
+    public void setNativeTheme(Hashtable nativeTheme) {
+        this.nativeTheme = nativeTheme;
+    }
+
+    @Override
+    public boolean hasNativeTheme() {
+        return nativeTheme != null;
+    }
+
+    @Override
+    public void installNativeTheme() {
+        if (nativeTheme != null) {
+            UIManager.getInstance().setThemeProps(nativeTheme);
+        }
+    }
+
+    public void setLargerTextEnabled(boolean largerTextEnabled) {
+        this.largerTextEnabled = largerTextEnabled;
+    }
+
+    public void setLargerTextScale(float largerTextScale) {
+        this.largerTextScale = largerTextScale;
+    }
+
+    @Override
+    public boolean isLargerTextEnabled() {
+        return largerTextEnabled;
+    }
+
+    @Override
+    public float getLargerTextScale() {
+        return largerTextScale;
+    }
+
+    @Override
+    public boolean shouldWriteUTFAsGetBytes() {
+        return true;
+    }
+
+    @Override
+    public Object connect(String url, boolean read, boolean write) throws IOException {
+        TestConnection connection = connections.computeIfAbsent(url, TestConnection::new);
+        if (read) {
+            connection.readRequested = true;
+        }
+        if (write) {
+            connection.writeRequested = true;
+        }
+        if (connectionResponseProvider != null) {
+            byte[] response = connectionResponseProvider.apply(url);
+            if (response != null) {
+                connection.setInputData(response);
+                connection.setContentLength(response.length);
+            }
+        }
+        for (Map.Entry<String, MockResponse> entry : mockResponses.entrySet()) {
+            if (url.startsWith(entry.getKey())) {
+                 MockResponse r = entry.getValue();
+                 connection.setResponseCode(r.code);
+                 connection.setResponseMessage(r.message);
+                 if (r.body != null) {
+                     connection.setInputData(r.body);
+                     connection.setContentLength(r.body.length);
+                 }
+            }
+        }
+        return connection;
+    }
+
+    public void setConnectionResponseProvider(Function<String, byte[]> provider) {
+        this.connectionResponseProvider = provider;
+    }
+
+    @Override
+    public boolean canGetSSLCertificates() {
+        return sslCertificatesSupported;
+    }
+
+    @Override
+    public String[] getSSLCertificates(Object connection, String url) throws IOException {
+        if (!sslCertificatesSupported) {
+            return new String[0];
+        }
+        String[] values = sslCertificatesByUrl.get(url);
+        if (values == null) {
+            return new String[0];
+        }
+        return Arrays.copyOf(values, values.length);
+    }
+
+    public void setSslCertificates(String url, String... certificates) {
+        if (url == null) {
+            return;
+        }
+        if (certificates == null) {
+            sslCertificatesByUrl.remove(url);
+            return;
+        }
+        sslCertificatesByUrl.put(url, Arrays.copyOf(certificates, certificates.length));
+    }
+
+    public void clearSslCertificates() {
+        sslCertificatesByUrl.clear();
+    }
+
+    public void setSslCertificatesSupported(boolean supported) {
+        this.sslCertificatesSupported = supported;
+    }
+
+    public TestConnection getConnection(String url) {
+        return connections.get(url);
+    }
+
+    public TestConnection createConnection(String url) {
+        TestConnection connection = connections.computeIfAbsent(url, TestConnection::new);
+        return connection;
+    }
+
+    public Collection<TestConnection> getConnections() {
+        return new ArrayList<TestConnection>(connections.values());
+    }
+
+    public void clearConnections() {
+        connections.clear();
+    }
+
+    @Override
+    public Object connectSocket(String host, int port, int connectTimeout) {
+        TestSocket socket = sockets.get(socketKey(host, port));
+        if (socket == null) {
+            return null;
+        }
+        socket.connect();
+        return socket;
+    }
+
+    private final java.util.Map<Integer, java.util.concurrent.BlockingQueue<Object>> incomingConnections = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public void simulateIncomingConnection(int port, Object connection) {
+        incomingConnections.computeIfAbsent(port, k -> new java.util.concurrent.LinkedBlockingQueue<>()).add(connection);
+    }
+
+    @Override
+    public Object listenSocket(int port) {
+        try {
+            java.util.concurrent.BlockingQueue<Object> q = incomingConnections.computeIfAbsent(port, k -> new java.util.concurrent.LinkedBlockingQueue<>());
+            Object conn = q.poll(100, java.util.concurrent.TimeUnit.MILLISECONDS);
+            return conn;
+        } catch (InterruptedException e) {
+            return null;
+        }
+    }
+
+    private final java.util.List<String> stoppedListeners =
+            java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
+
+    /// Records that a listener was asked to stop, as "port:loopbackOnly". Real ports close
+    /// the listening socket here; there is no socket to close in these tests, so what is
+    /// observable is that the call was made at all, and for the right listener.
+    @Override
+    public void stopListeningSocket(int port, boolean loopbackOnly) {
+        stoppedListeners.add(port + ":" + loopbackOnly);
+    }
+
+    /// A snapshot, not the live list. Handing back the real one lets a test mutate what a
+    /// later assertion reads, and iterating a synchronized list safely needs external
+    /// locking that a test would have to remember.
+    public java.util.List<String> getStoppedListeners() {
+        synchronized (stoppedListeners) {
+            return java.util.Collections.unmodifiableList(
+                    new java.util.ArrayList<String>(stoppedListeners));
+        }
+    }
+
+    private boolean loopbackSupportedOnlyOnFirstQuery;
+    private boolean loopbackQueried;
+
+    /// Reports loopback support to the first caller and withholds it from every caller
+    /// after that, which models the capability changing between a check and the use that
+    /// follows it. Lets a test drive the failure path of a caller that checks first.
+    public void setLoopbackSupportedOnlyOnFirstQuery(boolean onlyFirst) {
+        this.loopbackSupportedOnlyOnFirstQuery = onlyFirst;
+        this.loopbackQueried = false;
+    }
+
+    @Override
+    public boolean isLoopbackServerSocketAvailable() {
+        if (loopbackSupportedOnlyOnFirstQuery) {
+            boolean first = !loopbackQueried;
+            loopbackQueried = true;
+            return first;
+        }
+        return serverSocketAvailable;
+    }
+
+    private boolean debuggableBuild = true;
+
+    /// Lets a test choose which side of the release build gate it is on.
+    public void setDebuggableBuild(boolean debuggableBuild) {
+        this.debuggableBuild = debuggableBuild;
+    }
+
+    @Override
+    public boolean isDebuggableBuild() {
+        return debuggableBuild;
+    }
+
+    /// There is no real network in these tests, so a loopback accept is the same
+    /// simulated queue as a wildcard one. The distinction under test is the API contract
+    /// (callers asking for loopback get a socket, and a port that cannot bind loopback
+    /// refuses), not the kernel-level bind.
+    @Override
+    public Object listenSocketLoopback(int port) {
+        return listenSocket(port);
+    }
+
+    @Override
+    public void disconnectSocket(Object socket) {
+        if (socket instanceof TestSocket) {
+            ((TestSocket) socket).disconnect();
+        }
+    }
+
+    @Override
+    public boolean isSocketConnected(Object socket) {
+        return socket instanceof TestSocket && ((TestSocket) socket).isConnected();
+    }
+
+    @Override
+    public boolean isSocketAvailable() {
+        return socketAvailable;
+    }
+
+    @Override
+    public boolean isServerSocketAvailable() {
+        return serverSocketAvailable;
+    }
+
+    @Override
+    public String getSocketErrorMessage(Object socket) {
+        if (socket instanceof TestSocket) {
+            return ((TestSocket) socket).getErrorMessage();
+        }
+        return null;
+    }
+
+    @Override
+    public String getHostOrIP() {
+        return hostOrIp;
+    }
+
+    @Override
+    public int getSocketErrorCode(Object socket) {
+        if (socket instanceof TestSocket) {
+            return ((TestSocket) socket).getErrorCode();
+        }
+        return -1;
+    }
+
+    @Override
+    public int getSocketAvailableInput(Object socket) {
+        if (socket instanceof TestSocket) {
+            return ((TestSocket) socket).getAvailableInput();
+        }
+        return 0;
+    }
+
+    @Override
+    public byte[] readFromSocketStream(Object socket) {
+        if (socket instanceof TestSocket) {
+            return ((TestSocket) socket).read();
+        }
+        return null;
+    }
+
+    @Override
+    public void writeToSocketStream(Object socket, byte[] data) {
+        if (socket instanceof TestSocket) {
+            ((TestSocket) socket).write(data);
+        }
+    }
+
+    @Override
+    public void setHeader(Object connection, String key, String val) {
+        ((TestConnection) connection).headers.put(key, val);
+    }
+
+    @Override
+    public void setHttpMethod(Object connection, String method) throws IOException {
+        if (connection instanceof TestConnection) {
+            TestConnection conn = (TestConnection) connection;
+            if (conn.httpMethodException != null) {
+                IOException ex = conn.httpMethodException;
+                conn.httpMethodException = null;
+                throw ex;
+            }
+            conn.setHttpMethod(method);
+        }
+    }
+
+    @Override
+    public int getContentLength(Object connection) {
+        return ((TestConnection) connection).contentLength;
+    }
+
+    @Override
+    public OutputStream openOutputStream(Object connection) {
+        return ((TestConnection) connection).openOutputStream();
+    }
+
+    @Override
+    public OutputStream openOutputStream(Object connection, int offset) {
+        TestConnection conn = (TestConnection) connection;
+        conn.outputOffset = offset;
+        return conn.openOutputStream();
+    }
+
+    @Override
+    public InputStream openInputStream(Object connection) {
+        if (connection instanceof TestConnection) {
+            return ((TestConnection) connection).openInputStream();
+        }
+        return null;
+    }
+
+    @Override
+    public void setPostRequest(Object connection, boolean p) {
+        ((TestConnection) connection).postRequest = p;
+    }
+
+    @Override
+    public int getResponseCode(Object connection) {
+        return ((TestConnection) connection).responseCode;
+    }
+
+    @Override
+    public String getResponseMessage(Object connection) {
+        return ((TestConnection) connection).responseMessage;
+    }
+
+    @Override
+    public String getHeaderField(String name, Object connection) {
+        return ((TestConnection) connection).headers.get(name);
+    }
+
+    @Override
+    public String[] getHeaderFieldNames(Object connection) {
+        return ((TestConnection) connection).headers.keySet().toArray(new String[0]);
+    }
+
+    @Override
+    public String[] getHeaderFields(String name, Object connection) {
+        TestConnection conn = (TestConnection) connection;
+        List<String> values = conn.multiHeaders.get(name);
+        if (values != null) {
+            return values.toArray(new String[0]);
+        }
+        String single = conn.headers.get(name);
+        if (single == null) {
+            return null;
+        }
+        return new String[]{single};
+    }
+
+    /**
+     * Runs {@code action} once, inside the next storage delete of {@code name}.
+     *
+     * <p>The delete half of {@link #setDuringStorageWrite(String, Runnable)}, for operations
+     * whose storage step removes an entry rather than writing one.</p>
+     *
+     * @param name the storage entry whose delete should be interrupted, or null to cancel
+     * @param action what to do inside it
+     */
+    public void setDuringStorageDelete(String name, Runnable action) {
+        duringStorageDeleteFor = name;
+        duringStorageDelete = action;
+    }
+
+    private String duringStorageDeleteFor;
+    private Runnable duringStorageDelete;
+
+    /**
+     * Makes deletes of {@code name} silently do nothing, the way a real port can.
+     *
+     * <p>{@code deleteStorageFile} returns void on every port, so a failure is invisible to the
+     * caller: JavaSE discards {@code File.delete()}'s boolean and the browser catches and logs
+     * the IndexedDB error. This reproduces that rather than an exception, because an exception
+     * is the case that was never the problem.</p>
+     *
+     * @param name the storage entry whose deletes should be ignored, or null to stop ignoring
+     */
+    public void setStorageDeleteIgnored(String name) {
+        storageDeleteIgnored = name;
+    }
+
+    private String storageDeleteIgnored;
+
+    @Override
+    public void deleteStorageFile(String name) {
+        if (duringStorageDelete != null && name != null && name.equals(duringStorageDeleteFor)) {
+            Runnable once = duringStorageDelete;
+            duringStorageDelete = null;
+            duringStorageDeleteFor = null;
+            once.run();
+        }
+        if (name != null && name.equals(storageDeleteIgnored)) {
+            return;
+        }
+        storageEntries.remove(name);
+        // a real port publishes an entry by replacing it, so deleting one abandons
+        // any write still open against it rather than being undone by it
+        for (StorageOutput open : openStorageWrites) {
+            open.discard(name);
+        }
+    }
+
+    /**
+     * Models an implementation that only replaces the entry when the write is closed,
+     * so a write given up before then leaves whatever was stored untouched.
+     *
+     * @param name the entry being written
+     * @param writing the stream handed out for the write that failed
+     * @return true, since this double never writes into the entry itself
+     */
+    @Override
+    public boolean abandonStorageWrite(String name, OutputStream writing) {
+        if (writing instanceof StorageOutput) {
+            ((StorageOutput) writing).discard();
+            return true;
+        }
+        return writing == null;
+    }
+
+    /**
+     * Makes storage writes fail at the point an entry would be published, which is
+     * where an implementation that replaces the entry in one step does the writing.
+     *
+     * @param failsOnClose whether closing a storage output stream should fail
+     */
+    public void setStorageWriteFailsOnClose(boolean failsOnClose) {
+        storageWriteFailsOnClose = failsOnClose;
+    }
+
+    public void putStorageEntry(String name, byte[] data) {
+        if (data == null) {
+            storageEntries.remove(name);
+        } else {
+            storageEntries.put(name, data.clone());
+        }
+    }
+
+    /**
+     * Runs {@code action} once, inside the next storage write to {@code name}.
+     *
+     * <p>A test cannot otherwise land anything in the middle of a storage write, and the window
+     * between an operation's last pre-write check and the write returning is where a concurrent
+     * {@code lock()} has to be exercised. Fired once and then cleared, so it cannot leak into a
+     * later write.</p>
+     *
+     * @param name the storage entry whose write should be interrupted, or null to cancel
+     * @param action what to do inside it
+     */
+    public void setDuringStorageWrite(String name, Runnable action) {
+        duringStorageWriteFor = name;
+        duringStorageWrite = action;
+    }
+
+    private String duringStorageWriteFor;
+    private Runnable duringStorageWrite;
+
+    /**
+     * Makes {@link #storageEntryState(String)} answer UNKNOWN for one entry, which is what the
+     * JavaScript port does when IndexedDB refuses the lookup.
+     *
+     * {@code storageFileExists} keeps answering {@code false} for it, because that is precisely
+     * the conflation being reproduced: a port whose existence check fails has only two answers
+     * and reports the entry as absent.
+     *
+     * @param name the entry whose existence cannot be determined, or null to clear
+     */
+    public void setStorageExistenceUnknown(String name) {
+        existenceUnknownFor = name;
+    }
+
+    private String existenceUnknownFor;
+
+    @Override
+    public int storageEntryState(String name) {
+        if (existenceUnknownFor != null && existenceUnknownFor.equals(name)) {
+            return STORAGE_ENTRY_UNKNOWN;
+        }
+        return super.storageEntryState(name);
+    }
+
+    /**
+     * Makes {@link #listStorageEntries()} answer null, which is what JavaSE does: it returns
+     * {@code getStorageDir().list()}, and {@code File.list()} is null for a directory that does
+     * not exist or that cannot be read.
+     *
+     * @param unavailable whether enumeration should report itself unavailable
+     */
+    public void setStorageEnumerationUnavailable(boolean unavailable) {
+        storageEnumerationUnavailable = unavailable;
+    }
+
+    private boolean storageEnumerationUnavailable;
+
+    /**
+     * Makes {@link #listStorageEntries()} answer an EMPTY array, which is what the JavaScript
+     * port does when IndexedDB refuses the enumeration -- it catches the IOException and returns
+     * {@code new String[]{}}. Indistinguishable from a store that holds nothing, which is the
+     * whole difficulty.
+     *
+     * @param empty whether enumeration should report an empty store
+     */
+    public void setStorageEnumerationEmpty(boolean empty) {
+        storageEnumerationEmpty = empty;
+    }
+
+    private boolean storageEnumerationEmpty;
+
+    @Override
+    public OutputStream createStorageOutputStream(String name) {
+        if (duringStorageWrite != null && name != null && name.equals(duringStorageWriteFor)) {
+            Runnable once = duringStorageWrite;
+            duringStorageWrite = null;
+            duringStorageWriteFor = null;
+            once.run();
+        }
+        return new StorageOutput(name);
+    }
+
+    @Override
+    public InputStream createStorageInputStream(String name) throws IOException {
+        byte[] data = storageEntries.get(name);
+        if (data == null) {
+            throw new IOException("Missing storage entry " + name);
+        }
+        return new ByteArrayInputStream(data);
+    }
+
+    @Override
+    public boolean storageFileExists(String name) {
+        return storageEntries.containsKey(name);
+    }
+
+    @Override
+    public int getStorageEntrySize(String name) {
+        byte[] data = storageEntries.get(name);
+        return data == null ? -1 : data.length;
+    }
+
+    @Override
+    public String[] listStorageEntries() {
+        if (storageEnumerationUnavailable) {
+            return null;
+        }
+        if (storageEnumerationEmpty) {
+            return new String[0];
+        }
+        return storageEntries.keySet().toArray(new String[0]);
+    }
+
+    @Override
+    public String[] listFilesystemRoots() {
+        return new String[]{"/"};
+    }
+
+    @Override
+    public String[] listFiles(String directory) {
+        return fileSystem.keySet().stream()
+                .filter(path -> path.startsWith(directory) && !path.equals(directory))
+                .toArray(String[]::new);
+    }
+
+    @Override
+    public long getRootSizeBytes(String root) {
+        return 1024 * 1024;
+    }
+
+    @Override
+    public long getRootAvailableSpace(String root) {
+        return 1024 * 512;
+    }
+
+    /// Makes every rename a silent no-op, as a filesystem that cannot
+    /// rename does. Test-only.
+    private boolean renameDisabled;
+
+    /// Switches renaming off, so a caller's fallback path can be exercised.
+    public void setRenameDisabled(boolean value) {
+        this.renameDisabled = value;
+    }
+
+    @Override
+    public String getAppHomePath() {
+        return appHomePath;
+    }
+
+    @Override
+    public OutputStream openFileOutputStream(String path) {
+        final String key = path;
+        fileSystem.putIfAbsent(key, TestFile.file(new byte[0]));
+        return new ByteArrayOutputStream() {
+            @Override
+            public void close() throws IOException {
+                super.close();
+                byte[] data = toByteArray();
+                fileSystem.put(key, TestFile.file(data));
+            }
+        };
+    }
+
+    @Override
+    public InputStream openFileInputStream(String path) throws IOException {
+        TestFile file = fileSystem.get(path);
+        if (file == null || file.directory) {
+            throw new IOException("Missing file " + path);
+        }
+        return new ByteArrayInputStream(file.content);
+    }
+
+    @Override
+    public void mkdir(String directory) {
+        fileSystem.putIfAbsent(directory, TestFile.directory());
+    }
+
+    @Override
+    public void deleteFile(String file) {
+        fileSystem.remove(file);
+    }
+
+    @Override
+    public boolean isHidden(String file) {
+        return false;
+    }
+
+    @Override
+    public void setHidden(String file, boolean h) {
+    }
+
+    @Override
+    public long getFileLength(String file) {
+        TestFile f = fileSystem.get(file);
+        return f == null ? 0 : f.content.length;
+    }
+
+    @Override
+    public boolean isDirectory(String file) {
+        TestFile f = fileSystem.get(file);
+        return f != null && f.directory;
+    }
+
+    @Override
+    public boolean exists(String file) {
+        return fileSystem.containsKey(file);
+    }
+
+    @Override
+    public void rename(String file, String newName) {
+        if (renameDisabled) {
+            // A platform whose rename cannot replace, or a filesystem error.
+            // Silent, because that is how the real one fails: File.renameTo
+            // answers false and CodenameOneImplementation.rename returns
+            // void, so the only evidence is that the source is still there.
+            return;
+        }
+        TestFile f = fileSystem.remove(file);
+        if (f != null) {
+            String target = newName;
+            if (newName != null && !newName.contains("://") && !newName.startsWith("/")) {
+                int lastSlash = file.lastIndexOf('/');
+                if (lastSlash >= 0) {
+                    target = file.substring(0, lastSlash + 1) + newName;
+                }
+            }
+            fileSystem.put(target, f);
+        }
+    }
+
+    @Override
+    public char getFileSystemSeparator() {
+        return '/';
+    }
+
+    @Override
+    public String getProperty(String key, String defaultValue) {
+        return properties.getOrDefault(key, defaultValue);
+    }
+
+    public void putProperty(String key, String value) {
+        properties.put(key, value);
+    }
+
+
+    private String platformName = "test";
+
+    /**
+     * Overrides the value returned by {@link #getPlatformName()} (default
+     * {@code "test"}). Lets tests model a specific platform -- e.g. {@code "se"}
+     * to exercise simulator-only code paths. Reset to {@code "test"} by
+     * {@link #reset()}.
+     */
+    public void setPlatformName(String platformName) {
+        this.platformName = platformName == null ? "test" : platformName;
+    }
+
+    @Override
+    public String getPlatformName() {
+        return platformName;
+    }
+
+    @Override
+    public L10NManager getLocalizationManager() {
+        if (localizationManager == null) {
+            localizationManager = new L10NManager("en", "US") {
+            };
+        }
+        return localizationManager;
+    }
+
+    // -----------------------------------------------------------------
+    // Optional overrides for tests
+    // -----------------------------------------------------------------
+
+    @Override
+    public boolean isTimeoutSupported() {
+        return timeoutSupported;
+    }
+
+    @Override
+    public void setTimeout(int time) {
+        timeoutInvoked = true;
+        timeoutValue = time;
+    }
+
+    @Override
+    public boolean isPortrait() {
+        return portrait;
+    }
+
+    public void setTablet(boolean tablet) {
+        this.tablet = tablet;
+    }
+
+    @Override
+    public boolean isTablet() {
+        return tablet;
+    }
+
+    @Override
+    public int getDeviceDensity() {
+        return deviceDensity;
+    }
+
+    @Override
+    public int convertToPixels(int dipCount, boolean horizontal) {
+        return dipCount;
+    }
+
+    @Override
+    public boolean isVPNDetectionSupported() {
+        return vpnDetectionSupported;
+    }
+
+    @Override
+    public boolean isVPNActive() {
+        return vpnActive;
+    }
+
+    @Override
+    public boolean isCallDetectionSupported() {
+        return callDetectionSupported;
+    }
+
+    @Override
+    public boolean isInCall() {
+        return inCall;
+    }
+
+    @Override
+    public boolean isAPSupported() {
+        return accessPointIds.length > 0;
+    }
+
+    @Override
+    public String[] getAPIds() {
+        return accessPointIds.clone();
+    }
+
+    @Override
+    public int getAPType(String id) {
+        return accessPointTypes.getOrDefault(id, NetworkManager.ACCESS_POINT_TYPE_UNKNOWN);
+    }
+
+    @Override
+    public String getAPName(String id) {
+        return accessPointNames.get(id);
+    }
+
+    @Override
+    public String getCurrentAccessPoint() {
+        return currentAccessPoint;
+    }
+
+    @Override
+    public void setCurrentAccessPoint(String id) {
+        currentAccessPoint = id;
+    }
+
+    @Override
+    public ImageIO getImageIO() {
+        return imageIO;
+    }
+
+    @Override
+    public VideoIO getVideoIO() {
+        return videoIO;
+    }
+
+    public void setGaussianBlurSupported(boolean gaussianBlurSupported) {
+        this.gaussianBlurSupported = gaussianBlurSupported;
+    }
+
+    public int getGaussianBlurInvocations() {
+        return gaussianBlurInvocations;
+    }
+
+    @Override
+    public Image gaussianBlurImage(Image image, float radius) {
+        gaussianBlurInvocations++;
+
+        // clone to show usage without altering source
+        return Image.createImage(image.getImage());
+    }
+
+    @Override
+    public boolean isGaussianBlurSupported() {
+        return gaussianBlurSupported;
+    }
+
+    public void setMediaRecorder(Media mediaRecorder) {
+        this.mediaRecorder = mediaRecorder;
+    }
+
+    public void setInAppPurchase(Purchase purchase) {
+        this.inAppPurchase = purchase;
+    }
+
+    /// Factory that produces a fresh {@link Purchase} on every
+    /// {@link #getInAppPurchase()} call.  The real platform ports
+    /// (iOS {@code ZoozPurchase}, Android {@code ZoozPurchase}, the JavaSE
+    /// anonymous subclass) all construct a new instance per call, so a test
+    /// that needs to reproduce that behaviour (e.g. verifying state shared
+    /// across instances) installs a factory rather than a cached instance.
+    public interface InAppPurchaseFactory {
+        Purchase create();
+    }
+
+    public void setInAppPurchaseFactory(InAppPurchaseFactory factory) {
+        this.inAppPurchaseFactory = factory;
+    }
+
+    @Override
+    public Purchase getInAppPurchase() {
+        if (inAppPurchaseFactory != null) {
+            return inAppPurchaseFactory.create();
+        }
+        if (inAppPurchase != null) {
+            return inAppPurchase;
+        }
+        return super.getInAppPurchase();
+    }
+
+    @Override
+    public Media createMediaRecorder(MediaRecorderBuilder builder) {
+        return mediaRecorder;
+    }
+
+    @Override
+    public Media createMediaRecorder(String path, String mime) {
+        return mediaRecorder;
+    }
+
+    @Override
+    public void clearStorage() {
+        storageEntries.clear();
+    }
+
+    @Override
+    public void flushStorageCache() {
+        flushStorageCacheInvocations++;
+    }
+
+    @Override
+    public void setStorageData(Object data) {
+    }
+
+    @Override
+    public void closingOutput(OutputStream stream) {
+        if (stream != null) {
+            try {
+                stream.close();
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    @Override
+    public void cleanup(Object obj) {
+        cleanupCalls.add(obj);
+        if (obj instanceof Closeable) {
+            try {
+                ((Closeable) obj).close();
+            } catch (IOException ignored) {
+            }
+        } else if (obj instanceof AutoCloseable) {
+            try {
+                ((AutoCloseable) obj).close();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    @Override
+    public void addConnectionToQueue(ConnectionRequest r) {
+        if (r != null) {
+            queuedRequests.add(r);
+        }
+        if (autoProcessConnections) {
+            super.addConnectionToQueue(r);
+        }
+    }
+
+    public boolean isAutoProcessConnections() {
+        return autoProcessConnections;
+    }
+
+    /// Records requests without calling the implementation's own
+    /// `addConnectionToQueue` hook.
+    ///
+    /// It does NOT stop the request from being executed, and the name reads as
+    /// though it does. `CodenameOneImplementation.addConnectionToQueue` is an
+    /// empty method, so the only thing this flag suppresses is a no-op:
+    /// `NetworkManager.addToQueue` calls that hook and then puts the request on
+    /// its own pending queue regardless, where a network thread picks it up and
+    /// runs it against this mock -- answering with an empty body when no
+    /// `TestConnection` is registered for the URL.
+    ///
+    /// So a request handed back by [#getQueuedRequests] may be live on a
+    /// network thread at the same moment the test is holding it. Reading it is
+    /// safe; driving it is not. Calling `readResponse`/`postResponse` on a
+    /// queued request races that thread for the request's own fields, which is
+    /// how an invite registration test that fished one out of this list failed
+    /// about one run in five. Construct a request of your own to drive a
+    /// response through, and use this list to assert what was sent.
+    public void setAutoProcessConnections(boolean autoProcessConnections) {
+        this.autoProcessConnections = autoProcessConnections;
+    }
+
+    public void clearQueuedRequests() {
+        queuedRequests.clear();
+    }
+
+    public java.util.List<ConnectionRequest> getQueuedRequests() {
+        return new java.util.ArrayList<ConnectionRequest>(queuedRequests);
+    }
+
+    @Override
+    public void startThread(String name, Runnable r) {
+        if (r == null) {
+            return;
+        }
+
+        Thread worker = new Thread(r, name == null ? "CN1-TestThread" : name);
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    @Override
+    public void sendMessage(String[] recipients, String subject, Message msg) {
+        if (recipients == null) {
+            lastSentMessageRecipients = null;
+        } else {
+            lastSentMessageRecipients = new String[recipients.length];
+            System.arraycopy(recipients, 0, lastSentMessageRecipients, 0, recipients.length);
+        }
+        lastSentMessageSubject = subject;
+        lastSentMessage = msg;
+    }
+
+    public String[] getLastSentMessageRecipients() {
+        if (lastSentMessageRecipients == null) {
+            return null;
+        }
+        String[] copy = new String[lastSentMessageRecipients.length];
+        System.arraycopy(lastSentMessageRecipients, 0, copy, 0, copy.length);
+        return copy;
+    }
+
+    public String getLastSentMessageSubject() {
+        return lastSentMessageSubject;
+    }
+
+    public Message getLastSentMessage() {
+        return lastSentMessage;
+    }
+
+    /**
+     * Dispatches a {@link MessageEvent} through the current display.  This mirrors how
+     * native ports forward messages into the Codename One runtime so that tests can
+     * exercise message listeners without bypassing the platform entry point.
+     *
+     * @param source  event source
+     * @param message message payload
+     * @param code    event code
+     * @return the dispatched event
+     */
+    public MessageEvent fireMessageEvent(Object source, String message, int code) {
+        MessageEvent evt = new MessageEvent(source, message, code);
+        Display.getInstance().dispatchMessage(evt);
+        return evt;
+    }
+
+    @Override
+    public void scheduleLocalNotification(LocalNotification notif, long firstTime, int repeat) {
+        if (notif == null) {
+            return;
+        }
+        scheduledNotifications.add(new ScheduledNotification(notif, firstTime, repeat));
+    }
+
+    @Override
+    public void cancelLocalNotification(String notificationId) {
+        if (notificationId == null) {
+            return;
+        }
+        for (int i = scheduledNotifications.size() - 1; i >= 0; i--) {
+            ScheduledNotification scheduledNotification = scheduledNotifications.get(i);
+            LocalNotification stored = scheduledNotification.getNotification();
+            if (stored != null && notificationId.equals(stored.getId())) {
+                scheduledNotifications.remove(i);
+            }
+        }
+    }
+
+    public void clearScheduledNotifications() {
+        scheduledNotifications.clear();
+    }
+
+    public List<ScheduledNotification> getScheduledNotifications() {
+        return new ArrayList<ScheduledNotification>(scheduledNotifications);
+    }
+
+    public void clearContacts() {
+        contacts.clear();
+        contactPickerSelection.set(new Contact[0]);
+        contactPickerSupported.set(false);
+        contactPickerRequests.clear();
+    }
+
+    /** What a mocked picker reports the user chose. */
+    public void setContactPickerSelection(Contact... selection) {
+        contactPickerSelection.set(selection == null ? new Contact[0] : selection);
+    }
+
+    /** Whether the mocked platform claims to have a picker. */
+    public void setContactPickerSupported(boolean supported) {
+        contactPickerSupported.set(supported);
+    }
+
+    /** Every picker request made so far, oldest first. */
+    public List<ContactPickerRequest> getContactPickerRequests() {
+        return new ArrayList<ContactPickerRequest>(contactPickerRequests);
+    }
+
+    @Override
+    public boolean isContactPickerSupported() {
+        return contactPickerSupported.get();
+    }
+
+    @Override
+    public void pickContacts(int requestedFields, boolean multiSelect,
+            int selectionLimit, boolean requireAllRequestedFields,
+            ActionListener<ActionEvent> response) {
+        contactPickerRequests.add(new ContactPickerRequest(requestedFields,
+                multiSelect, selectionLimit, requireAllRequestedFields,
+                Display.getInstance().isEdt()));
+        // Through the real base-class hop rather than straight to the
+        // listener, so a test sees the same "answers later, on the EDT"
+        // shape the device does.
+        fireContactPickerResult(response, contactPickerSelection.get());
+    }
+
+    /** The arguments one {@code pickContacts} call was made with. */
+    public static final class ContactPickerRequest {
+        private final int requestedFields;
+        private final boolean multiSelect;
+        private final int selectionLimit;
+        private final boolean requireAllRequestedFields;
+        private final boolean onEdt;
+
+        ContactPickerRequest(int requestedFields, boolean multiSelect,
+                int selectionLimit, boolean requireAllRequestedFields,
+                boolean onEdt) {
+            this.requestedFields = requestedFields;
+            this.multiSelect = multiSelect;
+            this.selectionLimit = selectionLimit;
+            this.requireAllRequestedFields = requireAllRequestedFields;
+            this.onEdt = onEdt;
+        }
+
+        /** Whether the port was entered on the EDT. */
+        public boolean isOnEdt() {
+            return onEdt;
+        }
+
+        public int getRequestedFields() {
+            return requestedFields;
+        }
+
+        public boolean isMultiSelect() {
+            return multiSelect;
+        }
+
+        public int getSelectionLimit() {
+            return selectionLimit;
+        }
+
+        public boolean isRequireAllRequestedFields() {
+            return requireAllRequestedFields;
+        }
+
+        @Override
+        public String toString() {
+            return "ContactPickerRequest{fields=" + requestedFields
+                    + ", multiSelect=" + multiSelect
+                    + ", selectionLimit=" + selectionLimit
+                    + ", requireAll=" + requireAllRequestedFields
+                    + ", onEdt=" + onEdt + '}';
+        }
+    }
+
+    public void setGetAllContactsFast(boolean getAllContactsFast) {
+        this.getAllContactsFast = getAllContactsFast;
+    }
+
+    public int getRefreshContactsCount() {
+        return refreshContactsCount;
+    }
+
+    public void putContact(Contact contact) {
+        if (contact == null) {
+            return;
+        }
+        Contact stored = copyContact(contact);
+        if (stored.getId() == null) {
+            stored.setId(String.valueOf(contactIdCounter.getAndIncrement()));
+        }
+        contacts.put(stored.getId(), stored);
+    }
+
+    @Override
+    public void refreshContacts() {
+        refreshContactsCount++;
+    }
+
+    @Override
+    public String[] getAllContacts(boolean withNumbers) {
+        ArrayList<String> ids = new ArrayList<String>();
+        for (Contact contact : contacts.values()) {
+            if (!withNumbers || hasPhoneNumber(contact)) {
+                ids.add(contact.getId());
+            }
+        }
+        return ids.toArray(new String[ids.size()]);
+    }
+
+    private boolean hasPhoneNumber(Contact contact) {
+        if (contact == null) {
+            return false;
+        }
+        String primary = contact.getPrimaryPhoneNumber();
+        if (primary != null && primary.length() > 0) {
+            return true;
+        }
+        Hashtable numbers = contact.getPhoneNumbers();
+        return numbers != null && !numbers.isEmpty();
+    }
+
+    @Override
+    public Contact getContactById(String id) {
+        Contact stored = contacts.get(id);
+        if (stored == null) {
+            return null;
+        }
+        return copyContact(stored);
+    }
+
+    @Override
+    public Contact getContactById(String id, boolean includesFullName, boolean includesPicture, boolean includesNumbers, boolean includesEmail, boolean includeAddress) {
+        return getContactById(id);
+    }
+
+    @Override
+    public boolean isGetAllContactsFast() {
+        return getAllContactsFast;
+    }
+
+    @Override
+    public String createContact(String firstName, String surname, String officePhone, String homePhone, String cellPhone, String email) {
+        Contact contact = new Contact();
+        contact.setFirstName(firstName);
+        contact.setFamilyName(surname);
+        contact.setId(String.valueOf(contactIdCounter.getAndIncrement()));
+        Hashtable phones = new Hashtable();
+        if (officePhone != null) {
+            phones.put("office", officePhone);
+        }
+        if (homePhone != null) {
+            phones.put("home", homePhone);
+        }
+        if (cellPhone != null) {
+            phones.put("mobile", cellPhone);
+        }
+        if (!phones.isEmpty()) {
+            contact.setPhoneNumbers(phones);
+        }
+        if (cellPhone != null) {
+            contact.setPrimaryPhoneNumber(cellPhone);
+        } else if (officePhone != null) {
+            contact.setPrimaryPhoneNumber(officePhone);
+        } else if (homePhone != null) {
+            contact.setPrimaryPhoneNumber(homePhone);
+        }
+        if (email != null) {
+            Hashtable emails = new Hashtable();
+            emails.put("email", email);
+            contact.setEmails(emails);
+            contact.setPrimaryEmail(email);
+        }
+        putContact(contact);
+        return contact.getId();
+    }
+
+    @Override
+    public boolean deleteContact(String id) {
+        return contacts.remove(id) != null;
+    }
+
+    @Override
+    public boolean isDatabaseCustomPathSupported() {
+        return databaseCustomPathSupported;
+    }
+
+    public void setDatabaseCustomPathSupported(boolean databaseCustomPathSupported) {
+        this.databaseCustomPathSupported = databaseCustomPathSupported;
+    }
+
+    @Override
+    public Database openOrCreateDB(String databaseName) throws IOException {
+        TestDatabase database = databases.get(databaseName);
+        if (database == null) {
+            database = new TestDatabase(databaseName);
+            databases.put(databaseName, database);
+        }
+        database.markOpen();
+        return database;
+    }
+
+    @Override
+    public void deleteDB(String databaseName) throws IOException {
+        databases.remove(databaseName);
+    }
+
+    @Override
+    public boolean existsDB(String databaseName) {
+        return databases.containsKey(databaseName);
+    }
+
+    @Override
+    public String getDatabasePath(String databaseName) {
+        if (databases.containsKey(databaseName)) {
+            return databaseName;
+        }
+        return null;
+    }
+
+    public TestDatabase getTestDatabase(String databaseName) {
+        return databases.get(databaseName);
+    }
+
+    private Contact copyContact(Contact original) {
+        Contact copy = new Contact();
+        copy.setId(original.getId());
+        copy.setFirstName(original.getFirstName());
+        copy.setFamilyName(original.getFamilyName());
+        copy.setDisplayName(original.getDisplayName());
+        copy.setPhoneNumbers(copyHashtable(original.getPhoneNumbers()));
+        copy.setPrimaryPhoneNumber(original.getPrimaryPhoneNumber());
+        copy.setEmails(copyHashtable(original.getEmails()));
+        copy.setPrimaryEmail(original.getPrimaryEmail());
+        copy.setAddresses(copyHashtable(original.getAddresses()));
+        copy.setBirthday(original.getBirthday());
+        copy.setNote(original.getNote());
+        copy.setPhoto(original.getPhoto());
+        copy.setUrls(copyStringArray(original.getUrls()));
+        return copy;
+    }
+
+    private Hashtable copyHashtable(Hashtable source) {
+        if (source == null) {
+            return null;
+        }
+        Hashtable copy = new Hashtable();
+        for (Enumeration keys = source.keys(); keys.hasMoreElements(); ) {
+            Object key = keys.nextElement();
+            copy.put(key, source.get(key));
+        }
+        return copy;
+    }
+
+    private String[] copyStringArray(String[] source) {
+        if (source == null) {
+            return null;
+        }
+        String[] copy = new String[source.length];
+        System.arraycopy(source, 0, copy, 0, source.length);
+        return copy;
+    }
+
+    // -----------------------------------------------------------------
+    // Helper classes
+    // -----------------------------------------------------------------
+
+    public interface MediaRecorderBuilderHandler {
+        Media create(MediaRecorderBuilder builder);
+    }
+
+    public interface MediaRecorderHandler {
+        Media create(String path, String mime);
+    }
+
+    public static final class ScheduledNotification {
+        private final LocalNotification notification;
+        private final long firstTime;
+        private final int repeat;
+
+        ScheduledNotification(LocalNotification notification, long firstTime, int repeat) {
+            this.notification = notification;
+            this.firstTime = firstTime;
+            this.repeat = repeat;
+        }
+
+        public LocalNotification getNotification() {
+            return notification;
+        }
+
+        public long getFirstTime() {
+            return firstTime;
+        }
+
+        public int getRepeat() {
+            return repeat;
+        }
+
+        @Override
+        public String toString() {
+            return "ScheduledNotification{" +
+                    "notification=" + notification +
+                    ", firstTime=" + firstTime +
+                    ", repeat=" + repeat +
+                    '}';
+        }
+    }
+
+    // ================================================================
+    // Crypto bridge -- mirrors the JavaSEPort overrides so unit tests
+    // exercising com.codename1.security.* work in the lightweight
+    // CodenameOneImplementation subclass used by core-unittests.
+
+    private static java.security.SecureRandom testSecureRandom;
+
+    private static synchronized java.security.SecureRandom testSecureRandom() {
+        if (testSecureRandom == null) {
+            testSecureRandom = new java.security.SecureRandom();
+        }
+        return testSecureRandom;
+    }
+
+    private boolean secureRandomUnavailable;
+
+    public void setSecureRandomUnavailable(boolean unavailable) {
+        secureRandomUnavailable = unavailable;
+    }
+
+    @Override
+    public void secureRandomBytes(byte[] out) {
+        if (secureRandomUnavailable) {
+            throw new com.codename1.security.CryptoException("secure randomness is unavailable");
+        }
+        if (out == null) return;
+        testSecureRandom().nextBytes(out);
+    }
+
+    /**
+     * Runs {@code action} once, inside the next AES operation.
+     *
+     * <p>The crypto is where a vault operation spends its time between checking that it may
+     * proceed and producing a result, so it is the only place a test can land a concurrent
+     * {@code lock()} deterministically. Fired once and then cleared.</p>
+     *
+     * @param action what to do inside the next AES call, or null to cancel
+     */
+    public void setDuringAes(Runnable action) {
+        duringAes = action;
+    }
+
+    private Runnable duringAes;
+
+    private void fireDuringAes() {
+        if (duringAes != null) {
+            Runnable once = duringAes;
+            duringAes = null;
+            once.run();
+        }
+    }
+
+    @Override
+    public byte[] aesEncrypt(String transformation, byte[] key, byte[] iv, byte[] aad, byte[] plaintext) {
+        fireDuringAes();
+        return testAes(transformation, key, iv, aad, plaintext, javax.crypto.Cipher.ENCRYPT_MODE);
+    }
+
+    @Override
+    public byte[] aesDecrypt(String transformation, byte[] key, byte[] iv, byte[] aad, byte[] ciphertext) {
+        fireDuringAes();
+        return testAes(transformation, key, iv, aad, ciphertext, javax.crypto.Cipher.DECRYPT_MODE);
+    }
+
+    private static byte[] testAes(String transformation, byte[] key, byte[] iv, byte[] aad, byte[] input, int mode) {
+        try {
+            javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance(transformation);
+            javax.crypto.spec.SecretKeySpec keySpec = new javax.crypto.spec.SecretKeySpec(key, "AES");
+            String tu = transformation == null ? "" : transformation.toUpperCase();
+            if (tu.indexOf("GCM") >= 0) {
+                cipher.init(mode, keySpec, new javax.crypto.spec.GCMParameterSpec(128, iv));
+            } else if (iv != null) {
+                cipher.init(mode, keySpec, new javax.crypto.spec.IvParameterSpec(iv));
+            } else {
+                cipher.init(mode, keySpec);
+            }
+            if (aad != null && aad.length > 0) {
+                cipher.updateAAD(aad);
+            }
+            return cipher.doFinal(input);
+        } catch (java.security.GeneralSecurityException e) {
+            throw new RuntimeException("AES " + (mode == javax.crypto.Cipher.ENCRYPT_MODE ? "encrypt" : "decrypt") + " failed: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public byte[] rsaEncrypt(String transformation, byte[] publicKeyX509, byte[] plaintext) {
+        try {
+            javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance(transformation);
+            java.security.KeyFactory kf = java.security.KeyFactory.getInstance("RSA");
+            java.security.PublicKey key = kf.generatePublic(new java.security.spec.X509EncodedKeySpec(publicKeyX509));
+            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, key);
+            return cipher.doFinal(plaintext);
+        } catch (java.security.GeneralSecurityException e) {
+            throw new RuntimeException("RSA encrypt failed: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public byte[] rsaDecrypt(String transformation, byte[] privateKeyPkcs8, byte[] ciphertext) {
+        try {
+            javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance(transformation);
+            java.security.KeyFactory kf = java.security.KeyFactory.getInstance("RSA");
+            java.security.PrivateKey key = kf.generatePrivate(new java.security.spec.PKCS8EncodedKeySpec(privateKeyPkcs8));
+            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, key);
+            return cipher.doFinal(ciphertext);
+        } catch (java.security.GeneralSecurityException e) {
+            throw new RuntimeException("RSA decrypt failed: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public byte[] cryptoSign(String algorithm, String keyAlgorithm, byte[] privateKeyPkcs8, byte[] data) {
+        try {
+            java.security.KeyFactory kf = java.security.KeyFactory.getInstance(keyAlgorithm);
+            java.security.PrivateKey priv = kf.generatePrivate(new java.security.spec.PKCS8EncodedKeySpec(privateKeyPkcs8));
+            java.security.Signature sig = java.security.Signature.getInstance(algorithm);
+            sig.initSign(priv);
+            sig.update(data);
+            return sig.sign();
+        } catch (java.security.GeneralSecurityException e) {
+            throw new RuntimeException("sign failed: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public boolean cryptoVerify(String algorithm, String keyAlgorithm, byte[] publicKeyX509, byte[] data, byte[] signature) {
+        try {
+            java.security.KeyFactory kf = java.security.KeyFactory.getInstance(keyAlgorithm);
+            java.security.PublicKey pub = kf.generatePublic(new java.security.spec.X509EncodedKeySpec(publicKeyX509));
+            java.security.Signature sig = java.security.Signature.getInstance(algorithm);
+            sig.initVerify(pub);
+            sig.update(data);
+            return sig.verify(signature);
+        } catch (java.security.GeneralSecurityException e) {
+            throw new RuntimeException("verify failed: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public byte[][] generateRsaKeyPair(int bits) {
+        try {
+            java.security.KeyPairGenerator kpg = java.security.KeyPairGenerator.getInstance("RSA");
+            kpg.initialize(bits);
+            java.security.KeyPair kp = kpg.generateKeyPair();
+            return new byte[][]{ kp.getPublic().getEncoded(), kp.getPrivate().getEncoded() };
+        } catch (java.security.GeneralSecurityException e) {
+            throw new RuntimeException("RSA keypair generation failed: " + e.getMessage());
+        }
+    }
+
+    public static final class TestDatabase extends Database {
+        private final String name;
+        private boolean inTransaction;
+        private boolean closed = true;
+        private String[] columns = new String[0];
+        private Object[][] rows = new Object[0][];
+        private final List<String> executedStatements = new ArrayList<String>();
+        private final List<String[]> executedParameters = new ArrayList<String[]>();
+        private final List<String> executedQueries = new ArrayList<String>();
+        private final List<String[]> executedQueryParameters = new ArrayList<String[]>();
+        private boolean rowExtSupported;
+
+        TestDatabase(String name) {
+            this.name = name;
+        }
+
+        void markOpen() throws IOException {
+            // Registered the way a real port registers, because part of the contract these tests
+            // exercise is enforced from that registry: a delete refuses while a connection is
+            // open, and a double that never registered would make the check pass on nothing.
+            registerOpenDatabase(normalizeDatabaseKey(name));
+            closed = false;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public void setQueryResult(String[] columns, Object[][] rows) {
+            if (columns == null) {
+                this.columns = new String[0];
+            } else {
+                this.columns = new String[columns.length];
+                System.arraycopy(columns, 0, this.columns, 0, columns.length);
+            }
+            if (rows == null) {
+                this.rows = new Object[0][];
+            } else {
+                this.rows = new Object[rows.length][];
+                for (int i = 0; i < rows.length; i++) {
+                    Object[] sourceRow = rows[i];
+                    if (sourceRow == null) {
+                        this.rows[i] = null;
+                    } else {
+                        this.rows[i] = new Object[sourceRow.length];
+                        System.arraycopy(sourceRow, 0, this.rows[i], 0, sourceRow.length);
+                    }
+                }
+            }
+        }
+
+        public List<String> getExecutedStatements() {
+            return new ArrayList<String>(executedStatements);
+        }
+
+        public List<String[]> getExecutedParameters() {
+            return new ArrayList<String[]>(executedParameters);
+        }
+
+        public List<String> getExecutedQueries() {
+            return new ArrayList<String>(executedQueries);
+        }
+
+        public List<String[]> getExecutedQueryParameters() {
+            return new ArrayList<String[]>(executedQueryParameters);
+        }
+
+        public void setRowExtSupported(boolean rowExtSupported) {
+            this.rowExtSupported = rowExtSupported;
+        }
+
+        public boolean isInTransaction() {
+            return inTransaction;
+        }
+
+        public boolean isClosed() {
+            return closed;
+        }
+
+        @Override
+        public void beginTransaction() throws IOException {
+            inTransaction = true;
+        }
+
+        @Override
+        public void commitTransaction() throws IOException {
+            inTransaction = false;
+        }
+
+        @Override
+        public void rollbackTransaction() throws IOException {
+            inTransaction = false;
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (!closed) {
+                releaseOpenDatabase(Database.normalizeDatabaseKey(name));
+            }
+            closed = true;
+        }
+
+        @Override
+        public void execute(String sql) throws IOException {
+            execute(sql, (String[]) null);
+        }
+
+        @Override
+        public void execute(String sql, String[] params) throws IOException {
+            executedStatements.add(sql);
+            if (params == null) {
+                executedParameters.add(null);
+            } else {
+                String[] copy = new String[params.length];
+                System.arraycopy(params, 0, copy, 0, params.length);
+                executedParameters.add(copy);
+            }
+        }
+
+        @Override
+        public Cursor executeQuery(String sql, String[] params) throws IOException {
+            executedQueries.add(sql);
+            if (params == null) {
+                executedQueryParameters.add(null);
+            } else {
+                String[] copy = new String[params.length];
+                System.arraycopy(params, 0, copy, 0, params.length);
+                executedQueryParameters.add(copy);
+            }
+            return new TestCursor(columns, rows, rowExtSupported);
+        }
+
+        @Override
+        public Cursor executeQuery(String sql) throws IOException {
+            executedQueries.add(sql);
+            executedQueryParameters.add(null);
+            return new TestCursor(columns, rows, rowExtSupported);
+        }
+
+        @Override
+        public String toString() {
+            return "TestDatabase{" +
+                    "name='" + name + '\'' +
+                    ", inTransaction=" + inTransaction +
+                    ", closed=" + closed +
+                    ", columns=" + Arrays.toString(columns) +
+                    ", rows=" + Arrays.toString(rows) +
+                    ", executedStatements=" + executedStatements +
+                    ", executedParameters=" + executedParameters +
+                    ", executedQueries=" + executedQueries +
+                    ", executedQueryParameters=" + executedQueryParameters +
+                    ", rowExtSupported=" + rowExtSupported +
+                    '}';
+        }
+    }
+
+    private static final class TestCursor implements Cursor {
+        private final String[] columns;
+        private final Object[][] rows;
+        private final boolean rowExtSupported;
+        private int index = -1;
+        private boolean closed;
+
+        TestCursor(String[] columns, Object[][] rows, boolean rowExtSupported) {
+            if (columns == null) {
+                this.columns = new String[0];
+            } else {
+                this.columns = new String[columns.length];
+                System.arraycopy(columns, 0, this.columns, 0, columns.length);
+            }
+            if (rows == null) {
+                this.rows = new Object[0][];
+            } else {
+                this.rows = new Object[rows.length][];
+                for (int i = 0; i < rows.length; i++) {
+                    Object[] source = rows[i];
+                    if (source == null) {
+                        this.rows[i] = null;
+                    } else {
+                        this.rows[i] = new Object[source.length];
+                        System.arraycopy(source, 0, this.rows[i], 0, source.length);
+                    }
+                }
+            }
+            this.rowExtSupported = rowExtSupported;
+        }
+
+        public boolean first() throws IOException {
+            if (rows.length == 0) {
+                index = -1;
+                return false;
+            }
+            index = 0;
+            return true;
+        }
+
+        public boolean last() throws IOException {
+            if (rows.length == 0) {
+                index = -1;
+                return false;
+            }
+            index = rows.length - 1;
+            return true;
+        }
+
+        public boolean next() throws IOException {
+            if (rows.length == 0) {
+                index = rows.length;
+                return false;
+            }
+            if (index < rows.length - 1) {
+                index++;
+                return true;
+            }
+            index = rows.length;
+            return false;
+        }
+
+        public boolean prev() throws IOException {
+            if (rows.length == 0 || index <= 0) {
+                return false;
+            }
+            index--;
+            return true;
+        }
+
+        public int getColumnIndex(String columnName) throws IOException {
+            for (int i = 0; i < columns.length; i++) {
+                if (columns[i] != null && columns[i].equals(columnName)) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        public String getColumnName(int columnIndex) throws IOException {
+            return columns[columnIndex];
+        }
+
+        public int getColumnCount() throws IOException {
+            return columns.length;
+        }
+
+        public int getPosition() throws IOException {
+            return index;
+        }
+
+        public boolean position(int row) throws IOException {
+            if (row < 0 || row >= rows.length) {
+                return false;
+            }
+            index = row;
+            return true;
+        }
+
+        public void close() throws IOException {
+            closed = true;
+        }
+
+        public Row getRow() throws IOException {
+            if (index < 0 || index >= rows.length) {
+                return null;
+            }
+            Object[] data = rows[index];
+            if (data == null) {
+                return createRow(new Object[0]);
+            }
+            return createRow(data);
+        }
+
+        private Row createRow(Object[] data) {
+            if (rowExtSupported) {
+                return new WasNullRow(data);
+            }
+            return new TestRow(data);
+        }
+    }
+
+    private static class TestRow implements Row {
+        private final Object[] values;
+
+        TestRow(Object[] values) {
+            if (values == null) {
+                this.values = new Object[0];
+            } else {
+                this.values = new Object[values.length];
+                System.arraycopy(values, 0, this.values, 0, values.length);
+            }
+        }
+
+        public byte[] getBlob(int index) throws IOException {
+            Object value = getValue(index);
+            if (value instanceof byte[]) {
+                byte[] data = (byte[]) value;
+                byte[] copy = new byte[data.length];
+                System.arraycopy(data, 0, copy, 0, data.length);
+                return copy;
+            }
+            return null;
+        }
+
+        public double getDouble(int index) throws IOException {
+            Object value = getValue(index);
+            if (value instanceof Number) {
+                return ((Number) value).doubleValue();
+            }
+            if (value instanceof String) {
+                return Double.parseDouble((String) value);
+            }
+            return 0d;
+        }
+
+        public float getFloat(int index) throws IOException {
+            Object value = getValue(index);
+            if (value instanceof Number) {
+                return ((Number) value).floatValue();
+            }
+            if (value instanceof String) {
+                return Float.parseFloat((String) value);
+            }
+            return 0f;
+        }
+
+        public int getInteger(int index) throws IOException {
+            Object value = getValue(index);
+            if (value instanceof Number) {
+                return ((Number) value).intValue();
+            }
+            if (value instanceof String) {
+                return Integer.parseInt((String) value);
+            }
+            return 0;
+        }
+
+        public long getLong(int index) throws IOException {
+            Object value = getValue(index);
+            if (value instanceof Number) {
+                return ((Number) value).longValue();
+            }
+            if (value instanceof String) {
+                return Long.parseLong((String) value);
+            }
+            return 0L;
+        }
+
+        public short getShort(int index) throws IOException {
+            Object value = getValue(index);
+            if (value instanceof Number) {
+                return ((Number) value).shortValue();
+            }
+            if (value instanceof String) {
+                return Short.parseShort((String) value);
+            }
+            return (short) 0;
+        }
+
+        public String getString(int index) throws IOException {
+            Object value = getValue(index);
+            if (value == null) {
+                return null;
+            }
+            return value.toString();
+        }
+
+        protected Object getValue(int index) {
+            if (index < 0 || index >= values.length) {
+                return null;
+            }
+            return values[index];
+        }
+
+        @Override
+        public String toString() {
+            return "TestRow{" +
+                    "values=" + Arrays.toString(values) +
+                    '}';
+        }
+    }
+
+    private static final class WasNullRow extends TestRow implements RowExt {
+        private boolean lastWasNull;
+
+        WasNullRow(Object[] values) {
+            super(values);
+        }
+
+        @Override
+        protected Object getValue(int index) {
+            Object value = super.getValue(index);
+            lastWasNull = value == null;
+            return value;
+        }
+
+        public boolean wasNull() throws IOException {
+            return lastWasNull;
+        }
+
+        @Override
+        public String toString() {
+            return "WasNullRow{" +
+                    "lastWasNull=" + lastWasNull +
+                    '}';
+        }
+    }
+
+    private final class StorageOutput extends ByteArrayOutputStream {
+        private final String name;
+        private boolean discarded;
+
+        StorageOutput(String name) {
+            this.name = name;
+            openStorageWrites.add(this);
+        }
+
+        void discard(String entry) {
+            if (name.equals(entry)) {
+                discarded = true;
+            }
+        }
+
+        void discard() {
+            discarded = true;
+        }
+
+        @Override
+        public void close() throws IOException {
+            super.close();
+            openStorageWrites.remove(this);
+            if (storageWriteFailsOnClose) {
+                // an implementation that publishes the entry on close fails here
+                throw new IOException("Could not store " + name);
+            }
+            if (!discarded) {
+                storageEntries.put(name, toByteArray());
+            }
+        }
+    }
+
+    public static final class FillOperation {
+        private final int x;
+        private final int y;
+        private final int width;
+        private final int height;
+        private final int color;
+
+        FillOperation(int x, int y, int width, int height, int color) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+            this.color = color;
+        }
+
+        public int getX() {
+            return x;
+        }
+
+        public int getY() {
+            return y;
+        }
+
+        public int getWidth() {
+            return width;
+        }
+
+        public int getHeight() {
+            return height;
+        }
+
+        public int getColor() {
+            return color;
+        }
+
+        @Override
+        public String toString() {
+            return "FillOperation{" +
+                    "x=" + x +
+                    ", y=" + y +
+                    ", width=" + width +
+                    ", height=" + height +
+                    ", color=" + color +
+                    '}';
+        }
+    }
+
+    public static final class GradientOperation {
+        private final int x;
+        private final int y;
+        private final int width;
+        private final int height;
+        private final int startColor;
+        private final int endColor;
+        private final boolean horizontal;
+
+        GradientOperation(int x, int y, int width, int height, int startColor, int endColor, boolean horizontal) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+            this.startColor = startColor;
+            this.endColor = endColor;
+            this.horizontal = horizontal;
+        }
+
+        public int getX() {
+            return x;
+        }
+
+        public int getY() {
+            return y;
+        }
+
+        public int getWidth() {
+            return width;
+        }
+
+        public int getHeight() {
+            return height;
+        }
+
+        public int getStartColor() {
+            return startColor;
+        }
+
+        public int getEndColor() {
+            return endColor;
+        }
+
+        public boolean isHorizontal() {
+            return horizontal;
+        }
+
+        @Override
+        public String toString() {
+            return "GradientOperation{" +
+                    "x=" + x +
+                    ", y=" + y +
+                    ", width=" + width +
+                    ", height=" + height +
+                    ", startColor=" + startColor +
+                    ", endColor=" + endColor +
+                    ", horizontal=" + horizontal +
+                    '}';
+        }
+    }
+
+    public static final class TestGraphics {
+        int color = 0x000000;
+        int alpha = 0xff;
+        int clipX;
+        int clipY;
+        int clipWidth;
+        int clipHeight;
+        int translateX;
+        int translateY;
+        final TestTransform transform = new TestTransform();
+        TestFont font;
+        TestImage image;
+
+        TestGraphics(int width, int height) {
+            this.clipWidth = width;
+            this.clipHeight = height;
+        }
+
+        @Override
+        public String toString() {
+            return "TestGraphics{" +
+                    "color=" + color +
+                    ", alpha=" + alpha +
+                    ", clipX=" + clipX +
+                    ", clipY=" + clipY +
+                    ", clipWidth=" + clipWidth +
+                    ", clipHeight=" + clipHeight +
+                    ", translateX=" + translateX +
+                    ", translateY=" + translateY +
+                    ", font=" + font +
+                    ", image=" + image +
+                    '}';
+        }
+    }
+
+    private static final class TestTransform {
+        private float m00;
+        private float m01;
+        private float m02;
+        private float m10;
+        private float m11;
+        private float m12;
+        private float m20;
+        private float m21;
+        private float m22;
+        private float translateZ;
+
+        TestTransform() {
+            setIdentity();
+        }
+
+        void setIdentity() {
+            m00 = 1f;
+            m01 = 0f;
+            m02 = 0f;
+            m10 = 0f;
+            m11 = 1f;
+            m12 = 0f;
+            m20 = 0f;
+            m21 = 0f;
+            m22 = 1f;
+            translateZ = 0f;
+        }
+
+        void setTranslation(float tx, float ty, float tz) {
+            setIdentity();
+            m02 = tx;
+            m12 = ty;
+            translateZ = tz;
+        }
+
+        void setScale(float sx, float sy, float sz) {
+            setIdentity();
+            m00 = sx;
+            m11 = sy;
+            m22 = sz;
+        }
+
+        void setRotation(float angle, float px, float py) {
+            setIdentity();
+            float cos = (float) Math.cos(angle);
+            float sin = (float) Math.sin(angle);
+            m00 = cos;
+            m01 = -sin;
+            m10 = sin;
+            m11 = cos;
+            m02 = px - px * cos + py * sin;
+            m12 = py - px * sin - py * cos;
+        }
+
+        void setAffine(float nm00, float nm01, float nm02, float nm10, float nm11, float nm12) {
+            m00 = nm00;
+            m01 = nm01;
+            m02 = nm02;
+            m10 = nm10;
+            m11 = nm11;
+            m12 = nm12;
+            m20 = 0f;
+            m21 = 0f;
+            m22 = 1f;
+            translateZ = 0f;
+        }
+
+        void copyFrom(TestTransform other) {
+            m00 = other.m00;
+            m01 = other.m01;
+            m02 = other.m02;
+            m10 = other.m10;
+            m11 = other.m11;
+            m12 = other.m12;
+            m20 = other.m20;
+            m21 = other.m21;
+            m22 = other.m22;
+            translateZ = other.translateZ;
+        }
+
+        TestTransform createInverse() {
+            TestTransform inverse = new TestTransform();
+            inverse.copyFrom(this);
+            inverse.invert();
+            return inverse;
+        }
+
+        void invert() {
+            float det = m00 * m11 - m01 * m10;
+            if (Math.abs(det) < 1.0e-6f) {
+                setIdentity();
+                return;
+            }
+            float invDet = 1f / det;
+            float nm00 = m11 * invDet;
+            float nm01 = -m01 * invDet;
+            float nm02 = (m01 * m12 - m11 * m02) * invDet;
+            float nm10 = -m10 * invDet;
+            float nm11 = m00 * invDet;
+            float nm12 = (m10 * m02 - m00 * m12) * invDet;
+            m00 = nm00;
+            m01 = nm01;
+            m02 = nm02;
+            m10 = nm10;
+            m11 = nm11;
+            m12 = nm12;
+            translateZ = -translateZ;
+        }
+
+        void concatenate(TestTransform right) {
+            float nm00 = m00 * right.m00 + m01 * right.m10;
+            float nm01 = m00 * right.m01 + m01 * right.m11;
+            float nm02 = m00 * right.m02 + m01 * right.m12 + m02;
+            float nm10 = m10 * right.m00 + m11 * right.m10;
+            float nm11 = m10 * right.m01 + m11 * right.m11;
+            float nm12 = m10 * right.m02 + m11 * right.m12 + m12;
+            float nm20 = m20 * right.m00 + m21 * right.m10 + m22 * right.m20;
+            float nm21 = m20 * right.m01 + m21 * right.m11 + m22 * right.m21;
+            float nm22 = m20 * right.m02 + m21 * right.m12 + m22 * right.m22;
+            m00 = nm00;
+            m01 = nm01;
+            m02 = nm02;
+            m10 = nm10;
+            m11 = nm11;
+            m12 = nm12;
+            m20 = nm20;
+            m21 = nm21;
+            m22 = nm22;
+            translateZ = translateZ + right.translateZ;
+        }
+
+        void transformPoint(float[] in, float[] out) {
+            float x = in[0];
+            float y = in[1];
+            out[0] = m00 * x + m01 * y + m02;
+            out[1] = m10 * x + m11 * y + m12;
+            if (in.length > 2 && out.length > 2) {
+                float z = in[2];
+                out[2] = m22 * z + translateZ;
+            }
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof TestTransform)) {
+                return false;
+            }
+            TestTransform other = (TestTransform) obj;
+            return Float.compare(m00, other.m00) == 0
+                    && Float.compare(m01, other.m01) == 0
+                    && Float.compare(m02, other.m02) == 0
+                    && Float.compare(m10, other.m10) == 0
+                    && Float.compare(m11, other.m11) == 0
+                    && Float.compare(m12, other.m12) == 0
+                    && Float.compare(m20, other.m20) == 0
+                    && Float.compare(m21, other.m21) == 0
+                    && Float.compare(m22, other.m22) == 0
+                    && Float.compare(translateZ, other.translateZ) == 0;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Float.floatToIntBits(m00);
+            result = 31 * result + Float.floatToIntBits(m01);
+            result = 31 * result + Float.floatToIntBits(m02);
+            result = 31 * result + Float.floatToIntBits(m10);
+            result = 31 * result + Float.floatToIntBits(m11);
+            result = 31 * result + Float.floatToIntBits(m12);
+            result = 31 * result + Float.floatToIntBits(m20);
+            result = 31 * result + Float.floatToIntBits(m21);
+            result = 31 * result + Float.floatToIntBits(m22);
+            result = 31 * result + Float.floatToIntBits(translateZ);
+            return result;
+        }
+
+        @Override
+        public String toString() {
+            return "TestTransform{" +
+                    "m00=" + m00 +
+                    ", m01=" + m01 +
+                    ", m02=" + m02 +
+                    ", m10=" + m10 +
+                    ", m11=" + m11 +
+                    ", m12=" + m12 +
+                    ", m20=" + m20 +
+                    ", m21=" + m21 +
+                    ", m22=" + m22 +
+                    ", translateZ=" + translateZ +
+                    '}';
+        }
+    }
+
+    public static final class TestFont {
+        final int charWidth;
+        final int height;
+
+        TestFont(int charWidth, int height) {
+            this.charWidth = charWidth;
+            this.height = height;
+        }
+
+        int stringWidth(String text) {
+            if (text == null) {
+                return 0;
+            }
+            return text.length() * charWidth;
+        }
+
+        int charsWidth(char[] chars, int offset, int length) {
+            if (chars == null || length <= 0) {
+                return 0;
+            }
+            return Math.max(0, length) * charWidth;
+        }
+
+        int charWidth(char c) {
+            return charWidth;
+        }
+
+        @Override
+        public String toString() {
+            return "TestFont{" +
+                    "charWidth=" + charWidth +
+                    ", height=" + height +
+                    '}';
+        }
+    }
+
+    public static final class TestImage {
+        final int width;
+        final int height;
+        final int[] argb;
+        TestGraphics graphics;
+
+        private TestImage(int width, int height, int[] argb) {
+            this.width = width;
+            this.height = height;
+            this.argb = argb;
+        }
+
+        static TestImage fromRgb(int[] rgb, int width, int height) {
+            int[] data = Arrays.copyOf(rgb, rgb.length);
+            return new TestImage(width, height, data);
+        }
+
+        static TestImage mutable(int width, int height, int fillColor) {
+            int[] data = new int[Math.max(1, width * height)];
+            Arrays.fill(data, fillColor);
+            return new TestImage(width, height, data);
+        }
+
+        static TestImage fromEncoded(byte[] encoded) {
+            int width = encoded.length > 0 ? Math.max(1, encoded[0]) : 1;
+            int height = encoded.length > 1 ? Math.max(1, encoded[1]) : 1;
+            int[] data = new int[Math.max(1, width * height)];
+            Arrays.fill(data, 0xff000000);
+            return new TestImage(width, height, data);
+        }
+
+        void getRGB(int[] out, int offset, int x, int y, int width, int height) {
+            for (int row = 0; row < height; row++) {
+                for (int col = 0; col < width; col++) {
+                    int src = (y + row) * this.width + (x + col);
+                    int dst = offset + row * width + col;
+                    if (src >= 0 && src < argb.length && dst < out.length) {
+                        out[dst] = argb[src];
+                    }
+                }
+            }
+        }
+
+        TestImage scale(int width, int height) {
+            int[] data = new int[Math.max(1, width * height)];
+            Arrays.fill(data, 0xff000000);
+            return new TestImage(width, height, data);
+        }
+
+        @Override
+        public String toString() {
+            return "TestImage{" +
+                    "width=" + width +
+                    ", height=" + height +
+                    ", argb=" + Arrays.toString(argb) +
+                    ", graphics=" + graphics +
+                    '}';
+        }
+    }
+
+    public static final class TestConnection {
+        final String url;
+        final Map<String, String> headers = new HashMap<>();
+        final Map<String, List<String>> multiHeaders = new HashMap<>();
+        byte[] inputData;
+        ByteArrayOutputStream output;
+        com.codename1.io.BufferedOutputStream bufferedOutput;
+        boolean readRequested;
+        boolean writeRequested;
+        boolean postRequest;
+        int responseCode = 200;
+        String responseMessage = "OK";
+        int contentLength;
+        int outputOffset;
+        String httpMethod = "GET";
+        IOException httpMethodException;
+
+        TestConnection(String url) {
+            this.url = url;
+        }
+
+        InputStream openInputStream() {
+            byte[] data = inputData == null ? new byte[0] : inputData;
+            return new ByteArrayInputStream(Arrays.copyOf(data, data.length));
+        }
+
+        OutputStream openOutputStream() {
+            if (bufferedOutput == null) {
+                output = new ByteArrayOutputStream();
+                bufferedOutput = new com.codename1.io.BufferedOutputStream(output);
+            }
+            return bufferedOutput;
+        }
+
+        public String getUrl() {
+            return url;
+        }
+
+        public Map<String, String> getHeaders() {
+            return new HashMap<String, String>(headers);
+        }
+
+        public void setHeader(String name, String value) {
+            headers.put(name, value);
+        }
+
+        public void setHeaderValues(String name, List<String> values) {
+            multiHeaders.put(name, new ArrayList<String>(values));
+        }
+
+        public boolean isReadRequested() {
+            return readRequested;
+        }
+
+        public boolean isWriteRequested() {
+            return writeRequested;
+        }
+
+        public boolean isPostRequest() {
+            return postRequest;
+        }
+
+        public void setPostRequest(boolean postRequest) {
+            this.postRequest = postRequest;
+        }
+
+        public void setHttpMethod(String method) {
+            this.httpMethod = method;
+        }
+
+        public String getHttpMethod() {
+            return httpMethod;
+        }
+
+        public void failOnNextHttpMethod(IOException exception) {
+            this.httpMethodException = exception;
+        }
+
+        public int getResponseCode() {
+            return responseCode;
+        }
+
+        public void setResponseCode(int responseCode) {
+            this.responseCode = responseCode;
+        }
+
+        public String getResponseMessage() {
+            return responseMessage;
+        }
+
+        public void setResponseMessage(String responseMessage) {
+            this.responseMessage = responseMessage;
+        }
+
+        public void setInputData(byte[] inputData) {
+            this.inputData = inputData == null ? null : Arrays.copyOf(inputData, inputData.length);
+        }
+
+        public byte[] getInputData() {
+            return inputData == null ? null : Arrays.copyOf(inputData, inputData.length);
+        }
+
+        public byte[] getOutputData() {
+            if (bufferedOutput != null) {
+                try {
+                    bufferedOutput.flushBuffer();
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+            if (output == null) {
+                return new byte[0];
+            }
+            return output.toByteArray();
+        }
+
+        public void setContentLength(int contentLength) {
+            this.contentLength = contentLength;
+        }
+
+        @Override
+        public String toString() {
+            return "TestConnection{" +
+                    "url='" + url + '\'' +
+                    ", headers=" + headers +
+                    ", multiHeaders=" + multiHeaders +
+                    ", inputData=" + Arrays.toString(inputData) +
+                    ", output=" + output +
+                    ", bufferedOutput=" + bufferedOutput +
+                    ", readRequested=" + readRequested +
+                    ", writeRequested=" + writeRequested +
+                    ", postRequest=" + postRequest +
+                    ", responseCode=" + responseCode +
+                    ", responseMessage='" + responseMessage + '\'' +
+                    ", contentLength=" + contentLength +
+                    ", outputOffset=" + outputOffset +
+                    ", httpMethod='" + httpMethod + '\'' +
+                    ", httpMethodException=" + httpMethodException +
+                    '}';
+        }
+    }
+
+    @Override
+    public boolean isNativePickerTypeSupported(int type) {
+        if (nativePickerTypeSupported != null && nativePickerTypeSupported.length > 0) {
+            boolean val;
+            if (nativePickerTypeSupportedIndex < nativePickerTypeSupported.length) {
+                val = nativePickerTypeSupported[nativePickerTypeSupportedIndex++];
+            } else {
+                val = nativePickerTypeSupported[nativePickerTypeSupported.length - 1]; // sticky last value
+            }
+            return val;
+        }
+        return super.isNativePickerTypeSupported(type);
+    }
+
+    public void setNativePickerTypeSupported(Boolean... supported) {
+        this.nativePickerTypeSupported = supported;
+        this.nativePickerTypeSupportedIndex = 0;
+    }
+
+    @Override
+    public void openGallery(ActionListener response, int type) {
+        openGalleryCallCount++;
+        lastOpenGalleryResponse = response;
+        lastOpenGalleryType = type;
+    }
+
+    public int getOpenGalleryCallCount() {
+        return openGalleryCallCount;
+    }
+
+    public ActionListener getLastOpenGalleryResponse() {
+        return lastOpenGalleryResponse;
+    }
+
+    public int getLastOpenGalleryType() {
+        return lastOpenGalleryType;
+    }
+
+    @Override
+    public void openImageGallery(ActionListener response) {
+        openImageGalleryCallCount++;
+        lastOpenImageGalleryResponse = response;
+    }
+
+    public int getOpenImageGalleryCallCount() {
+        return openImageGalleryCallCount;
+    }
+
+    public ActionListener getLastOpenImageGalleryResponse() {
+        return lastOpenImageGalleryResponse;
+    }
+
+    @Override
+    public boolean isGalleryTypeSupported(int type) {
+        galleryTypeSupportedCallCount++;
+        lastGalleryTypeQuery = type;
+        Boolean value = galleryTypeSupport.get(Integer.valueOf(type));
+        if (value != null) {
+            return value.booleanValue();
+        }
+        return super.isGalleryTypeSupported(type);
+    }
+
+    public void setGalleryTypeSupported(int type, boolean supported) {
+        galleryTypeSupport.put(Integer.valueOf(type), Boolean.valueOf(supported));
+    }
+
+    public int getGalleryTypeSupportedCallCount() {
+        return galleryTypeSupportedCallCount;
+    }
+
+    public int getLastGalleryTypeQuery() {
+        return lastGalleryTypeQuery;
+    }
+
+    public void resetGalleryTracking() {
+        openGalleryCallCount = 0;
+        lastOpenGalleryResponse = null;
+        lastOpenGalleryType = 0;
+        openImageGalleryCallCount = 0;
+        lastOpenImageGalleryResponse = null;
+        galleryTypeSupportedCallCount = 0;
+        lastGalleryTypeQuery = 0;
+        galleryTypeSupport.clear();
+    }
+
+    @Override
+    public void capturePhoto(ActionListener response) {
+        response.actionPerformed(new ActionEvent(nextCapturePhotoPath));
+    }
+
+    @Override
+    public void captureAudio(ActionListener response) {
+        captureAudio(new MediaRecorderBuilder(), response);
+    }
+
+    @Override
+    public void captureAudio(MediaRecorderBuilder recordingOptions, ActionListener response) {
+        if (recordingOptions == null) {
+            recordingOptions = new MediaRecorderBuilder();
+        }
+        lastMediaRecorderBuilder = recordingOptions;
+        if (recordingOptions.isRedirectToAudioBuffer()) {
+            AudioBuffer buffer = MediaManager.getAudioBuffer(recordingOptions.getPath());
+            if (buffer != null) {
+                for (AudioCaptureFrame frame : audioCaptureFrames) {
+                    buffer.copyFrom(frame.getSampleRate(), frame.getNumChannels(), frame.getSamples());
+                }
+            }
+            audioCaptureFrames.clear();
+        }
+        response.actionPerformed(new ActionEvent(nextCaptureAudioPath));
+    }
+
+    @Override
+    public void captureVideo(ActionListener response) {
+        response.actionPerformed(new ActionEvent(nextCaptureVideoPath));
+    }
+
+    @Override
+    public void captureVideo(VideoCaptureConstraints constraints, ActionListener response) {
+        lastVideoConstraints = constraints;
+        captureVideo(response);
+    }
+
+    public void setNextCapturePhotoPath(String path) {
+        nextCapturePhotoPath = path;
+    }
+
+    public void setNextCaptureVideoPath(String path) {
+        nextCaptureVideoPath = path;
+    }
+
+    public void setNextCaptureAudioPath(String path) {
+        nextCaptureAudioPath = path;
+    }
+
+    public MediaRecorderBuilder getLastMediaRecorderBuilder() {
+        return lastMediaRecorderBuilder;
+    }
+
+    public void addAudioCaptureFrame(int sampleRate, int numChannels, float[] samples) {
+        audioCaptureFrames.add(new AudioCaptureFrame(sampleRate, numChannels, samples));
+    }
+
+    public void clearAudioCaptureFrames() {
+        audioCaptureFrames.clear();
+    }
+
+    public VideoCaptureConstraints getLastVideoConstraints() {
+        return lastVideoConstraints;
+    }
+
+    private static final class AudioCaptureFrame {
+        private final int sampleRate;
+        private final int numChannels;
+        private final float[] samples;
+
+        private AudioCaptureFrame(int sampleRate, int numChannels, float[] samples) {
+            this.sampleRate = sampleRate;
+            this.numChannels = numChannels;
+            this.samples = Arrays.copyOf(samples, samples.length);
+        }
+
+        private int getSampleRate() {
+            return sampleRate;
+        }
+
+        private int getNumChannels() {
+            return numChannels;
+        }
+
+        private float[] getSamples() {
+            return Arrays.copyOf(samples, samples.length);
+        }
+
+        @Override
+        public String toString() {
+            return "AudioCaptureFrame{" +
+                    "sampleRate=" + sampleRate +
+                    ", numChannels=" + numChannels +
+                    ", samples=" + Arrays.toString(samples) +
+                    '}';
+        }
+    }
+
+    public static final class TestFile {
+        final boolean directory;
+        final byte[] content;
+
+        TestFile(boolean directory, byte[] content) {
+            this.directory = directory;
+            this.content = content == null ? new byte[0] : content;
+        }
+
+        static TestFile file(byte[] content) {
+            return new TestFile(false, content);
+        }
+
+        static TestFile directory() {
+            return new TestFile(true, new byte[0]);
+        }
+
+        @Override
+        public String toString() {
+            return "TestFile{" +
+                    "directory=" + directory +
+                    ", content=" + Arrays.toString(content) +
+                    '}';
+        }
+    }
+
+    public static final class TestSocket {
+        private final String host;
+        private final int port;
+        private final Queue<byte[]> inbound = new ConcurrentLinkedQueue<byte[]>();
+        private final List<byte[]> outbound = new ArrayList<byte[]>();
+        private boolean connected;
+        private int errorCode = -1;
+        private String errorMessage;
+
+        public TestSocket(String host, int port) {
+            this.host = host;
+            this.port = port;
+        }
+
+        void connect() {
+            connected = true;
+        }
+
+        public void disconnect() {
+            connected = false;
+        }
+
+        public boolean isConnected() {
+            return connected;
+        }
+
+        public String getHost() {
+            return host;
+        }
+
+        public int getPort() {
+            return port;
+        }
+
+        public void enqueue(byte[] data) {
+            if (data == null) {
+                return;
+            }
+            inbound.add(Arrays.copyOf(data, data.length));
+        }
+
+        public void enqueue(String text) {
+            if (text == null) {
+                return;
+            }
+            enqueue(text.getBytes());
+        }
+
+        byte[] read() {
+            byte[] data = inbound.poll();
+            if (data == null) {
+                return new byte[0];
+            }
+            return data;
+        }
+
+        int getAvailableInput() {
+            byte[] data = inbound.peek();
+            return data == null ? 0 : data.length;
+        }
+
+        void write(byte[] data) {
+            if (data == null) {
+                return;
+            }
+            outbound.add(Arrays.copyOf(data, data.length));
+        }
+
+        public List<byte[]> getOutboundMessages() {
+            return new ArrayList<byte[]>(outbound);
+        }
+
+        public void setError(int code, String message) {
+            this.errorCode = code;
+            this.errorMessage = message;
+        }
+
+        public int getErrorCode() {
+            return errorCode;
+        }
+
+        public String getErrorMessage() {
+            return errorMessage;
+        }
+
+        @Override
+        public String toString() {
+            return "TestSocket{" +
+                    "host='" + host + '\'' +
+                    ", port=" + port +
+                    ", inbound=" + inbound +
+                    ", outbound=" + outbound +
+                    ", connected=" + connected +
+                    ", errorCode=" + errorCode +
+                    ", errorMessage='" + errorMessage + '\'' +
+                    '}';
+        }
+    }
+
+    /// Delivers a pointer press into one of the additional native windows, the way a
+    /// desktop port would. The port entry points are protected, so a test reaches them
+    /// through here rather than by going straight to Display -- which would skip the
+    /// drag activation filter that lives in the implementation.
+    public void windowPointerPressedForTest(int windowId, int x, int y) {
+        windowPointerPressed(windowId, x, y);
+    }
+
+    /// Delivers a pointer drag into one of the additional native windows.
+    public void windowPointerDraggedForTest(int windowId, int x, int y) {
+        windowPointerDragged(windowId, x, y);
+    }
+
+    /// Delivers a pointer release into one of the additional native windows.
+    public void windowPointerReleasedForTest(int windowId, int x, int y) {
+        windowPointerReleased(windowId, x, y);
+    }
+
+    // ------------------------------------------------------------------------------------
+    // Native drag and drop test hooks
+    // ------------------------------------------------------------------------------------
+
+    /// Turns the fake native drag and drop on, which is what makes
+    /// `com.codename1.ui.NativeDragAndDrop#isSupported()` true for a test.
+    public void setNativeDragAndDropSupported(boolean supported) {
+        this.nativeDragAndDropSupported = supported;
+    }
+
+    @Override
+    public boolean isNativeDragAndDropSupported() {
+        return nativeDragAndDropSupported;
+    }
+
+    @Override
+    public void prepareNativeDrag(com.codename1.ui.NativeDragOperation op) {
+        preparedNativeDrag = op;
+    }
+
+    @Override
+    public boolean startNativeDrag(com.codename1.ui.NativeDragOperation op) {
+        if (!nativeDragAndDropSupported || nativeDragStartRefused) {
+            return false;
+        }
+        startedNativeDrag = op;
+        return true;
+    }
+
+    /// Makes startNativeDrag refuse, which is how a port whose operating system owns the drag
+    /// gesture behaves: it starts no session of its own and announces the platform's later.
+    public void setNativeDragStartRefused(boolean refused) {
+        this.nativeDragStartRefused = refused;
+    }
+
+    @Override
+    public void cancelNativeDrag() {
+        cancelledNativeDrags++;
+        preparedNativeDrag = null;
+    }
+
+    /// The operation the last press staged, or null.
+    public com.codename1.ui.NativeDragOperation getPreparedNativeDrag() {
+        return preparedNativeDrag;
+    }
+
+    /// The operation the last drag actually started, or null.
+    public com.codename1.ui.NativeDragOperation getStartedNativeDrag() {
+        return startedNativeDrag;
+    }
+
+    /// How many prepared operations were dropped because the press turned out to be a click.
+    public int getCancelledNativeDrags() {
+        return cancelledNativeDrags;
+    }
+
+    @Override
+    public void nativeDragSourceRegistered() {
+        nativeDragSourceRegistrations++;
+    }
+
+    /// How many times the framework has told the port that this application wants to drag. A
+    /// port whose platform needs a gesture recognizer installs it on the strength of this.
+    public int getNativeDragSourceRegistrations() {
+        return nativeDragSourceRegistrations;
+    }
+
+    @Override
+    public void nativeDropTargetRegistered() {
+        nativeDropTargetRegistrations++;
+    }
+
+    /// How many times the framework has told the port that this application accepts drops.
+    public int getNativeDropTargetRegistrations() {
+        return nativeDropTargetRegistrations;
+    }
+
+    /// Forgets everything recorded, so one test does not see another's drag.
+    public void resetNativeDragState() {
+        preparedNativeDrag = null;
+        startedNativeDrag = null;
+        cancelledNativeDrags = 0;
+        nativeDragSourceRegistrations = 0;
+        nativeDropTargetRegistrations = 0;
+    }
+}

@@ -1,0 +1,518 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+public class PatchGradleFiles {
+    private static final String REPOSITORIES_BLOCK = """
+            repositories {
+                google()
+                mavenCentral()
+            }
+            """.stripTrailing();
+
+    private static final Pattern REPOSITORIES_PATTERN = Pattern.compile("(?ms)^\\s*repositories\\s*\\{.*?\\}");
+
+    private static final Pattern ANDROID_BLOCK_PATTERN = Pattern.compile("(?m)^\\s*android\\s*\\{");
+    private static final Pattern DEFAULT_CONFIG_PATTERN = Pattern.compile("(?ms)^\\s*defaultConfig\\s*\\{.*?^\\s*\\}");
+    private static final Pattern DEFAULT_CONFIG_HEADER_PATTERN = Pattern.compile("(?ms)^\\s*defaultConfig\\s*\\{");
+    // The value is not always a number. Where an API level ships only as minor
+    // revisions -- which is every level from 37, whose platforms are
+    // android-37.0/.1/.2 and never android-37 -- the builder names the exact
+    // platform instead: compileSdkVersion 'android-37.0'. Matching only digits
+    // meant no match, and the no-match branch below INSERTS a declaration
+    // rather than replacing one, leaving the original later in the same
+    // android block where Groovy lets it win. The pin then silently did
+    // nothing.
+    private static final Pattern COMPILE_SDK_PATTERN = Pattern.compile(
+            "(?m)^\\s*compileSdkVersion\\s+(?:\\d+|'[^']*'|\"[^\"]*\")");
+    private static final Pattern TARGET_SDK_PATTERN = Pattern.compile("(?m)^\\s*targetSdkVersion\\s+\\d+");
+    private static final Pattern TEST_INSTRUMENTATION_PATTERN = Pattern.compile("(?m)^\\s*testInstrumentationRunner\\s*\".*?\"\\s*$");
+    private static final Pattern USE_LIBRARY_PATTERN = Pattern.compile("(?m)^\\s*useLibrary\\s+'android\\.test\\.(?:base|mock|runner)'\\s*$");
+    private static final Pattern DEPENDENCY_PATTERN = Pattern.compile("(?m)^\\s*(implementation|api|testImplementation|androidTestImplementation)\\b");
+
+    public static void main(String[] args) throws Exception {
+        Arguments arguments = Arguments.parse(args);
+        if (arguments == null) {
+            System.exit(2);
+            return;
+        }
+
+        boolean modifiedRoot = patchRootBuildGradle(arguments.root);
+        if (modifiedRoot) {
+            System.out.println("Patched " + arguments.root);
+        }
+        // Every application module, not only app/. A companion Wear build adds wear/, which is a
+        // second application module with its own compileSdkVersion -- left unpinned it takes the
+        // newest platform installed on the runner, so the two modules can end up compiling and
+        // targeting different API levels in the same run, and a difference shows up only in that
+        // module, in a file nobody edited.
+        boolean modifiedAny = modifiedRoot;
+        for (Path module : arguments.apps) {
+            if (!Files.isRegularFile(module)) {
+                System.out.println("Skipping absent module build.gradle " + module);
+                continue;
+            }
+            // The FIRST --app is the module the instrumentation suite runs against; anything
+            // after it is a companion that only needs its SDK levels pinned.
+            boolean instrumented = module.equals(arguments.apps.get(0));
+            if (patchAppBuildGradle(module, arguments.compileSdk, arguments.targetSdk,
+                    instrumented)) {
+                System.out.println("Patched " + module);
+                modifiedAny = true;
+            }
+        }
+        if (!modifiedAny) {
+            System.out.println("Gradle files already normalized");
+        }
+    }
+
+    private static boolean patchRootBuildGradle(Path path) throws IOException {
+        String content = Files.readString(path, StandardCharsets.UTF_8);
+        Matcher matcher = REPOSITORIES_PATTERN.matcher(content);
+        boolean changed = false;
+        if (!matcher.find()) {
+            if (!content.endsWith("\n")) {
+                content += "\n";
+            }
+            content += REPOSITORIES_BLOCK;
+            Files.writeString(path, ensureTrailingNewline(content), StandardCharsets.UTF_8);
+            return true;
+        }
+
+        matcher.reset();
+        StringBuffer updated = new StringBuffer();
+        while (matcher.find()) {
+            String block = matcher.group();
+            if (!block.contains("google()") || !block.contains("mavenCentral()")) {
+                String[] lines = block.split("\n");
+                java.util.LinkedHashSet<String> body = new java.util.LinkedHashSet<>();
+                for (int i = 1; i < lines.length - 1; i++) {
+                    String line = lines[i].trim();
+                    if (!line.isEmpty()) {
+                        body.add("    " + line.trim());
+                    }
+                }
+                body.add("    google()");
+                body.add("    mavenCentral()");
+                StringBuilder newBlock = new StringBuilder();
+                newBlock.append(lines[0]).append('\n');
+                for (String line : body) {
+                    newBlock.append(line).append('\n');
+                }
+                newBlock.append(lines[lines.length - 1]);
+                matcher.appendReplacement(updated, Matcher.quoteReplacement(newBlock.toString()));
+                changed = true;
+            } else {
+                matcher.appendReplacement(updated, Matcher.quoteReplacement(block));
+            }
+        }
+        matcher.appendTail(updated);
+
+        if (changed) {
+            Files.writeString(path, ensureTrailingNewline(updated.toString()), StandardCharsets.UTF_8);
+        }
+        return changed;
+    }
+
+    /**
+     * Patches one application module.
+     *
+     * <p>{@code instrumented} tells the SDK pins apart from the test harness. Every application
+     * module needs the pins -- an unpinned one takes the newest platform on the runner, which is
+     * how a Wear module ended up compiling against an API that had dropped a class the port
+     * uses. None of the rest belongs anywhere but the module the suite actually runs against: a
+     * companion Wear module has no instrumentation sources, so a runner, test dependencies and a
+     * coverage report task there are configuration for tests that do not exist, and the report
+     * finalizer fails on a module with nothing to report.</p>
+     */
+    private static boolean patchAppBuildGradle(Path path, String compileSdk, int targetSdk,
+            boolean instrumented) throws IOException {
+        String content = Files.readString(path, StandardCharsets.UTF_8);
+        boolean changed = false;
+
+        Result r = ensureAndroidBlock(content, compileSdk, targetSdk);
+        content = r.content();
+        changed |= r.changed();
+
+        r = removeLegacyUseLibrary(content);
+        content = r.content();
+        changed |= r.changed();
+
+        if (instrumented) {
+            r = ensureInstrumentationRunner(content);
+            content = r.content();
+            changed |= r.changed();
+
+            r = ensureTestDependencies(content);
+            content = r.content();
+            changed |= r.changed();
+
+            r = ensureJacocoConfiguration(content);
+            content = r.content();
+            changed |= r.changed();
+        }
+
+        if (changed) {
+            Files.writeString(path, ensureTrailingNewline(content), StandardCharsets.UTF_8);
+        }
+        return changed;
+    }
+
+    private static Result ensureAndroidBlock(String content, String compileSdk, int targetSdk) {
+        Matcher androidBlockMatcher = ANDROID_BLOCK_PATTERN.matcher(content);
+        if (!androidBlockMatcher.find()) {
+            if (!content.endsWith("\n")) {
+                content += "\n";
+            }
+            String block = "\nandroid {\n" +
+                    "    compileSdkVersion " + compileSdk + "\n" +
+                    "    defaultConfig {\n" +
+                    "        targetSdkVersion " + targetSdk + "\n" +
+                    "    }\n}";
+            return new Result(content + block, true);
+        }
+
+        boolean changed = false;
+        Matcher compileMatcher = COMPILE_SDK_PATTERN.matcher(content);
+        if (compileMatcher.find()) {
+            String replacement = "    compileSdkVersion " + compileSdk;
+            String newContent = compileMatcher.replaceFirst(replacement);
+            if (!newContent.equals(content)) {
+                content = newContent;
+                changed = true;
+            }
+        } else {
+            Matcher insertMatcher = ANDROID_BLOCK_PATTERN.matcher(content);
+            if (insertMatcher.find()) {
+                int pos = insertMatcher.end();
+                content = content.substring(0, pos) + "\n    compileSdkVersion " + compileSdk + content.substring(pos);
+                changed = true;
+            }
+        }
+
+        Matcher defaultConfigMatcher = DEFAULT_CONFIG_PATTERN.matcher(content);
+        if (defaultConfigMatcher.find()) {
+            String block = defaultConfigMatcher.group();
+            Matcher targetMatcher = TARGET_SDK_PATTERN.matcher(block);
+            String replacement = "        targetSdkVersion " + targetSdk;
+            String updated;
+            if (targetMatcher.find()) {
+                updated = targetMatcher.replaceFirst(replacement);
+            } else {
+                int brace = block.indexOf('{');
+                if (brace >= 0) {
+                    updated = block.substring(0, brace + 1) + "\n" + replacement + block.substring(brace + 1);
+                } else {
+                    updated = block;
+                }
+            }
+            if (!updated.equals(block)) {
+                content = content.substring(0, defaultConfigMatcher.start()) + updated + content.substring(defaultConfigMatcher.end());
+                changed = true;
+            }
+        } else {
+            Matcher insertMatcher = ANDROID_BLOCK_PATTERN.matcher(content);
+            if (insertMatcher.find()) {
+                int pos = insertMatcher.end();
+                String snippet = "\n    defaultConfig {\n        targetSdkVersion " + targetSdk + "\n    }";
+                content = content.substring(0, pos) + snippet + content.substring(pos);
+                changed = true;
+            }
+        }
+
+        return new Result(content, changed);
+    }
+
+    private static Result ensureInstrumentationRunner(String content) {
+        String runner = "androidx.test.runner.AndroidJUnitRunner";
+        if (content.contains(runner)) {
+            return new Result(content, false);
+        }
+        Matcher matcher = TEST_INSTRUMENTATION_PATTERN.matcher(content);
+        if (matcher.find()) {
+            String replacement = "        testInstrumentationRunner \"" + runner + "\"";
+            String newContent = matcher.replaceAll(replacement);
+            return new Result(newContent, !newContent.equals(content));
+        }
+
+        Matcher defaultConfigHeaderMatcher = DEFAULT_CONFIG_HEADER_PATTERN.matcher(content);
+        if (defaultConfigHeaderMatcher.find()) {
+            int pos = defaultConfigHeaderMatcher.end();
+            String snippet = "\n        testInstrumentationRunner \"" + runner + "\"";
+            content = content.substring(0, pos) + snippet + content.substring(pos);
+            return new Result(content, true);
+        }
+
+        Matcher androidMatcher = ANDROID_BLOCK_PATTERN.matcher(content);
+        if (androidMatcher.find()) {
+            int pos = androidMatcher.end();
+            String snippet = "\n    defaultConfig {\n        testInstrumentationRunner \"" + runner + "\"\n    }";
+            content = content.substring(0, pos) + snippet + content.substring(pos);
+            return new Result(content, true);
+        }
+        return new Result(content, false);
+    }
+
+    private static Result removeLegacyUseLibrary(String content) {
+        Matcher matcher = USE_LIBRARY_PATTERN.matcher(content);
+        String newContent = matcher.replaceAll("");
+        return new Result(newContent, !newContent.equals(content));
+    }
+
+    private static Result ensureTestDependencies(String content) {
+        String moduleView = content.replaceAll("(?ms)^\\s*(buildscript|pluginManagement)\\s*\\{.*?^\\s*\\}", "");
+        boolean usesModern = DEPENDENCY_PATTERN.matcher(moduleView).find();
+        String configuration = usesModern ? "androidTestImplementation" : "androidTestCompile";
+        String[] dependencies = {
+                "androidx.test.ext:junit:1.1.5",
+                "androidx.test:runner:1.5.2",
+                "androidx.test:core:1.5.0",
+                "androidx.test.services:storage:1.4.2"
+        };
+        boolean missing = false;
+        for (String dep : dependencies) {
+            if (!moduleView.contains(dep)) {
+                missing = true;
+                break;
+            }
+        }
+        if (!missing) {
+            return new Result(content, false);
+        }
+        StringBuilder block = new StringBuilder();
+        block.append("\n\ndependencies {\n");
+        for (String dep : dependencies) {
+            if (!moduleView.contains(dep)) {
+                block.append("    ").append(configuration).append(" \"").append(dep).append("\"\n");
+            }
+        }
+        block.append("}\n");
+        if (!content.endsWith("\n")) {
+            content += "\n";
+        }
+        return new Result(content + block, true);
+    }
+
+    private static Result ensureJacocoConfiguration(String content) {
+        if (content.contains("jacocoAndroidReport")) {
+            return new Result(content, false);
+        }
+
+        String jacocoBlock = """
+apply plugin: 'jacoco'
+
+def cn1ssSkipCoverage = "1" == System.getenv("CN1SS_SKIP_COVERAGE")
+
+android {
+    buildTypes {
+        debug {
+            testCoverageEnabled !cn1ssSkipCoverage
+        }
+    }
+}
+
+jacoco {
+    toolVersion = "0.8.11"
+}
+
+    tasks.register("jacocoAndroidReport", JacocoReport) {
+        group = "verification"
+        description = "Generates Jacoco coverage report for the debug variant"
+        outputs.upToDateWhen { false }
+
+        reports {
+            xml.required = true
+            html.required = true
+            html.outputLocation = layout.buildDirectory.dir("reports/jacoco/jacocoAndroidReport/html")
+        }
+
+    def coverageFiles = fileTree(dir: "$buildDir", includes: [
+            "outputs/code_coverage/**/*coverage.ec",
+            "jacoco/*.exec",
+            "outputs/unit_test_code_coverage/**/*coverage.ec",
+            "**/*.ec",
+            "**/*.exec"
+    ])
+
+    def excludes = [
+            '**/R.class',
+            '**/R$*.class',
+            '**/BuildConfig.*',
+            '**/Manifest*.*',
+            '**/*Test*.*',
+            '**/kotlin/coroutines/jvm/internal/**',
+            '**/androidx/**/*',
+            '**/com/google/**/*'
+    ]
+
+    def javaClasses = fileTree(dir: "$buildDir/intermediates/javac/debug/classes", exclude: excludes)
+    def kotlinClasses = fileTree(dir: "$buildDir/tmp/kotlin-classes/debug", exclude: excludes)
+    def aarMainJar = file("$buildDir/intermediates/aar_main_jar/debug/classes.jar")
+    def aarTrees = aarMainJar.exists() ? [zipTree(aarMainJar)] : []
+    classDirectories.setFrom(files(javaClasses, kotlinClasses, aarTrees).asFileTree.matching {
+        include 'com/codename1/impl/android/**'
+    })
+    classDirectories.from({
+        configurations.debugRuntimeClasspath
+            .filter { it.name.endsWith('.jar') }
+            .collect { zipTree(it).matching { exclude '**/kotlin/coroutines/jvm/internal/**' } }
+    })
+
+    sourceDirectories.setFrom(files("src/main/java"))
+
+    executionData.setFrom(coverageFiles)
+
+        doFirst {
+            def existing = coverageFiles.files.findAll { it.exists() }
+            if (existing.isEmpty()) {
+                throw new GradleException("No Jacoco coverage data found. Ensure connectedDebugAndroidTest runs with coverage enabled.")
+            }
+            logger.lifecycle("Jacoco coverage inputs: ${existing}")
+        }
+}
+
+afterEvaluate {
+    if (!cn1ssSkipCoverage) {
+        tasks.matching { it.name == "connectedDebugAndroidTest" }.configureEach {
+            finalizedBy(tasks.named("jacocoAndroidReport"))
+        }
+    }
+}
+""".stripTrailing();
+
+        return new Result(ensureTrailingNewline(content) + "\n" + jacocoBlock + "\n", true);
+    }
+
+    private static String ensureTrailingNewline(String content) {
+        return content.endsWith("\n") ? content : content + "\n";
+    }
+
+    private record Result(String content, boolean changed) {
+    }
+
+    private static class Arguments {
+        final Path root;
+        /** Every application module to pin; --app may be repeated. */
+        final java.util.List<Path> apps;
+        /**
+         * The compile SDK to pin, as it will be written.
+         *
+         * <p>A String, not an int, because an API level is not always one
+         * platform: from API 37 there is no unsuffixed platform and the
+         * revisions are android-37.0, android-37.1 and android-37.2. Pinning
+         * the bare level always resolves to the .0, so a caller that wants to
+         * build against the revision a developer's SDK actually settled on has
+         * to be able to name it.</p>
+         */
+        final String compileSdk;
+        final int targetSdk;
+
+        Arguments(Path root, java.util.List<Path> apps, String compileSdk, int targetSdk) {
+            this.root = root;
+            this.apps = apps;
+            this.compileSdk = compileSdk;
+            this.targetSdk = targetSdk;
+        }
+
+        /**
+         * The Groovy literal for a requested compile SDK, or null if invalid.
+         *
+         * <p>Digits stay a bare number, which is what every level up to 36
+         * wants and keeps those generated files unchanged. A platform name --
+         * "37.2", or "android-37.2" -- becomes the quoted hash string AGP
+         * resolves to that exact platform, because the int property has no way
+         * to say a minor (compileSdkMinor is AGP 9).</p>
+         */
+        static String normalizeCompileSdk(String value) {
+            String trimmed = value == null ? "" : value.trim();
+            if (trimmed.matches("\\d+")) {
+                return trimmed;
+            }
+            String name = trimmed.startsWith("android-")
+                    ? trimmed.substring("android-".length()) : trimmed;
+            if (name.matches("\\d+\\.\\d+")) {
+                return "'android-" + name + "'";
+            }
+            System.err.println("Invalid --compile-sdk: " + value
+                    + " (expected 37, 37.2 or android-37.2)");
+            return null;
+        }
+
+        static Arguments parse(String[] args) {
+            Path root = null;
+            java.util.List<Path> apps = new java.util.ArrayList<>();
+            String compileSdk = "36";
+            int targetSdk = 36;
+            for (int i = 0; i < args.length; i++) {
+                String arg = args[i];
+                switch (arg) {
+                    case "--root" -> {
+                        if (i + 1 >= args.length) {
+                            System.err.println("Missing value for --root");
+                            return null;
+                        }
+                        root = Path.of(args[++i]);
+                    }
+                    case "--app" -> {
+                        if (i + 1 >= args.length) {
+                            System.err.println("Missing value for --app");
+                            return null;
+                        }
+                        apps.add(Path.of(args[++i]));
+                    }
+                    case "--compile-sdk" -> {
+                        if (i + 1 >= args.length) {
+                            System.err.println("Missing value for --compile-sdk");
+                            return null;
+                        }
+                        compileSdk = normalizeCompileSdk(args[++i]);
+                        if (compileSdk == null) {
+                            return null;
+                        }
+                    }
+                    case "--target-sdk" -> {
+                        if (i + 1 >= args.length) {
+                            System.err.println("Missing value for --target-sdk");
+                            return null;
+                        }
+                        targetSdk = Integer.parseInt(args[++i]);
+                    }
+                    default -> {
+                        System.err.println("Unknown argument: " + arg);
+                        return null;
+                    }
+                }
+            }
+            if (root == null || apps.isEmpty()) {
+                System.err.println("--root and at least one --app are required");
+                return null;
+            }
+            return new Arguments(root, apps, compileSdk, targetSdk);
+        }
+    }
+}

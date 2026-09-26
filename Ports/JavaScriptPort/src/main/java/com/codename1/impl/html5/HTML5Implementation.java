@@ -1,0 +1,14317 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+package com.codename1.impl.html5;
+import com.codename1.capture.VideoCaptureConstraints;
+import com.codename1.compat.java.util.Objects;
+import com.codename1.components.InteractionDialog;
+import com.codename1.components.SpanLabel;
+import com.codename1.components.ToastBar;
+import com.codename1.db.Database;
+import com.codename1.teavm.io.ArrayBufferInputStream;
+import com.codename1.impl.CodenameOneImplementation;
+import com.codename1.impl.CodenameOneThread;
+import com.codename1.impl.html5.JSOImplementations.CN1Native;
+import com.codename1.impl.html5.JSOImplementations.CompositionEvent;
+import com.codename1.impl.html5.JSOImplementations.HTMLIFrameElement;
+import com.codename1.impl.html5.JSOImplementations.HTMLMediaElement;
+import com.codename1.impl.html5.JSOImplementations.ImageExt;
+import com.codename1.impl.html5.JSOImplementations.InputEvent;
+import com.codename1.impl.html5.JSOImplementations.KeyEvent;
+import com.codename1.impl.html5.JSOImplementations.Navigator;
+import com.codename1.impl.html5.JSOImplementations.TextElement;
+import com.codename1.impl.html5.JSOImplementations.WheelEvent;
+import com.codename1.impl.html5.JSOImplementations.WindowExt;
+import com.codename1.impl.html5.JSOImplementations.WindowLocation;
+import com.codename1.impl.html5.components.ContextMenu;
+import com.codename1.impl.html5.database.DatabaseImpl;
+import com.codename1.impl.html5.graphics.ClipRect;
+import com.codename1.impl.html5.graphics.ExecutableOp;
+import com.codename1.impl.html5.graphics.SurfaceCommandRecorder;
+import com.codename1.impl.html5.videojs.JSVideoCaptureConstraintsCompiler;
+import com.codename1.impl.html5.videojs.VideoJS;
+
+
+import com.codename1.io.FileSystemStorage;
+import com.codename1.io.Log;
+import com.codename1.io.Util;
+import com.codename1.util.Base64;
+import com.codename1.l10n.L10NManager;
+import com.codename1.location.LocationManager;
+import com.codename1.media.Media;
+import com.codename1.media.MediaRecorderBuilder;
+import com.codename1.messaging.Message;
+import com.codename1.printing.PrintResult;
+import com.codename1.printing.PrintResultListener;
+import com.codename1.push.PushCallback;
+import com.codename1.teavm.ext.localforage.LocalForage;
+import com.codename1.teavm.ext.localforage.LocalForage.ItemSavedListener;
+import com.codename1.teavm.ext.usermedia.PhotoCapture;
+import com.codename1.teavm.geom.JSAffineTransform;
+import com.codename1.teavm.geom.JSMatrix4;
+import com.codename1.teavm.io.BlobUtil;
+import com.codename1.teavm.jso.io.Blob;
+import com.codename1.teavm.jso.io.FileList;
+import com.codename1.html5.js.browser.MediaQueryList;
+import com.codename1.teavm.jso.util.EventUtil;
+import com.codename1.teavm.jso.util.JSDateFormat;
+import com.codename1.teavm.jso.util.JSNumberFormat;
+import com.codename1.ui.Accessor;
+import com.codename1.ui.AccessibilityColorVisionDeficiency;
+import com.codename1.ui.BrowserComponent;
+import com.codename1.ui.BrowserWindow;
+import com.codename1.ui.Button;
+import com.codename1.ui.CN;
+import static com.codename1.ui.CN.invokeAndBlock;
+import com.codename1.ui.Component;
+import com.codename1.ui.ComponentSelector;
+import com.codename1.ui.AnimationManager;
+import com.codename1.ui.Display;
+import com.codename1.ui.Font;
+import com.codename1.ui.FontImage;
+import com.codename1.ui.Form;
+import com.codename1.ui.Graphics;
+import com.codename1.ui.Image;
+import com.codename1.ui.Label;
+import com.codename1.ui.PeerComponent;
+import com.codename1.ui.ClipboardContent;
+import com.codename1.ui.Sheet;
+import com.codename1.ui.Stroke;
+import com.codename1.ui.TextArea;
+import com.codename1.ui.TextField;
+import com.codename1.ui.TextInputClient;
+import com.codename1.ui.TextInputConfig;
+import com.codename1.ui.TextInputState;
+import com.codename1.ui.TextSelection;
+import com.codename1.ui.Transform;
+import com.codename1.ui.Command;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.events.ActionSource;
+import com.codename1.ui.events.DataChangedListener;
+import com.codename1.ui.events.FocusListener;
+import com.codename1.ui.events.MessageEvent;
+import com.codename1.ui.geom.Rectangle;
+import com.codename1.ui.geom.Shape;
+import com.codename1.ui.layouts.BorderLayout;
+import com.codename1.ui.layouts.BoxLayout;
+import com.codename1.ui.layouts.FlowLayout;
+import com.codename1.ui.layouts.GridLayout;
+import com.codename1.ui.plaf.Style;
+import com.codename1.ui.plaf.UIManager;
+import com.codename1.ui.util.ImageIO;
+import com.codename1.ui.util.Resources;
+import com.codename1.ui.util.UITimer;
+import com.codename1.util.AsyncResource;
+import com.codename1.util.EasyThread;
+import com.codename1.util.FailureCallback;
+import com.codename1.util.StringUtil;
+import com.codename1.util.SuccessCallback;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.PrintStream;
+import java.io.Writer;
+
+import java.util.ArrayList;
+import java.util.Date;
+
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.Hashtable;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.TimeZone;
+import com.codename1.html5.interop.SuppressSyncErrors;
+import com.codename1.html5.js.JSBody;
+import com.codename1.html5.js.JSFunctor;
+import com.codename1.html5.js.JSObject;
+import com.codename1.html5.js.JSProperty;
+import com.codename1.html5.js.ajax.ReadyStateChangeHandler;
+import com.codename1.html5.js.ajax.XMLHttpRequest;
+import com.codename1.html5.js.browser.TimerHandler;
+import com.codename1.html5.js.browser.Window;
+import com.codename1.html5.js.canvas.CanvasPattern;
+import com.codename1.html5.js.canvas.CanvasRenderingContext2D;
+import com.codename1.html5.js.canvas.ImageData;
+import com.codename1.html5.js.core.JSArray;
+import com.codename1.html5.js.core.JSFunction;
+import com.codename1.html5.js.core.JSNumber;
+import com.codename1.html5.js.core.JSString;
+import com.codename1.html5.js.dom.CSSStyleDeclaration;
+import com.codename1.html5.js.dom.Event;
+import com.codename1.html5.js.dom.EventListener;
+import com.codename1.html5.js.dom.MouseEvent;
+import com.codename1.html5.js.dom.HTMLButtonElement;
+import com.codename1.html5.js.dom.HTMLCanvasElement;
+import com.codename1.html5.js.dom.HTMLDocument;
+import com.codename1.html5.js.dom.HTMLElement;
+import com.codename1.html5.js.dom.PopStateEvent;
+import com.codename1.html5.js.dom.HTMLImageElement;
+import com.codename1.html5.js.dom.HTMLInputElement;
+import com.codename1.html5.js.dom.HTMLTextAreaElement;
+import com.codename1.html5.js.typedarrays.ArrayBuffer;
+import com.codename1.html5.js.typedarrays.Float64Array;
+import com.codename1.html5.js.typedarrays.Uint8Array;
+import com.codename1.html5.js.typedarrays.Uint8ClampedArray;
+
+/**
+ *
+ * @author shannah
+ */
+public class HTML5Implementation extends CodenameOneImplementation {
+    private L10NManager l10n;
+    private int density;
+    private static final String STORAGE_KEY_PREFIX = JavaScriptRuntimeFacade.STORAGE_KEY_PREFIX;
+    private static final String FILE_SYSTEM_PREFIX = JavaScriptRuntimeFacade.FILE_SYSTEM_PREFIX;
+    private static HTML5Implementation instance;
+    private boolean shiftKeyDown;
+    private BufferedGraphics graphics;
+
+    /// The display's buffered graphics. Exposed so a WebGL peer can blit its
+    /// offscreen frame into the display op stream during its own paint() (in
+    /// z-order), instead of compositing on top after the whole frame is painted.
+    BufferedGraphics displayGraphics() {
+        return graphics;
+    }
+    Window window;
+    // The document is a stable singleton for the life of the page. Resolve it
+    // ONCE (at __init, with no concurrent barrier traffic) and reuse the cached
+    // reference forever. Calling doc() on every createCanvas /
+    // createElement is a barrier round-trip whose object response can be crossed
+    // by a concurrent numeric getter (canvas getWidth/getHeight) deep in a
+    // dense paint burst -- the worker then resumes getDocument() with a number
+    // (null after the object cast) and createCanvas NPEs, silently killing the
+    // EDT / the running screenshot test and wedging the suite. The worker holds
+    // this as a hard ref so its host id is never released; re-query is never
+    // needed (mirrors the C/iOS backend, which keeps the document handle once).
+    private HTMLDocument document;
+    private HTMLCanvasElement canvas;
+    private HTMLCanvasElement scratchBuffer;
+    // Current dimensions of the reused scratch buffer, tracked Java-side so the
+    // grow check in getCanvasBuffer never reads canvas.getWidth()/getHeight()
+    // back across the barrier (a hot crossing during image scaling).
+    private int scratchBufferWidth;
+    private int scratchBufferHeight;
+    HTMLCanvasElement outputCanvas;
+    // Cached display backing-store dimensions and the output canvas 2D context.
+    // The Java side OWNS these values -- it sets them in updateCanvasSize() --
+    // so it must never round-trip across the worker<->host barrier to read them
+    // back. Querying canvas.getWidth()/getHeight()/getContext() on every layout
+    // and paint frame produced a continuous storm of barrier calls whose
+    // responses intermittently crossed into concurrent object reads
+    // (getDocument/getContext returning a width/height number). The host stays
+    // dumb; the Java side keeps and reuses what it already knows.
+    private int displayWidth;
+    private int displayHeight;
+    private final JavaScriptRenderingBackend renderingBackend = new BrowserDomRenderingBackend();
+    private EventListener onMouseDown, onMouseUp, onTouchStart, onTouchEnd, onMouseMove, onTouchMove, hitTest, onPaste;
+    
+    // This event listener can be assigned to listen to native mouse events
+    // and handle them directly.
+    private EventListener nativeEventListener;
+    
+    private JSFunction onMouseMoveHandle, onTouchMoveHandle, onPointerMoveHandle;
+    private NativeFont defaultFont;
+    private String pendingTextChanges;
+    private TextArea currentEditingField;
+    private HTMLInputElement currentInputField;
+    private TextInputClient lightweightTextInputClient;
+    private TextInputConfig lightweightTextInputConfig;
+    private TextInputState lightweightTextInputState;
+    private HTMLTextAreaElement lightweightTextInputElement;
+    private boolean lightweightTextInputComposing;
+    private final List<Runnable> lightweightTextInputQueue = new ArrayList<Runnable>();
+    private boolean lightweightTextInputDrainScheduled;
+    private boolean editingStartingUp;
+    private static double devicePixelRatio=-1;
+    private EasyThread nativeEdt;
+    
+    // Used for key press/release.  We record the last char code
+    // in keypressed because the charcode isn't passed to keydown and keyup
+    // listeners -- only keypressed.
+    private int lastCharCode;
+    
+    private List<ActionListener> mouseUpListeners = new ArrayList<ActionListener>();
+    
+    private int defaultFileSystemSize=104857600;  // 100 Megs
+
+    final Object editingLock=new Object();
+
+    // Coordinates the order in which pointer-press and pointer-release events
+    // reach Display.inputEventStack. ParparVM compiles every Java method to a
+    // JS generator; JSO calls inside ``onMouseDown`` / ``onMouseUp`` (e.g.
+    // ``getClientX``, ``focusInputElement``) suspend the generator while the
+    // host bridge round-trips. While ``onMouseDown`` is suspended on a yield,
+    // the worker can dequeue and start running ``onMouseUp`` for the SAME
+    // click. If onMouseUp finishes first (it has slightly fewer yields), its
+    // ``nativeCallSerially(pointerReleased)`` schedules the release on
+    // ``nativeEdt`` BEFORE onMouseDown's matching press. The EDT then sees
+    // POINTER_RELEASED before POINTER_PRESSED, drops the release because
+    // ``eventForm == null`` (Display.java POINTER_RELEASED handler), and the
+    // matching Button.released never fires -- so a Hello-button click never
+    // shows its Dialog.
+    //
+    // Fix: deferred-release pattern. onMouseDown sets ``pressInFlight=true``
+    // synchronously at handler entry (before any JSO yield) and clears it
+    // after ``Display.pointerPressed`` returns. onMouseUp checks the flag at
+    // dispatch time: if a press is still in flight, it stashes the release
+    // in ``deferredRelease`` and returns immediately; the press's completion
+    // hook then runs the deferred release. We avoid ``Object.wait()`` on
+    // purpose -- blocking a worker-side event-listener thread while the EDT
+    // is inside ``invokeAndBlock`` (e.g. Dialog modal) starves subsequent
+    // pointerdown listener invocations and stalls the entire UI.
+    private final Object pointerEventOrderLock = new Object();
+    private boolean pressInFlight = false;
+    private Runnable deferredRelease;
+
+    private Form _getCurrent() {
+        return getCurrentForm();
+    }
+        
+    
+    private JavaScriptAnimationFrameCallback animationFrameHandler;
+
+    private JavaScriptRenderQueueState<ExecutableOp> pendingDisplay=new JavaScriptRenderQueueState<ExecutableOp>();
+    
+    
+    
+    
+    /**
+     * Used to transform URLs that are to be fetched using a network connection
+     * to use a proxy. 
+     */
+    private URLProxifier urlProxifier;
+
+    
+    private String photosPath="/photos";
+
+    private class BrowserDomRenderingBackend implements JavaScriptRenderingBackend {
+        @Override
+        public HTMLCanvasElement createCanvas(int width, int height) {
+            HTMLCanvasElement canvas = (HTMLCanvasElement)doc().createElement("canvas");
+            canvas.setWidth(width);
+            canvas.setHeight(height);
+            return canvas;
+        }
+
+        @Override
+        public HTMLImageElement createImageElement() {
+            return (HTMLImageElement)doc().createElement("img");
+        }
+
+        @Override
+        public HTMLImageElement createCrossOriginImageElement(String sourceUrl) {
+            HTMLImageElement image = createImageElement();
+            image.setAttribute("crossorigin", "anonymous");
+            image.setSrc(sourceUrl);
+            return image;
+        }
+
+        @Override
+        public HTMLImageElement createBlobImageElement(Blob blob) {
+            return createCrossOriginImageElement(BlobUtil.createObjectURL(blob));
+        }
+
+        @Override
+        public void drawLoadedImage(CanvasRenderingContext2D context, HTMLImageElement image, int x, int y, int width, int height) {
+            context.drawImage(image, x, y, width, height);
+        }
+
+        @Override
+        public CanvasPattern createLoadedImagePattern(CanvasRenderingContext2D context, HTMLImageElement image) {
+            return context.createPattern(image, "repeat");
+        }
+
+        @Override
+        public Blob toImageBlob(HTMLCanvasElement canvas, String mimeType, float quality) throws IOException {
+            return BlobUtil.canvasToBlob(canvas, mimeType, quality);
+        }
+
+        @Override
+        public void repaintCurrentForm() {
+            Form current = Display.getInstance().getCurrent();
+            if (current != null) {
+                current.repaint();
+            }
+        }
+    }
+    
+    /**
+     * We don't have an API yet to auto-detect the device's camera dimensions
+     * so we'll specify some hard defaults here and possibly abstract it further later.
+     * This article is useful on this topic:
+     * https://webrtchacks.com/how-to-figure-out-webrtc-camera-resolutions/
+     */
+    private int cameraWidth=960;
+    
+    private int cameraHeight=720;
+
+    @Override
+    public boolean isShiftKeyDown() {
+        return shiftKeyDown;
+    }
+
+    @Override
+    public boolean isWebSocketSupported() {
+        return isBrowserWebSocketAvailable();
+    }
+
+    @Override
+    public com.codename1.impl.WebSocketImpl createWebSocketImpl(String url) {
+        return new HTML5WebSocketImpl(url);
+    }
+
+    @com.codename1.html5.js.JSBody(params = {}, script = "return typeof WebSocket !== 'undefined';")
+    private static native boolean isBrowserWebSocketAvailable();
+
+    MouseEvent lastMouseEvent;
+    
+    @Override
+    public boolean isRightMouseButtonDown() {
+        if (lastMouseEvent !=null) {
+            return lastMouseEvent.getButton() == 2;
+        }
+        return false;
+    }
+    
+    
+    
+    /**
+     * @return the urlProxifier
+     */
+    public URLProxifier getUrlProxifier() {
+        return urlProxifier;
+    }
+
+    /**
+     * @param urlProxifier the urlProxifier to set
+     */
+    public void setUrlProxifier(URLProxifier urlProxifier) {
+        this.urlProxifier = urlProxifier;
+    }
+    
+    private final JavaScriptPointerSessionState pointerState = new JavaScriptPointerSessionState();
+    
+    public int getLastTouchUpX() {
+        return pointerState.getLastTouchUpX();
+    }
+    
+    public int getLastTouchUpY() {
+        return pointerState.getLastTouchUpY();
+    }
+    
+    private HashSet<Integer> keysDown = new HashSet<Integer>();
+    
+    @JSBody(params={}, script="window.onbeforeunload=function(){return 'Leaving or refreshing the page may cause you to lose unsaved data.';}")
+    private native static void installBeforeUnload();
+    
+    @JSBody(params={}, script="return window.onbeforeunload")
+    private native static JSObject getBeforeUnloadHandler();
+    
+    @JSBody(params={"handler"}, script="window.onbeforeunload=handler")
+    private native static void setBeforeUnloadHandler(JSObject handler);
+
+    // Arm the Java-side finalizer that frees a front-end resource (an image's
+    // backing canvas or HTMLImageElement). The JS host keeps a HARD reference
+    // to every such resource and never GCs it -- exactly like the C/iOS native
+    // backend. When the owning Java image becomes unreachable, the worker
+    // finalizer releases this resource's host id.
+    //
+    // ``owner`` MUST be the long-lived Java object whose lifecycle gates the
+    // resource (the NativeImage), NOT the ``resource`` wrapper itself: the
+    // worker re-wraps host refs on demand (the JSO wrapper table is a WeakMap),
+    // so a transient wrapper for the resource's host id can be collected while
+    // the canvas/image is still in active use. Keying the finalizer on that
+    // wrapper would release the id out from under a live user (a getContext on
+    // the dropped id then returns the number/null fallback and the worker
+    // wedges). Keying on the NativeImage -- the sole owner of the id -- means
+    // release happens exactly when the image is unreachable, never sooner.
+    // Overridden by the port.js bindNative; the empty @JSBody is just the
+    // translate-time linkage.
+    @JSBody(params={"owner", "resource"}, script="")
+    private native static void registerImageResource(Object owner, JSObject resource);
+
+    // ===================================================================
+    // SURFACE BRIDGE natives (surface-id render model).
+    // -------------------------------------------------------------------
+    // The worker holds opaque worker-assigned surface ids; these natives carry
+    // PURE DATA (ids + flat command buffers) to the host, which keeps the
+    // id->{canvas,ctx} table and replays the stream (browser_bridge.js
+    // __cn1_surface_*). Only readRGB returns pixels. Empty @JSBody bodies are
+    // the translate-time linkage; the real implementations are the port.js
+    // bindNative generators that route to the host bridge. See
+    // SurfaceCommandRecorder for the command encoding.
+
+    /** Display surface id; mirrors browser_bridge.js SURF_DISPLAY_ID. */
+    static final int DISPLAY_SURFACE_ID = 1;
+
+    /** Create (or resize+clear) the backing canvas for a surface id. */
+    @JSBody(params={"id", "w", "h"}, script="")
+    static native void nativeSurfaceCreate(int id, int w, int h);
+
+    /**
+     * Replay a recorded command batch onto a surface. ``ops[0..opCount)`` are
+     * opcodes; nums/objs are consumed positionally per opcode (see the
+     * SurfaceCommandRecorder OP_* contract). ``w``/``h`` let the host lazily
+     * create the surface if a flush races ahead of create.
+     */
+    @JSBody(params={"id", "w", "h", "ops", "opCount", "nums", "numCount", "objs", "objCount"}, script="")
+    static native void nativeSurfaceFlush(int id, int w, int h,
+            int[] ops, int opCount, double[] nums, int numCount, Object[] objs, int objCount);
+
+    /** Read back an ARGB pixel rectangle (getRGB) into ``dest``. */
+    @JSBody(params={"id", "x", "y", "w", "h", "dest"}, script="")
+    static native void nativeSurfaceReadRGB(int id, int x, int y, int w, int h, int[] dest);
+
+    /** Encode a surface to a base64 data URL (PNG/JPEG export + screenshot save). */
+    @JSBody(params={"id", "mime", "quality"}, script="")
+    static native String nativeSurfaceToDataUrl(int id, String mime, double quality);
+
+    /** Release a surface's backing canvas when its owning Java image is GC'd. */
+    @JSBody(params={"id"}, script="")
+    static native void nativeSurfaceDispose(int id);
+
+    /** Write a raw ARGB pixel rectangle onto a surface (createImage(int[])). */
+    @JSBody(params={"id", "argb", "w", "h"}, script="")
+    static native void nativeSurfaceWritePixels(int id, int[] argb, int w, int h);
+
+    /**
+     * Read back an ARGB pixel rectangle from a LOADED image (an HTMLImageElement
+     * host resource) into ``dest`` -- the loaded-image getRGB path. The host
+     * draws the image onto a scratch canvas and reads its pixels.
+     */
+    @JSBody(params={"image", "x", "y", "w", "h", "dest"}, script="")
+    static native void nativeReadImagePixels(JSObject image, int x, int y, int w, int h, int[] dest);
+
+    /**
+     * Append a surface's backing canvas into a host DOM element and style it to
+     * the given CSS width/height (native widgets that embed a CN1-rendered image
+     * directly in the DOM). The worker holds no canvas, so the host resolves it
+     * from the surface table by id.
+     */
+    @JSBody(params={"id", "element", "cssWidth", "cssHeight"}, script="")
+    static native void nativeAttachSurfaceToElement(int id, JSObject element, String cssWidth, String cssHeight);
+
+    /**
+     * Embed a CN1 mutable image's rendered surface directly in a host DOM
+     * element, styled to {@code cssWidth}/{@code cssHeight} (native widgets).
+     * Flushes the surface first so the host canvas has its pixels. Public so the
+     * media-ext native widgets (file/photo pickers) can reach it across packages.
+     */
+    public static void attachImageToElement(NativeImage img, JSObject element, String cssWidth, String cssHeight) {
+        HTML5Graphics mg = img.getMutableGraphics();
+        mg.flush();
+        nativeAttachSurfaceToElement(mg.getSurfaceId(), element, cssWidth, cssHeight);
+    }
+
+    /**
+     * Arm the worker finalizer that releases a surface when its owning Java image
+     * is GC'd. ``owner`` MUST be the long-lived image (not a transient wrapper);
+     * the port.js binding registers it in a FinalizationRegistry that disposes
+     * the host surface id on collection. Empty @JSBody linkage; bound in port.js.
+     */
+    @JSBody(params={"owner", "surfaceId"}, script="")
+    static native void registerSurfaceDisposal(Object owner, int surfaceId);
+
+    // Worker-assigned surface ids. Start above the display id; these never
+    // collide with the host's hostRefNextId because surfaces live in a separate
+    // host table keyed by this id.
+    private static int nextSurfaceId = DISPLAY_SURFACE_ID + 1;
+
+    static synchronized int allocSurfaceId() {
+        return nextSurfaceId++;
+    }
+
+    // Allocate a host surface of the given size and return a graphics that
+    // records onto it. The single creation point for every mutable image.
+    HTML5Graphics createSurfaceGraphics(int width, int height) {
+        int id = allocSurfaceId();
+        nativeSurfaceCreate(id, width, height);
+        return new HTML5Graphics(this, id, width, height);
+    }
+
+    private int getClientX(MouseEvent evt) {
+        int x = evt.getClientX();
+        if (x == -1) {
+            return x;
+        }
+        
+        return (int)(x * devicePixelRatioValue());
+    }
+    
+    private int getClientY(MouseEvent evt) {
+        int y = evt.getClientY();
+        if (y == -1) {
+            return y;
+        }
+        return (int)((y + getScrollY_()) * devicePixelRatioValue());
+    }
+    
+    private boolean hitTest(int x, int y) {
+        if (outputCanvas != null) {
+            // Single-pixel alpha probe of the display surface. A fully
+            // transparent pixel means the pointer falls through (no component
+            // painted here). One round-trip per hit-test (pointer events only).
+            try {
+                int[] px = new int[1];
+                nativeSurfaceReadRGB(DISPLAY_SURFACE_ID, x, y, 1, 1, px);
+                if (((px[0] >>> 24) & 0xFF) == 0) {
+                    return false;
+                }
+            } catch (Exception ex){}
+        }
+
+        return true;
+                
+    }
+    
+    
+    @JSBody(params={"event"}, script="cn1CopyEventToNativePeers(event);")
+    private native static void copyEventsToNativePeers(Event event);
+    
+    @JSBody(params={"str"}, script="if (window.cn1Debug) console.log(str);")
+    native static void _debug(String str);
+    
+    @JSBody(params={"obj"}, script="if (window.cn1Debug) console.log(obj);")
+    native static void _debugObj(JSObject obj);
+    @JSBody(params={"obj"}, script="console.log(obj);")
+    public native static void _logObj(JSObject obj);
+    
+    /**
+     * Container for all peer components.
+     */
+    HTMLElement peersContainer;
+    private HTMLElement accessibilityContainer;
+
+    /**
+     * Projects the component tree into the DOM overlay above the canvas. Created lazily on the
+     * first semantic invalidation and reused from then on, since it retains the element-per-node
+     * state the incremental update depends on.
+     */
+    private JavaScriptSemanticOverlay semanticOverlay;
+
+    /**
+     * Holds the DOM elements carrying the visible text that was promoted off the canvas.
+     */
+    private HTMLElement textLayerContainer;
+
+    /**
+     * Promotes text runs off the canvas into real DOM text. Non-null once {@code __init()} has
+     * built its container.
+     */
+    JavaScriptTextLayer textLayer;
+
+    /**
+     * False when ?cn1TextLayer=0 asked for canvas-only text.
+     */
+    private boolean textLayerEnabled = true;
+
+    /**
+     * True once the application has read the screen back as pixels, which permanently returns
+     * text to the canvas so those reads can see it.
+     */
+    private boolean textLayerDisabledByReadback;
+
+    /**
+     * False when ?cn1Semantics=0 asked for no ARIA projection.
+     */
+    private boolean semanticOverlayEnabled = true;
+    
+    
+    /**
+     * Meant to be like the Runnable interface, but as a pure JS
+     * function
+     */
+    @JSFunctor
+    public static interface JSRunnable extends JSObject {
+        public void run();
+    }
+    
+    /**
+     * Callbacks that are run 300ms after a pointer press event from inside the pointer 
+     * handler to perform things that require user interaction. These are necessary for things
+     * like movies that *cannot* be played programmatically because they require user interaction
+     * on platforms like Android and iOS.  
+     * 
+     */
+    private JSArray backSideHooks = JSArray.create();
+    public void addBacksideHook(JSRunnable r) {
+        backSideHooks.push(r);
+    }
+
+    /**
+     * Hooks that only a gesture-backed drain may run.
+     *
+     * <p>{@link #backSideHooks} is also drained by the
+     * {@code platformHint.javascript.backsideHooksInterval} timer, which
+     * carries no transient activation. That is fine for media, but a
+     * {@code window.open()} drained from the polling timer is simply blocked --
+     * so a popup queued there can lose the race to the gesture's own timeout
+     * and never open. Anything needing activation goes here instead, where only
+     * {@link #runBacksideHooksInTimeout(int)} reaches it.</p>
+     */
+    private final java.util.ArrayList<GestureHook> gestureOnlyHooks =
+            new java.util.ArrayList<GestureHook>();
+
+    /** A hook paired with the interaction that queued it. */
+    private static class GestureHook {
+        final int generation;
+        final JSRunnable runnable;
+        /** Run on the EDT instead, if a newer interaction supersedes this one. */
+        final Runnable superseded;
+
+        GestureHook(int generation, JSRunnable runnable, Runnable superseded) {
+            this.generation = generation;
+            this.runnable = runnable;
+            this.superseded = superseded;
+        }
+    }
+
+    /**
+     * Queues a hook that only a drain scheduled by the CURRENT interaction may
+     * run. A drain descending from an earlier interaction carries that one's
+     * activation, which is spent or expiring, so letting it consume this hook
+     * would leave the popup blocked.
+     */
+    private void addGestureOnlyHook(JSRunnable r, Runnable superseded) {
+        // Backstop against unbounded growth: a hook whose interaction is long
+        // past can no longer be drained. Eight generations is only about four
+        // rapid clicks, since press and release each advance one, so this is
+        // reachable in ordinary use -- drop the hook, but hand it to its
+        // fallback rather than losing the request. Silently discarding it left
+        // an execute() with no popup, no Sheet and no trace.
+        for (int i = gestureOnlyHooks.size() - 1; i >= 0; i--) {
+            GestureHook stale = gestureOnlyHooks.get(i);
+            if (gestureGeneration - stale.generation > 8) {
+                gestureOnlyHooks.remove(i);
+                _log("execute(): a queued open aged out before its drain ran");
+                if (stale.superseded != null) {
+                    callSerially(stale.superseded);
+                }
+            }
+        }
+        gestureOnlyHooks.add(new GestureHook(gestureGeneration, r, superseded));
+        if (pendingGestureDrains <= 0) {
+            // Generation matching keeps an older drain from taking this hook,
+            // but only a drain of THIS interaction will run it -- and there may
+            // be none left. Safari schedules a single 75/300ms drain, so an EDT
+            // slower than that would strand the hook forever and the confirmed
+            // link would do nothing at all. Schedule one. The activation is
+            // probably gone by now, but an attempt that reports failure beats
+            // silence: the caller logs it, or falls back to the Sheet.
+            runBacksideHooksInTimeout(0, false);
+        }
+    }
+
+    /**
+     * Drains still scheduled for {@link #gestureGeneration}. Reset when a new
+     * interaction begins, since an older interaction's drains cannot run this
+     * one's hooks.
+     */
+    private int pendingGestureDrains;
+
+    private void runGestureOnlyHooks(int generation) {
+        // Collected before running: a hook may queue another one, and mutating
+        // the list mid-iteration would break it.
+        java.util.ArrayList<GestureHook> due = new java.util.ArrayList<GestureHook>();
+        for (int i = 0; i < gestureOnlyHooks.size(); i++) {
+            if (gestureOnlyHooks.get(i).generation == generation) {
+                due.add(gestureOnlyHooks.get(i));
+            }
+        }
+        gestureOnlyHooks.removeAll(due);
+        // Transient activation belongs to the WINDOW, not to this generation.
+        // If a newer interaction has since occurred, running these would spend
+        // the activation it just granted -- the newer interaction's own popup
+        // would then be blocked, having done nothing wrong. Hand them to their
+        // fallback instead.
+        boolean superseded = generation != gestureGeneration;
+        for (int i = 0; i < due.size(); i++) {
+            GestureHook hook = due.get(i);
+            if (superseded) {
+                _log("execute(): a newer interaction superseded a queued open");
+                if (hook.superseded != null) {
+                    callSerially(hook.superseded);
+                }
+            } else {
+                hook.runnable.run();
+            }
+        }
+    }
+    
+    // Count the number of backside hook calls that are queued up
+    private int backsideHooksSemaphore = 0;
+    
+    /**
+     * Checks to see if there is a pending callback for a backside hook.
+     * I.e. If you add a backside hook to be executed RIGHT now, will be be executed
+     * in this batch, or will it need to wait for another user interaction.
+     * @return 
+     */
+    public boolean isBacksideHookAvailable() {
+        return backsideHooksIntervalHandle != 0 || backsideHooksSemaphore > 0;
+    }
+    
+    /**
+     * Backside hooks are just a tricky way to execute actions in response to user actions.
+     * Some things, like playing media, can only happen in response to a user interaction
+     * on mobile devices.  Unfortunately, CN1 uses its own event thread so none of the events
+     * technically happen in response to a user event - so far as the browser is concerned.
+     * So we add some hooks that are run in a setTimeout() inside the actual native event handlers
+     * where we can queue actions that be be performed.
+     * @param timeout 
+     */
+    private void runBacksideHooksInTimeout(int timeout) {
+        runBacksideHooksInTimeout(timeout, true);
+    }
+
+    /**
+     * @param fromInteraction true when a real pointer or key event scheduled
+     *   this drain. Only those raise {@link #backsideHooksSemaphore}, because
+     *   that is what {@link #isGestureBackedHookAvailable()} reads to decide a
+     *   popup may be attempted. A drain we schedule ourselves to rescue a
+     *   stranded hook carries no activation, so counting it there would claim a
+     *   gesture that does not exist and send a popup to be blocked instead of
+     *   to the Sheet.
+     */
+    private void runBacksideHooksInTimeout(int timeout, final boolean fromInteraction) {
+        if (fromInteraction) {
+            backsideHooksSemaphore++;
+        }
+        //_log("Incrementing backsideHooksSemaphore: "+backsideHooksSemaphore);
+        // Remember which interaction scheduled this drain, so it only runs the
+        // activation-dependent hooks that same interaction queued.
+        final int generation = gestureGeneration;
+        pendingGestureDrains++;
+        Window.setTimeout(new TimerHandler() {
+            @Override
+            public void onTimer() {
+                if (fromInteraction) {
+                    backsideHooksSemaphore--;
+                }
+                if (generation == gestureGeneration) {
+                    pendingGestureDrains--;
+                }
+                //_log("Decrementing backsideHooksSemaphore: "+backsideHooksSemaphore);
+                // This drain descends from a real interaction, so it may run
+                // that interaction's activation-dependent hooks -- and only
+                // those: an older drain still pending carries an activation
+                // that is spent or expiring.
+                runGestureOnlyHooks(generation);
+                runBacksideHooks();
+            }
+        }, timeout);
+    }
+    
+    @JSBody(params={}, script="while (window.cn1NativeBacksideHooks.length > 0) {"
+            + "  var f = window.cn1NativeBacksideHooks.shift();"
+            + "  try {f();} catch (e){console.log(e);}"
+            + "}")
+    private native static void runPendingNativeBacksideHooks();
+    
+    private int backsideHooksIntervalTimeout;
+    private int backsideHooksIntervalHandle;
+    
+    private void startBacksideHooksInterval() {
+        if (backsideHooksIntervalTimeout > 0) {
+            startBacksideHooksInterval(backsideHooksIntervalTimeout);
+        }
+    }
+    
+    private void startBacksideHooksInterval(int interval) {
+        if (backsideHooksIntervalHandle != 0) {
+            Window.clearInterval(backsideHooksIntervalHandle);
+            backsideHooksIntervalHandle = 0;
+        }
+        backsideHooksIntervalHandle  = Window.setInterval(new TimerHandler() {
+            @Override
+            public void onTimer() {
+                runBacksideHooks();
+            }
+            
+        }, interval);
+    }
+    
+    private void stopBacksideHooksInterval() {
+        if (backsideHooksIntervalHandle != 0) {
+            Window.clearInterval(backsideHooksIntervalHandle);
+            backsideHooksIntervalHandle = 0;
+        }
+    }
+    
+    /**
+     * Runs all of the pending backside hooks.
+     */
+    public void runBacksideHooks() {
+        runPendingNativeBacksideHooks();
+        while (backSideHooks.getLength() > 0) {
+            JSRunnable r = (JSRunnable)backSideHooks.shift();
+            r.run();
+        }
+    }
+    
+    private static int safariBacksideHookDelay;
+    
+    private static int safariBacksideHookDelay() {
+        if (safariBacksideHookDelay == 0) {
+            safariBacksideHookDelay = _safariBacksideHookDelay();
+            if (safariBacksideHookDelay == 0) {
+                
+                // Based on my experiments, iOS 13 is far more forgiving for the backside hook
+                // delay time.  So we set a default of 300, which seems to work.
+                // iOS 12 - not so forgiving.  We set at 75.
+                if (!isIOS() || isIOS13()) {
+                    // Desktop safari, and iOS devices on 13+ we give a 300 delay.
+                    safariBacksideHookDelay = 300;
+                } else {
+                    safariBacksideHookDelay = 75;
+                }
+            }
+        }
+        return safariBacksideHookDelay;
+    }
+    
+    @JSBody(params={}, script="var delay=window.getParameterByName('cn1SafariBacksideHookDelay'); if (delay) return parseInt(delay); return 0;")
+    private native static int _safariBacksideHookDelay();
+    
+    private void installBacksideHooksInUserInteraction() {
+        installBacksideHooksInUserInteraction(true);
+    }
+
+    /**
+     * @param newInteraction true for a press or key down, which begins a new
+     *   interaction; false for the matching release, which belongs to the
+     *   interaction already in progress. A release refreshes the window's
+     *   activation and schedules more drains, but it is not a new gesture: a
+     *   press-time execute() tagged with the current generation must still be
+     *   servable by the release's drain, and a click shorter than the 300ms
+     *   delay -- the normal case -- always releases first.
+     */
+    private void installBacksideHooksInUserInteraction(boolean newInteraction) {
+        if (newInteraction) {
+            // A distinct interaction, so a popup reserved against the previous
+            // one no longer applies -- see popupReservedForGeneration -- and the
+            // previous one's outstanding drains cannot serve this one's hooks.
+            gestureGeneration++;
+            pendingGestureDrains = 0;
+        }
+        if (isIOS() || isSafari()) {
+            debugLog("Installing backside hooks with delay "+safariBacksideHookDelay());
+            runBacksideHooksInTimeout(safariBacksideHookDelay());
+        } else {
+            startBacksideHooksInterval();
+            runBacksideHooksInTimeout(300);
+            runBacksideHooksInTimeout(1500);
+            runBacksideHooksInTimeout(5000);
+        }
+    }
+    
+    /**
+     * Flag that is set on mousedown or touchstart in the cn1 canvas so that 
+     * it knows to not pass events to rest of native peers until after mouseup/touchend
+     */
+    
+
+    
+    private class NativeOverlay {
+        HTMLInputElement el;
+        Component cmp;
+        NativeOverlay(Component cmp) {
+            this.cmp = cmp;
+        }
+        
+        void uninstall() {
+            if (el != null) {
+                doc().getBody().removeChild((HTMLInputElement)el);
+            }
+        }
+        
+        void update() {
+            
+        }
+        
+        void updateIfMovedAndFocused() {
+            
+        }
+        
+        void updateNativeEditorText(String text) {
+            
+        }
+    }
+
+    @Override
+    public void updateNativeEditorText(Component c, String text) {
+        if (c.getNativeOverlay() != null) {
+            NativeOverlay o = (NativeOverlay)c.getNativeOverlay();
+            o.updateNativeEditorText(text);
+        }
+    }
+    
+    
+    
+    private class TextAreaNativeOverlay extends NativeOverlay {
+        TextArea ta;
+        FocusListener focusListener;
+        DataChangedListener dataChangedListener;
+        boolean donePressed;
+        Thread monitorThread;
+
+        @Override
+        void uninstall() {
+            super.uninstall();
+            if (focusListener != null) {
+                ta.removeFocusListener(focusListener);
+                focusListener = null;
+            }
+            if (dataChangedListener != null && ta instanceof TextField) {
+                ((TextField)ta).removeDataChangedListener(dataChangedListener);
+                dataChangedListener = null;
+            }
+        }
+        
+        private void startMonitorThread() {
+            if (monitorThread == null) {
+                monitorThread = new Thread(new Runnable() {
+                    public void run() {
+                        while (jQuery_is_(inputEl, ":focus")) {
+                            callSerially(new Runnable() {
+
+                                @Override
+                                public void run() {
+                                    
+                                }
+                                
+                            });
+                        }
+                    }
+                });
+            }
+        }
+        
+        
+        
+        
+        TextAreaNativeOverlay(TextArea taIn) {
+            super(taIn);
+            this.ta = taIn;
+            final HTMLInputElement inputEl;
+            if (!ta.isSingleLineTextArea()){
+                inputEl = (HTMLInputElement)doc().createElement("textarea");
+                isEditingSingleLine = true;
+
+            } else {
+                inputEl = (HTMLInputElement)doc().createElement("input");
+                inputEl.setType("text");
+                isEditingSingleLine = false;
+
+            }
+            
+            el = inputEl;
+                
+            inputEl.setAttribute("class", "cn1-edit-string");
+            inputEl.getStyle().setProperty("outline", "none");  // for chrome
+            
+            applyInputConstraints(inputEl, ta);
+            
+            
+            
+            inputEl.addEventListener("keydown", new EventListener() {
+
+                @Override
+                public void handleEvent(final Event evt) {
+                    KeyEvent kevt = (KeyEvent)evt;
+                    switch (kevt.getKeyCode()) {
+                        case 9 : // tab
+                        case 11 : // vertical tab
+                        case 10 : // lf 
+                        case 13 : // cr
+                            if (ta.isSingleLineTextArea() || kevt.getKeyCode() == 9 || kevt.getKeyCode() == 11) {
+                                evt.preventDefault();
+                                evt.stopPropagation();
+                            }
+                            break;
+                        default:
+                            
+                    }
+                    callSerially(new Runnable() {
+                        public void run() {
+                            final KeyEvent kevt = (KeyEvent)evt;
+                            switch (kevt.getKeyCode()) {
+                                case 9 : // tab
+                                case 11 : // vertical tab
+                                case 10 : // lf
+                                case 13 : // cr
+                                {
+                                    if (!ta.isSingleLineTextArea() && kevt.getKeyCode() != 9 && kevt.getKeyCode() != 11) {
+                                        // We don't do any special handling for multiline text fields.
+                                            return;
+                                        }
+                                    donePressed = true;
+                                    inputEl.blur();
+                                    break;
+                                }
+                            }
+                           
+                        }
+                    });
+                }
+
+            });
+            
+
+            focusListener = new FocusListener() {
+
+                @Override
+                public void focusGained(Component cmpnt) {
+                    
+                    
+                    if (!jQuery_is_(inputEl, ":focus")) {
+                        inputEl.focus();
+                    }
+                    Font f = ta.getSelectedStyle().getFont();
+                    if (f != null) {
+                        NativeFont nf = (NativeFont)f.getNativeFont();
+                        inputEl.getStyle().setProperty("font",nf.getScaledCSS());
+                    }
+                    inputEl.setValue(ta.getText());
+                    
+                }
+
+                @Override
+                public void focusLost(Component cmpnt) {
+                    if (jQuery_is_(inputEl, ":focus")) {
+                        inputEl.blur();
+                    }
+                }
+                
+            };
+            
+            ta.addFocusListener(focusListener);
+            
+            inputEl.addEventListener("input", new EventListener() {
+
+                @Override
+                public void handleEvent(Event evt) {
+                    callSerially(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            String old = ta.getText();
+                            String value = inputEl.getValue();
+                            if (old == null && value != null || old != null && !old.equals(value)) {
+                                ta.setText(value);
+                                ta.repaint();
+                            }
+                        }
+                        
+                    });
+                }
+             
+            }, true);
+            
+            inputEl.addEventListener("focus", new EventListener() {
+                public void handleEvent(Event evt) {
+                    callSerially(new Runnable() {
+                        public void run() {
+                            donePressed = false;
+                            isEditing = true;
+                            inputEl.getStyle().setProperty("color", HTML5Graphics.color(ta.getStyle().getFgColor()));
+                    
+                            Font f = ta.getSelectedStyle().getFont();
+                            if (f != null) {
+                                NativeFont nf = (NativeFont)f.getNativeFont();
+                                inputEl.getStyle().setProperty("font",nf.getScaledCSS());
+                            }
+                            inputEl.setValue(ta.getText());
+                            if (!ta.hasFocus()) {
+                                ta.requestFocus();
+                            }
+                            if (!ta.isEditing()) {
+                                ta.startEditingAsync();
+                            }
+                            ta.repaint();
+                            
+                            UITimer.timer(500, false, new Runnable() {
+
+                                @Override
+                                public void run() {
+                                    int vkbHeight = getScrollY_();
+                                    Form current = _getCurrent();
+                                    if (current != null &&current.isFormBottomPaddingEditingMode()) {
+
+
+                                        current.getContentPane().getUnselectedStyle().setPaddingUnit(new byte[] {Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS});
+                                        current.getContentPane().getUnselectedStyle().setPadding(Component.BOTTOM, unscaleCoord(vkbHeight));
+                                        Window.current().scrollTo(0, 0);
+
+                                        current.forceRevalidate();
+                                    }
+                                }
+                                
+                            });
+                            
+                            
+                        }
+                    });
+                }
+            }, true);
+            
+            inputEl.addEventListener("blur", new EventListener() {
+                public void handleEvent(Event evt) {
+                    callSerially(new Runnable() {
+                        public void run() {
+                            isEditing = false;
+                            inputEl.getStyle().setProperty("color", "transparent");
+                            ta.setText(inputEl.getValue());
+                            ta.repaint();
+                            Display.getInstance().onEditingComplete(ta, ta.getText());
+                            if (donePressed && ta instanceof TextArea) {
+                                ((TextArea)ta).fireDoneEvent();
+                            }
+                            donePressed = false;
+                            
+                            UITimer.timer(500, false, new Runnable() {
+                                public void run() {
+                                    Form current = Display.getInstance().getCurrent();
+                                    if (current != null && current.isFormBottomPaddingEditingMode()) {
+                                        current.getContentPane().getUnselectedStyle().setPaddingUnit(new byte[] {Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS});
+                                        current.getContentPane().getUnselectedStyle().setPadding(Component.BOTTOM, 0);
+                                        current.forceRevalidate();
+                                    }
+                                }
+                            });
+                            
+                        }
+                    });
+                }
+            }, true);
+            
+            
+
+            doc().getBody().appendChild(inputEl);
+        }
+
+        int lastX;
+        int lastY;
+        int lastW;
+        int lastH;
+        
+        @Override
+        void updateIfMovedAndFocused() {
+            //if (ta.hasFocus()) {
+                int newX = ta.getAbsoluteX();
+                int newY = ta.getAbsoluteY();
+                int newW = ta.getWidth();
+                int newH = ta.getHeight();
+                if (lastX != newX || lastY != newY || lastW != newW || lastH != newH) {
+                    lastX = newX;
+                    lastY = newY;
+                    lastW = newW;
+                    lastH = newH;
+                    update();
+                }
+            //}
+        }
+        
+        @Override
+        void update() {
+            super.update(); 
+            final HTMLInputElement inputEl = (HTMLInputElement)el;
+            CSSStyleDeclaration s = inputEl.getStyle();
+            if (ta.isEditable() && ta.isVisible() && ta.getComponentForm().getComponentAt(ta.getAbsoluteX() + ta.getWidth()/2, ta.getAbsoluteY() + ta.getHeight()/2) == ta) {
+                // We only want to respond to pointer events if the text field is editable, visible, and is not covered by another component.
+                String propVal = s.getPropertyValue("pointer-events");
+                if (!"auto".equals(propVal)) {
+                    s.setProperty("pointer-events", "auto");
+                }
+                inputEl.removeAttribute("disabled");
+            } else {
+                String propVal = s.getPropertyValue("pointer-events");
+                if (!"none".equals(propVal)) {
+                    s.setProperty("pointer-events", "none");
+                }
+                inputEl.setAttribute("disabled", "true");
+            }
+            Style taStyle = cmp.getSelectedStyle();
+            int paddingTop = taStyle.getPadding(Component.TOP);
+            int paddingLeft = taStyle.getPadding(ta.isRTL(), Component.LEFT);
+            int paddingRight = taStyle.getPadding(ta.isRTL(), Component.RIGHT);
+            int paddingBottom = taStyle.getPadding(Component.BOTTOM);
+            
+            s.setProperty("padding-top", scaleCoord((double)paddingTop)+"px");
+            s.setProperty("padding-left", scaleCoord((double)paddingLeft)+"px");
+            s.setProperty("padding-bottom", scaleCoord((double)paddingBottom)+"px");
+            s.setProperty("padding-right", scaleCoord((double)paddingRight)+"px");
+            
+            s.setProperty("display", "block");
+            s.setProperty("top", scaleCoord((double)cmp.getAbsoluteY())+"px");
+            s.setProperty("left", scaleCoord((double)cmp.getAbsoluteX())+"px");
+            s.setProperty("width", scaleCoord((double)cmp.getWidth())+"px");
+            s.setProperty("height", scaleCoord((double)cmp.getHeight())+"px");
+            s.setProperty("border", "none");
+            s.setProperty("margin", "0");
+        }
+        
+        
+    }
+
+    @Override
+    public void beforeComponentPaint(Component c, Graphics g) {
+        super.beforeComponentPaint(c, g);
+        Object overlay = c.getNativeOverlay();
+        if (overlay != null) {
+            NativeOverlay no = (NativeOverlay)overlay;
+            no.updateIfMovedAndFocused();
+        }
+        if (textLayer != null && isDisplayGraphics(g)) {
+            if (!textLayer.isPainting()) {
+                updateTextLayerSuspension();
+            }
+            // Whether this paint can see the whole component decides both whether its runs mean
+            // the full sequence and whether a shorter sequence means the rest are stale. The
+            // display graphics reports its clip in absolute coordinates, the space component
+            // bounds are in; Graphics.getClipX() subtracts the translation and would not be.
+            textLayer.beginComponent(c, coversComponent(c), isEditingText(c),
+                    graphics.getClipWidth() <= 0 || graphics.getClipHeight() <= 0,
+                    graphics.getClipX(), graphics.getClipY(),
+                    graphics.getClipWidth(), graphics.getClipHeight());
+        }
+    }
+
+    /**
+     * True while the form is running an animation the framework schedules -- a layout
+     * animation, a component morph, a transition between two states of the same form.
+     *
+     * @param f the form to look at, may be null
+     * @return true while an animation is in flight
+     */
+    private boolean isAnimationRunning(Form f) {
+        if (f == null) {
+            return false;
+        }
+        AnimationManager animations = f.getAnimationManager();
+        return animations != null && animations.isAnimating();
+    }
+
+    /**
+     * Decides whether text promotion is suspended, before any component of the frame paints.
+     *
+     * <p>The decision cannot wait until the frame is flushed. By then the components have
+     * already painted under the old setting -- their strings either promoted and left off the
+     * canvas, or rasterized onto it -- so flipping the flag afterwards leaves the frame either
+     * missing its text or showing it twice.</p>
+     */
+    private void updateTextLayerSuspension() {
+        Form currentForm = Display.getInstance().getCurrent();
+        boolean overlayBlocked = com.codename1.ui.Accessor.paintsOverChildren(currentForm);
+        // While an animation is running the layout moves every frame, and every frame would
+        // rewrite the style of every run through the bridge -- which slows the animation down
+        // enough to be seen. The canvas carries the text for the duration, and it comes back to
+        // the DOM the moment the form is still again.
+        boolean animating = isAnimationRunning(currentForm);
+        boolean shouldSuspend = Display.getInstance().isInTransition() || overlayBlocked
+                || animating;
+        if (textLayerDisabledByReadback) {
+            // A pixel read has already claimed the canvas as the source of truth.
+            return;
+        }
+        if (shouldSuspend == textLayer.isSuspended()) {
+            return;
+        }
+        textLayer.setSuspended(shouldSuspend);
+        // Only the dirty region is repainting, so whatever lies outside it still carries the
+        // previous representation -- and suspending hides the layer as a whole, so every run on
+        // the form goes with it, not only the ones the dirty region covers. Ask for a full
+        // repaint so the whole form agrees, whichever way the switch went. A transition needs no
+        // help: it painted its buffers offscreen, which always rasterizes text.
+        if (currentForm != null && (overlayBlocked || animating || !shouldSuspend)) {
+            currentForm.repaint();
+        }
+    }
+
+    @Override
+    public void afterComponentPaint(Component c, Graphics g) {
+        super.afterComponentPaint(c, g);
+        if (textLayer != null && isDisplayGraphics(g)) {
+            // The display graphics reports its clip in absolute coordinates, which is the space
+            // component bounds are in. Graphics.getClipX() subtracts the current translation, so
+            // it would be component-local and the comparison would almost never hold.
+            textLayer.endComponent(c);
+        }
+    }
+
+    /**
+     * True when a paint is aimed at the display rather than at an offscreen image.
+     *
+     * <p>These callbacks fire for every component paint, including the ones that render into a
+     * buffer -- {@code Component.toImage()}, {@code ComponentImage}, a paint lock, a drag image,
+     * a transition buffer. Those paint through a plain {@link HTML5Graphics}, so no run is
+     * promoted; opening and closing a text-layer frame around them would make the component
+     * look like it had stopped drawing any text and release the DOM runs it still has on
+     * screen. Creating a drag image would then blank the labels under it until the next
+     * repaint.</p>
+     */
+    /**
+     * True when the display clip contains the whole component.
+     */
+    private boolean coversComponent(Component c) {
+        if (c == null || graphics == null) {
+            return false;
+        }
+        int x = c.getAbsoluteX();
+        int y = c.getAbsoluteY();
+        return graphics.getClipX() <= x && graphics.getClipY() <= y
+                && graphics.getClipX() + graphics.getClipWidth() >= x + c.getWidth()
+                && graphics.getClipY() + graphics.getClipHeight() >= y + c.getHeight();
+    }
+
+    private boolean isDisplayGraphics(Graphics g) {
+        return graphics != null && com.codename1.ui.Accessor.nativeGraphics(g) == graphics;
+    }
+    
+    
+    
+    @Override
+    public Object createNativeOverlay(Component cmp) {
+        if (!useNativeOverlaysForTextFields()) {
+            // we only do this for phones and tablets
+            return null;
+        }
+        if (cmp instanceof TextArea) {
+            return new TextAreaNativeOverlay((TextArea)cmp);
+        }
+        return null;
+    }
+
+    @Override
+    public void hideNativeOverlay(Component cmp, Object nativeOverlay) {
+        if (nativeOverlay != null) {
+            ((NativeOverlay)nativeOverlay).uninstall();
+        }
+    }
+
+    @Override
+    public void updateNativeOverlay(Component cmp, Object nativeOverlay) {
+        if (nativeOverlay != null) {
+            ((NativeOverlay)nativeOverlay).update();
+        }
+    }
+    
+    /**
+     * The port maps every Codename One cursor onto its CSS equivalent, so applications that ask
+     * before setting one -- the documented way, via {@code Component.isSetCursorSupported()} --
+     * get the right answer. The hover path itself remains gated on
+     * {@code Form.isEnableCursors()}.
+     */
+    @Override
+    public boolean isSetCursorSupported() {
+        return true;
+    }
+
+    private int currCursorType;
+
+    private void setCursor(int cursorType) {
+        if (currCursorType != cursorType) {
+            currCursorType = cursorType;
+            String cursorStr = "default";
+            switch (cursorType) {
+                case Component.HAND_CURSOR:
+                    cursorStr = "pointer";
+                    break;
+
+                case Component.DEFAULT_CURSOR:
+                    cursorStr = "default";
+                    break;
+                case Component.NE_RESIZE_CURSOR:
+                    cursorStr = "ne-resize";
+                    break;
+                case Component.NW_RESIZE_CURSOR:
+                    cursorStr = "nw-resize";
+                    break;
+                case Component.W_RESIZE_CURSOR:
+                    cursorStr = "w-resize";
+                    break;
+                case Component.E_RESIZE_CURSOR:
+                    cursorStr = "e-resize";
+                    break;
+                case Component.N_RESIZE_CURSOR:
+                    cursorStr = "n-resize";
+                    break;
+                case Component.S_RESIZE_CURSOR:
+                    cursorStr = "s-resize";
+                    break;
+                case Component.MOVE_CURSOR:
+                    cursorStr = "move";
+                    break;
+                case Component.CROSSHAIR_CURSOR:
+                    cursorStr = "crosshair";
+                    break;
+                case Component.TEXT_CURSOR:
+                    cursorStr = "text";
+                    break;
+                case Component.WAIT_CURSOR:
+                    cursorStr = "wait";
+                    break;
+                case Component.SW_RESIZE_CURSOR:
+                    cursorStr = "sw-resize";
+                    break;
+                case Component.SE_RESIZE_CURSOR:
+                    cursorStr = "se-resize";
+                    break;
+                
+
+            }
+            outputCanvas.getStyle().setProperty("cursor", cursorStr);
+            canvas.getStyle().setProperty("cursor", cursorStr);
+            peersContainer.getStyle().setProperty("cursor", cursorStr);
+            doc().getBody().getStyle().setProperty("cursor", cursorStr);
+        }
+        
+        
+        
+    }
+    
+    private int lastCanvasWidth;
+    private int lastCanvasHeight;
+    
+    public HTML5Implementation(){
+        __init();
+    }
+    private boolean inited;
+    
+    @JSBody(params={"evt"}, script="return ''+evt.detail")
+    private static native String getEventDetailString(Event evt);
+    
+    @JSBody(params={"evt"}, script="if (evt.code){return evt.code}else{return 0}")
+    private static native int getEventCode(Event evt);
+
+    @JSBody(params={"message", "code"}, script="return new CustomEvent('cn1outbox', {detail:message, code:code});")
+    static native Event createCNOutboxEvent(String message, int code);
+    
+    
+    @JSBody(params={"type", "message", "code"}, script="return new CustomEvent(type, {detail:message, code:code});")
+    static native Event createCustomEvent(String type, String message, int code);
+    
+    @Override
+    public void postMessage(MessageEvent message) {
+        Event evt = createCNOutboxEvent(message.getMessage(), message.getCode());
+        Window.current().dispatchEvent(evt);
+    }
+    
+    @JSBody(params={"evt", "mimeType"}, script="try {var types=['text/plain','text/html','text/rtf','text/markdown','text/asciidoc']; var type=types[mimeType]; if (evt.clipboardDataByType) return evt.clipboardDataByType[type] || ''; return evt.clipboardData.getData(type)}catch(e){return ''}")
+    private native static String getPasteEventData(Event evt, int mimeType);
+    
+    @JSBody(params={"evt"}, script="try {if (evt.clipboardFiles) return evt.clipboardFiles; return evt.clipboardData.files;} catch(e){return null}")
+    private native static FileList getPasteEventFileList(Event evt);
+
+    /// Populates a {@link ClipboardContent} with any files carried by a paste event. The temp-file
+    /// path(s) are exposed as {@link ClipboardContent#MIME_FILE} (a single {@code String} for one file,
+    /// a {@code String[]} for several) and, for each file whose blob MIME type is a recognised image,
+    /// the raw bytes are additionally exposed under the matching image MIME
+    /// ({@link ClipboardContent#MIME_PNG}/{@code MIME_JPEG}/{@code MIME_GIF}) so a rich text view can
+    /// consume the image directly. Fully null-safe: a failure to read a single file is swallowed so the
+    /// text flavors keep working.
+    private void addClipboardFiles(ClipboardContent content, FileList files, String[] filePaths) {
+        if (content == null || filePaths == null || filePaths.length == 0) {
+            return;
+        }
+        try {
+            if (filePaths.length == 1) {
+                content.setData(ClipboardContent.MIME_FILE, filePaths[0]);
+            } else {
+                content.setData(ClipboardContent.MIME_FILE, filePaths);
+            }
+            if (files == null) {
+                return;
+            }
+            int len = Math.min(files.getLength(), filePaths.length);
+            for (int i = 0; i < len; i++) {
+                try {
+                    Blob file = files.item(i);
+                    String imageMime = imageMimeForType(file == null ? null : file.getType());
+                    if (imageMime != null && !content.hasMimeType(imageMime)) {
+                        byte[] bytes = readTempFileBytes(filePaths[i]);
+                        if (bytes != null && bytes.length > 0) {
+                            content.setData(imageMime, bytes);
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /// Maps a blob MIME type to the matching {@link ClipboardContent} image MIME, or null when the type
+    /// is not a PNG/JPEG/GIF image (other image types are left as a file-only reference rather than
+    /// being mislabeled).
+    private static String imageMimeForType(String type) {
+        if (type == null) {
+            return null;
+        }
+        String t = type.toLowerCase();
+        if (t.startsWith("image/png")) {
+            return ClipboardContent.MIME_PNG;
+        }
+        if (t.startsWith("image/jpeg") || t.startsWith("image/jpg")) {
+            return ClipboardContent.MIME_JPEG;
+        }
+        if (t.startsWith("image/gif")) {
+            return ClipboardContent.MIME_GIF;
+        }
+        return null;
+    }
+
+    /// Reads the bytes of a temp file ({@code tmp://} path) via the file system input stream. Returns
+    /// null on any failure.
+    private byte[] readTempFileBytes(String path) {
+        InputStream in = null;
+        try {
+            in = openFileInputStream(path);
+            return Util.readInputStream(in);
+        } catch (Throwable ex) {
+            return null;
+        } finally {
+            Util.cleanup(in);
+        }
+    }
+
+    private void firePasteEvent() {
+        final TextInputClient client = lightweightTextInputClient;
+        if (client != null) {
+            enqueueLightweightTextInput(client, new Runnable() {
+                @Override
+                public void run() {
+                    client.onKeyCommand(TextInputClient.KEY_PASTE, 0);
+                }
+            });
+            return;
+        }
+        callSerially(new Runnable() {
+            public void run() {
+                Form f = CN.getCurrentForm();
+                if (f == null) {
+                    return;
+                }
+                f.dispatchPaste(new ActionEvent(f));
+            }
+        });
+    }
+    
+    private void __init() {
+        if (inited) {
+            return;
+        }
+        inited = true;
+        instance=this;
+        window = Window.current();
+        document = window.getDocument();
+        canvas = (HTMLCanvasElement)document.createElement("canvas");
+        outputCanvas = (HTMLCanvasElement)document.getElementById("codenameone-canvas");
+        // The canvas must be hit-testable from the start: it boots with no
+        // active peers, and the per-event listeners installed later only
+        // flip pointer-events to "none" when the point is over a native
+        // peer. Booting with "none" relied on the window-level restore
+        // listener flipping it back on the first event -- but that restore
+        // round-trips through the worker bridge, so the initial pointer
+        // DOWN is always lost and the first gesture after load is silently
+        // swallowed (observed on the Initializr as scroll/drag doing
+        // nothing).
+        outputCanvas.getStyle().setProperty("pointer-events", "auto");
+        peersContainer = (HTMLElement)document.createElement("div");
+        peersContainer.setAttribute("id", "cn1-peers-container");
+        outputCanvas.getParentNode().insertBefore(peersContainer, outputCanvas);
+        accessibilityContainer = (HTMLElement)document.createElement("div");
+        accessibilityContainer.setAttribute("id", "cn1-accessibility-tree");
+        accessibilityContainer.setAttribute("role", "application");
+        accessibilityContainer.getStyle().setCssText("position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;pointer-events:none;z-index:2147483646;");
+        outputCanvas.getParentNode().insertBefore(accessibilityContainer, outputCanvas);
+        // The text layer sits above the canvas but below the semantic tree. It carries the
+        // visible text, so it is hidden from assistive technology -- the semantic tree is what
+        // announces content, and without aria-hidden every label would be read twice.
+        //
+        // It takes no pointer events, which means a drag across a label does not begin a native
+        // text selection. Review asked for that to change; it does not, and the reason is that
+        // the canvas owns hit testing here. Pointer routing decides between the canvas and the
+        // native peers behind it by probing canvas alpha, and every gesture the application
+        // reacts to -- a tap on a button, a drag that scrolls a list, a swipe that opens a side
+        // menu -- arrives as a pointer event on the canvas. A span that answered pointer events
+        // would swallow the gestures that land on text, which is most of the interactive surface
+        // of a Codename One form, and forwarding a synthesized copy to the canvas afterwards
+        // gives the application either a doubled gesture or none, depending on which event is
+        // cancelled to let the selection through.
+        //
+        // What the layer does deliver is real text in the document: find-in-page matches it,
+        // the browser reads it, assistive technology can select and copy through the semantic
+        // tree, and it rasterizes as text rather than as pixels. Pointer selection would need
+        // the port's input path to accept synthesized events and to tell a selection drag from
+        // an application drag before either has finished -- a change to input, not to this
+        // layer, and not one to make quietly at the end of a rendering change.
+        textLayerContainer = (HTMLElement)document.createElement("div");
+        textLayerContainer.setAttribute("id", "cn1-text-layer");
+        textLayerContainer.setAttribute("aria-hidden", "true");
+        textLayerContainer.getStyle().setCssText("position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;pointer-events:none;z-index:2147483645;");
+        outputCanvas.getParentNode().insertBefore(textLayerContainer, outputCanvas);
+        // ?cn1TextLayer=0 / ?cn1Semantics=0 turn the two DOM layers off at runtime. Both are
+        // new behaviour layered onto a canvas renderer, so being able to take one out without
+        // rebuilding is what makes a rendering or timing regression bisectable.
+        textLayerEnabled = !"0".equals(getParameterByName("cn1TextLayer"));
+        semanticOverlayEnabled = !"0".equals(getParameterByName("cn1Semantics"));
+        if (textLayerEnabled) {
+            // The sink reads ``graphics`` at record time rather than capturing it: the display
+            // graphics is built further down this method, after the layer exists.
+            textLayer = new JavaScriptTextLayer(document, textLayerContainer,
+                    new JavaScriptTextLayer.MutationSink() {
+                        @Override
+                        public void record(int kind, Object target, Object child, String value) {
+                            if (graphics != null) {
+                                graphics.recordTextLayerOp(kind, target, child, value);
+                            }
+                        }
+                    });
+        }
+        if (textLayerEnabled) {
+            // Paint locking caches a component's pixels in an image and serves that image
+            // instead of painting, returning from Component.paintInternal() before the
+            // per-component hooks run. A locked component therefore stops reporting its text
+            // while its DOM runs stay on screen, so the cached image's rasterized text and the
+            // live DOM text are both visible. The two cannot be reconciled, and the lock is only
+            // an optimisation, so it is switched off -- but only when there are DOM runs for it
+            // to conflict with. With the text layer off the canvas-only path keeps the caching
+            // that Tabs, among others, relies on during a swipe.
+            Display.getInstance().setProperty("paintLockEnabled", "false");
+        }
+        outputCanvas.setAttribute("role", "presentation");
+        outputCanvas.setAttribute("aria-hidden", "true");
+        
+        nativeEdt = EasyThread.start("NativeEDT");
+        
+        
+        //outputCanvas.getStyle().setProperty("opacity", "0.5");
+        updateCanvasSize();
+        defaultFont = (NativeFont)createFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_MEDIUM);
+        graphics = new BufferedGraphics(this, getDisplayWidth(), getDisplayHeight());
+        
+        // Normalize browser locale
+        String blang = getBrowserLanguage();
+        if (blang == null || blang.indexOf("-") == -1) {
+            blang = "en-US";
+        }
+        String lang = blang.substring(0, blang.indexOf("-"));
+        String country = blang.substring(blang.indexOf("-")+1);
+        Locale.setDefault(new Locale(lang, country));
+        final Display disp = Display.getInstance();
+        String browserTz = null;
+        if ((browserTz = getProperty("browser.timezone", null)) != null) {
+            TimeZone.setDefault(TimeZone.getTimeZone(browserTz));
+            //_log("Setting default timezone to "+TimeZone.getDefault().getDisplayName());
+        }
+        
+        final EventListener cn1InboxListener = new EventListener() {
+            public void handleEvent(Event evt) {
+                final String detailString = getEventDetailString(evt);
+                final int eventCode = getEventCode(evt);
+                JavaScriptBrowserLifecycleCoordinator.handleInboxEvent(new JavaScriptBrowserLifecycleCoordinator.InboxHooks() {
+                    public void run() {
+                    }
+
+                    @Override
+                    public void stopPropagation() {
+                        evt.stopPropagation();
+                    }
+
+                    @Override
+                    public void preventDefault() {
+                        evt.preventDefault();
+                    }
+
+                    @Override
+                    public void callSerially(Runnable runnable) {
+                        HTML5Implementation.this.callSerially(runnable);
+                    }
+
+                    @Override
+                    public void dispatchMessage(String message, int code) {
+                        Display.getInstance().dispatchMessage(new MessageEvent(CN.getCurrentForm(), message, code));
+                    }
+                }, detailString, eventCode);
+            }
+        };
+        
+        // The one popstate handler. It used to run the back command directly, with no notion of
+        // which direction the traversal went or of the entries the port itself spends, so it is
+        // routed through the history logic instead of having a second listener beside it --
+        // which would make a single Back run two back commands.
+        final EventListener popstateListener = new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                handlePopStateEvent(evt);
+            }
+            
+        };
+        
+        // Handle browser resizing.
+        final EventListener resizeListener = new EventListener(){
+
+            @Override
+            public void handleEvent(final Event evt) {
+                
+                callSerially(new Runnable(){
+
+                    @Override
+                    public void run() {
+                        JavaScriptBrowserInteractionCoordinator.handleResize(new JavaScriptBrowserInteractionCoordinator.ResizeHooks() {
+                            @Override
+                            public void waitForResizeStabilization() {
+                                CN.invokeAndBlock(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        Util.sleep(1);
+                                    }
+                                });
+                            }
+
+                            @Override
+                            public void updateCanvasSize() {
+                                HTML5Implementation.this.updateCanvasSize();
+                            }
+
+                            @Override
+                            public void sizeChanged() {
+                                // updateCanvasSize() (the sibling callback) already
+                                // recorded the new size Java-side; use it rather than
+                                // reading canvas.getWidth() back across the barrier.
+                                HTML5Implementation.this.sizeChanged(getDisplayWidth(), getDisplayHeight());
+                            }
+
+                            @Override
+                            public void revalidate() {
+                                HTML5Implementation.this.revalidate();
+                            }
+                        });
+                    }
+
+                });
+            }
+        };
+        final EventListener hoverListener = new EventListener() {
+
+                @Override
+                public void handleEvent(Event evt) {
+                    final MouseEvent me = (MouseEvent)evt;
+                    new Thread() {
+                        public void run() {
+                            final int x = getClientX(me);
+                            final int y = getClientY(me);
+                            JavaScriptBrowserInteractionCoordinator.handleHover(new JavaScriptBrowserInteractionCoordinator.HoverHooks() {
+                                @Override
+                                public void dispatchHover(int x, int y) {
+                                    Display.getInstance().pointerHover(new int[]{x}, new int[]{y});
+                                }
+
+                                @Override
+                                public void setCursor(int cursor) {
+                                    HTML5Implementation.this.setCursor(cursor);
+                                }
+
+                                @Override
+                                public void callSerially(Runnable runnable) {
+                                    Display.getInstance().callSerially(runnable);
+                                }
+                            }, new JavaScriptBrowserInteractionCoordinator.CursorLocator() {
+                                @Override
+                                public boolean isCursorEnabled() {
+                                    Form f = _getCurrent();
+                                    return f != null && f.isEnableCursors();
+                                }
+
+                                @Override
+                                public int resolveCursorAt(int x, int y) {
+                                    Form f = _getCurrent();
+                                    if (f == null || x < 0 || x >= f.getWidth() || y < 0 || y >= f.getHeight()) {
+                                        return Component.DEFAULT_CURSOR;
+                                    }
+                                    Component cmp = f.getComponentAt(x, y);
+                                    return cmp != null ? cmp.getCursor() : Component.DEFAULT_CURSOR;
+                                }
+                            }, x, y, Component.DEFAULT_CURSOR);
+                        }
+                    }.start();
+                }
+
+            };
+        
+        hitTest = new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                MouseEvent me = (MouseEvent)evt;
+                int x = getClientX(me);
+                int y = getClientY(me);
+                if (hitTest(x, y)) {
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                }
+            }
+            
+        };
+        
+        onPaste = new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                if (lightweightTextInputClient != null) {
+                    // The editor consumes the negotiated ClipboardContent below. Do not also let the
+                    // hidden textarea perform a plain-text paste, which would insert the same payload a
+                    // second time and discard HTML/RTF/Markdown/AsciiDoc flavors.
+                    evt.preventDefault();
+                }
+                String plainText = getPasteEventData(evt, 0);
+                String htmlText = getPasteEventData(evt, 1);
+                String rtfText = getPasteEventData(evt, 2);
+                String markdownText = getPasteEventData(evt, 3);
+                String asciidocText = getPasteEventData(evt, 4);
+                FileList files = getPasteEventFileList(evt);
+                String[] filePaths = null;
+                if (files != null) {
+                    int len = files.getLength();
+                    filePaths = new String[len];
+                    for (int i=0; i<len; i++) {
+                        Blob file = files.item(i);
+                        filePaths[i] = createTempFile(file);
+                    }
+                }
+                boolean hasFiles = filePaths != null && filePaths.length > 0;
+                if ((rtfText != null && rtfText.length() > 0)
+                        || (markdownText != null && markdownText.length() > 0)
+                        || (asciidocText != null && asciidocText.length() > 0)
+                        || hasFiles) {
+                    ClipboardContent content = new ClipboardContent()
+                            .setData(ClipboardContent.MIME_TEXT, plainText == null ? "" : plainText)
+                            .setData(ClipboardContent.MIME_HTML, emptyToNull(htmlText))
+                            .setData(ClipboardContent.MIME_RTF, emptyToNull(rtfText))
+                            .setData(ClipboardContent.MIME_MARKDOWN, emptyToNull(markdownText))
+                            .setData(ClipboardContent.MIME_ASCIIDOC, emptyToNull(asciidocText));
+                    // Expose pasted files (and image bytes) alongside the text flavors. This also
+                    // preempts the coordinator's plainer file handling below, which only surfaces a
+                    // file list and never the decoded image bytes a rich view needs.
+                    addClipboardFiles(content, files, filePaths);
+                    setPasteDataFromClipboard(content);
+                    firePasteEvent();
+                    return;
+                }
+                JavaScriptBrowserLifecycleCoordinator.handlePaste(new JavaScriptBrowserLifecycleCoordinator.PasteHooks() {
+                    @Override
+                    public void copyPlainText(String text) {
+                        setPasteDataFromClipboard(text);
+                    }
+
+                    @Override
+                    public void copyRichText(String plainText, String html) {
+                        setPasteDataFromClipboard(new ClipboardContent()
+                                .setData(ClipboardContent.MIME_TEXT, plainText)
+                                .setData(ClipboardContent.MIME_HTML, html));
+                    }
+
+                    @Override
+                    public void copyFiles(String[] paths) {
+                        com.codename1.io.File[] cn1Files = new com.codename1.io.File[paths.length];
+                        for (int i = 0; i < paths.length; i++) {
+                            cn1Files[i] = new com.codename1.io.File(paths[i]);
+                        }
+                        setPasteDataFromClipboard(cn1Files);
+                    }
+
+                    @Override
+                    public void firePasteEvent() {
+                        HTML5Implementation.this.firePasteEvent();
+                    }
+                }, plainText, htmlText, filePaths);
+            }
+            
+        };
+        JavaScriptEventWiring.registerDocumentEvents(new JavaScriptEventWiring.DocumentRegistrar() {
+            @Override
+            public void add(String eventName, Object listener) {
+                doc().addEventListener(eventName, (EventListener) listener);
+            }
+        }, onPaste);
+        
+        onMouseDown = new EventListener(){
+
+            @Override
+            public void handleEvent(Event evt) {
+                // Set ``mouseDown=true`` IMMEDIATELY, before any JSO call
+                // that can yield. ParparVM compiles every Java method to a
+                // JS generator, and JSO calls (``evt.getType()``,
+                // ``getClientX(me)``, ``focusInputElement()``,
+                // ``evt.preventDefault()``) all suspend the generator while
+                // they round-trip through the host bridge. While onMouseDown
+                // is suspended, the worker can dequeue and start running
+                // onMouseUp for the SAME click — which then reads
+                // ``mouseDown==false`` (we haven't set it yet), early-returns
+                // via ``if (!isMouseDown()) return``, and the press's
+                // matching release is silently dropped. By the time
+                // onMouseDown resumes and sets ``mouseDown=true``, it's too
+                // late: the next click's onMouseDown sees ``mouseDown==true``
+                // (still — never cleared by the swallowed mouseup),
+                // shouldIgnoreMousePress returns true, and the next click
+                // gets the opposite asymmetry (release-only).
+                //
+                // Root cause of the PR #4795 dialog freeze: a Dialog's OK
+                // click landed on this every-other-half drop, Button.released
+                // never fired, dispose never happened, ``invokeAndBlock``
+                // blocked the EDT forever. Setting the flag synchronously at
+                // listener entry closes the window.
+                if (!pointerState.isMouseDown()) {
+                    pointerState.setMouseDown(true);
+                }
+                // Mark a press as in-flight SYNCHRONOUSLY (before any JSO
+                // yield) and clear any stale deferredRelease left over from a
+                // previous click. The matching nativeCallSerially below
+                // clears the flag after Display.pointerPressed returns, then
+                // runs any release that onMouseUp deferred while waiting.
+                synchronized (pointerEventOrderLock) {
+                    pressInFlight = true;
+                    deferredRelease = null;
+                }
+                if (nativeEventListener != null) {
+                    CancelableEvent cevt = (CancelableEvent)evt;
+                    nativeEventListener.handleEvent(evt);
+                    if (cevt.isDefaultPrevented()) {
+                        completePressInFlight();
+                        return;
+                    }
+                }
+                final MouseEvent me = (MouseEvent)evt;
+                final int x = getClientX(me);
+                final int y = getClientY(me);
+                debugLog("In mouseDown");
+                focusInputElement();
+                JavaScriptInputCoordinator.PointerRoutingDecision routing = JavaScriptInputCoordinator.beginPointerRouting(
+                        Accessor.getActivePeerCount() > 0 && paintNativePeersBehind(), hitTest(x, y));
+                pointerState.setGrabbedDrag(routing.grabbedDrag());
+                if (routing.shouldConsumeEvent()) {
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                }
+                // Re-check ignore conditions with the now-already-set flag.
+                // ``shouldIgnoreMousePress`` reads mouseDown=true here for
+                // every press, so the only way it stays meaningful is via
+                // touchDown / textInputTarget. That's intentional — the old
+                // mouseDown-based dedup was for the duplicate listener
+                // registration we removed in JavaScriptEventWiring.
+                boolean ignore = pointerState.isTouchDown()
+                        || (evt.getTarget() == textField || evt.getTarget() == textArea);
+                if (ignore) {
+                    debugLog("[mouseDown] touchIsDown");
+                    // Ignored press (touch already down, or the target is a native
+                    // text field): clear mouseDown so the permanent mousemove
+                    // listener's press gate does not dispatch drags for it.
+                    pointerState.setMouseDown(false);
+                    completePressInFlight();
+                    return;
+                }
+                pointerState.setLastMousePosition(x, y);
+                // ``mouseDown=true`` already set at handler entry — see comment
+                // at top. Don't unset/re-set here; doing so opens the same
+                // every-other-half-drop race we just closed.
+                callSerially(new Runnable() {
+                    public void run() {
+                        
+                        if (isEditing){
+                            finishTextEditing();
+                        } 
+                    }
+                });
+                lastMouseEvent = me;
+                installBacksideHooksInUserInteraction();
+                nativeCallSerially(new Runnable() {
+                    public void run() {
+                        try {
+                            applyMouseMetadata(me);
+                            HTML5Implementation.this.pointerPressed(new int[]{x}, new int[]{y});
+                        } finally {
+                            completePressInFlight();
+                        }
+                    }
+                });
+                if (contextListenerActive && me.getButton() == 2) {
+                    contextListener.handleEvent(me);
+                }
+                
+                
+                
+            }
+        };
+        
+       
+        
+        onMouseUp = new EventListener(){
+            @Override
+            public void handleEvent(Event evt) {
+                if (nativeEventListener != null) {
+                    CancelableEvent cevt = (CancelableEvent)evt;
+                    nativeEventListener.handleEvent(evt);
+                    if (cevt.isDefaultPrevented()) {
+                        return;
+                    }
+                }
+                debugLog("In mouseUp");
+                MouseEvent me = (MouseEvent)evt;
+                final int x = getClientX(me) == -1 ? pointerState.getLastMouseX() : getClientX(me);
+                final int y = getClientY(me) == -1 ? pointerState.getLastMouseY() : getClientY(me);
+                focusInputElement();
+                if (pointerState.isGrabbedDrag()) {
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                }
+                pointerState.setGrabbedDrag(false);
+
+                // Prevent conflicts with touch events
+                // Guard against mouseUp if the mouse isn't already dwon
+                if (pointerState.isTouchDown()) {
+                    debugLog("[mouseUp] touchIsDown");
+                    pointerState.setMouseDown(false);
+                    return;
+                }
+
+                if (!pointerState.isMouseDown()) {
+                    return;
+                }
+                pointerState.setMouseDown(false);
+
+                pointerState.setLastTouchUpPosition(x, y);
+                installBacksideHooksInUserInteraction(false);
+                applyMouseMetadata(me);
+
+                final Runnable releaseDispatch = new Runnable() {
+                    public void run() {
+                        nativeCallSerially(new Runnable() {
+                            public void run() {
+                                HTML5Implementation.this.pointerReleased(new int[]{x}, new int[]{y});
+                            }
+                        });
+                        callSerially(new Runnable() {
+                            public void run() {
+                                for (ActionListener l : mouseUpListeners) {
+                                    l.actionPerformed(null);
+                                }
+                            }
+                        });
+                    }
+                };
+
+                // If the matching onMouseDown is still suspended on a JSO
+                // yield (so its press hasn't reached Display.inputEventStack
+                // yet), stash the release and let the press's completion hook
+                // run it. Otherwise queue the release immediately. Avoids
+                // blocking the worker's listener thread, which would starve
+                // subsequent pointerdown invocations during a Dialog modal.
+                boolean runNow;
+                synchronized (pointerEventOrderLock) {
+                    if (pressInFlight) {
+                        deferredRelease = releaseDispatch;
+                        runNow = false;
+                    } else {
+                        runNow = true;
+                    }
+                }
+                if (runNow) {
+                    releaseDispatch.run();
+                }
+
+            }
+        };
+        
+        onTouchStart = new EventListener(){
+            @SuppressSyncErrors
+            @Override
+            public void handleEvent(Event evt) {
+                if (nativeEventListener != null) {
+                    CancelableEvent cevt = (CancelableEvent)evt;
+                    nativeEventListener.handleEvent(evt);
+                    if (cevt.isDefaultPrevented()) {
+                        return;
+                    }
+                }
+                debugLog("In touchStart");
+                TouchEvent me = (TouchEvent)evt;
+                JSArray<MouseEvent> touches = me.getTargetTouches();
+                
+                int len = touches.getLength();
+                final int[] x = new int[len];
+                final int[] y = new int[len];
+                
+                for (int i=0; i<len; i++){
+                    x[i] = getClientX(touches.get(i));
+                    y[i] = getClientY(touches.get(i));
+                }
+                pointerState.setTouchStart(x[0], y[0], currentTimeMillisecondsJS());
+                
+                focusInputElement();
+                
+                JavaScriptInputCoordinator.PointerRoutingDecision routing = JavaScriptInputCoordinator.beginPointerRouting(
+                        Accessor.getActivePeerCount() > 0 && paintNativePeersBehind(), hitTest(x[0], y[0]));
+                pointerState.setGrabbedDrag(routing.grabbedDrag());
+                if (routing.shouldConsumeEvent()) {
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                }
+                JavaScriptInputCoordinator.TouchStartDecision touchDecision = JavaScriptInputCoordinator.resolveTouchStart(
+                        pointerState.isMouseDown(), pointerState.isTouchDown(), evt.getTarget() == textField || evt.getTarget() == textArea, isEditing && editingStartingUp);
+                if (touchDecision.shouldIgnoreEvent()) {
+                    return;
+                }
+                if (touchDecision.shouldCancelMouseTracking()) {
+                    debugLog("[touchStart] mouseIsDown");
+                    pointerState.setMouseDown(false);
+                    pointerState.setTouchDown(false);
+                }
+                pointerState.setTouchDown(true);
+                
+                
+                pointerState.setTouches(x, y);
+
+                callSerially(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        if (isEditing){
+                            if (currentEditingField != null) {
+                                pendingTextChanges = currentEditingField.getText();
+                            }
+                            if (!editingStartingUp) {
+                                finishTextEditing();
+                            } else {
+                                editingStartingUp = false;
+                            }
+                        }
+                    }
+                });
+                if (touchDecision.shouldFirePointerPressed()) {
+                    installBacksideHooksInUserInteraction();
+                    applyTouchMetadata();
+                    nativeCallSerially(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            HTML5Implementation.this.pointerPressed(x, y);
+                        }
+                    });
+                }
+                
+            }
+            
+        };
+        
+        
+        onTouchEnd = new EventListener(){
+
+            
+            @SuppressSyncErrors
+            @Override
+            public void handleEvent(Event evt) {
+                if (nativeEventListener != null) {
+                    CancelableEvent cevt = (CancelableEvent)evt;
+                    nativeEventListener.handleEvent(evt);
+                    if (cevt.isDefaultPrevented()) {
+                        return;
+                    }
+                }
+                debugLog("In TouchEnd");
+                // Guard against mouse event conflicts
+                // Prevent from firing if touch was not down already.
+                if (JavaScriptInputCoordinator.shouldIgnoreTouchRelease(pointerState.isMouseDown(), pointerState.isTouchDown())) {
+                    debugLog("[touchEnd] mouseIsDown");
+                    if (pointerState.isMouseDown()) {
+                        pointerState.setTouchDown(false);
+                    }
+                    return;
+                }
+                pointerState.setTouchDown(false);
+                //if (evt.getTarget() == textField || evt.getTarget() == textArea) {
+                //    // We don't want to respond to touch events on teh native input
+                //    // fields because it can result in some infinite looping behaviour.
+                //    return;
+                //}
+                focusInputElement();
+                if (pointerState.isGrabbedDrag()) {
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                }
+                pointerState.setGrabbedDrag(false);
+                
+                TouchEvent me = (TouchEvent)evt;
+                installBacksideHooksInUserInteraction(false);
+                nativeCallSerially(new Runnable() {
+                    @Override
+                    public void run() {
+                        pointerState.setLastTouchUpPosition(pointerState.getTouchesX()[0], pointerState.getTouchesY()[0]);
+                        HTML5Implementation.this.pointerReleased(pointerState.getTouchesX(), pointerState.getTouchesY()); 
+                        
+                    }
+                });
+                if (JavaScriptInputCoordinator.shouldCreatePreemptiveTextField(usePreemptiveNativeTextFieldApproach(), pointerState.getTouchStartTime(), currentTimeMillisecondsJS(), pointerState.getTouchStartX(), pointerState.getTouchStartY(), pointerState.getTouchesX()[0], pointerState.getTouchesY()[0])) {
+                    // Hack for iOS only to anticipate clicking on a text field
+                    createAndFocusTextFieldPreemptively(pointerState.getTouchesX()[0], pointerState.getTouchesY()[0]);
+                }
+                callSerially(new Runnable() {
+                    @Override
+                    public void run() {
+                        for (ActionListener l : mouseUpListeners) {
+                            l.actionPerformed(null);
+                        }
+                    }
+                });
+                
+            }
+            
+        };
+        
+        onTouchMove = new EventListener(){
+            
+            @Override
+            public void handleEvent(Event evt) {
+                // touchmove is registered permanently on the canvas (see init) so a
+                // drag's events are never lost to the late-attach race that used to
+                // add it inside the suspending onTouchStart. Only act while a touch
+                // is actually down. Keep this gate FIRST and cheap: the listener is
+                // permanent, so it fires on every touchmove -- debugLog (a native
+                // debugFlag bridge call) must stay BELOW the gate, else it taxes
+                // every move app-wide even when no drag is in progress.
+                if (!pointerState.isTouchDown()) {
+                    return;
+                }
+                debugLog("in TouchMove");
+                TouchEvent me = (TouchEvent)evt;
+                JSArray<MouseEvent> touches = me.getTargetTouches();
+                
+                int len = touches.getLength();
+                final int[] x = new int[len];
+                final int[] y = new int[len];
+                
+                for (int i=0; i<len; i++){
+                    x[i] = getClientX(touches.get(i));
+                    y[i] = getClientY(touches.get(i));
+                }
+                
+                
+                //focusInputElement();
+                if (pointerState.isGrabbedDrag()) {
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                }
+                
+                if (JavaScriptInputCoordinator.shouldCancelTouchMove(pointerState.isMouseDown())) {
+                    pointerState.setTouchDown(false);
+                    return;
+                }
+                
+                
+                pointerState.setTouches(x, y);
+                nativeCallSerially(new Runnable() {
+                    @Override
+                    public void run() {
+                        HTML5Implementation.this.pointerDragged(x, y);  
+                    }
+                });
+            }
+        };
+        
+        onMouseMove = new EventListener(){
+            
+            @Override
+            public void handleEvent(Event evt) {
+                // mousemove/pointermove are registered permanently on the canvas
+                // (see init) so a drag's events are never lost to the late-attach
+                // race that used to add them inside the suspending onMouseDown
+                // (which the cooperative scheduler can take a while to complete).
+                // Only act while a pointer is actually pressed. Keep this gate
+                // FIRST and cheap: the listener is permanent AND bound to both
+                // mousemove and pointermove, so it fires (twice) on every mouse
+                // move -- debugLog (a native debugFlag bridge call) must stay BELOW
+                // the gate, else it taxes every hover app-wide.
+                if (!pointerState.isMouseDown()) {
+                    return;
+                }
+                debugLog("In mouseMove");
+                MouseEvent me = (MouseEvent)evt;
+                final int x = getClientX(me);
+                final int y = getClientY(me);
+                if (pointerState.isGrabbedDrag()) {
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                }
+
+                if (JavaScriptInputCoordinator.shouldCancelMouseMove(pointerState.isTouchDown())) {
+                    pointerState.setMouseDown(false);
+                    return;
+                }
+                
+                
+                pointerState.setLastMousePosition(x, y);
+                nativeCallSerially(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        HTML5Implementation.this.pointerDragged(x, y);
+                    }
+                });
+            }
+            
+        };
+        /*
+        for (String eventName : new String[]{
+                "mousedown", "mouseup", "mouseout", "wheel", "mousemove"}) {
+            
+            window.addEventListener(eventName, new EventListener() {
+
+                @Override
+                public void handleEvent(Event evt) {
+                    if (Accessor.getActivePeerCount() > 0 && paintNativePeersBehind()) {
+                        
+                        MouseEvent me = (MouseEvent)evt;
+                        int x = unscaleCoord(me.getClientX());
+                        int y = unscaleCoord(me.getClientY());
+                        
+                       if (!hitTest(x, y)) {
+                            _debug("1.Failed hit test at "+x+","+y);
+                            _debugObj(evt);
+                            outputCanvas.getStyle().setProperty("pointer-events", "none");
+                        } else {
+                            _debug("2. Passed hit test at "+x+","+y);
+                            _debugObj(evt);
+                            outputCanvas.getStyle().setProperty("pointer-events", "auto");
+                        }
+                        
+                    }
+                }
+
+            }, true);
+
+            window.addEventListener(eventName, new EventListener() {
+
+                @Override
+                public void handleEvent(Event evt) {
+                    if (Accessor.getActivePeerCount() > 0 && paintNativePeersBehind() || 
+                            "none".equals(outputCanvas.getStyle().getPropertyValue("pointer-events"))) {
+                        _debug("3. Restoring events");
+                        _debugObj(evt);
+                        outputCanvas.getStyle().setProperty("pointer-events", "auto");
+                    }
+                }
+
+            }, false);
+        }
+        */
+        /*
+        window.addEventListener("touchstart", new EventListener() {
+
+            @Override
+            public void handleEvent(Event evt) {
+                if (Accessor.getActivePeerCount() > 0 && paintNativePeersBehind()) {
+                    TouchEvent te = (TouchEvent)evt;
+                    if (te.getTargetTouches().getLength() > 0) {
+                        MouseEvent me = te.getTargetTouches().get(0);
+                        int x = unscaleCoord(me.getClientX());
+                        int y = unscaleCoord(me.getClientY());
+                        boolean hitTestResult = false;
+                        if (!hitTest(x, y)) {
+                            if (pointerState.isCapturingEvents()) {
+                                _debug("4. Failed hit test at "+x+","+y);
+                                _debugObj(evt);
+                                pointerState.setCapturingEvents(false);
+                                outputCanvas.getStyle().setProperty("pointer-events", "none");
+                                outputCanvas.blur();
+                                evt.stopPropagation();
+                                evt.preventDefault();
+                            }
+                        } else {
+                            if (!pointerState.isCapturingEvents()) {
+                                pointerState.setCapturingEvents(true);
+                                
+                                outputCanvas.getStyle().setProperty("pointer-events", "auto");
+                                outputCanvas.focus();
+                                evt.stopPropagation();
+                                evt.preventDefault();
+                            }
+                            
+                        }
+                        
+                      
+                    }
+                } else {
+                    if (!pointerState.isCapturingEvents()) {
+                        pointerState.setCapturingEvents(true);
+                        outputCanvas.getStyle().setProperty("pointer-events", "auto");
+                        outputCanvas.focus();
+                        evt.stopPropagation();
+                        evt.preventDefault();
+                    }
+                }
+            }
+                
+        }, true);
+        
+        window.addEventListener("mousedown", new EventListener() {
+
+            @Override
+            public void handleEvent(Event evt) {
+                if (Accessor.getActivePeerCount() > 0 && paintNativePeersBehind()) {
+
+                    MouseEvent me = (MouseEvent)evt;
+                    int x = unscaleCoord(me.getClientX());
+                    int y = unscaleCoord(me.getClientY());
+
+                   if (!hitTest(x, y)) {
+                        if (pointerState.isCapturingEvents()) {
+                            pointerState.setCapturingEvents(false);
+                            _debug("1.Failed hit test at "+x+","+y);
+                            _debugObj(evt);
+                            outputCanvas.getStyle().setProperty("pointer-events", "none");
+                            outputCanvas.blur();
+                            evt.stopPropagation();
+                            evt.preventDefault();
+                           
+                            
+                        }
+                    } else {
+                        if (!pointerState.isCapturingEvents()) {
+                            pointerState.setCapturingEvents(true);
+                            _debug("2. Passed hit test at "+x+","+y);
+                            _debugObj(evt);
+                            outputCanvas.getStyle().setProperty("pointer-events", "auto");
+                            outputCanvas.focus();
+                            evt.stopPropagation();
+                            evt.preventDefault();
+                        }
+                    }
+
+                } else {
+                    if (!pointerState.isCapturingEvents()) {
+                        pointerState.setCapturingEvents(true);
+                        outputCanvas.getStyle().setProperty("pointer-events", "auto");
+                        outputCanvas.focus();
+                        evt.stopPropagation();
+                        evt.preventDefault();
+                    }
+                    
+                }
+            }
+
+        }, true);
+        */
+        final EventListener wheelListener = new EventListener() {
+
+                @Override
+                public void handleEvent(final Event evt) {
+                    MouseEvent me = (MouseEvent)evt;
+                    final int x = getClientX(me);
+                    final int y = getClientY(me);
+                    if (hitTest(x, y)) { 
+                        evt.preventDefault();
+                        evt.stopPropagation();
+                    }
+                    
+                    new Thread() {
+
+                        @Override
+                        public void run() {
+                            mouseWheelMoved((WheelEvent)evt);
+                        }
+                    }.start();
+                }
+
+            };
+        // Bind pointer/touch/wheel input to the CANVAS, not ``peersContainer``.
+        // The canvas is the top, full-screen render surface; ``peersContainer``
+        // is a full-screen overlay deliberately parked BEHIND it (style.css
+        // ``#cn1-peers-container { z-index: -1000 }``) so native peers can show
+        // through transparent regions of the canvas (see ``hitTest`` /
+        // ``copyEventsToNativePeers``). A listener on the buried peers container
+        // never receives a click that lands on the canvas, so binding input
+        // there froze ALL pointer input on desktop. The canvas is the element
+        // the browser actually delivers these events to.
+        JavaScriptEventWiring.registerPeerPointerEvents(new JavaScriptEventWiring.ElementRegistrar() {
+            @Override
+            public void add(String eventName, Object listener, boolean capture) {
+                outputCanvas.addEventListener(eventName, (EventListener) listener, capture);
+            }
+        }, !debugFlag("disableMousedown"), !debugFlag("disableMouseup"), !debugFlag("disableTouchstart"),
+                !debugFlag("disableTouchend"), !debugFlag("disableWheel"), getWheelEventType(),
+                onMouseDown, hitTest, onMouseUp, onTouchStart, onTouchEnd, wheelListener);
+
+        // Register the drag-move listeners PERMANENTLY on the canvas instead of
+        // adding them inside onMouseDown/onTouchStart. ParparVM's cooperative
+        // scheduler can take a while to complete the press handler, so adding the
+        // move listener there lost the early part of a drag -- touch/drag
+        // scrolling barely registered (a full drag scrolled <1%). onMouseMove /
+        // onTouchMove gate on pointerState.isMouseDown()/isTouchDown(), so they
+        // are no-ops outside an active press (e.g. plain hover).
+        onMouseMoveHandle = EventUtil.addEventListener(outputCanvas, "mousemove", onMouseMove, true);
+        onPointerMoveHandle = EventUtil.addEventListener(outputCanvas, "pointermove", onMouseMove, true);
+        onTouchMoveHandle = EventUtil.addEventListener(outputCanvas, "touchmove", onTouchMove, true);
+
+        /**
+         *  The installbacksidehooks event is an event that can be triggered from native javascript to install
+         *  backside hooks.   This may be necessary if the user is interacting with the page outside of the app, or
+         * in a native widget - the interaction should consititute a user interaction, but because the touch event handler
+         * isn't triggered (where the backside hooks are usually installed).
+         * listener isn't being called, the 
+         */
+        final EventListener installBacksideHooksListener = new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                JavaScriptBrowserLifecycleCoordinator.handleInstallBacksideHooks(new JavaScriptBrowserLifecycleCoordinator.BacksideHooks() {
+                    @Override
+                    public void installBacksideHooksInUserInteraction() {
+                        HTML5Implementation.this.installBacksideHooksInUserInteraction();
+                    }
+                });
+            }
+            
+        };
+        
+        final EventListener keydownListener = new EventListener() {
+
+            @Override
+            public void handleEvent(Event evt) {
+                if (lightweightTextInputClient != null) {
+                    // The hidden input owns this event. Dispatching it through the regular CN1
+                    // key pipeline as well lets Component focus traversal see navigation keys
+                    // and can move focus away from the editor.
+                    return;
+                }
+                final KeyEvent kevt = (KeyEvent) evt;
+                JavaScriptKeyboardInteractionAdapter.handleKeyDown(new JavaScriptKeyboardInteractionAdapter.EditingState() {
+                    @Override
+                    public boolean isEditing() {
+                        return isEditing;
+                    }
+                }, new JavaScriptKeyboardInteractionAdapter.BacksideHooks() {
+                    @Override
+                    public void installBacksideHooksInUserInteraction() {
+                        HTML5Implementation.this.installBacksideHooksInUserInteraction();
+                    }
+                }, new JavaScriptKeyboardInteractionAdapter.KeyDispatch() {
+                    @Override
+                    public void preventDefault() {
+                        evt.preventDefault();
+                    }
+
+                    @Override
+                    public void nativeCallSerially(Runnable runnable) {
+                        HTML5Implementation.this.nativeCallSerially(runnable);
+                    }
+
+                    @Override
+                    public void callSerially(Runnable runnable) {
+                        HTML5Implementation.this.callSerially(runnable);
+                    }
+
+                    @Override
+                    public void setShiftKeyDown(boolean down) {
+                        shiftKeyDown = down;
+                    }
+
+                    @Override
+                    public void setLastCharCode(int code) {
+                        lastCharCode = code;
+                    }
+
+                    @Override
+                    public int translateKeyCode(JavaScriptKeyboardInteractionAdapter.KeyEventView event) {
+                        return getCode(kevt);
+                    }
+
+                    @Override
+                    public void keyPressed(int code) {
+                        HTML5Implementation.this.keyPressed(code);
+                    }
+
+                    @Override
+                    public void keyReleased(int code) {
+                    }
+
+                    @Override
+                    public void editFocusedTextArea(JavaScriptKeyboardInteractionAdapter.KeyEventView event) {
+                    }
+                }, new JavaScriptKeyboardInteractionAdapter.KeyEventView() {
+                    @Override
+                    public int getKeyCode() {
+                        return kevt.getKeyCode();
+                    }
+
+                    @Override
+                    public int getCharCode() {
+                        return kevt.getCharCode();
+                    }
+
+                    @Override
+                    public boolean isShiftKey() {
+                        return kevt.isShiftKey();
+                    }
+                });
+                
+            }
+            
+        };
+        
+        final EventListener keyupListener = new EventListener() {
+
+            @Override
+            public void handleEvent(Event evt) {
+                if (lightweightTextInputClient != null) {
+                    return;
+                }
+                final KeyEvent kevt = (KeyEvent) evt;
+                JavaScriptKeyboardInteractionAdapter.handleKeyUp(new JavaScriptKeyboardInteractionAdapter.BacksideHooks() {
+                    @Override
+                    public void installBacksideHooksInUserInteraction() {
+                        HTML5Implementation.this.installBacksideHooksInUserInteraction(false);
+                    }
+                }, new JavaScriptKeyboardInteractionAdapter.KeyDispatch() {
+                    @Override
+                    public void preventDefault() {
+                    }
+
+                    @Override
+                    public void nativeCallSerially(Runnable runnable) {
+                        HTML5Implementation.this.nativeCallSerially(runnable);
+                    }
+
+                    @Override
+                    public void callSerially(Runnable runnable) {
+                        HTML5Implementation.this.callSerially(runnable);
+                    }
+
+                    @Override
+                    public void setShiftKeyDown(boolean down) {
+                        shiftKeyDown = down;
+                    }
+
+                    @Override
+                    public void setLastCharCode(int code) {
+                        lastCharCode = code;
+                    }
+
+                    @Override
+                    public int translateKeyCode(JavaScriptKeyboardInteractionAdapter.KeyEventView event) {
+                        return getCode(kevt);
+                    }
+
+                    @Override
+                    public void keyPressed(int code) {
+                    }
+
+                    @Override
+                    public void keyReleased(int code) {
+                        HTML5Implementation.this.keyReleased(code);
+                    }
+
+                    @Override
+                    public void editFocusedTextArea(JavaScriptKeyboardInteractionAdapter.KeyEventView event) {
+                    }
+                }, new JavaScriptKeyboardInteractionAdapter.KeyEventView() {
+                    @Override
+                    public int getKeyCode() {
+                        return kevt.getKeyCode();
+                    }
+
+                    @Override
+                    public int getCharCode() {
+                        return kevt.getCharCode();
+                    }
+
+                    @Override
+                    public boolean isShiftKey() {
+                        return kevt.isShiftKey();
+                    }
+                }); 
+                
+            }
+            
+        };
+        
+        final EventListener keypressListener = new EventListener() {
+
+            @Override
+            public void handleEvent(Event evt) {
+                if (lightweightTextInputClient != null) {
+                    return;
+                }
+                final KeyEvent kevt = (KeyEvent) evt;
+                JavaScriptKeyboardInteractionAdapter.handleKeyPress(new JavaScriptKeyboardInteractionAdapter.EditingState() {
+                    @Override
+                    public boolean isEditing() {
+                        return isEditing;
+                    }
+                }, new JavaScriptKeyboardInteractionAdapter.BacksideHooks() {
+                    @Override
+                    public void installBacksideHooksInUserInteraction() {
+                        HTML5Implementation.this.installBacksideHooksInUserInteraction(false);
+                    }
+                }, new JavaScriptKeyboardInteractionAdapter.KeyDispatch() {
+                    @Override
+                    public void preventDefault() {
+                    }
+
+                    @Override
+                    public void nativeCallSerially(Runnable runnable) {
+                        HTML5Implementation.this.nativeCallSerially(runnable);
+                    }
+
+                    @Override
+                    public void callSerially(Runnable runnable) {
+                        HTML5Implementation.this.callSerially(runnable);
+                    }
+
+                    @Override
+                    public void setShiftKeyDown(boolean down) {
+                        shiftKeyDown = down;
+                    }
+
+                    @Override
+                    public void setLastCharCode(int code) {
+                        lastCharCode = code;
+                    }
+
+                    @Override
+                    public int translateKeyCode(JavaScriptKeyboardInteractionAdapter.KeyEventView event) {
+                        return getCode(kevt);
+                    }
+
+                    @Override
+                    public void keyPressed(int code) {
+                    }
+
+                    @Override
+                    public void keyReleased(int code) {
+                    }
+
+                    @Override
+                    public void editFocusedTextArea(JavaScriptKeyboardInteractionAdapter.KeyEventView event) {
+                        Form currentForm = Display.getInstance().getCurrent();
+                        if (currentForm != null) {
+                            Component cmp = currentForm.getFocused();
+                            if (cmp != null && cmp instanceof TextArea) {
+                                TextArea ta = (TextArea) cmp;
+                                int charCode = event.getCharCode();
+                                switch (event.getKeyCode()) {
+                                    case 11:
+                                    case 9 : { // tab
+                                        if (event.isShiftKey()) {
+                                            cmp = currentForm.getPreviousComponent(cmp);
+                                        } else {
+                                            cmp = currentForm.getNextComponent(cmp);
+                                        }
+                                        
+                                        charCode = 0;
+                                        break;
+                                    }
+                                    /*
+                                    case 11 : { // vertical tab
+                                        if (kevt.isShiftKey()) {
+                                            cmp = currentForm.getNextFocusUp();
+                                        } else {
+                                            cmp = currentForm.getNextFocusDown();
+                                        }
+                                        cmp.requestFocus();
+                                        charCode = 0;
+                                        break;
+                                    }
+                                    */
+                                    case 10 :
+                                    case 13 : { // enter /new line
+                                        // Let's just let editString handle this for now.
+                                    }
+                                }
+                                
+                                
+                                if (cmp instanceof TextArea) {
+                                    ta = (TextArea) cmp;
+                                } else {
+                                    //if (cmp != null) {
+                                    //    cmp.requestFocus();
+                                    //    cmp.startEditingAsync();
+                                    //}
+                                    return;
+                                }
+                                Display.getInstance().editString(cmp, ta.getMaxSize(), ta.getConstraint(), ta.getText(), charCode);
+                                
+                            } 
+                            
+                        }
+                    }
+                }, new JavaScriptKeyboardInteractionAdapter.KeyEventView() {
+                    @Override
+                    public int getKeyCode() {
+                        return kevt.getKeyCode();
+                    }
+
+                    @Override
+                    public int getCharCode() {
+                        return kevt.getCharCode();
+                    }
+
+                    @Override
+                    public boolean isShiftKey() {
+                        return kevt.isShiftKey();
+                    }
+                }); 
+                 
+            }
+        };
+        JavaScriptEventWiring.registerCoreWindowEvents(new JavaScriptEventWiring.WindowRegistrar() {
+            @Override
+            public void add(String eventName, Object listener, boolean capture) {
+                window.addEventListener(eventName, (EventListener) listener, capture);
+            }
+        }, !debugFlag("disableHover"), cn1InboxListener, popstateListener, resizeListener, hoverListener,
+                installBacksideHooksListener, keydownListener, keyupListener, keypressListener);
+        
+        animationFrameHandler = new JavaScriptAnimationFrameCallback(this);
+        if (debugFlag("__retainAnimationFrameCallback")) {
+            animationFrameHandler.onAnimationFrame(0);
+        }
+        scheduleAnimationFrame();
+        
+    }
+
+    private static String emptyToNull(String value) {
+        return value == null || value.length() == 0 ? null : value;
+    }
+
+    // ---- low-level text input source for canvas-rendered editors ----
+
+    @Override
+    public boolean isTextInputSupported() {
+        return true;
+    }
+
+    @Override
+    public Object startTextInput(TextInputClient client, TextInputConfig config) {
+        if (client == null) {
+            return null;
+        }
+        ensureLightweightTextInputElement();
+        lightweightTextInputClient = client;
+        lightweightTextInputConfig = config == null ? client.getConfig() : config;
+        lightweightTextInputState = client.getEditingState();
+        lightweightTextInputComposing = false;
+        clearLightweightTextInputQueue();
+        configureLightweightTextInputElement();
+        syncLightweightTextInputElement(lightweightTextInputState);
+        lightweightTextInputElement.getStyle().setProperty("display", "block");
+        lightweightTextInputElement.focus();
+        client.inputFocusGained();
+        return client;
+    }
+
+    @Override
+    public void updateTextInputState(Object handle, TextInputState state) {
+        if (handle == null || handle != lightweightTextInputClient || state == null) {
+            return;
+        }
+        lightweightTextInputState = state;
+        if (!lightweightTextInputComposing) {
+            syncLightweightTextInputElement(state);
+            // Re-assert DOM focus on every state push. Anything that silently moves focus off the
+            // hidden textarea (a browser overlay, an extension, a focus change the bridge guard
+            // could not cancel) otherwise leaves the session bound but deaf -- the window key
+            // pipeline defers to the active session, so every key goes dead until the session is
+            // restarted. The editor pushes state on each pointer interaction, so clicking back
+            // into the editor heals the binding. focus() on an already-focused element is a no-op.
+            lightweightTextInputElement.focus();
+        }
+    }
+
+    @Override
+    public void stopTextInput(Object handle) {
+        if (handle == null || handle != lightweightTextInputClient) {
+            return;
+        }
+        TextInputClient client = lightweightTextInputClient;
+        lightweightTextInputClient = null;
+        lightweightTextInputConfig = null;
+        lightweightTextInputState = null;
+        lightweightTextInputComposing = false;
+        clearLightweightTextInputQueue();
+        if (lightweightTextInputElement != null) {
+            lightweightTextInputElement.blur();
+            lightweightTextInputElement.getStyle().setProperty("display", "none");
+        }
+        client.inputFocusLost();
+    }
+
+    private void ensureLightweightTextInputElement() {
+        if (lightweightTextInputElement != null) {
+            return;
+        }
+        final HTMLTextAreaElement element = (HTMLTextAreaElement) doc().createElement("textarea");
+        lightweightTextInputElement = element;
+        element.setAttribute("class", "cn1-lightweight-text-input");
+        element.setAttribute("data-cn1-worker-text-input", "true");
+        element.setAttribute("aria-hidden", "true");
+        element.setTabIndex(-1);
+        CSSStyleDeclaration style = element.getStyle();
+        style.setProperty("position", "fixed");
+        style.setProperty("display", "none");
+        style.setProperty("width", "1px");
+        style.setProperty("height", "1px");
+        style.setProperty("padding", "0");
+        style.setProperty("margin", "0");
+        style.setProperty("border", "0");
+        style.setProperty("outline", "0");
+        style.setProperty("opacity", "0");
+        style.setProperty("color", "transparent");
+        style.setProperty("background", "transparent");
+        style.setProperty("caret-color", "transparent");
+        style.setProperty("pointer-events", "none");
+        style.setProperty("font-size", "16px");
+        style.setProperty("resize", "none");
+        style.setProperty("overflow", "hidden");
+
+        element.addEventListener("beforeinput", new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                final InputEvent input = (InputEvent) evt;
+                final TextInputClient client = lightweightTextInputClient;
+                if (client == null || input.isComposing()) {
+                    return;
+                }
+                final String inputType = input.getInputType();
+                final String data = input.getData();
+                if (!isHandledLightweightBeforeInput(inputType)) {
+                    return;
+                }
+                // Keep the hidden textarea from mutating independently of the Java document. Full
+                // textarea value snapshots race the worker/EDT round-trip and can overwrite a later
+                // keystroke. Queue the browser's explicit edit operation instead, preserving order.
+                evt.preventDefault();
+                evt.stopPropagation();
+                enqueueLightweightTextInput(client, new Runnable() {
+                    @Override
+                    public void run() {
+                        if (client == lightweightTextInputClient) {
+                            applyLightweightBeforeInput(client, inputType, data);
+                        }
+                    }
+                });
+            }
+        }, true);
+
+        element.addEventListener("input", new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                if (lightweightTextInputComposing) {
+                    return;
+                }
+                // Safari fires the composition's final input event AFTER compositionend has
+                // already cleared the composing flag and committed the text; diffing the
+                // textarea value again would insert the composed string twice.
+                String inputType = ((InputEvent) evt).getInputType();
+                if ("insertCompositionText".equals(inputType) || "deleteCompositionText".equals(inputType)) {
+                    return;
+                }
+                final TextInputClient client = lightweightTextInputClient;
+                final String value = element.getValue();
+                if (client == null) {
+                    return;
+                }
+                enqueueLightweightTextInput(client, new Runnable() {
+                    @Override
+                    public void run() {
+                        if (client == lightweightTextInputClient) {
+                            applyLightweightBrowserEdit(client, value);
+                        }
+                    }
+                });
+            }
+        }, true);
+
+        element.addEventListener("paste", new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                final TextInputClient client = lightweightTextInputClient;
+                if (client == null) {
+                    return;
+                }
+                evt.preventDefault();
+                evt.stopPropagation();
+                final ClipboardContent content = new ClipboardContent()
+                        .setData(ClipboardContent.MIME_TEXT, getPasteEventData(evt, 0))
+                        .setData(ClipboardContent.MIME_HTML, emptyToNull(getPasteEventData(evt, 1)))
+                        .setData(ClipboardContent.MIME_RTF, emptyToNull(getPasteEventData(evt, 2)))
+                        .setData(ClipboardContent.MIME_MARKDOWN, emptyToNull(getPasteEventData(evt, 3)))
+                        .setData(ClipboardContent.MIME_ASCIIDOC, emptyToNull(getPasteEventData(evt, 4)));
+                // Pasted files/images (e.g. Ctrl+V of an image into the editor) arrive as
+                // clipboardData.files; surface them as MIME_FILE plus decoded image bytes, mirroring
+                // the document-level listener.
+                FileList files = getPasteEventFileList(evt);
+                String[] filePaths = null;
+                if (files != null) {
+                    int len = files.getLength();
+                    filePaths = new String[len];
+                    for (int i = 0; i < len; i++) {
+                        filePaths[i] = createTempFile(files.item(i));
+                    }
+                }
+                addClipboardFiles(content, files, filePaths);
+                enqueueLightweightTextInput(client, new Runnable() {
+                    @Override
+                    public void run() {
+                        if (client == lightweightTextInputClient) {
+                            setPasteDataFromClipboard(content);
+                            client.onKeyCommand(TextInputClient.KEY_PASTE, 0);
+                        }
+                    }
+                });
+            }
+        }, true);
+
+        element.addEventListener("keydown", new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                final KeyEvent key = (KeyEvent) evt;
+                final TextInputClient client = lightweightTextInputClient;
+                if (client == null || lightweightTextInputComposing) {
+                    // while an IME composition is active the arrows / Escape / Enter navigate
+                    // the candidate list; routing them to the client would corrupt the
+                    // composition (the composition listeners own this phase)
+                    return;
+                }
+                final int modifiers = lightweightModifiers(key);
+                final int command = lightweightKeyCommand(key, modifiers);
+                if (command != 0) {
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                    enqueueLightweightTextInput(client, new Runnable() {
+                        @Override
+                        public void run() {
+                            if (client == lightweightTextInputClient) {
+                                client.onKeyCommand(command, modifiers);
+                            }
+                        }
+                    });
+                } else if (key.getKeyCode() == 9) {
+                    // Tab / Shift+Tab: deliver as KEY_TAB so the client can indent / dedent (a plain
+                    // editor still inserts a tab). preventDefault keeps Tab from moving DOM focus.
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                    enqueueLightweightTextInput(client, new Runnable() {
+                        @Override
+                        public void run() {
+                            if (client == lightweightTextInputClient) {
+                                client.onKeyCommand(TextInputClient.KEY_TAB, modifiers);
+                            }
+                        }
+                    });
+                }
+                // Enter is deliberately NOT handled here: on the worker runtime this
+                // preventDefault lands after the browser's dispatch window, so the keydown
+                // still produces a beforeinput insertLineBreak/insertParagraph -- handling
+                // both would fire onEditorAction twice on single-line fields. The
+                // applyLightweightBeforeInput path owns Enter for both runtimes.
+            }
+        }, true);
+
+        element.addEventListener("compositionstart", new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                lightweightTextInputComposing = true;
+            }
+        }, true);
+        element.addEventListener("compositionupdate", new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                final TextInputClient client = lightweightTextInputClient;
+                final String data = ((CompositionEvent) evt).getData();
+                if (client == null) {
+                    return;
+                }
+                enqueueLightweightTextInput(client, new Runnable() {
+                    @Override
+                    public void run() {
+                        if (client == lightweightTextInputClient) {
+                            client.setComposingText(data == null ? "" : data,
+                                    data == null ? 0 : data.length());
+                        }
+                    }
+                });
+            }
+        }, true);
+        element.addEventListener("compositionend", new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                final TextInputClient client = lightweightTextInputClient;
+                final String data = ((CompositionEvent) evt).getData();
+                lightweightTextInputComposing = false;
+                if (client == null) {
+                    return;
+                }
+                enqueueLightweightTextInput(client, new Runnable() {
+                    @Override
+                    public void run() {
+                        if (client == lightweightTextInputClient) {
+                            client.commitText(data == null ? "" : data);
+                        }
+                    }
+                });
+            }
+        }, true);
+
+        element.addEventListener("copy", new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                routeLightweightClipboardCommand(evt, TextInputClient.KEY_COPY);
+            }
+        }, true);
+        element.addEventListener("cut", new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                routeLightweightClipboardCommand(evt, TextInputClient.KEY_CUT);
+            }
+        }, true);
+        doc().getBody().appendChild(element);
+    }
+
+    private static int lightweightModifiers(KeyEvent key) {
+        int modifiers = 0;
+        if (key.isShiftKey()) {
+            modifiers |= TextInputClient.MOD_SHIFT;
+        }
+        if (key.isCtrlKey() || key.isMetaKey()) {
+            modifiers |= TextInputClient.MOD_CTRL;
+        }
+        if (key.isAltKey()) {
+            modifiers |= TextInputClient.MOD_ALT;
+        }
+        return modifiers;
+    }
+
+    private static boolean isHandledLightweightBeforeInput(String inputType) {
+        return "insertText".equals(inputType)
+                || "insertReplacementText".equals(inputType)
+                || "insertLineBreak".equals(inputType)
+                || "insertParagraph".equals(inputType)
+                || "deleteContentBackward".equals(inputType)
+                || "deleteContentForward".equals(inputType)
+                || "historyUndo".equals(inputType)
+                || "historyRedo".equals(inputType);
+    }
+
+    private void applyLightweightBeforeInput(TextInputClient client, String inputType, String data) {
+        if ("insertText".equals(inputType) || "insertReplacementText".equals(inputType)) {
+            client.commitText(data == null ? "" : data);
+        } else if ("insertLineBreak".equals(inputType) || "insertParagraph".equals(inputType)) {
+            TextInputConfig config = lightweightTextInputConfig;
+            if (config == null || config.isMultiline()) {
+                client.commitText("\n");
+            } else {
+                client.onEditorAction(config.getActionType());
+            }
+        } else if ("deleteContentBackward".equals(inputType)) {
+            client.onKeyCommand(TextInputClient.KEY_BACKSPACE, 0);
+        } else if ("deleteContentForward".equals(inputType)) {
+            client.onKeyCommand(TextInputClient.KEY_DELETE, 0);
+        } else if ("historyUndo".equals(inputType)) {
+            client.onKeyCommand(TextInputClient.KEY_UNDO, 0);
+        } else if ("historyRedo".equals(inputType)) {
+            client.onKeyCommand(TextInputClient.KEY_REDO, 0);
+        }
+    }
+
+    private static int lightweightKeyCommand(KeyEvent key, int modifiers) {
+        int keyCode = key.getKeyCode();
+        if ((modifiers & TextInputClient.MOD_CTRL) != 0) {
+            switch (keyCode) {
+                case 65:
+                    return TextInputClient.KEY_SELECT_ALL;
+                case 89:
+                    return TextInputClient.KEY_REDO;
+                case 90:
+                    return (modifiers & TextInputClient.MOD_SHIFT) != 0
+                            ? TextInputClient.KEY_REDO : TextInputClient.KEY_UNDO;
+                default:
+                    // Copy, cut, and paste remain native browser events so their ClipboardEvent
+                    // carries all negotiated MIME flavors and retains user activation. Navigation
+                    // and deletion keys fall through so Ctrl+arrow word movement, Ctrl+Home/End
+                    // and Ctrl+Backspace/Delete reach the client with their modifiers -- the
+                    // bridge cancels their keydown unconditionally, so mapping them to nothing
+                    // here would make the modified keys dead.
+                    break;
+            }
+        }
+        switch (keyCode) {
+            case 8:
+                return TextInputClient.KEY_BACKSPACE;
+            case 27:
+                return TextInputClient.KEY_ESCAPE;
+            case 33:
+                return TextInputClient.KEY_PAGE_UP;
+            case 34:
+                return TextInputClient.KEY_PAGE_DOWN;
+            case 35:
+                return TextInputClient.KEY_END;
+            case 36:
+                return TextInputClient.KEY_HOME;
+            case 37:
+                return TextInputClient.KEY_LEFT;
+            case 38:
+                return TextInputClient.KEY_UP;
+            case 39:
+                return TextInputClient.KEY_RIGHT;
+            case 40:
+                return TextInputClient.KEY_DOWN;
+            case 46:
+                return TextInputClient.KEY_DELETE;
+            default:
+                return 0;
+        }
+    }
+
+    private void routeLightweightClipboardCommand(Event evt, final int command) {
+        final TextInputClient client = lightweightTextInputClient;
+        if (client == null) {
+            return;
+        }
+        evt.preventDefault();
+        evt.stopPropagation();
+        enqueueLightweightTextInput(client, new Runnable() {
+            @Override
+            public void run() {
+                if (client == lightweightTextInputClient) {
+                    client.onKeyCommand(command, TextInputClient.MOD_CTRL);
+                }
+            }
+        });
+    }
+
+    private void enqueueLightweightTextInput(final TextInputClient client, Runnable operation) {
+        boolean scheduleDrain = false;
+        synchronized (lightweightTextInputQueue) {
+            if (client != lightweightTextInputClient) {
+                return;
+            }
+            lightweightTextInputQueue.add(operation);
+            if (!lightweightTextInputDrainScheduled) {
+                lightweightTextInputDrainScheduled = true;
+                scheduleDrain = true;
+            }
+        }
+        if (scheduleDrain) {
+            callSerially(new Runnable() {
+                @Override
+                public void run() {
+                    drainLightweightTextInput(client);
+                }
+            });
+        }
+    }
+
+    private void drainLightweightTextInput(TextInputClient client) {
+        while (true) {
+            Runnable operation;
+            synchronized (lightweightTextInputQueue) {
+                if (client != lightweightTextInputClient) {
+                    // This drain was scheduled for a session that has since been replaced.
+                    // The queue now belongs to the successor (startTextInput cleared the old
+                    // entries and the successor scheduled its own drain), so leave both the
+                    // queue and the drain flag alone.
+                    return;
+                }
+                if (lightweightTextInputQueue.isEmpty()) {
+                    lightweightTextInputDrainScheduled = false;
+                    return;
+                }
+                operation = lightweightTextInputQueue.remove(0);
+            }
+            operation.run();
+        }
+    }
+
+    private void clearLightweightTextInputQueue() {
+        synchronized (lightweightTextInputQueue) {
+            lightweightTextInputQueue.clear();
+            lightweightTextInputDrainScheduled = false;
+        }
+    }
+
+    private void configureLightweightTextInputElement() {
+        TextInputConfig config = lightweightTextInputConfig;
+        if (config == null || lightweightTextInputElement == null) {
+            return;
+        }
+        // ONE_TIME_CODE: "one-time-code" is what a browser and a password manager match on to
+        // offer the code out of an arriving message, and on iOS Safari it is what puts the code in
+        // the keyboard's suggestion bar. It is a value of autocomplete rather than a flag beside
+        // it, so it replaces the plain on/off the rest of the fields get.
+        boolean oneTimeCode = (config.getConstraint() & TextArea.ONE_TIME_CODE) != 0;
+        lightweightTextInputElement.setAttribute("autocomplete",
+                oneTimeCode ? "one-time-code" : config.isAutoCorrect() ? "on" : "off");
+        lightweightTextInputElement.setAttribute("autocorrect", config.isAutoCorrect() ? "on" : "off");
+        lightweightTextInputElement.setAttribute("spellcheck", config.isAutoCorrect() ? "true" : "false");
+        lightweightTextInputElement.setAttribute("autocapitalize", config.isAutoCapitalize() ? "sentences" : "off");
+
+        String inputMode = "text";
+        switch (config.getConstraint() & 0xffff) {
+            case TextArea.EMAILADDR:
+                inputMode = "email";
+                break;
+            case TextArea.NUMERIC:
+                inputMode = "numeric";
+                break;
+            case TextArea.PHONENUMBER:
+                inputMode = "tel";
+                break;
+            case TextArea.URL:
+                inputMode = "url";
+                break;
+            default:
+                break;
+        }
+        // Deliberately NOT forcing inputmode to numeric for a one-time code. The hint says what
+        // the value IS; the constraint beside it says how it is typed, and a code field that did
+        // not ask for NUMERIC can hold letters -- OtpField(length, false) exists for exactly
+        // that. A numeric inputmode gives a mobile browser a keypad with no route to a letter,
+        // which would make those codes impossible to enter rather than merely awkward.
+        lightweightTextInputElement.setAttribute("inputmode", inputMode);
+        switch (config.getActionType()) {
+            case TextInputConfig.ACTION_DONE:
+                lightweightTextInputElement.setAttribute("enterkeyhint", "done");
+                break;
+            case TextInputConfig.ACTION_NEXT:
+                lightweightTextInputElement.setAttribute("enterkeyhint", "next");
+                break;
+            case TextInputConfig.ACTION_SEARCH:
+                lightweightTextInputElement.setAttribute("enterkeyhint", "search");
+                break;
+            case TextInputConfig.ACTION_SEND:
+                lightweightTextInputElement.setAttribute("enterkeyhint", "send");
+                break;
+            default:
+                lightweightTextInputElement.setAttribute("enterkeyhint", "enter");
+                break;
+        }
+    }
+
+    private void syncLightweightTextInputElement(TextInputState state) {
+        if (lightweightTextInputElement == null || state == null) {
+            return;
+        }
+        String value = state.getText();
+        lightweightTextInputElement.setValue(value);
+        int start = clampTextInputOffset(state.getSelectionStart(), value.length());
+        int end = clampTextInputOffset(state.getSelectionEnd(), value.length());
+        lightweightTextInputElement.setSelectionStart(start);
+        lightweightTextInputElement.setSelectionEnd(end);
+
+        TextInputClient client = lightweightTextInputClient;
+        int[] caret = client == null ? null : client.getCaretRect();
+        if (caret != null && caret.length >= 4) {
+            lightweightTextInputElement.getStyle().setProperty("left", scaleCoord(caret[0]) + "px");
+            lightweightTextInputElement.getStyle().setProperty("top", scaleCoord(caret[1]) + "px");
+        }
+    }
+
+    private void applyLightweightBrowserEdit(TextInputClient client, String browserValue) {
+        TextInputState oldState = lightweightTextInputState;
+        String oldValue = oldState == null ? client.getEditingState().getText() : oldState.getText();
+        String newValue = browserValue == null ? "" : browserValue;
+        if (oldValue.equals(newValue)) {
+            return;
+        }
+
+        int prefix = 0;
+        int common = Math.min(oldValue.length(), newValue.length());
+        while (prefix < common && oldValue.charAt(prefix) == newValue.charAt(prefix)) {
+            prefix++;
+        }
+        int oldEnd = oldValue.length();
+        int newEnd = newValue.length();
+        while (oldEnd > prefix && newEnd > prefix
+                && oldValue.charAt(oldEnd - 1) == newValue.charAt(newEnd - 1)) {
+            oldEnd--;
+            newEnd--;
+        }
+
+        client.setSelectionRange(prefix, oldEnd);
+        client.commitText(newValue.substring(prefix, newEnd));
+    }
+
+    private static int clampTextInputOffset(int value, int length) {
+        return value < 0 ? 0 : value > length ? length : value;
+    }
+
+    @SuppressSyncErrors
+    public void handleAnimationFrame(double time) {
+        // This rAF callback is dispatched on a SPAWNED, non-EDT green thread
+        // (port.js requestAnimationFrameNative -> spawnVirtualCallback ->
+        // jvm.spawn). ``drainPendingDisplayFrame`` mutates ``pendingDisplay`` --
+        // a single render frame OWNED by the EDT, which produces into it via
+        // ``flushGraphics`` -> queueFlush -> ``JavaScriptRenderQueueState.replace``
+        // (a destructive clear+addAll) and consumes via ``snapshotAndClear``.
+        // Draining from this thread races the EDT: an interleaved replace/snapshot
+        // drops a queued frame before it ships, so the canvas keeps a stale frame
+        // and a run of screenshot tests freeze on it. Marshal the whole
+        // drain+re-arm onto the EDT with callSerially so ALL pendingDisplay
+        // mutation is single-threaded; the per-op ``graphicsLocked`` flag then
+        // only ever guards re-entrancy within the one (EDT) thread.
+        Display.getInstance().callSerially(new Runnable() {
+            @Override
+            public void run() {
+                if (graphicsLocked) {
+                    // Paint queue is mid-mutation. Re-arm rAF so we retry the
+                    // drain once the writer releases the lock; otherwise pending
+                    // ops would never paint.
+                    scheduleAnimationFrame();
+                    return;
+                }
+                drainPendingDisplayFrame();
+                // Re-arm rAF only if there's still work to flush. An
+                // unconditional re-arm produced a 60 Hz worker-callback flood
+                // (host->worker postMessage of the rAF firing) even when the UI
+                // was completely idle, which during Display.invokeAndBlock
+                // crowded out self.onmessage for incoming pointer events.
+                // ``flushGraphics`` paints synchronously and re-arms itself when
+                // it leaves work behind, so this conditional re-arm is enough.
+                if (pendingDisplay.hasPendingOps()) {
+                    scheduleAnimationFrame();
+                }
+            }
+        });
+    }
+
+    /**
+     * True when a frame carries at least one op that draws onto the canvas.
+     *
+     * <p>State commands do not count. A clip or a transform records what later draws are subject
+     * to and leaves the canvas exactly as it was, and a text-layer mutation writes to the
+     * document rather than the canvas. Asking merely "is anything here besides a text mutation"
+     * is not enough: PaintSurface.paintDirty() calls setClip(0, 0, width, height) before painting
+     * each animatable and BufferedGraphics records that unconditionally, so every painted frame
+     * carries a ClipRect whether or not a pixel follows it.</p>
+     *
+     * @param frame the frame about to be replayed
+     * @return true when something in it paints
+     */
+    private boolean framePaintsPixels(JavaScriptRenderQueueState.FrameSnapshot<ExecutableOp> frame) {
+        for (ExecutableOp op : frame.getOps()) {
+            if (!BufferedGraphics.isStateOnlyOp(op)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean drainPendingDisplayFrame() {
+        JavaScriptRenderQueueState.FrameSnapshot<ExecutableOp> frame =
+                JavaScriptRenderQueueCoordinator.beginFrame(new JavaScriptRenderQueueCoordinator.GraphicsLock() {
+                    @Override
+                    public void setGraphicsLocked(boolean locked) {
+                        graphicsLocked = locked;
+                    }
+                }, pendingDisplay);
+
+        if (frame.isEmpty()) {
+            return false;
+        }
+        if (textLayer != null) {
+            // syncToForm is NOT called here. By this point the frame's ops have already been
+            // snapshotted, so a release recorded now would ship with the NEXT frame -- the
+            // removed component's text would stay on screen over the pixels that replaced it
+            // for one frame, which is what a rebuilt navigation showed as a doubled label. It
+            // runs in flushGraphics instead, while the buffer this frame ships is still open.
+            Form displayed = Display.getInstance().getCurrent();
+            if (textLayer.consumeReattachFlag() && displayed != null) {
+                // A run came back after being detached, so it holds a fresh stacking index
+                // while everything that did not repaint still holds an older one. One full
+                // repaint puts the whole form on the same footing.
+                displayed.repaint();
+            }
+        }
+        // Record the whole frame into the display surface's command buffer (the
+        // display graphics draws onto DISPLAY_SURFACE_ID) and ship it in one
+        // flush. The host replays it onto the output canvas -- the worker never
+        // touches a canvas/context proxy.
+        CanvasRenderingContext2D context = graphics.getContext();
+        context.save();
+        // Reset to identity BEFORE the crop clip is set. Without this, if
+        // the prior drain ended with a non-identity transform on the
+        // canvas state (e.g. ClipShape's setTransform leftover that the
+        // outer save/restore preserves across drains), the
+        // ``rect(cropX, cropY, cropW, cropH); clip();`` below evaluates
+        // under that leaked transform -- the resulting clip is a
+        // rotated/scaled polygon, not the intended axis-aligned crop. All
+        // ops in this drain then paint UNDER the leaked transform AND
+        // through the rotated clip, producing an entire-frame rotation
+        // visible in graphics-clip-under-rotation. Force identity now;
+        // the per-op SetTransform queue then sets the per-paint
+        // transform as before, and the outer ``restore()`` at end of
+        // drain still pops back to whatever pre-drain state was active.
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.beginPath();
+        context.rect(frame.getCropX(), frame.getCropY(), frame.getCropW(), frame.getCropH());
+        context.clip();
+        // Wipe the drain region only when this frame is repainting the
+        // *entire* canvas (form transitions, full-screen redraws). Each
+        // such drain carries a full paint, so stale pixels must not
+        // bleed through from the previous drain -- without this, title
+        // bars from prior forms accumulated across tests because the new
+        // form's paint did not always cover every pixel in the toolbar
+        // region.
+        //
+        // Skipping the clear for partial-frame drains is the fix for the
+        // "label-area-goes-transparent" bug: when two non-adjacent
+        // components (say, a TextField and the right-aligned ``?`` help
+        // button on the row above) both queue a repaint, the framework's
+        // paintDirty unions their absolute bounds into a single crop
+        // rect that spans both -- but the actual paint ops only cover
+        // each component's individual clip. Clearing the union here
+        // wipes the gap between them (the "Main Class" label) without
+        // any follow-up paint, leaving alpha=0 pixels where the page
+        // background shows through. Per-component opaque bg fills cover
+        // their own bounds either way; sibling components whose bounds
+        // happen to fall inside the union but who are NOT in the dirty
+        // list keep their previous pixels.
+        //
+        // A frame carrying nothing but text-layer mutations paints no pixels at all, so there is
+        // nothing for a clear to be the prelude to. Until those mutations rode the queue such a
+        // frame held no ops and the drain returned early at the isEmpty() check above, which is
+        // what kept the canvas intact; now it is non-empty and would reach this clear and wipe
+        // content that this frame does not redraw. A detach-only flush -- syncToForm releasing
+        // the runs of a component that has gone, with nothing else queued -- is exactly that
+        // shape, and a full-screen crop is what a form-sized component asks for when it
+        // repaints.
+        if (framePaintsPixels(frame)
+                && frame.getCropX() == 0 && frame.getCropY() == 0
+                && frame.getCropW() >= displayWidth
+                && frame.getCropH() >= displayHeight) {
+            context.clearRect(frame.getCropX(), frame.getCropY(), frame.getCropW(), frame.getCropH());
+        }
+
+        for (ExecutableOp op : frame.getOps()){
+            try {
+                op.execute(context);
+            } catch (Throwable __opt) {
+                System.out.println("PARPAR:DIAG:OPTHROW:op=" + op.getClass().getName()
+                        + ":cls=" + __opt.getClass().getName() + ":msg=" + __opt.getMessage());
+            }
+        }
+        ClipRect.resetClip(context, graphics.getClipState());
+        context.restore();
+        if (textLayer != null && Display.getInstance().isInTransition()) {
+            // A form transition paints two pre-rendered offscreen buffers instead of painting
+            // components, so no run is refreshed while it runs. Those buffers carry their own
+            // rasterized text, so the layer must step aside for the duration or the outgoing
+            // form's text would float above the animation. A buffered transition -- a fade,
+            // where areMutableImagesFast() is true -- never puts a component through the display
+            // graphics at all, so the frame-start hook never runs and would leave that text
+            // fixed above the animation for its whole duration. This runs every display frame,
+            // which is what catches it.
+            //
+            // Suspending only, never resuming: the components of this frame have already
+            // painted, so lifting the suspension now would show runs that this frame's canvas
+            // also rasterized. Resuming is left to the frame-start hook, which runs before any
+            // component paints.
+            //
+            // Suspend into THIS frame, not through the sink. beginFrame() above snapshotted and
+            // cleared the queue, so anything recorded through the sink now lands in the buffer
+            // the NEXT frame ships -- and this frame, the first of the transition, would be
+            // composited with the outgoing form's DOM text still over it. Writing straight into
+            // the recorder puts the hide in the same flush as the transition's own pixels.
+            //
+            // It matters even more when there is no next frame: a buffered transition paints
+            // only its prebuilt images, so if the last flush went out before this ran, a
+            // sink-recorded hide would never ship at all and the stale text would sit over the
+            // whole animation.
+            textLayer.suspendIntoFrame(context);
+        }
+        graphics.flush();
+        // The batch is on its way, so the sources it blits can be collected again.
+        blitSourcesInFlight.clear();
+        return true;
+    }
+
+    /**
+     * Images whose surface a recorded blit refers to, held until the batch carrying it has been
+     * shipped.
+     *
+     * <p>A blit records a surface id, not the image. An image drawn into and blitted within one
+     * paint -- which is what a component rendering through a fresh mutable image every frame
+     * does -- is unreachable the moment that paint returns, so its finalizer can tell the host
+     * to release the surface while the batch that blits it is still waiting to be replayed. The
+     * result is a blank where the image should be. Holding the image until the batch is on its
+     * way closes that window.</p>
+     */
+    private final List<Object> blitSourcesInFlight = new ArrayList<Object>();
+
+    /**
+     * Keeps a blit's source image alive until the batch referring to it has been shipped.
+     *
+     * @param source the image whose surface a recorded blit refers to
+     */
+    void retainBlitSource(Object source) {
+        if (source != null) {
+            blitSourcesInFlight.add(source);
+        }
+    }
+
+    private void scheduleAnimationFrame() {
+        requestAnimationFrameNative(animationFrameHandler);
+    }
+
+    private static native int requestAnimationFrameNative(JavaScriptAnimationFrameCallback handler);
+    
+    public static void callSerially(final Runnable r) {
+        new Thread() {
+            public void run() {
+                Display.getInstance().callSerially(r);
+            }
+        }.start();
+    }
+
+    @Override
+    protected int getDragAutoActivationThreshold() {
+        return 1000000;
+    }
+    
+    private boolean scrollWheeling;
+    
+    @Override
+    public boolean isScrollWheeling() {
+        return scrollWheeling;
+    }
+    
+    //@JSBody(script="return new Date.now()")
+    //private static native int currentTimeMillisecondsJS();
+    private static long currentTimeMillisecondsJS() {
+        return System.currentTimeMillis();
+    }
+    
+   private int getCode(KeyEvent evt) {
+        int code = evt.getKeyCode();
+        if(code >= 'A' && code <= 'Z') {
+            int charCode = evt.getCharCode();
+            if (charCode == 0) {
+                charCode = lastCharCode;
+            }
+            return charCode;
+        }
+        return code;
+    }
+   
+   /**
+     * @inheritDoc
+     */
+    public int getClearKeyCode() {
+        return 46;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public int getBackspaceKeyCode() {
+        return 8;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public int getBackKeyCode() {
+        return 27;
+    }
+
+    @Override
+    public void systemOut(String content) {
+        consoleLog(content);
+    }
+
+    /**
+     * Writes the throwable's trace into the log writer. Without this override the
+     * inherited implementation is an empty method, so {@code Log.e(t)} produced an
+     * entry with no trace in it at all -- half of issue #5519.
+     *
+     * <p>The other ports hand the writer to {@code Throwable.printStackTrace(PrintWriter)},
+     * but this port's {@code java.io} surface has no {@code PrintWriter}, and
+     * {@code getStackTrace()} deliberately returns no frames here: the field behind it
+     * holds a JavaScript {@code Error().stack} (captured for every throwable in
+     * {@code jvm.newObject}), which {@code Throwable.parseStackString} refuses to parse
+     * into Java frames rather than fabricate bogus ones. So capture what
+     * {@code printStackTrace(PrintStream)} renders -- that JavaScript stack, which is
+     * the only trace this port actually has -- and prefix it with {@code toString()} so
+     * the class and message are present the way the other ports print them.</p>
+     */
+    @Override
+    public void printStackTraceToStream(Throwable t, Writer o) {
+        if (t == null || o == null) {
+            return;
+        }
+        try {
+            ByteArrayOutputStream rendered = new ByteArrayOutputStream();
+            PrintStream out = new PrintStream(rendered);
+            t.printStackTrace(out);
+            out.close();
+            o.write(t.toString());
+            o.write("\n");
+            o.write(new String(rendered.toByteArray(), "UTF-8"));
+            o.write("\n");
+        } catch (Throwable err) {
+            // Deliberately Throwable, not IOException: this runs while a failure
+            // is already being reported, and Log.logThrowable only guards its
+            // call with catch(IOException). Letting anything escape here would
+            // turn "the log could not be written" into a second exception thrown
+            // at whoever called Log.e(). There is nowhere better to report it
+            // than the console.
+            consoleLog("printStackTraceToStream failed: " + err);
+        }
+    }
+    
+    /**
+     * @inheritDoc
+     */
+    public int getGameAction(int keyCode) {
+        switch (keyCode) {
+            case 38:
+                return Display.GAME_UP;
+            case 40:
+                return Display.GAME_DOWN;
+            case 39:
+                return Display.GAME_RIGHT;
+            case 37:
+                return Display.GAME_LEFT;
+            case 13:
+                return Display.GAME_FIRE;
+        }
+        return 0;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public int getKeyCode(int gameAction) {
+        switch (gameAction) {
+            case Display.GAME_UP:
+                return 38;
+            case Display.GAME_DOWN:
+                return 40;
+            case Display.GAME_RIGHT:
+                return 39;
+            case Display.GAME_LEFT:
+                return 37;
+            case Display.GAME_FIRE:
+                return 13;
+        }
+        return 0;
+    }
+
+       
+    public void nativeCallSerially(final Runnable r) {
+        if (!debugFlag("useNativeQueue")) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    nativeEdt.run(r);
+                }
+            }).start();
+        } else {
+            new Thread(r).start();
+        }
+    }
+
+    private void completePressInFlight() {
+        Runnable pending;
+        synchronized (pointerEventOrderLock) {
+            pressInFlight = false;
+            pending = deferredRelease;
+            deferredRelease = null;
+        }
+        if (pending != null) {
+            pending.run();
+        }
+    }
+    
+    @JSBody(params={}, script="return window.cn1WheelMultiplier || 1.0")
+    private static native double wheelMultiplier();
+    
+    /// Records the mouse button, button mask and keyboard modifiers for the next dispatched pointer
+    /// event so the cross-platform PointerEvent / context-menu APIs work in the browser. The DOM
+    /// {@code button} that changed is 0 (left), 1 (middle), 2 (right), 3 (back), 4 (forward); the DOM
+    /// {@code buttons} bitmask of held buttons aligns 1:1 with PointerEvent.MASK_* so it is used
+    /// directly (it drives the mask during a drag).
+    private void applyMouseMetadata(MouseEvent me) {
+        int button;
+        switch (me.getButton()) {
+            case 1:
+                button = com.codename1.ui.events.PointerEvent.BUTTON_MIDDLE;
+                break;
+            case 2:
+                button = com.codename1.ui.events.PointerEvent.BUTTON_SECONDARY;
+                break;
+            case 3:
+                button = com.codename1.ui.events.PointerEvent.BUTTON_BACK;
+                break;
+            case 4:
+                button = com.codename1.ui.events.PointerEvent.BUTTON_FORWARD;
+                break;
+            default:
+                button = com.codename1.ui.events.PointerEvent.BUTTON_PRIMARY;
+                break;
+        }
+        // buttons is 0 on mouseup, so fall back to the single button that changed (1 << button).
+        int mask = me.getButtons();
+        if (mask == 0) {
+            mask = 1 << button;
+        }
+        setPointerEventMetadata(button, mask, com.codename1.ui.events.PointerEvent.TYPE_MOUSE,
+                1f, 0, 0, 0, mouseModifiers(me), false);
+    }
+
+    /// Folds the DOM modifier-key flags into the PointerEvent.MODIFIER_* bitmask.
+    private int mouseModifiers(MouseEvent me) {
+        int modifiers = 0;
+        if (me.isShiftKey()) {
+            modifiers |= com.codename1.ui.events.PointerEvent.MODIFIER_SHIFT;
+        }
+        if (me.isCtrlKey()) {
+            modifiers |= com.codename1.ui.events.PointerEvent.MODIFIER_CONTROL;
+        }
+        if (me.isAltKey()) {
+            modifiers |= com.codename1.ui.events.PointerEvent.MODIFIER_ALT;
+        }
+        if (me.isMetaKey()) {
+            modifiers |= com.codename1.ui.events.PointerEvent.MODIFIER_META;
+        }
+        return modifiers;
+    }
+
+    /// Flags the next dispatched pointer event as a finger touch.
+    private void applyTouchMetadata() {
+        setPointerEventMetadata(com.codename1.ui.events.PointerEvent.BUTTON_PRIMARY,
+                com.codename1.ui.events.PointerEvent.MASK_PRIMARY,
+                com.codename1.ui.events.PointerEvent.TYPE_TOUCH, 1f, 0, 0, 0, 0, false);
+    }
+
+    /// How long without a ctrl+wheel event before the pinch is treated as
+    /// finished. Long enough not to cut a slow gesture in half, short enough
+    /// that the zoom commits while the user still associates it with what they
+    /// did.
+    private static final int PINCH_IDLE_MS = 200;
+
+    /// Whether a wheel-reported pinch is in progress, so begin fires once per
+    /// gesture rather than once per event.
+    private boolean pinchGestureOpen;
+
+    /// Bumped by every pinch event so only the last one's idle timer ends the
+    /// gesture.
+    private int pinchGestureGeneration;
+
+    /// The magnify factor since the gesture began, which is what
+    /// Component.pinch() is specified to receive.
+    private float pinchScale = 1f;
+
+    /// Trackpad pinch, which a desktop browser reports as a wheel event with
+    /// ctrlKey set rather than as a gesture of its own. Chrome, Firefox and Edge
+    /// all synthesise it that way, and Safari sends it in addition to its own
+    /// non-standard gesture events, so this one path covers every desktop
+    /// browser without a browser sniff.
+    ///
+    /// Touch pinch does NOT come through here and must not: two fingers on a
+    /// touchscreen arrive as a multi-touch touchmove, and onTouchMove already
+    /// hands both pointers to pointerDragged(int[], int[]) where Component
+    /// derives the scale from the distance between them. This is only the
+    /// desktop case that path cannot see, because a trackpad delivers no
+    /// pointers at all.
+    ///
+    /// #### Parameters
+    ///
+    /// - `e`: the wheel event to classify
+    ///
+    /// #### Returns
+    ///
+    /// true when the event was a pinch and has been dispatched as one, so the
+    /// caller must not also scroll on it
+    private boolean isTrackpadPinch(WheelEvent e) {
+        if (!e.isCtrlKey()) {
+            return false;
+        }
+        final int x = getClientX(e);
+        final int y = getClientY(e);
+        if (!pinchGestureOpen) {
+            pinchGestureOpen = true;
+            pinchScale = 1f;
+            nativeCallSerially(new Runnable() {
+                @Override
+                public void run() {
+                    Display.getInstance().firePinchBeginGesture();
+                }
+            });
+        }
+        // A wheel-reported pinch has no end event -- the browser simply stops
+        // sending, because ctrl+wheel is a scroll being reinterpreted rather
+        // than a gesture with phases. So the end is inferred from a quiet
+        // period. Without one the component that zoomed is never told the
+        // gesture finished: a trackpad produces no pointers, so the
+        // two-pointer path in Component that normally calls pinchReleased()
+        // cannot run here.
+        //
+        // The generation counter is what makes the timer safe. Every event
+        // bumps it and schedules its own timeout, so only the LAST event's
+        // timer finds a matching generation and closes the gesture; the
+        // earlier ones fire into a stale generation and do nothing.
+        pinchGestureGeneration++;
+        final int generation = pinchGestureGeneration;
+        Window.setTimeout(new TimerHandler() {
+            @Override
+            public void onTimer() {
+                if (generation != pinchGestureGeneration || !pinchGestureOpen) {
+                    return;
+                }
+                pinchGestureOpen = false;
+                nativeCallSerially(new Runnable() {
+                    @Override
+                    public void run() {
+                        Display.getInstance().firePinchReleaseGesture(x, y);
+                    }
+                });
+            }
+        }, PINCH_IDLE_MS);
+        // exp() rather than a linear factor: scale is a RATIO, so equal and
+        // opposite deltas have to compose back to 1.0 or a pinch out followed by
+        // an identical pinch in would not return to where it started. The
+        // divisor sets sensitivity only; 100 matches what the deltas a trackpad
+        // produces per notch feel like against the native ports.
+        // Accumulated, not per event. Component.pinch() is specified as the
+        // factor since the gesture BEGAN -- ImageViewer computes
+        // currentZoom * scale and only moves currentZoom in pinchReleased() --
+        // so handing it each wheel notch's own increment would end a long
+        // gesture on its last tiny step instead of where the user dragged to.
+        pinchScale *= (float)Math.exp(-e.getDeltaY() / 100.0);
+        final float scale = pinchScale;
+        nativeCallSerially(new Runnable() {
+            @Override
+            public void run() {
+                Display.getInstance().fireMagnifyGesture(x, y, scale);
+            }
+        });
+        return true;
+    }
+
+    public void mouseWheelMoved(WheelEvent e) {
+        if (isTrackpadPinch(e)) {
+            return;
+        }
+        NormalizedWheelEvent ne = normalizeWheelEvent(e);
+        
+        //e.preventDefault();
+        //if (!isEnabled()) {
+        //    return;
+        //}
+        final int x = getClientX(e);
+        final int y = getClientY(e);
+        //debugLog("in mouseWheelMoved at ("+x+","+y+")");
+        //if (e.getScrollType() == MouseWheelEvent.WHEEL_UNIT_SCROLL) {
+            //requestFocus();
+            //final int units = convertToPixels(e.getUnitsToScroll() * 5, true) * -1;
+        //final int dx = -(int)(e.getDeltaX() * devicePixelRatioValue() * wheelMultiplier());
+        //final int dy = -(int)(e.getDeltaY() * devicePixelRatioValue() * wheelMultiplier());
+        final int dx = -(int)(ne.getPixelX() * devicePixelRatioValue() * wheelMultiplier());
+        final int dy = -(int)(ne.getPixelY() * devicePixelRatioValue() * wheelMultiplier());
+        //debugLog("dx="+dx+"; dy="+dy);
+        // The wheel is handled where it lands, and goes no further. This used to treat the
+        // dispatch above as a listener-only preflight and, whenever nothing consumed it,
+        // synthesise a press, three drags and a release at the cursor -- so a small trackpad
+        // delta over a button pressed the button, and a wheel at a page boundary ran a drag
+        // gesture nobody made. Display scrolls the component under the cursor itself now, so
+        // a false return means nothing there can move, not that the port should emulate one.
+        //
+        // Handed to the shared implementation rather than dispatched from here. This
+        // callback runs on a thread of its own -- the wheel listener above starts one per
+        // event -- and the dispatch now moves scroll positions, fires scroll listeners and
+        // repaints, so running it here mutates the component hierarchy off the event
+        // thread, racing layout and paint. Dispatching only listeners from this thread was
+        // survivable; scrolling from it is not.
+        //
+        // The inherited entry point marshals onto the event thread and owns the
+        // isScrollWheeling flag for the duration, which is the path every other port takes.
+        pointerWheelMoved(x, y, dx, dy, true, 0);
+    }
+    
+    private void updateCanvasSize() {
+        refreshDevicePixelRatio();
+        JavaScriptCanvasLayout.Dimensions dimensions = JavaScriptCanvasLayout.compute(
+                doc().getBody().getClientWidth(),
+                window.getInnerHeight(),
+                devicePixelRatioValue());
+        canvas.setWidth(dimensions.getBackingWidth());
+        canvas.setHeight(dimensions.getBackingHeight());
+        outputCanvas.setWidth(dimensions.getBackingWidth());
+        outputCanvas.setHeight(dimensions.getBackingHeight());
+        // Record the dimensions we just applied so getDisplayWidth/Height never
+        // have to read them back across the barrier.
+        displayWidth = dimensions.getBackingWidth();
+        displayHeight = dimensions.getBackingHeight();
+        peersContainer.getStyle().setProperty("height", dimensions.getCssHeight() + "px");
+        peersContainer.getStyle().setProperty("width", dimensions.getCssWidth() + "px");
+        if (dimensions.getStyleWidth() != null) {
+            outputCanvas.getStyle().setProperty("width", dimensions.getStyleWidth());
+            outputCanvas.getStyle().setProperty("height", dimensions.getStyleHeight());
+            canvas.getStyle().setProperty("width", dimensions.getStyleWidth());
+            canvas.getStyle().setProperty("height", dimensions.getStyleHeight());
+        } else {
+            // Back to a 1x display, where the backing store is the CSS size and no override is
+            // wanted. Leaving the HiDPI width/height behind would stretch the new store over the
+            // old dimensions and put the canvas and the overlays out of alignment.
+            outputCanvas.getStyle().removeProperty("width");
+            outputCanvas.getStyle().removeProperty("height");
+            canvas.getStyle().removeProperty("width");
+            canvas.getStyle().removeProperty("height");
+        }
+    }
+
+    public void revalidate() {
+        Form f = getCurrentForm();
+        if (f != null){
+            f.revalidate();
+    
+            flushGraphics();
+        }
+
+    }
+
+    @Override
+    public void accessibilityTreeChanged(int changeType) {
+        if (accessibilityContainer == null || !semanticOverlayEnabled) {
+            return;
+        }
+        if (semanticOverlay == null) {
+            semanticOverlay = new JavaScriptSemanticOverlay(document, accessibilityContainer,
+                    new JavaScriptSemanticOverlay.ActionDispatcher() {
+                        @Override
+                        public void performAction(long nodeId, String actionId, Object argument) {
+                            performAccessibilityAction(nodeId, actionId, argument);
+                        }
+                    });
+        }
+        // Always on: the reasoning is recorded in the overlay, but in short a screen reader has
+        // no other reliable route to an ordinary label, since the visible text layer is
+        // aria-hidden and a role-less div's aria-label is not dependably announced.
+        semanticOverlay.setTextContentEnabled(true);
+        if (deferSemanticsWhileAnimating()) {
+            return;
+        }
+        semanticOverlay.update(getAccessibilityTreeSnapshot(), devicePixelRatioValue());
+    }
+
+    /**
+     * Holds the semantic tree still while an animation runs.
+     *
+     * <p>Every frame of an animation moves components, and every move invalidates the tree --
+     * so the overlay would diff and rewrite geometry across the bridge on every frame of it.
+     * Assistive technology has nothing to gain from following an animation frame by frame, and
+     * the cost is paid by the animation itself, which runs visibly slower for it. The tree is
+     * brought up to date once, when the form is still again.</p>
+     *
+     * @return true when the update was put off
+     */
+    private boolean deferSemanticsWhileAnimating() {
+        if (!isAnimationRunning(Display.getInstance().getCurrent())) {
+            return false;
+        }
+        if (!semanticRefreshPending) {
+            semanticRefreshPending = true;
+            awaitStillForSemantics(System.currentTimeMillis() + SEMANTIC_STILLNESS_TIMEOUT_MILLIS);
+        }
+        return true;
+    }
+
+    /**
+     * How long the tree is held still for an animation before it is brought up to date anyway.
+     * On the clock rather than on turns of the event loop: an idle loop turns many times a
+     * frame, so a count of turns runs out in a fraction of an animation and starts again on the
+     * next invalidation -- rebuilding through the animation this is meant to sit out. On the
+     * clock, an animation that never ends costs one refresh per interval.
+     */
+    private static final long SEMANTIC_STILLNESS_TIMEOUT_MILLIS = 2000;
+
+    private void awaitStillForSemantics(final long deadline) {
+        callSerially(new Runnable() {
+            @Override
+            public void run() {
+                if (System.currentTimeMillis() < deadline
+                        && isAnimationRunning(Display.getInstance().getCurrent())) {
+                    awaitStillForSemantics(deadline);
+                    return;
+                }
+                semanticRefreshPending = false;
+                if (semanticOverlay != null && accessibilityContainer != null) {
+                    semanticOverlay.update(getAccessibilityTreeSnapshot(), devicePixelRatioValue());
+                }
+            }
+        });
+    }
+
+    /**
+     * True while an update is waiting for the form to stop animating.
+     */
+    private boolean semanticRefreshPending;
+
+    @Override
+    public boolean isAccessibilityTreeSupported() {
+        return true;
+    }
+
+    
+    public static void setMainClass(Object main) {
+        JavaScriptBootstrapCoordinator.bindMainClass(main,
+                new JavaScriptBootstrapCoordinator.PushCallbackRegistrar() {
+                    @Override
+                    public void register(PushCallback callback) {
+                        setPushCallback(callback);
+                    }
+                },
+                new JavaScriptBootstrapCoordinator.PushCallbackRegistrar() {
+                    @Override
+                    public void register(PushCallback callback) {
+                        HTML5Push.setPushCallback(callback);
+                    }
+                });
+    }
+
+    public MouseEvent getLastMouseEvent() {
+        return lastMouseEvent;
+    }
+    
+    @Override
+    public void init(Object m) {
+        //__init();
+        if (m instanceof Runnable) {
+            //((Runnable)m).run();
+        }
+        if (JavaScriptInputCoordinator.shouldInstallKeyboard(isPhoneOrTablet_())) {
+            HTML5Keyboard.install();
+        }
+        // Set the locale
+        installBeforeUnload();
+        
+        
+        Font.setDefaultFont(Font.createSystemFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_MEDIUM));
+        Display d = Display.getInstance();
+        final WindowExt win = (WindowExt)Window.current();
+        final Navigator navigator = win.getNavigator();
+        JavaScriptRuntimeEnvironment environment = createRuntimeEnvironment(win, navigator);
+        JavaScriptInitializationAdapter.applyEnvironment(new JavaScriptInitializationAdapter.PropertySink() {
+            @Override
+            public void setProperty(String key, String value) {
+                d.setProperty(key, value);
+            }
+        }, environment);
+        setAppArg(JavaScriptInitializationAdapter.resolveAppArg(environment));
+        JavaScriptInitializationAdapter.runPostInit(new JavaScriptInitializationAdapter.RuntimeHooks() {
+            @Override
+            public void setDragStartPercentage(int percentage) {
+                HTML5Implementation.this.setDragStartPercentage(percentage);
+            }
+
+            @Override
+            public void initVideoCaptureConstraints() {
+                // On iOS we can't really use capture constraints yet anyways
+                // https://github.com/collab-project/videojs-record/issues/181
+                // https://github.com/collab-project/videojs-record/issues/332
+                VideoCaptureConstraints.init(new JSVideoCaptureConstraintsCompiler());
+            }
+
+            @Override
+            public void registerSaveBlobToFile() {
+                HTML5Implementation.registerSaveBlobToFile();
+            }
+
+            @Override
+            public void initGoogle() {
+                // Optional Google integration is intentionally disabled in the
+                // ParparVM runtime path until reflective class loading is supported.
+            }
+        }, isIOS());
+    }
+
+    private JavaScriptRuntimeEnvironment createRuntimeEnvironment(final WindowExt win, final Navigator navigator) {
+        return new JavaScriptRuntimeEnvironment(
+                navigator.getPlatform(),
+                navigator.getUserAgent(),
+                navigator.getLanguage(),
+                navigator.getAppName(),
+                navigator.getAppCodeName(),
+                navigator.getAppVersion(),
+                win.getCN1DeploymentType(),
+                ((WindowLocation)Window.current().getLocation()).getHref()
+        );
+    }
+
+    @JSBody(params={"msg"}, script="window.onbeforeunload=function(){return msg;}")
+    private native static void setBeforeUnloadMessage(String msg);
+    
+    @JSBody(params={}, script="window.onbeforeunload=function(){}")
+    private native static void removeBeforeUnload();
+    
+    @Override
+    public void setPlatformHint(String key, String value) {
+        if ("platformHint.javascript.beforeUnloadMessage".equalsIgnoreCase(key)) {
+            if (value == null) {
+                removeBeforeUnload();
+            } else {
+                setBeforeUnloadMessage(value);
+            }
+        }
+        if ("platformHint.javascript.backsideHooksInterval".equalsIgnoreCase(key)) {
+            if (value == null) {
+                value = "0"; 
+            }
+            int intVal = Integer.parseInt(value);
+            if (intVal < 0) {
+                if (backsideHooksIntervalHandle != 0) {
+                    Window.clearInterval(backsideHooksIntervalHandle);
+                    backsideHooksIntervalHandle = 0;
+                }
+            }
+            backsideHooksIntervalTimeout = intVal;
+        }
+    }
+
+    
+    
+    // Host-page URL forwarded into the worker by browser_bridge.js on START.
+    @JSBody(params={}, script="return self.__cn1LocationHref || '';")
+    private static native String mainLocationHref();
+
+    // A part of the host-page URL (search/hash/origin/pathname/protocol/port/
+    // host/hostname) parsed from the forwarded href. Returns null when the href
+    // wasn't forwarded so callers fall back to the worker's own location.
+    @JSBody(params={"part"}, script="try{var h=self.__cn1LocationHref; if(!h){return null;} var u=new URL(h); var v=u[part]; return (v==null)?'':(''+v);}catch(e){return null;}")
+    private static native String mainLocationPart(String part);
+
+    @Override
+    public String getProperty(String key, String defaultValue) {
+        Window win = (Window)Window.current();
+        
+        //Display.getInstance().getProperty("os.gzip", "false")
+        if ("os.gzip".equals(key)) {
+            // Flag used to indicate that the browser takes care of GZipped 
+            // connection responses seamlessly so GZIPInputStream doesn't 
+            // need to do anything.
+            return "true";
+        }
+        // The app runs in a Web Worker; ``Window.current().getLocation()`` there
+        // is the WORKER's location (the worker script URL), NOT the host page.
+        // Query params like ?sample= / ?code= / ?css= (share + deep links) live
+        // on the host page URL, which the bridge forwards to the worker on START
+        // (see browser_bridge.js / worker.js __cn1LocationHref). Prefer that.
+        if ("browser.window.location.href".equals(key)) {
+            String h = mainLocationHref();
+            return (h != null && h.length() > 0) ? h : ((WindowLocation)Window.current().getLocation()).getHref();
+        }
+        if ("browser.window.location.search".equals(key)) {
+            String v = mainLocationPart("search");
+            return v != null ? v : Window.current().getLocation().getSearch();
+        }
+        if ("browser.window.location.host".equals(key)) {
+            String v = mainLocationPart("host");
+            return v != null ? v : Window.current().getLocation().getHost();
+        }
+        if ("browser.window.location.hash".equals(key)) {
+            String v = mainLocationPart("hash");
+            return v != null ? v : Window.current().getLocation().getHash();
+        }
+        if ("browser.window.location.origin".equals(key)) {
+            String v = mainLocationPart("origin");
+            return v != null ? v : ((WindowLocation)Window.current().getLocation()).getOrigin();
+        }
+        if ("browser.window.location.pathname".equals(key)) {
+            String v = mainLocationPart("pathname");
+            return v != null ? v : ((WindowLocation)Window.current().getLocation()).getPathname();
+        }
+        if ("browser.window.location.protocol".equals(key)) {
+            String v = mainLocationPart("protocol");
+            return v != null ? v : Window.current().getLocation().getProtocol();
+        }
+        if ("browser.window.location.port".equals(key)) {
+            String v = mainLocationPart("port");
+            return v != null ? v : Window.current().getLocation().getPort();
+        }
+        if ("browser.window.location.hostname".equals(key)) {
+            String v = mainLocationPart("hostname");
+            return v != null ? v : ((WindowLocation)Window.current().getLocation()).getHostname();
+        }
+        // The ratio between the device pixels Codename One addresses and the CSS pixels the page
+        // is laid out in. Since 7.0.267 this port reports getDisplayWidth() in device pixels, so
+        // it draws at native resolution -- which also means a width compared against a constant
+        // written in CSS pixels now moves with the display's pixel ratio. An application that
+        // wants a layout breakpoint has to divide by this to get back to the units its threshold
+        // was written in; nothing else it can reach is exact, because getDeviceDensity() buckets
+        // the ratio and convertToPixels() therefore steps rather than scales.
+        if ("browser.window.devicePixelRatio".equals(key)) {
+            return String.valueOf(getDevicePixelRatio());
+        }
+        if ("browser.timezone".equals(key)) {
+            String tz = detectTimezone();
+            return tz != null ? tz : defaultValue;
+        }
+        if ("HTML5.platformName".equals(key)) {
+            if (isAndroid_()) {
+                return "and";
+            } else if (isIOS()) {
+                return "ios";
+            } else if (isMac()) {
+                return "mac";
+            } else {
+                return "win";
+            }
+        }
+        return super.getProperty(key, defaultValue);
+    }
+    
+    
+    
+    
+    
+    private HTMLCanvasElement getCanvasBuffer(int width, int height){
+        scratchBuffer = JavaScriptCanvasImageBufferLifecycle.ensureScratchBuffer(scratchBuffer, width, height,
+                new JavaScriptCanvasImageBufferLifecycle.ScratchCanvasFactory<HTMLCanvasElement>() {
+                    @Override
+                    public HTMLCanvasElement createScratchCanvas() {
+                        return (HTMLCanvasElement)doc().createElement("canvas");
+                    }
+                }, new JavaScriptCanvasImageBufferLifecycle.CanvasSizeAccess<HTMLCanvasElement>() {
+                    @Override
+                    public int getWidth(HTMLCanvasElement canvas) {
+                        return scratchBufferWidth;
+                    }
+
+                    @Override
+                    public int getHeight(HTMLCanvasElement canvas) {
+                        return scratchBufferHeight;
+                    }
+
+                    @Override
+                    public void setWidth(HTMLCanvasElement canvas, int canvasWidth) {
+                        canvas.setWidth(canvasWidth);
+                        scratchBufferWidth = canvasWidth;
+                    }
+
+                    @Override
+                    public void setHeight(HTMLCanvasElement canvas, int canvasHeight) {
+                        canvas.setHeight(canvasHeight);
+                        scratchBufferHeight = canvasHeight;
+                    }
+                });
+        return scratchBuffer;
+    }
+    
+    @Override
+    public void installNativeTheme(){
+    	try {
+            // Pick the .res to load based on the build hints and the
+            // detected browser OS. The JS-port default stays on the
+            // pre-existing legacy theme (Holo Light when the user agent
+            // is Android, iOS 7 on everything else) so legacy
+            // screenshot baselines remain comparable. Apps that want
+            // the modern Liquid Glass / Material 3 theme can opt in
+            // via ios.themeMode / and.themeMode / nativeTheme (legacy
+            // aliases: cn1.androidTheme / cn1.nativeTheme) /
+            // javascript.native.theme, including the new "auto" value
+            // that picks iOS modern for iOS/Mac browsers and Material
+            // 3 elsewhere.
+            String resolved = resolveNativeThemeResource();
+            // Publish the detected modern-theme resource so screenshot
+            // tests (DualAppearanceBaseTest) can install the same
+            // platform-appropriate theme on the JS port without
+            // duplicating the OS-detection logic.
+            String modern = isIOSLikeBrowser() ? "/iOSModernTheme.res" : "/AndroidMaterialTheme.res";
+            Display.getInstance().setProperty("cn1.modernThemeResource", modern);
+            Resources r;
+            try {
+                r = Resources.open(resolved);
+            } catch (Throwable notFound) {
+                // Fall back to the legacy theme if the chosen .res isn't in
+                // the JS bundle (partial build, missing mirror step, etc.).
+                String fallback = isAndroid_() ? "/android_holo_light.res" : "/iOS7Theme.res";
+                r = Resources.open(fallback);
+            }
+            Hashtable tp = r.getTheme(r.getThemeResourceNames()[0]);
+
+            // The browser has no OS status bar / notch, so the app must not
+            // reserve a status-bar strip at the top of the Form the way iOS
+            // does. The iOS-modern theme sets paintsTitleBarBool=true to
+            // reserve that safe-area space on real devices; force it off on the
+            // JS port so the web layout starts flush at the top (otherwise the
+            // undefined StatusBar UIID would also paint an opaque strip there).
+            tp.put("@paintsTitleBarBool", "false");
+
+            UIManager.getInstance().setThemeProps(tp);
+            return;
+    	} catch (IOException ex){
+            Log.e(ex);
+    	} catch (Exception ex) {
+            Log.e(ex);
+        }
+        return;
+    }
+
+    /**
+     * iOS/Mac browsers should pick up the iOS Liquid Glass theme;
+     * every other browser (Android, Windows, Linux, Chrome OS) gets
+     * the Android Material 3 theme. The legacy default split was
+     * Android vs. "everything else falls back to iOS"; for the modern
+     * native theme the more useful split is iOS-family vs. everyone
+     * else because Windows and Linux desktops match Material 3 better
+     * than Liquid Glass.
+     */
+    private static boolean isIOSLikeBrowser() {
+        return isIOS() || isMac();
+    }
+
+    /**
+     * Resolves the native-theme .res path from build hints + detected
+     * browser OS. Recognised hints (highest to lowest precedence):
+     *  - {@code javascript.native.theme}: explicit res path override.
+     *  - {@code ios.themeMode}: auto/modern/liquid/ios7/flat/legacy/
+     *    iphone. Applied to iOS/Mac browsers only.
+     *  - {@code and.themeMode}: auto/material/modern/hololight/holo/
+     *    legacy. Applied when the browser is not iOS/Mac. Alias:
+     *    {@code cn1.androidTheme}.
+     *  - {@code nativeTheme}: modern/auto/legacy. Maps onto the iOS
+     *    or Android branch based on the detected browser OS. Alias:
+     *    {@code cn1.nativeTheme}. The new {@code auto} value triggers
+     *    OS-based selection: iOS/Mac browsers get the Liquid Glass
+     *    theme, everything else gets Material 3.
+     *
+     * <p>With no hint set, the JS port keeps the pre-existing default
+     * (Android Holo Light when the user agent is Android, iOS 7
+     * everywhere else - identical to the historical legacy split) so
+     * existing JS screenshot baselines remain comparable. Apps that
+     * want the modern Liquid Glass / Material 3 theme can opt in by
+     * setting {@code nativeTheme=auto} or {@code nativeTheme=modern}
+     * (or the platform-specific {@code ios.themeMode} /
+     * {@code and.themeMode}). The {@code cn1.modernThemeResource}
+     * runtime property published by {@link #installNativeTheme()}
+     * always points at the OS-appropriate modern .res so screenshot
+     * tests can install it regardless of the configured default.
+     */
+    private static String resolveNativeThemeResource() {
+        Display d = Display.getInstance();
+        String explicit = d.getProperty("javascript.native.theme", null);
+        if (explicit != null && explicit.length() > 0) {
+            return explicit;
+        }
+        String shared = d.getProperty("nativeTheme", d.getProperty("cn1.nativeTheme", null));
+        // Auto-detected branch chooses Liquid Glass on iOS/Mac and
+        // Material 3 elsewhere. Used for any "modern"/"auto" path.
+        boolean iosLike = isIOSLikeBrowser();
+        if (iosLike) {
+            String iosMode = d.getProperty("ios.themeMode", null);
+            if (iosMode == null && shared != null) {
+                // "native" joins modern/auto here: it means the platform's own look on
+                // every OS, and on an iOS-like browser that is the modern theme.
+                if ("modern".equalsIgnoreCase(shared) || "auto".equalsIgnoreCase(shared)
+                        || "native".equalsIgnoreCase(shared)) {
+                    iosMode = "modern";
+                } else if ("legacy".equalsIgnoreCase(shared)) {
+                    iosMode = "ios7";
+                }
+            }
+            if (iosMode != null) {
+                iosMode = iosMode.toLowerCase();
+                if ("legacy".equals(iosMode) || "iphone".equals(iosMode)) {
+                    return "/iPhoneTheme.res";
+                }
+                if ("ios7".equals(iosMode) || "flat".equals(iosMode)) {
+                    return "/iOS7Theme.res";
+                }
+                // modern / liquid / auto / anything else -> modern theme
+                return "/iOSModernTheme.res";
+            }
+            // No iOS hint - keep the pre-existing JS-port default.
+            return "/iOS7Theme.res";
+        }
+        String androidMode = d.getProperty("and.themeMode", d.getProperty("cn1.androidTheme", null));
+        if (androidMode == null && shared != null) {
+            if ("modern".equalsIgnoreCase(shared) || "auto".equalsIgnoreCase(shared)
+                    || "native".equalsIgnoreCase(shared)) {
+                androidMode = "material";
+            } else if ("legacy".equalsIgnoreCase(shared)) {
+                androidMode = "hololight";
+            }
+        }
+        if (androidMode != null) {
+            androidMode = androidMode.toLowerCase();
+            if ("legacy".equals(androidMode)) {
+                return "/androidTheme.res";
+            }
+            if ("hololight".equals(androidMode) || "holo".equals(androidMode)) {
+                return "/android_holo_light.res";
+            }
+            // material / modern / auto / anything else -> modern theme
+            return "/AndroidMaterialTheme.res";
+        }
+        // No Android hint - keep the pre-existing JS-port default,
+        // which routes Android user agents to Holo Light and every
+        // other non-iOS browser (Linux/Windows/Chrome OS) to iOS 7.
+        return isAndroid_() ? "/android_holo_light.res" : "/iOS7Theme.res";
+    }
+
+    @Override
+    public boolean hasNativeTheme() {
+        return true;
+    }
+
+    private int isDesktop = -1;
+
+    @Override
+    public boolean isDesktop() {
+
+        if (isDesktop == -1) {
+            String overrideVal = getParameterByName("isDesktop");
+            if ("1".equals(overrideVal)) {
+                isDesktop = 1;
+            } else if ("0".equals(overrideVal)) {
+                isDesktop = 0;
+            } else {
+                isDesktop = isPhoneOrTablet_() ? 0:1;
+            }
+        }
+        return isDesktop==1;
+    }
+
+    
+    @JSBody(params={"name"}, script="return window.cn1_debug_flags && window.cn1_debug_flags[name];" )
+    private native static boolean debugFlag(String name);
+
+    /**
+     * Returns true if this is a mobile browser - and not a tablet.
+     * @return 
+     */
+    // From http://stackoverflow.com/a/11381730/2935174
+    @JSBody(params={}, script="var a = navigator.userAgent||navigator.vendor||window.opera; "
+            + "return /(android|bb\\d+|meego).+mobile|avantgo|bada\\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|iris|kindle|lge |maemo|midp|mmp|mobile.+firefox|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\\.(browser|link)|vodafone|wap|windows ce|xda|xiino/i.test(a)||/1207|6310|6590|3gso|4thp|50[1-6]i|770s|802s|a wa|abac|ac(er|oo|s\\-)|ai(ko|rn)|al(av|ca|co)|amoi|an(ex|ny|yw)|aptu|ar(ch|go)|as(te|us)|attw|au(di|\\-m|r |s )|avan|be(ck|ll|nq)|bi(lb|rd)|bl(ac|az)|br(e|v)w|bumb|bw\\-(n|u)|c55\\/|capi|ccwa|cdm\\-|cell|chtm|cldc|cmd\\-|co(mp|nd)|craw|da(it|ll|ng)|dbte|dc\\-s|devi|dica|dmob|do(c|p)o|ds(12|\\-d)|el(49|ai)|em(l2|ul)|er(ic|k0)|esl8|ez([4-7]0|os|wa|ze)|fetc|fly(\\-|_)|g1 u|g560|gene|gf\\-5|g\\-mo|go(\\.w|od)|gr(ad|un)|haie|hcit|hd\\-(m|p|t)|hei\\-|hi(pt|ta)|hp( i|ip)|hs\\-c|ht(c(\\-| |_|a|g|p|s|t)|tp)|hu(aw|tc)|i\\-(20|go|ma)|i230|iac( |\\-|\\/)|ibro|idea|ig01|ikom|im1k|inno|ipaq|iris|ja(t|v)a|jbro|jemu|jigs|kddi|keji|kgt( |\\/)|klon|kpt |kwc\\-|kyo(c|k)|le(no|xi)|lg( g|\\/(k|l|u)|50|54|\\-[a-w])|libw|lynx|m1\\-w|m3ga|m50\\/|ma(te|ui|xo)|mc(01|21|ca)|m\\-cr|me(rc|ri)|mi(o8|oa|ts)|mmef|mo(01|02|bi|de|do|t(\\-| |o|v)|zz)|mt(50|p1|v )|mwbp|mywa|n10[0-2]|n20[2-3]|n30(0|2)|n50(0|2|5)|n7(0(0|1)|10)|ne((c|m)\\-|on|tf|wf|wg|wt)|nok(6|i)|nzph|o2im|op(ti|wv)|oran|owg1|p800|pan(a|d|t)|pdxg|pg(13|\\-([1-8]|c))|phil|pire|pl(ay|uc)|pn\\-2|po(ck|rt|se)|prox|psio|pt\\-g|qa\\-a|qc(07|12|21|32|60|\\-[2-7]|i\\-)|qtek|r380|r600|raks|rim9|ro(ve|zo)|s55\\/|sa(ge|ma|mm|ms|ny|va)|sc(01|h\\-|oo|p\\-)|sdk\\/|se(c(\\-|0|1)|47|mc|nd|ri)|sgh\\-|shar|sie(\\-|m)|sk\\-0|sl(45|id)|sm(al|ar|b3|it|t5)|so(ft|ny)|sp(01|h\\-|v\\-|v )|sy(01|mb)|t2(18|50)|t6(00|10|18)|ta(gt|lk)|tcl\\-|tdg\\-|tel(i|m)|tim\\-|t\\-mo|to(pl|sh)|ts(70|m\\-|m3|m5)|tx\\-9|up(\\.b|g1|si)|utst|v400|v750|veri|vi(rg|te)|vk(40|5[0-3]|\\-v)|vm40|voda|vulc|vx(52|53|60|61|70|80|81|83|85|98)|w3c(\\-| )|webc|whit|wi(g |nc|nw)|wmlb|wonu|x700|yas\\-|your|zeto|zte\\-/i.test(a.substr(0,4));")
+    private native static boolean isPhone_();
+    
+    @JSBody(params={}, script="var a = navigator.userAgent||navigator.vendor||window.opera;"
+            + "return /(android|bb\\d+|meego).+mobile|avantgo|bada\\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|iris|kindle|lge |maemo|midp|mmp|mobile.+firefox|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\\.(browser|link)|vodafone|wap|windows ce|xda|xiino|android|ipad|playbook|silk/i.test(a)||/1207|6310|6590|3gso|4thp|50[1-6]i|770s|802s|a wa|abac|ac(er|oo|s\\-)|ai(ko|rn)|al(av|ca|co)|amoi|an(ex|ny|yw)|aptu|ar(ch|go)|as(te|us)|attw|au(di|\\-m|r |s )|avan|be(ck|ll|nq)|bi(lb|rd)|bl(ac|az)|br(e|v)w|bumb|bw\\-(n|u)|c55\\/|capi|ccwa|cdm\\-|cell|chtm|cldc|cmd\\-|co(mp|nd)|craw|da(it|ll|ng)|dbte|dc\\-s|devi|dica|dmob|do(c|p)o|ds(12|\\-d)|el(49|ai)|em(l2|ul)|er(ic|k0)|esl8|ez([4-7]0|os|wa|ze)|fetc|fly(\\-|_)|g1 u|g560|gene|gf\\-5|g\\-mo|go(\\.w|od)|gr(ad|un)|haie|hcit|hd\\-(m|p|t)|hei\\-|hi(pt|ta)|hp( i|ip)|hs\\-c|ht(c(\\-| |_|a|g|p|s|t)|tp)|hu(aw|tc)|i\\-(20|go|ma)|i230|iac( |\\-|\\/)|ibro|idea|ig01|ikom|im1k|inno|ipaq|iris|ja(t|v)a|jbro|jemu|jigs|kddi|keji|kgt( |\\/)|klon|kpt |kwc\\-|kyo(c|k)|le(no|xi)|lg( g|\\/(k|l|u)|50|54|\\-[a-w])|libw|lynx|m1\\-w|m3ga|m50\\/|ma(te|ui|xo)|mc(01|21|ca)|m\\-cr|me(rc|ri)|mi(o8|oa|ts)|mmef|mo(01|02|bi|de|do|t(\\-| |o|v)|zz)|mt(50|p1|v )|mwbp|mywa|n10[0-2]|n20[2-3]|n30(0|2)|n50(0|2|5)|n7(0(0|1)|10)|ne((c|m)\\-|on|tf|wf|wg|wt)|nok(6|i)|nzph|o2im|op(ti|wv)|oran|owg1|p800|pan(a|d|t)|pdxg|pg(13|\\-([1-8]|c))|phil|pire|pl(ay|uc)|pn\\-2|po(ck|rt|se)|prox|psio|pt\\-g|qa\\-a|qc(07|12|21|32|60|\\-[2-7]|i\\-)|qtek|r380|r600|raks|rim9|ro(ve|zo)|s55\\/|sa(ge|ma|mm|ms|ny|va)|sc(01|h\\-|oo|p\\-)|sdk\\/|se(c(\\-|0|1)|47|mc|nd|ri)|sgh\\-|shar|sie(\\-|m)|sk\\-0|sl(45|id)|sm(al|ar|b3|it|t5)|so(ft|ny)|sp(01|h\\-|v\\-|v )|sy(01|mb)|t2(18|50)|t6(00|10|18)|ta(gt|lk)|tcl\\-|tdg\\-|tel(i|m)|tim\\-|t\\-mo|to(pl|sh)|ts(70|m\\-|m3|m5)|tx\\-9|up(\\.b|g1|si)|utst|v400|v750|veri|vi(rg|te)|vk(40|5[0-3]|\\-v)|vm40|voda|vulc|vx(52|53|60|61|70|80|81|83|85|98)|w3c(\\-| )|webc|whit|wi(g |nc|nw)|wmlb|wonu|x700|yas\\-|your|zeto|zte\\-/i.test(a.substr(0,4));")
+    native static boolean isPhoneOrTablet_();
+
+    @JSBody(script="return (navigator.userAgent.toLowerCase().indexOf(\"android\") > -1)")
+    public native static boolean isAndroid_();
+    
+    @Override
+    public int getDeviceDensity() {
+        if (dDensity == -1) {
+            JavaScriptDisplayMetrics.FormFactor ff;
+            if (isPhone_()) {
+                ff = JavaScriptDisplayMetrics.FormFactor.PHONE;
+            } else if (isPhoneOrTablet_()) {
+                ff = JavaScriptDisplayMetrics.FormFactor.TABLET;
+            } else {
+                ff = JavaScriptDisplayMetrics.FormFactor.DESKTOP;
+            }
+            dDensity = JavaScriptDisplayMetrics.pickDensity(devicePixelRatioValue(), ff, getDensityOverride());
+        }
+        return dDensity;
+    }
+    
+    
+    private static interface NormalizedWheelEvent extends JSObject {
+        @JSProperty
+        double getPixelX();
+        
+        @JSProperty
+        double getPixelY();
+        
+        @JSProperty
+        double getSpinX();
+        
+        @JSProperty
+        double getSpinY();
+    }
+    
+    @JSBody(params={"evt"}, script="return window.cn1NormalizeWheel(evt)")
+    private native static NormalizedWheelEvent normalizeWheelEvent(WheelEvent evt);
+    
+    @JSBody(params={}, script="return window.cn1NormalizeWheel.getEventType()")
+    public native static String getWheelEventType();
+    
+    private double ppi=0;
+    private int dDensity = -1;
+    
+    @Override
+    public int convertToPixels(int dipCount, boolean horizontal) {
+        if (ppi == 0) {
+            ppi = millimetreScale();
+        }
+        return (int) Math.round(((float) dipCount) * ppi);
+    }
+
+    /**
+     * Device pixels per millimetre, taken from the display's actual pixel ratio.
+     *
+     * <p>Deliberately not {@code pixelsPerMillimeter(getDeviceDensity())}. That table sorts a
+     * display into one of nine Android-shaped buckets and reads a nominal dpi out of it, which
+     * only lands on Codename One's own baseline of 160dpi-per-CSS-pixel at ratios 1 and 2.
+     * Everywhere else it misses, and by a lot: ratio 3 falls in the HD bucket and is rendered
+     * 12.5% too large, ratio 2.5 lands in the same bucket and is 35% too large, and ratio 1.5 --
+     * ordinary on Android and on Windows at 150% scaling -- falls back to MEDIUM and is a third
+     * too small. A millimetre is a physical length, so it should cover the same amount of screen
+     * whatever the ratio; instead it stepped between displays.</p>
+     *
+     * <p>A browser does not need to guess at any of this. It reports the ratio exactly, so the
+     * baseline scaled by it is the answer, and a millimetre is then the same size at every ratio.
+     * {@link #getDeviceDensity()} keeps its buckets: that one picks which resolution of an image
+     * to load, which is a genuine choice between a handful of assets.</p>
+     *
+     * <p>An explicit {@code ?density=} override is honoured as given -- someone forcing a density
+     * is asking for that density, not for a correction to it.</p>
+     */
+    private double millimetreScale() {
+        int override = getDensityOverride();
+        if (override > 0) {
+            return JavaScriptDisplayMetrics.pixelsPerMillimeter(override);
+        }
+        double ratio = getDevicePixelRatio();
+        if (ratio <= 0) {
+            ratio = 1;
+        }
+        return ratio * JavaScriptDisplayMetrics.pixelsPerMillimeter(
+                JavaScriptDisplayMetrics.DENSITY_MEDIUM);
+    }
+    
+    @JSBody(params={}, script="var ua = navigator.userAgent.toLowerCase(); \n" +
+        "if (ua.indexOf('safari') != -1) { \n" +
+        "  if (ua.indexOf('chrome') > -1) {\n" +
+        "    return false;\n" +
+        "  } else {\n" +
+        "    return true;\n" +
+        "  }\n" +
+        "}\n"
+            + "return false;")
+    private static native boolean _isSafari();
+    private static boolean isSafari;
+    private static boolean isSafariChecked;
+    public static boolean isSafari() {
+        if (!isSafariChecked) {
+            isSafariChecked = true;
+            isSafari = _isSafari();
+        }
+        return isSafari;
+    }
+    
+    @JSBody(params={}, script="return (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream) ||  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)")
+    public static native boolean isIOS();
+    
+    @JSBody(params={}, script="return /Mac/.test(navigator.userAgent)")
+    public static native boolean isMac();
+    
+    // From https://stackoverflow.com/questions/57599945/how-to-detect-ios-13-on-javascript
+    @JSBody(params={}, script="return \"download\" in document.createElement(\"a\")")
+    private static native boolean doesAnchorSupportDownload();
+    
+    private static boolean isIOS13() {
+        return isIOS() && doesAnchorSupportDownload();
+    }
+    
+    @JSBody(params={}, script="return (navigator.userAgent.match(/iPad/i) != null) ||  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)")
+    private static native boolean isIPad();
+    
+    
+    // Codename One addresses DEVICE pixels. The iOS port detects the retina factor and
+    // multiplies/divides the values it hands the native primitives, so the framework
+    // draws at the display's real resolution; this port works the same way, with
+    // scaleCoord/unscaleCoord converting at the DOM boundary (peers, overlays, pointer
+    // coordinates) and nowhere else.
+    //
+    // This used to default to 1, which made the canvas backing store equal to the CSS
+    // size -- so on any HiDPI display the browser upscaled a 1x bitmap, softening
+    // everything and text most visibly. ``?pixelRatio=N`` still pins a specific factor
+    // for the screenshot harness and the skin designer.
+    @JSBody(params={}, script="if (window.overridePixelRatio === undefined) {"
+            + "    var ratioStr = getParameterByName('pixelRatio');"
+            + "    if (ratioStr != '') {"
+            + "        window.overridePixelRatio = parseFloat(ratioStr);"
+            + "    }"
+            + "    if (window.cn1ScaleCoord === undefined){ window.cn1ScaleCoord = function(x) { return x===-1?-1:x/(window.overridePixelRatio || window.devicePixelRatio || 1.0);};}"
+            + "    if (window.cn1UnscaleCoord === undefined){ window.cn1UnscaleCoord = function(x) { return x===-1?-1:x*(window.overridePixelRatio || window.devicePixelRatio || 1.0);};}"
+            + "}"
+            + "return window.overridePixelRatio || window.devicePixelRatio || 1.0")
+    static native double getDevicePixelRatio_();
+    
+    
+    @JSBody(params={"name"}, script="return getParameterByName(name);")
+    static native String getParameterByName(String name);
+    
+    /**
+     * Re-reads the display's scale factor from the main thread.
+     *
+     * <p>The cached value is taken once at start-up, but the ratio changes when the page is
+     * zoomed or the window moves between displays. Left stale, the canvas backing store no
+     * longer matches the display and the browser rescales it -- the same softening this port
+     * used to have by rendering at 1x. Read on resize only, which is when it can change and is
+     * rare enough for a round trip.</p>
+     */
+    private void refreshDevicePixelRatio() {
+        try {
+            // ?pixelRatio=N pins the factor deliberately -- the screenshot harness and the skin
+            // designer depend on it -- so the physical ratio must not overwrite it.
+            String override = getParameterByName("pixelRatio");
+            if (override != null && override.length() > 0) {
+                return;
+            }
+            double ratio = window.getDevicePixelRatio();
+            if (ratio > 0 && ratio != devicePixelRatio) {
+                devicePixelRatio = ratio;
+                // Density, the styles resolved from it and the font sizes derived from those are
+                // all fixed at the ratio in force when they were resolved. Moving between
+                // displays would otherwise keep a 36 device-pixel font at 36 CSS pixels, so text
+                // and controls would roughly double in size.
+                dDensity = -1;
+                // Derived from the density, and cached on first use, so it has to go with it --
+                // otherwise convertToPixels() keeps answering in the old density's units while
+                // getDeviceDensity() reports the new one.
+                ppi = 0;
+                // Copied from when a font carries no height of its own, so it has to be current
+                // before any of those copies are taken.
+                if (defaultFont != null) {
+                    defaultFont.syncDensity();
+                }
+                themeGeneration++;
+                refreshThemeIfStale(getCurrentForm());
+            }
+        } catch (Throwable ignored) {
+            // Keep whatever was resolved at start-up.
+        }
+    }
+
+    /// Named apart from the core API deliberately: `CodenameOneImplementation`
+    /// declares `public float devicePixelRatioValue()` as an INSTANCE method, and a
+    /// static method of the same name cannot override it -- that is a compile
+    /// error, not shadowing. This one stays static because the canvas plumbing
+    /// calls it from static context.
+    static double devicePixelRatioValue() {
+        if (devicePixelRatio < 0) {
+            devicePixelRatio = getDevicePixelRatio_();
+        }
+        return devicePixelRatio;
+    }
+
+    /// The core API: this port knows its ratio exactly, so callers never have to
+    /// derive one from the density bucket.
+    @Override
+    public float getDevicePixelRatio() {
+        return (float) devicePixelRatioValue();
+    }
+
+    @Override
+    public int getDisplayWidth() {
+        // Pure synchronous read of the Java-cached size (set in updateCanvasSize,
+        // which runs at init and on resize). MUST NOT read canvas.getWidth() back
+        // across the barrier (degrades -> wedge) and MUST NOT call updateCanvasSize
+        // here: that yields (barrier reads) and its repaint side effect recurses
+        // back into getDisplayWidth -> synchronous wedge. A pre-layout query just
+        // gets the safe minimum until the first updateCanvasSize lands.
+        return displayWidth > 0 ? displayWidth : 1;
+    }
+
+    @Override
+    public int getDisplayHeight() {
+        return displayHeight > 0 ? displayHeight : 1;
+    }
+
+    /** Cross-package access to the (Java-cached) display size, so callers in
+     *  other packages size native widgets without reading canvas.getWidth()
+     *  back across the barrier. */
+    public static int displayWidthPx() {
+        return instance != null ? instance.getDisplayWidth() : 1;
+    }
+
+    public static int displayHeightPx() {
+        return instance != null ? instance.getDisplayHeight() : 1;
+    }
+
+    // Cached document accessor. Never re-query doc() across the
+    // barrier (see the ``document`` field comment). Lazy fallback only covers
+    // the impossible case of a call before __init resolved it.
+    private HTMLDocument doc() {
+        if (document == null && window != null) {
+            document = window.getDocument();
+        }
+        return document;
+    }
+
+    @Override
+    public boolean isNativeInputSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isNativeInputImmediate() {
+        return true;
+    }
+
+    @JSBody(params={"ext"}, script="switch (ext) {"
+            + "case 'aac': return 'audio/x-aac';"
+            + "case 'aif': return 'audio/x-aiff';"
+            + "case 'uva': return 'audio/vnd.dece.audio';"
+            + "case 'm3u': return 'audio/x-mpegurl';"
+            + "case 'wma': return 'audio/x-ms-wma';"
+            + "case 'mid': return 'audio/midi';"
+            + "case 'mpga': return 'audio/mpeg';"
+            + "case 'mp4a': return 'audio/mp4';"
+            + "case 'mp3': return 'audio/mp3';"
+            + "case 'oga': return 'audio/ogg';"
+            + "case 'weba': return 'audio/webm';"
+            + "case 'wav': return 'audio/x-wav';"
+            + "case '3gp': return 'video/3gpp';"
+            + "case '3g2': return 'video/3gpp2';"
+            + "case 'avi': return 'video/x-msvideo';"
+            + "case 'f4v': return 'video/x-f4v';"
+            + "case 'flv': return 'video/xflv';"
+            + "case 'h261': return 'video/h261';"
+            + "case 'h263': return 'video/h263';"
+            + "case 'h264': return 'video/h264';"
+            + "case 'jpgv': return 'video/jpeg';"
+            + "case 'm4v': return 'video/x-m4v';"
+            + "case 'asf': return 'video/x-ms-asf';"
+            + "case 'wm': return 'video/x-ms-wm';"
+            + "case 'wmx': return 'video/x-mws-wmx';"
+            + "case 'wmv': return 'video/x-ms-wmv';"
+            + "case 'mpeg': return 'video/mpeg';"
+            + "case 'mp4': return 'video/mp4';"
+            + "case 'ogv': return 'video/ogg';"
+            + "case 'webm': return 'video/webm';"
+            + "case 'qt': return 'video/quicktime';"
+            + "default: return 'video/mp4';"
+            + "}")
+    private static native String getMimeForExtension(String ext);
+    
+    private static String guessMime(String uri) {
+        if (isTempFile(uri)) {
+            Blob tmpFile = getTempFile(uri);
+            if (tmpFile != null && tmpFile.getType() != null && !"".equals(tmpFile.getType())) {
+                return tmpFile.getType();
+            }
+        }
+        if (uri.indexOf("#") > 0) {
+            uri = uri.substring(0, uri.indexOf("#"));
+        }
+        if (uri.indexOf("?") > 0) {
+            uri = uri.substring(0, uri.indexOf("?"));
+        }
+        if (uri.lastIndexOf(".") > 0) {
+            String ext = uri.substring(uri.lastIndexOf(".")+1);
+            return getMimeForExtension(ext);
+            
+        }
+        
+        return "application/octet-stream";
+        
+    }
+    
+    @Override
+    public boolean isSoundPoolSupported() {
+        return true;
+    }
+
+    @Override
+    public com.codename1.media.SoundPoolPeer createSoundPool(int maxStreams) {
+        // A WebAudio backed pool gives true low latency, per voice volume/pan/rate;
+        // if WebAudio is unavailable this returns null and SoundPool uses the
+        // cross platform MediaManager fallback.
+        return WebAudioSoundPool.tryCreate(this, maxStreams);
+    }
+
+    @Override
+    public Media createMedia(String uri, boolean isVideo, final Runnable onCompletion) throws IOException {
+        return createMedia(uri, isVideo, null, onCompletion);
+    }
+
+    @Override
+    public boolean isNativeVideoPlayerControlsIncluded() {
+        return true;
+    }
+
+    @Override
+    public AsyncResource<Media> createMediaAsync(InputStream stream, String mimeType, Runnable onCompletion) {
+        final AsyncResource<Media> out = new AsyncResource<Media>();
+        final HTML5Media media;
+        try {
+            media = (HTML5Media)createMedia(stream, mimeType, onCompletion, false);
+        } catch (IOException ex) {
+            out.error(ex);
+            return out;
+        }
+        final boolean[] handled = new boolean[1];
+        final HTMLMediaElement el = media.getMediaElement();
+        final EventListener errorListener = new EventListener() {
+            @Override
+            public void handleEvent(final Event evt) {
+                _logObj(((com.codename1.html5.js.dom.HTMLMediaElement)evt.getTarget()).getError());
+                new Thread() {
+                    public void run() {
+                        _log("error event received loading stream");
+                        
+                        if (handled[0]) {
+                            Log.p("WARNING: error event called after load events already handled when loading media from stream ");
+                            return;
+                        }
+                        handled[0] = true;
+                        out.error(new IOException("Failed to load media from stream"));
+                    }
+                }.start();
+            }
+
+        };
+        el.addEventListener("error", errorListener);
+        mediaPool().addCleanupListener(new HTML5MediaPool.CleanupListener(el) {
+            @Override
+            public void run(HTMLElement thisEl) {
+                thisEl.removeEventListener("error", errorListener);
+            }
+        });
+        final EventListener loadedMetadataListener = new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                new Thread() {
+                    public void run() {
+                        _log("loadstart event received loading stream");
+                        if (handled[0]) {
+                            Log.p("WARNING: loadstart event called after load events already handled when loading media from stream ");
+                            return;
+                        }
+                        handled[0] = true;
+                        out.complete(media);
+                    }
+                }.start();
+            }
+
+        };
+        el.addEventListener("loadedmetadata", loadedMetadataListener);
+        mediaPool().addCleanupListener(new HTML5MediaPool.CleanupListener(el) {
+            @Override
+            public void run(HTMLElement thisEl) {
+                thisEl.removeEventListener("loadedmetadata", loadedMetadataListener);
+            }
+            
+        });
+        
+        return out;
+    }
+
+    
+    
+    @Override
+    public AsyncResource<Media> createMediaAsync(final String uri, boolean video, Runnable onCompletion) {
+        final AsyncResource<Media> out = new AsyncResource<Media>();
+        final HTML5Media media;
+        try {
+            media = (HTML5Media)createMedia(uri, video, null, onCompletion, false);
+        } catch (IOException ex) {
+            out.error(ex);
+            return out;
+        }
+        final boolean[] handled = new boolean[1];
+        final HTMLMediaElement el = media.getMediaElement();
+        final EventListener errorListener = new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                _logObj(((com.codename1.html5.js.dom.HTMLMediaElement)evt.getTarget()).getError());
+                new Thread() {
+                    public void run() {
+                        _log("error event received loading stream");
+                        _log(uri);
+                        if (handled[0]) {
+                            Log.p("WARNING: error event called after load events already handled when loading media from uri "+uri);
+                            return;
+                        }
+                        handled[0] = true;
+                        out.error(new IOException("Failed to load media from "+uri));
+                    }
+                }.start();
+            }
+
+        };
+        el.addEventListener("error", errorListener);
+        final EventListener loadedMetaDataListener = new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                new Thread() {
+                    public void run() {
+                        _log("loadstart received loading stream");
+                        _log(uri);
+                        if (handled[0]) {
+                            Log.p("WARNING: loadstart event called after load events already handled when loading media from uri "+uri);
+                            return;
+                        }
+                        handled[0] = true;
+                        out.complete(media);
+                    }
+                }.start();
+            }
+
+        };
+        el.addEventListener("loadedmetadata", loadedMetaDataListener);
+        mediaPool().addCleanupListener(new HTML5MediaPool.CleanupListener(el) {
+            @Override
+            public void run(HTMLElement thisEl) {
+                thisEl.removeEventListener("error", errorListener);
+                thisEl.removeEventListener("loadedmetadata", loadedMetaDataListener);
+            }
+        });
+        return out;
+    }
+
+    
+    private HTML5MediaPool mediaPool;
+    
+    HTML5MediaPool mediaPool() {
+        if (mediaPool == null) {
+            mediaPool = new HTML5MediaPool();
+        }
+        return mediaPool;
+    }
+    
+    private Media createMedia(String uri, boolean isVideo, String mime, final Runnable onCompletion) throws IOException {
+        return createMedia(uri, isVideo, mime, onCompletion, true);
+    }
+    
+    
+    
+    private Media createMedia(String uri, boolean isVideo, String mime, final Runnable onCompletion, boolean blocking) throws IOException {
+        //_log("Creating media for "+uri);
+        HTMLMediaElement el = null;
+        if (isVideo){
+            el = mediaPool().createVideoElement();
+        } else {
+            el = mediaPool().createAudioElement();
+        }
+        
+        mime = mime == null ? guessMime(uri) : mime;
+        if (isVideo && (mime == null || !mime.startsWith("video"))) {
+            mime = "video/mp4";
+        }
+        if (!isVideo && (mime == null || !mime.startsWith("audio"))) {
+            mime = "audio/wav";
+        }
+        FileSystemStorage fs = FileSystemStorage.getInstance();
+        //if (uri.indexOf("file://") == 0) {
+        if (fs.exists(uri)) {
+            mediaPool().returnMediaElement(el);
+            _log("Opening media from file system "+uri);
+            return createMedia(this.openFileInputStream(uri), mime, onCompletion, blocking);
+            //ArrayBufferInputStream is = (ArrayBufferInputStream)this.openFileInputStream(uri);
+            //String dataURL = arrayBufferToDataURL(is.getBuffer().getBuffer(), mime);
+            //el.setSrc(dataURL);
+        } else if (uri.indexOf("//") >= 0 || uri.indexOf("data:") == 0 || uri.indexOf("assets/") == 0) {
+            _log("Opening media from uri "+uri);
+            el.setSrc(uri);
+        } else {
+            _log("Opening media from resource stream "+uri);
+            ArrayBufferInputStream is = (ArrayBufferInputStream)this.getResourceAsStream(null, uri);
+            String dataURL = arrayBufferToDataURL(is.getBuffer().getBuffer(), mime);
+            el.setSrc(dataURL);
+        }
+        if (blocking) {
+            final boolean[] error = new boolean[1];
+            final boolean[] complete = new boolean[1];
+            final EventListener errorListener = new EventListener() {
+                @Override
+                public void handleEvent(Event evt) {
+                    _logObj(((com.codename1.html5.js.dom.HTMLMediaElement)evt.getTarget()).getError());
+                    new Thread() {
+                        public void run() {
+                            synchronized(complete) {
+                                error[0] = true;
+                                complete[0] = true;
+                                complete.notify();
+                            }
+                        }
+                    }.start();
+                }
+
+            };
+            
+            el.addEventListener("error", errorListener);
+            mediaPool().addCleanupListener(new HTML5MediaPool.CleanupListener(el) {
+                public void run(HTMLElement theEl) {
+                    theEl.removeEventListener("error", errorListener);
+                }
+            });
+            final EventListener loadedMetaDataListener = new EventListener() {
+                @Override
+                public void handleEvent(Event evt) {
+                    new Thread() {
+                        public void run() {
+                            synchronized(complete) {
+                                complete[0] = true;
+                                complete.notify();
+                            }
+                        }
+                    }.start();
+                    
+                }
+
+            };
+            el.addEventListener("loadedmetadata", loadedMetaDataListener);
+            mediaPool().addCleanupListener(new HTML5MediaPool.CleanupListener(el) {
+                public void run(HTMLElement theEl) {
+                    theEl.removeEventListener("loadedmetadata", loadedMetaDataListener);
+                }
+            });
+            // Bound the wait: a headless browser (no audio device) may never fire
+            // loadedmetadata OR error for an <audio> element, which used to hang
+            // createMedia forever (the test was force-advanced by the 90s dispatch
+            // watchdog). The media element is created either way; if metadata never
+            // arrives we return it anyway (it may still load/play later) rather
+            // than blocking the caller indefinitely.
+            final long mediaLoadDeadline = System.currentTimeMillis() + 4000;
+            while (!complete[0] && System.currentTimeMillis() < mediaLoadDeadline) {
+                invokeAndBlock(new Runnable() {
+                    public void run() {
+                        synchronized(complete) {
+                            Util.wait(complete, 250);
+                        }
+                    }
+
+                });
+            }
+            if (error[0]) {
+                throw new IOException("Failed to load media from uri "+uri);
+            }
+        }
+        HTML5Media out = new HTML5Media(el, isVideo);
+        if (onCompletion!=null){
+            out.addCompletionHandler(onCompletion);
+        }
+        
+        
+        return out;
+        
+    }
+    
+    @Override
+    public void addCompletionHandler(Media media, Runnable onCompletion) {
+        
+        super.addCompletionHandler(media, onCompletion); 
+        if (media instanceof HTML5Media) {
+            ((HTML5Media)media).addCompletionHandler(onCompletion);
+        }
+    }
+
+    @Override
+    public void removeCompletionHandler(Media media, Runnable onCompletion) {
+        if (media instanceof HTML5Media) {
+            ((HTML5Media)media).removeCompletionHandler(onCompletion);
+        }
+        super.removeCompletionHandler(media, onCompletion); 
+    }
+
+    
+    
+    @Override
+    public Media createMedia(InputStream stream, String mimeType, Runnable onCompletion) throws IOException {
+        return createMedia(stream, mimeType, onCompletion, true);
+    }
+
+    /**
+     * Creates media.
+     * @param stream InputStream to create media for
+     * @param mimeType Mimetype of the media.  May be null.
+     * @param onCompletion Callback to run on completion of playing media.
+     * @param blocking Whether to use invokeAndBlock to block return until the media has either errored, or started loading.  Normal calls
+     * to createMedia block so that errors result in an IOException being thrown.  Async wrappers will call this method with blocking=false
+     * to that they can handle errors and returns asynchronously, without underlying baggage of invokeAndBlock
+     * @return A Media element
+     * @throws IOException If blocking=true and media fails to load (e.g. can't be found).
+     */
+    private Media createMedia(InputStream stream, String mimeType, Runnable onCompletion, boolean blocking) throws IOException {
+        if (stream instanceof ArrayBufferInputStream){
+            ArrayBufferInputStream bufStream = (ArrayBufferInputStream)stream;
+            String src = bufStream.getSrc();
+            if (src != null){
+                return createMedia(src, mimeType.indexOf("video")!=-1, mimeType, onCompletion, blocking);
+            }
+            
+            Blob blob = bufStream.getBlob();
+            if (mimeType != null && !Objects.equals(blob.getType(), mimeType)) {
+                blob = BlobUtil.toType(blob, mimeType);
+            }
+            // BlobUtil.createObjectURL runs URL.createObjectURL in the worker.
+            // (URLBuilderFactory)window.getURL() returned null in the worker
+            // (window is a host-ref proxy) -> NPE in createMedia.
+            String objUrl = BlobUtil.createObjectURL(blob);
+            return createMedia(objUrl, mimeType.indexOf("video")!=-1, mimeType, onCompletion, blocking);
+        } else {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            Util.copy(stream, baos);
+            // Use a self-contained data: URL (pure-Java base64) rather than a
+            // blob: object URL. BlobUtil.createObjectURL runs in the worker, so
+            // the blob: URL is worker-scoped and the main-thread <audio> element
+            // can't load it -- createMedia's blocking wait then never sees
+            // loadedmetadata/error and hangs (the dispatch watchdog force-advances
+            // the test). A data: URL is a portable string that loads anywhere.
+            String objUrl = "data:" + (mimeType == null ? "audio/wav" : mimeType)
+                    + ";base64," + com.codename1.util.Base64.encodeNoNewline(baos.toByteArray());
+            return createMedia(objUrl, mimeType.indexOf("video")!=-1, mimeType, onCompletion, blocking);
+        }
+    }
+
+    @Override
+    public boolean isGalleryTypeSupported(int type) {
+        if (super.isGalleryTypeSupported(type)) {
+            return true;
+        }
+        
+        switch (type) {
+            case Display.GALLERY_ALL_MULTI:
+            case Display.GALLERY_IMAGE_MULTI:
+            case Display.GALLERY_VIDEO_MULTI:
+            case -9999:
+            case -9998:
+                return true;
+        }
+        return false;
+    }
+
+    
+    
+    @Override
+    public void openGallery(ActionListener response, int type) {
+        String accept = null;
+        boolean multiple = false;
+        switch (type) {
+            case -9998:
+            case Display.GALLERY_ALL_MULTI:
+            case Display.GALLERY_IMAGE_MULTI:
+            case Display.GALLERY_VIDEO_MULTI:
+                multiple = true;
+                break;
+        }
+        if (type == -9998) {
+            type = -9999;
+        }
+        switch (type) {
+            case Display.GALLERY_IMAGE:
+            case Display.GALLERY_IMAGE_MULTI:
+                accept = "image/*";
+                break;
+            case Display.GALLERY_VIDEO:
+            case Display.GALLERY_VIDEO_MULTI:
+                accept = "video/*";
+                break;
+            case -9999:
+                accept = Display.getInstance().getProperty("javascript.openGallery.accept", null);
+                break;
+        }
+        com.codename1.teavm.ext.usermedia.FileChooser chooser = new com.codename1.teavm.ext.usermedia.FileChooser(response, accept, null);
+        chooser.setMultiple(multiple);
+        if (accept != null && accept.startsWith("image/")) {
+            chooser.setFixImageOrientation(true);
+        }
+        chooser.showDialog();
+    }
+
+    @Override
+    public void captureVideo(ActionListener response) {
+        new com.codename1.teavm.ext.usermedia.FileChooser(response, "video/*", "camcorder").showDialog();
+    }
+
+    @Override
+    public void captureVideo(VideoCaptureConstraints constraints, final ActionListener response) {
+        if (constraints == null || constraints.isNullConstraint() || isIOS()) {
+            // There are no constraints here... just use the default video capture.
+            
+            // On iOS we can't really use capture constraints yet anyways
+            // https://github.com/collab-project/videojs-record/issues/181
+            // https://github.com/collab-project/videojs-record/issues/332
+            
+            captureVideo(response);
+            return;
+        }
+        
+        VideoJS.Options opts = VideoJS.newOptions();
+        VideoJS.RecordOptions recordOptions = VideoJS.newRecordOptions();
+        opts.setPlugins(VideoJS.newPlugins(recordOptions));
+        VideoJS.MediaStreamConstraints videoConstraints = VideoJS.newMediaStreamConstraints();
+        recordOptions.setVideo(videoConstraints);
+        if (constraints.getHeight() != 0) {
+            videoConstraints.setHeight(constraints.getHeight());
+        }
+        if (constraints.getWidth() != 0) {
+            videoConstraints.setWidth(constraints.getWidth());
+        }
+        if (constraints.getMaxLength() != 0) {
+            recordOptions.setMaxLength(constraints.getMaxLength());
+        }
+        try {
+            final VideoJS videoJS = new VideoJS(null, opts);
+            videoJS.addListener(new VideoJS.VideoListener() {
+                @Override
+                public void onDeviceError(String errorCode) {
+                    videoJS.destroy();
+                    Log.e(new IOException("Device error code: "+errorCode));
+                    response.actionPerformed(new ActionEvent(null));
+                }
+
+                @Override
+                public void onError(String message) {
+                    videoJS.destroy();
+                    Log.e(new IOException(message));
+                    response.actionPerformed(new ActionEvent(null));
+                }
+
+                @Override
+                public void onStartRecord() {
+                    
+                }
+
+                @Override
+                public void onFinishRecord(Blob recordedData) {
+                    videoJS.destroy();
+                    response.actionPerformed(new ActionEvent(HTML5Implementation.createTempFile(recordedData)));
+                }
+            });
+        } catch (IOException ioe) {
+            Log.e(ioe);
+            Log.p("VideoJS is not loaded, using default captureVideo behaviour.  Add the javascript.includeVideoJS build hint in order to use capture video with video constraints support.");
+            captureVideo(response);
+        }
+    }
+    
+    
+
+    @Override
+    public void captureAudio(ActionListener response) {
+        //new com.codename1.teavm.ext.usermedia.FileChooser(response, "audio/*", "capture").showDialog();
+        super.captureAudio(response);
+    }
+
+    @Override
+    public String[] getAvailableRecordingMimeTypes() {
+        return new String[]{"audio/wav"};
+    }
+
+    @Override
+    public Media createMediaRecorder(String path, String mimeType) throws IOException {
+        return createMediaRecorder(new MediaRecorderBuilder().path(path).mimeType(mimeType));
+    }
+
+    @Override
+    public Media createMediaRecorder(MediaRecorderBuilder builder) throws IOException {
+        return new HTML5MediaRecorder(builder);
+    }
+
+    
+    
+    
+    
+    
+    @Override
+    public void capturePhoto(final ActionListener response) {
+        String defaultGetUserMedia = CN.isDesktop() ? "true" : "false";
+        if (!PhotoCapture.isSupported() || Display.getInstance().getProperty("javascript.useGetUserMedia", defaultGetUserMedia).equals("false")) {
+             com.codename1.teavm.ext.usermedia.FileChooser chooser = new com.codename1.teavm.ext.usermedia.FileChooser(response, "image/*", "camera");
+             // On iOS we need to fix image orientation
+             // https://github.com/codenameone/CodenameOne/issues/2694
+             chooser.setFixImageOrientation(true);
+             chooser.showDialog();
+             return;
+        }
+        
+        PhotoCapture capture = new PhotoCapture();
+        HTMLCanvasElement photo = capture.showDialog();
+        if (photo == null) {
+            Display.getInstance().callSerially(new Runnable(){
+
+                @Override
+                public void run() {
+                    response.actionPerformed(new ActionEvent(null));
+                }
+
+            });
+            return;
+        }
+        FileSystemStorage fs = FileSystemStorage.getInstance();
+        String imagePath = generateUniqueImagePath(fs, "photo", "png");
+        try {
+
+            OutputStream fos = fs.openOutputStream(imagePath);
+            Blob blob = BlobUtil.canvasToBlob(photo, "image/png", 100);
+
+            InputStream blobInput = BlobUtil.openInputStream(blob);
+            Util.copy(blobInput, fos);
+            Util.cleanup(blobInput);
+            Util.cleanup(fos);
+
+        } catch (IOException ex){
+            //Log.e(ex);
+            consoleLog("Error in capturePhoto");
+            consoleLog(ex.getMessage());
+            imagePath = null;
+        }
+        final String path = imagePath;
+        Display.getInstance().callSerially(new Runnable(){
+
+            @Override
+            public void run() {
+                response.actionPerformed(new ActionEvent(path));
+            }
+
+        });
+        
+    }
+    
+    
+    public void capturePhoto_old(final ActionListener response) {
+        WindowExt win = (WindowExt)window;
+        CN1Native cn1 = win.getCn1();
+        
+        FileSystemStorage fs = FileSystemStorage.getInstance();
+        
+        
+        
+        cn1.capturePhoto(new JSOImplementations.CapturePhotoCallback() {
+
+            @Override
+            public void callback(final HTMLCanvasElement canvas) {
+                
+                new Thread(){
+                    public void run(){
+                        FileSystemStorage fs = FileSystemStorage.getInstance();
+                        String imagePath = generateUniqueImagePath(fs, "photo", "png");
+                        try {
+                            
+                            OutputStream fos = fs.openOutputStream(imagePath);
+                            Blob blob = BlobUtil.canvasToBlob(canvas, "image/png", 100);
+                            
+                            InputStream blobInput = BlobUtil.openInputStream(blob);
+                            Util.copy(blobInput, fos);
+                            Util.cleanup(blobInput);
+                            Util.cleanup(fos);
+                            
+                        } catch (IOException ex){
+                            Log.e(ex);
+                            imagePath = null;
+                        }
+                        final String path = imagePath;
+                        Display.getInstance().callSerially(new Runnable(){
+
+                            @Override
+                            public void run() {
+                                response.actionPerformed(new ActionEvent(path));
+                            }
+                            
+                        });
+                    }
+                }.start();
+            }
+        }, cameraWidth, cameraHeight);
+    }
+
+    
+    private String generateUniqueImagePath(FileSystemStorage fs, String baseName, String ext){
+        if (!fs.exists(photosPath)) {
+            fs.mkdir(photosPath);
+        } 
+        String prefix = baseName;
+        String suffix = "";
+        char sep = fs.getFileSystemSeparator();
+        String out = photosPath+sep+prefix+suffix+"."+ext;
+        while (fs.exists(out)){
+            if ("".equals(suffix)){
+                suffix="-1";
+            } else {
+                suffix = "-"+(Integer.parseInt(suffix.substring(1))+1);
+            }
+            out = photosPath+sep+prefix+suffix+"."+ext;
+        }
+        return out;
+    }
+
+    @JSBody(params={"el", "selector"}, script="return jQuery(el).is(selector)")
+    private native static boolean jQuery_is_(JSObject el, String selector);
+    
+    @JSBody(params={"y"}, script="jQuery(window).scrollTop(y)")
+    private native static void scrollToY(int y);
+    
+    @JSBody(params={}, script="return jQuery(window).scrollTop()")
+    private native static int getScrollY_();
+    
+    @JSBody(params={}, script="jQuery(window).scroll()")
+    private native static void scroll_();
+    
+    private boolean isEditing=false;
+    
+    /**
+     * Text field that is used for editing.
+     * Due to a bug in Chrome that kills performance if you add a text field, focus it,
+     * and remove it, we create one field ONE TIME, then just show it and hide it.
+     * DO NOT REMOVE THIS FIELD FROM THE DOM or it will kill canvas performance in
+     * Chrome for some unexplicable reason.  Related to https://github.com/shannah/cn1-teavm-port/issues/31
+     */
+    private HTMLInputElement textField, textArea;
+    private boolean isEditingSingleLine;
+    private boolean doneEventFired;
+    private boolean tabNext, tabPrev;
+    
+    private int vkbHeight;
+    
+    // To alleviate race conditions during editing we keep track of
+    // the timestamps when each field is updated (i.e. the codenameone
+    // text field vs the native text field
+    //private long lastCN1InputTime, lastHTMLInputTime;
+    
+    
+    private void safeSleep(final int millis) {
+        Display.getInstance().invokeAndBlock(new Runnable() {
+
+            @Override
+            public void run() {
+                try {
+                    Thread.sleep(millis);
+                } catch (InterruptedException ex) {
+                    //Log.e(ex);
+                }
+            }
+            
+        });
+    }
+    
+    private void focusInputElement() {
+        if (isEditing && currentInputField != null && !jQuery_is_(currentInputField, ":focus")) {
+            currentInputField.focus();
+        }
+    }
+    
+    boolean isNativeInputFieldFocused() {
+        return (isEditing && currentInputField != null && jQuery_is_(currentInputField, ":focus"));
+    }
+    
+    @Override
+    public boolean isEditingText(Component c) {
+        NativeOverlay overlay = (NativeOverlay)c.getNativeOverlay();
+        if (overlay != null && jQuery_is_(overlay.el, ":focus")) {
+            return true;
+            
+        }
+        return currentEditingField == c && isEditing;
+        //return super.isEditingText(c); //To change body of generated methods, choose Tools | Templates.
+    }
+
+    
+
+    
+    
+    @Override
+    public boolean isNativeEditorVisible(Component c) {
+        NativeOverlay overlay = (NativeOverlay)c.getNativeOverlay();
+        if (overlay != null && jQuery_is_(overlay.el, ":focus")) {
+            return true;
+        }
+        return currentEditingField == c && isEditing;
+    }
+    
+    private int lastEditorTop,lastEditorLeft,lastEditorWidth,lastEditorHeight;
+    
+    
+    /**
+     * Scales a coordinate from CN1 space to DOM one space.
+     * @param x
+     * @return 
+     */
+    public static int scaleCoord(int x) {
+        return (int)(x / devicePixelRatioValue());
+    }
+    
+    public static double scaleCoord(double x) {
+        return x / devicePixelRatioValue();
+    }
+    
+    
+    
+    /**
+     * Scales a coordinate from DOM  space to the CN1 space.
+     * @param x
+     * @return 
+     */
+    public static int unscaleCoord(int x) {
+        return (int)(x * devicePixelRatioValue());
+    }
+    
+    private void resizeNativeEditor() {
+        if (isEditing && currentInputField != null && currentEditingField != null) {
+            HTMLInputElement inputEl = currentInputField;
+            TextArea ta = currentEditingField;
+            Component cmp = ta;
+            Style taStyle = ta.getStyle();
+            
+            int paddingTop = taStyle.getPadding(Component.TOP);;
+            int paddingLeft = taStyle.getPadding(ta.isRTL(), Component.LEFT);
+            int paddingRight = taStyle.getPadding(ta.isRTL(), Component.RIGHT);
+            int paddingBottom = taStyle.getPadding(Component.BOTTOM);
+            
+            int newTop = scaleCoord(cmp.getAbsoluteY()+cmp.getScrollY());
+            int newLeft = scaleCoord(cmp.getAbsoluteX()+cmp.getScrollX());
+            int newWidth = scaleCoord(cmp.getWidth()-paddingLeft-paddingRight);
+            int newHeight = scaleCoord(cmp.getHeight()-paddingTop-paddingBottom);
+            
+            if (lastEditorTop != newTop || lastEditorLeft != newLeft || lastEditorWidth != newWidth || lastEditorHeight != newHeight) {
+                //String msg = "Resizing editor from "+lastEditorTop+","+lastEditorLeft+","+lastEditorWidth+","+lastEditorHeight+" to "+newTop+","+newLeft+","+newWidth+","+newHeight;
+                //consoleLog(msg);
+                inputEl.getStyle().setProperty("padding-top", scaleCoord((double)paddingTop)+"px");
+                inputEl.getStyle().setProperty("padding-left", scaleCoord((double)paddingLeft)+"px");
+                inputEl.getStyle().setProperty("padding-bottom", scaleCoord((double)paddingBottom)+"px");
+                inputEl.getStyle().setProperty("padding-right", scaleCoord((double)paddingRight)+"px");
+                inputEl.getStyle().setProperty("top", newTop+"px");
+                inputEl.getStyle().setProperty("left", newLeft+"px");
+                inputEl.getStyle().setProperty("width", newWidth+"px");
+                inputEl.getStyle().setProperty("height", newHeight+"px");
+                inputEl.getStyle().setProperty("border", "none");
+                inputEl.getStyle().setProperty("margin", "0");
+                
+                lastEditorTop = newTop;
+                lastEditorLeft = newLeft;
+                lastEditorWidth = newWidth;
+                lastEditorHeight = newHeight;
+            }
+        }
+    }
+    
+    public static Runnable wrapOnEdt(final Runnable r) {
+        return new Runnable() {
+
+            @Override
+            public void run() {
+                callSerially(r);
+            }
+            
+        };
+    }
+
+    public Runnable wrapOnNativeQueue(final Runnable r) {
+        return new Runnable() {
+
+            @Override
+            public void run() {
+                nativeCallSerially(r);
+                
+            }
+            
+        };
+    }
+        
+    /**
+     * Flag to indicate whether we use the preemptive native text field 
+     * approach for text editing.  With this approach we create the native 
+     * text field and focus is as soon as a native touch event occurs over a text
+     * field - ON THE NATIVE THREAD - rather than waiting for the editString() method
+     * which is triggered too late, and thus prevented (by iOS) from focusing any
+     * text fields programmatically.  This approach is a hack for iOS only.
+     * @return 
+     */
+    private static boolean usePreemptiveNativeTextFieldApproach() {
+        return isIOS();
+    }
+    
+    // For iOS it will only show the "next" button if there is a tabbable
+    // native text field that can be focused next.
+    // This will be used to place such a field as a dummy
+    private HTMLInputElement dummyNextTextField, dummyPrevTextField;
+    
+    // On iOS, we can only focus a text field in an event that was triggered
+    // by the user... this can't happen on the EDT so by the time a tapped text field
+    // event on the EDT is processed, it's too late to do any focusing.
+    // So we create a native text field preemptively and focus it - this will
+    // be used and resized appropriately by editString() on the EDT
+    private HTMLInputElement preemptiveFocusTextField;
+     
+    @JSBody(params={"el"}, script="jQuery(el).on('touchstart.preemptiveFocus', "
+            + "    function() { this.focus();}"
+            + "); "
+            + "jQuery(el).trigger('touchstart'); "
+            + "jQuery(el).off('.preemptiveFocus')")
+    native static void triggerFocusIOS(JSObject el);
+    
+    private void triggerFocusIOSTextField(final Component target, final Component cmp, final Component nextFocus) {
+        
+    }
+    
+    
+    
+    /**
+     * On iOS we can only trigger a text field to focus programmatically inside a limited set of event
+     * handlers.  We can't initiate this from the EDT because it is too far removed from the original
+     * touch event that triggered the "TextArea.startEditing()" call.  To work around this,
+     * we intercept all touchend events, and see if their (x,y) coordinates are over a text area.
+     * 
+     * We then immediately create a native text field and focus it (for the keyboard).  Then when the editString()
+     * method is called later from the EDT, it looks for this text field and works with that, rather than trying
+     * to create a new one at that time.
+     * 
+     * NOTE: We can't use any synchronous stuff for this because it runs directly on Javascript native.  This will
+     * cause warnings during compilation because there are many java classes that *could* use synchronous stuff
+     * but we just have to be sure that they don't.   E.g. TeaVM may think that any use of java.util.List is synchronous
+     * because of the Vector class, but we just have to ensure that there isn't actually any synchronized, locking, etc..
+     * going on.
+     * @param cmp 
+     */
+    // This is run on the native thread.  
+    private void triggerFocusIOSCmp(final Component target) {
+        final Component cmp;
+        Component nextFocus = (Component)target.getClientProperty("$$focus");
+        cmp = nextFocus == null ? target : nextFocus;
+        
+        if (cmp instanceof TextArea && cmp.isEnabled() && cmp.isEditable() && cmp.getComponentForm() != null) {
+            TextArea ta = (TextArea)cmp;
+            final Form.TabIterator tabber = cmp.getComponentForm().getTabIterator(cmp);
+            if (!ta.isSingleLineTextArea()){
+                preemptiveFocusTextField = (HTMLInputElement)doc().createElement("textarea");
+
+
+            } else {
+                preemptiveFocusTextField = (HTMLInputElement)doc().createElement("input");
+                preemptiveFocusTextField.setType("text");
+
+            }
+            preemptiveFocusTextField.setAttribute("class", "cn1-edit-string preemptive");
+            preemptiveFocusTextField.setTabIndex(2);
+            
+            doc().getBody().appendChild(preemptiveFocusTextField);
+
+            if (dummyNextTextField != null) {
+                doc().getBody().removeChild(dummyNextTextField);
+                dummyNextTextField = null;
+            }
+            if (tabber.hasNext()) {
+                Component next = tabber.getNext();
+                dummyNextTextField = (HTMLInputElement)doc().createElement("input");
+                dummyNextTextField.setAttribute("class", "cn1-edit-string dummy-next");
+                dummyNextTextField.getStyle().setProperty("pointer-events", "none");
+                dummyNextTextField.getStyle().setProperty("opacity", "0");
+                CSSStyleDeclaration s = dummyNextTextField.getStyle();
+
+                s.setProperty("top", scaleCoord(next.getAbsoluteY()+next.getScrollY())+"px");
+                s.setProperty("left", scaleCoord(next.getAbsoluteX()+next.getScrollX())+"px");
+                s.setProperty("width", scaleCoord(next.getWidth())+"px");
+                s.setProperty("height", scaleCoord(next.getHeight())+"px");
+                s.setProperty("border", "none");
+                s.setProperty("margin", "0");
+                s.setProperty("outline", "none");  // for chrome
+                dummyNextTextField.setType("text");
+                
+                dummyNextTextField.setTabIndex(3);
+                dummyNextTextField.addEventListener("focus", new EventListener() {
+
+                    @SuppressSyncErrors
+                    @Override
+                    public void handleEvent(Event evt) {
+                        nextEditPending = false;
+                        Form f = _getCurrent();
+                        if (f != null) {
+                            final Component next = tabber.getNext();
+                            nextEditPending = next instanceof TextArea;
+                            if (next != null) {
+                                triggerFocusIOSCmp(next);
+                                
+                                callSerially(new Runnable() {
+
+                                    @Override
+                                    public void run() {
+                                        
+                                        next.requestFocus();
+                                        next.startEditingAsync();
+                                    }
+
+                                });
+                            }
+                        }
+                        if (!nextEditPending) {
+                            outputCanvas.focus();
+                            doc().getBody().removeChild(dummyNextTextField);
+                            dummyNextTextField = null;
+                        }
+                    }
+
+                });
+                
+                preemptiveFocusTextField.addEventListener("focus", new EventListener() {
+                    @SuppressSyncErrors
+                    @Override
+                    public void handleEvent(Event evt) {
+                        if (isIOS()) {
+                            new Thread(new Runnable() {
+                                    public void run() {
+                                        Display.getInstance().fireVirtualKeyboardEvent(true);
+                                    }
+                            }).start();
+                            
+                        }
+                    }
+                });
+                
+                preemptiveFocusTextField.addEventListener("blur", new EventListener() {
+                    @SuppressSyncErrors
+                    @Override
+                    public void handleEvent(Event evt) {
+                        if (isIOS()) {
+                            new Thread(new Runnable() {
+                                    public void run() {
+                                        Display.getInstance().fireVirtualKeyboardEvent(false);
+                                    }
+                            }).start();
+                            
+                        }
+                        if (dummyNextTextField != null) {
+                            Form f = _getCurrent();
+                            if (f != null) {
+                                final Component next = tabber.getNext();
+                                if (next != null) {
+                                    CSSStyleDeclaration s = dummyNextTextField.getStyle();
+
+                                    s.setProperty("top", scaleCoord(next.getAbsoluteY()+next.getScrollY())+"px");
+                                    s.setProperty("left", scaleCoord(next.getAbsoluteX()+next.getScrollX())+"px");
+                                    s.setProperty("width", scaleCoord(next.getWidth())+"px");
+                                    s.setProperty("height", scaleCoord(next.getHeight())+"px");
+                                    s.setProperty("border", "none");
+                                    s.setProperty("margin", "0");
+                                    s.setProperty("outline", "none");  // for chrome
+                                    _logBounds(dummyNextTextField);
+
+                                }
+
+                            }
+                        }
+                    }
+
+                });
+                doc().getBody().appendChild(dummyNextTextField);
+            }
+            
+            //----- prev start
+            
+            if (dummyPrevTextField != null) {
+                doc().getBody().removeChild(dummyPrevTextField);
+                dummyPrevTextField = null;
+            }
+            if (tabber.hasPrevious()) {
+                Component prev = tabber.getPrevious();
+                dummyPrevTextField = (HTMLInputElement)doc().createElement("input");
+                dummyPrevTextField.setAttribute("class", "cn1-edit-string dummy-prev");
+                dummyPrevTextField.getStyle().setProperty("pointer-events", "none");
+                dummyPrevTextField.getStyle().setProperty("opacity", "0");
+                CSSStyleDeclaration s = dummyPrevTextField.getStyle();
+
+                s.setProperty("top", scaleCoord(prev.getAbsoluteY()+prev.getScrollY())+"px");
+                s.setProperty("left", scaleCoord(prev.getAbsoluteX()+prev.getScrollX())+"px");
+                s.setProperty("width", scaleCoord(prev.getWidth())+"px");
+                s.setProperty("height", scaleCoord(prev.getHeight())+"px");
+                s.setProperty("border", "none");
+                s.setProperty("margin", "0");
+                s.setProperty("outline", "none");  // for chrome
+                dummyPrevTextField.setType("text");
+                
+                dummyPrevTextField.setTabIndex(1);
+                dummyPrevTextField.addEventListener("focus", new EventListener() {
+
+                    @SuppressSyncErrors
+                    @Override
+                    public void handleEvent(Event evt) {
+                        prevEditPending = false;
+                        Form f = _getCurrent();
+                        if (f != null) {
+                            final Component prev = tabber.getPrevious();
+                            prevEditPending = prev instanceof TextArea;
+                            if (prev != null) {
+                                triggerFocusIOSCmp(prev);
+                                
+                                callSerially(new Runnable() {
+
+                                    @Override
+                                    public void run() {
+                                        
+                                        prev.requestFocus();
+                                        prev.startEditingAsync();
+                                    }
+
+                                });
+                            }
+                        }
+                        if (!prevEditPending) {
+                            outputCanvas.focus();
+                            doc().getBody().removeChild(dummyPrevTextField);
+                            dummyPrevTextField = null;
+                        }
+                    }
+
+                });
+                preemptiveFocusTextField.addEventListener("blur", new EventListener() {
+                    @SuppressSyncErrors
+                    @Override
+                    public void handleEvent(Event evt) {
+                        if (dummyPrevTextField != null) {
+                            Form f = _getCurrent();
+                            if (f != null) {
+                                final Component prev = tabber.getPrevious();
+                                if (prev != null) {
+                                    CSSStyleDeclaration s = dummyPrevTextField.getStyle();
+
+                                    s.setProperty("top", scaleCoord(prev.getAbsoluteY()+prev.getScrollY())+"px");
+                                    s.setProperty("left", scaleCoord(prev.getAbsoluteX()+prev.getScrollX())+"px");
+                                    s.setProperty("width", scaleCoord(prev.getWidth())+"px");
+                                    s.setProperty("height", scaleCoord(prev.getHeight())+"px");
+                                    s.setProperty("border", "none");
+                                    s.setProperty("margin", "0");
+                                    s.setProperty("outline", "none");  // for chrome
+
+                                }
+
+                            }
+                        }
+                    }
+
+                });
+                doc().getBody().appendChild(dummyPrevTextField);
+            }
+            
+            //----- prev end
+            
+            
+            CSSStyleDeclaration st = preemptiveFocusTextField.getStyle();
+
+            st.setProperty("top", scaleCoord(cmp.getAbsoluteY()+cmp.getScrollY())+"px");
+            st.setProperty("left", scaleCoord(cmp.getAbsoluteX()+cmp.getScrollX())+"px");
+            st.setProperty("width", scaleCoord(cmp.getWidth())+"px");
+            st.setProperty("height", scaleCoord(cmp.getHeight())+"px");
+            _logBounds(preemptiveFocusTextField);
+            triggerFocusIOS(preemptiveFocusTextField);
+        }
+    }
+    
+    @JSBody(params={"el"}, script="console.log(el.getBoundingClientRect());")
+    native static void _logBounds(HTMLInputElement el);
+    
+    // This is run on the native thread
+    private void createAndFocusTextFieldPreemptively(int x, int y) {
+        if (usePreemptiveNativeTextFieldApproach()) {
+            Form f = _getCurrent();
+            if (f != null) {
+                triggerFocusIOSCmp(f.getComponentAt(x, y));
+            }
+            
+        }
+    }
+
+    @Override
+    public void stopTextEditing() {
+        if (isEditing){
+            if (currentEditingField != null) {
+                pendingTextChanges = currentEditingField.getText();
+            }
+            if (!editingStartingUp) {
+                finishTextEditing();
+            } else {
+                editingStartingUp = false;
+            }
+        }
+    }
+
+    private NativePicker activePicker;
+    
+    @Override
+    public Object showNativePicker(int type, Component source, Object currentValue, Object data) {
+        if (!isNativePickerTypeSupported(type)) {
+            return super.showNativePicker(type, source, data, data);
+        }
+        if (activePicker != null) {
+            throw new IllegalStateException("Attempt to show native picker while another picker is still active.");
+        }
+        activePicker = NativePicker.createNativePicker(type, source, currentValue, data);
+        try {
+            return activePicker.show();
+        } finally {
+            activePicker = null;
+        }
+        
+    }
+
+    @Override
+    public boolean isNativePickerTypeSupported(int pickerType) {
+        return NativePicker.isNativePickerTypeSupported(pickerType);
+    }
+
+    
+    
+    
+    private HTMLInputElement inputEl;
+    private String text;
+    private DataChangedListener dataChangedListener;
+    private Runnable editingCompleteCallback;
+    private boolean nextEditPending, prevEditPending;
+    
+    
+    /**
+     * Configures the native editing element from a text component's constraint.
+     *
+     * <p>The constraint is a base type in the low bits with flags above it, so it has to be
+     * masked rather than compared whole -- {@code PASSWORD} is {@code 0x10000}, which means a
+     * field declared {@code PASSWORD | EMAILADDR} previously matched no case at all and was
+     * edited as clear text.</p>
+     *
+     * <p>Beyond the input type this carries the attributes a browser actually reads:
+     * {@code inputmode} selects the on-screen keyboard, {@code autocomplete} is what lets a
+     * password manager or address autofill offer a value, and {@code autocapitalize} /
+     * {@code spellcheck} reproduce what the equivalent constraint does on a native platform.
+     * An application can override the autocomplete token -- to distinguish a sign-in field
+     * from a change-password field, say -- with the {@code cn1$autocomplete} client property.</p>
+     */
+    private String applyInputConstraints(HTMLInputElement inputEl, TextArea ta) {
+        return applyTextInputConstraints(inputEl, ta, ta.isSingleLineTextArea());
+    }
+
+    /**
+     * The same constraint metadata, for an element this class did not build.
+     *
+     * <p>The editor is not the only place a field is typed into: the accessibility overlay
+     * exposes an editable field to a screen reader through a control of its own, and a control
+     * that skipped this would offer the wrong keyboard and would let prediction and autofill
+     * reach a field whose constraint forbids them. The shape of that control is decided by the
+     * caller rather than read from the component -- an obscured field is given a single-line
+     * masking input whether or not the component is multiline -- so whether to write a
+     * {@code type} at all is passed in instead of asked of the {@code TextArea}.</p>
+     *
+     * @param inputEl the element to configure, an input or a textarea
+     * @param ta the field the element edits
+     * @param singleLine true when the element is an input and so carries a type
+     * @return the resolved input type, "text" for anything without one of its own
+     */
+    static String applyTextInputConstraints(HTMLElement inputEl, TextArea ta, boolean singleLine) {
+        int constraint = ta.getConstraint();
+        int base = constraint & 0xffff;
+        boolean password = (constraint & TextArea.PASSWORD) != 0;
+        boolean sensitive = (constraint & TextArea.SENSITIVE) != 0
+                || (constraint & TextArea.NON_PREDICTIVE) != 0;
+        boolean username = (constraint & TextArea.USERNAME) != 0;
+
+        String resolvedType = "text";
+        if (password) {
+            resolvedType = "password";
+        } else if (base == TextArea.EMAILADDR) {
+            resolvedType = "email";
+        } else if (base == TextArea.NUMERIC) {
+            resolvedType = "number";
+        } else if (base == TextArea.PHONENUMBER) {
+            resolvedType = "tel";
+        } else if (base == TextArea.URL) {
+            resolvedType = "url";
+        }
+        if (singleLine) {
+            inputEl.setAttribute("type", resolvedType);
+        } else {
+            // A textarea has no type attribute, and callers treat "text" as the plain case.
+            resolvedType = "text";
+        }
+
+        String inputMode = null;
+        if (!password) {
+            if (base == TextArea.NUMERIC) {
+                inputMode = "numeric";
+            } else if (base == TextArea.DECIMAL) {
+                inputMode = "decimal";
+            } else if (base == TextArea.PHONENUMBER) {
+                inputMode = "tel";
+            } else if (base == TextArea.EMAILADDR) {
+                inputMode = "email";
+            } else if (base == TextArea.URL) {
+                inputMode = "url";
+            }
+        }
+        // As in configureLightweightTextInputElement: ONE_TIME_CODE contributes the autocomplete
+        // token and nothing about the keyboard, so an alphanumeric code keeps a keyboard that can
+        // type one.
+        if (inputMode == null) {
+            inputEl.removeAttribute("inputmode");
+        } else {
+            inputEl.setAttribute("inputmode", inputMode);
+        }
+
+        Object override = ta.getClientProperty("cn1$autocomplete");
+        String autocomplete;
+        if (override != null) {
+            autocomplete = override.toString();
+        } else if ((constraint & TextArea.ONE_TIME_CODE) != 0) {
+            // Ahead of every other case including SENSITIVE: a one-time code is exactly the value
+            // a browser should offer out of an arriving message, and it is worthless to a
+            // dictionary afterwards, so the token that invites the offer is the right one here.
+            autocomplete = "one-time-code";
+        } else if (sensitive) {
+            // Checked ahead of the password case on purpose: SENSITIVE asks that the value is
+            // never retained for predictive or completing schemes, and "current-password" is an
+            // explicit invitation to offer a stored one.
+            autocomplete = "off";
+        } else if (password) {
+            autocomplete = "current-password";
+        } else if (username) {
+            // Ahead of the address-style tokens: an application that marks a field as the
+            // username has said what it is for, and a password manager needs that token to
+            // pair it with the password field rather than treating the two as unrelated. An
+            // email address used as a username is still the username here.
+            autocomplete = "username";
+        } else if (base == TextArea.EMAILADDR) {
+            autocomplete = "email";
+        } else if (base == TextArea.PHONENUMBER) {
+            autocomplete = "tel";
+        } else if (base == TextArea.URL) {
+            autocomplete = "url";
+        } else {
+            autocomplete = "on";
+        }
+        inputEl.setAttribute("autocomplete", autocomplete);
+
+        // A stable name lets a password manager pair a username with a password rather than
+        // treating each edit as an unrelated field.
+        String name = ta.getName();
+        if (name == null || name.length() == 0) {
+            inputEl.removeAttribute("name");
+        } else {
+            inputEl.setAttribute("name", name);
+        }
+
+        String autoCapitalize = "none";
+        if ((constraint & TextArea.INITIAL_CAPS_WORD) != 0) {
+            autoCapitalize = "words";
+        } else if ((constraint & TextArea.INITIAL_CAPS_SENTENCE) != 0) {
+            autoCapitalize = "sentences";
+        }
+        inputEl.setAttribute("autocapitalize", autoCapitalize);
+        inputEl.setAttribute("spellcheck",
+                password || sensitive || base == TextArea.EMAILADDR || base == TextArea.URL
+                        ? "false" : "true");
+        return resolvedType;
+    }
+
+    @Override
+    public void editString(final Component cmp, int maxSize, int constraint, final String origText, int initiatingKeycode) {
+        if (cmp.getNativeOverlay() != null) {
+            // If a native overlay exists then just use that native overlay
+            NativeOverlay overlayEl = (NativeOverlay)cmp.getNativeOverlay();
+            overlayEl.el.focus();
+            return;
+        }
+        if (usePreemptiveNativeTextFieldApproach() && preemptiveFocusTextField == null) {
+            // On iOS we depend on the text field to have been set up in the touchend native
+            // event.  If it isn't set up, then we won't proceed.
+            return;
+        }
+        if (isEditing) {
+            return;
+        }
+        text = origText;
+        isEditing=true;
+        
+        // This Hack is specifically to work around an issue on iOS Safari
+        // where the "touch" event circumvents the editing process, causing
+        // the user to tap 3 times to edit a text field.  With this hack
+        // we have it down to 2 taps.
+        editingStartingUp = true;
+        
+        Window.setTimeout(new TimerHandler() {
+
+            @Override
+            public void onTimer() {
+                editingStartingUp = false;
+            }
+            
+        }, 3000);
+        inputEl = null;
+        
+        final Runnable cleanup = new Runnable() {
+            public void run() {
+                if (inputEl != null) {
+                    // Hide the text field.  Don't get crafty and try to
+                    // remove it due to bug in Chrome
+                    // https://github.com/shannah/cn1-teavm-port/issues/31
+                    inputEl.getStyle().setProperty("display", "none");
+                    if ("password".equalsIgnoreCase(inputEl.getAttribute("type"))) {
+                        inputEl.setAttribute("type", "text");
+                    }
+                    //outputCanvas.focus();
+                    inputEl = null;
+                }
+                isEditing = false;
+                Display.getInstance().onEditingComplete(cmp, text);
+                if (doneEventFired && cmp instanceof TextArea) {
+                    ((TextArea)cmp).fireDoneEvent();
+                }
+                if (tabNext) {
+                    Form f = Display.getInstance().getCurrent();
+                    if (f != null) {
+                        Component focused = f.getNextComponent(cmp);
+                        
+                        if (focused != null) {
+                            if (!(focused instanceof TextArea)) {
+                                final Component fFocused = focused;
+                                UITimer.timer(300, false, new Runnable() {
+                                    public void run() {
+                                        // This delay is necessary on Android 
+                                        // to give it time to close the keyboard
+                                        fFocused.requestFocus();
+                                        fFocused.startEditingAsync();
+                                        outputCanvas.focus();
+                                        
+                                    }
+                                });
+                                
+                            } else {
+                                focused.requestFocus();
+                                focused.startEditingAsync();
+                            }
+                            
+                        }
+
+                    }
+                } else if (tabPrev) {
+                    Form f = Display.getInstance().getCurrent();
+                    if (f != null) {
+
+                        Component focused = f.getPreviousComponent(cmp);
+                        
+                        if (focused != null) {
+                            if (!(focused instanceof TextArea)) {
+                                final Component fFocused = focused;
+                                UITimer.timer(300, false, new Runnable() {
+                                    public void run() {
+                                        // This delay is necessary on Android 
+                                        // to give it time to close the keyboard
+                                        fFocused.requestFocus();
+                                        fFocused.startEditingAsync();
+                                        outputCanvas.focus();
+                                        
+                                    }
+                                });
+                            } else {
+                                focused.requestFocus();
+                                focused.startEditingAsync();
+                            }
+                        }
+
+                    }
+                }
+                doneEventFired = false;
+                tabNext = false;
+                tabPrev = false;
+                pendingTextChanges = null;
+            }
+        };
+        
+        try {
+            
+            if (cmp == null) {
+
+                throw new IllegalArgumentException("component is null");
+            }
+
+            if (!(cmp instanceof TextArea)) {
+                throw new IllegalArgumentException("component must be instance of TextArea");
+            }
+
+            final TextArea ta = (TextArea)cmp;
+            
+            inputEl = ta.isSingleLineTextArea() ? textField : textArea;
+            isEditingSingleLine = ta.isSingleLineTextArea();
+            final boolean hasDoneListener = ta.getDoneListener() != null;
+            if (inputEl == null || preemptiveFocusTextField != null) {
+                if (preemptiveFocusTextField != null && inputEl != null) {
+                    doc().getBody().removeChild(inputEl);
+                }
+                if (!ta.isSingleLineTextArea()){
+                    if (preemptiveFocusTextField != null) {
+                        inputEl = textArea = preemptiveFocusTextField;
+                    } else {
+                        inputEl = textArea = (HTMLInputElement)doc().createElement("textarea");
+                    }
+                    
+
+                } else {
+                    if (preemptiveFocusTextField != null) {
+                        inputEl = textField = preemptiveFocusTextField;
+                    } else {
+                        inputEl = textField = (HTMLInputElement)doc().createElement("input");
+                        inputEl.setType("text");
+                    }
+                    
+                }
+                
+                
+                inputEl.setAttribute("class", "cn1-edit-string");
+                
+                inputEl.addEventListener("keydown", new EventListener() {
+
+                    @Override
+                    public void handleEvent(final Event evt) {
+                        final KeyEvent kevt = (KeyEvent)evt;
+                        switch (((KeyEvent)evt).getKeyCode()) {
+                            case 9 :
+                            case 11 :
+                            case 10 :
+                            case 13 :
+                                if (isEditingSingleLine || hasDoneListener || kevt.getKeyCode() == 9 || kevt.getKeyCode() == 11) {
+                                    evt.preventDefault();
+                                    evt.stopPropagation();
+                                    nativeCallSerially(new Runnable() {
+                                        public void run() {
+                                            lastCharCode = 0;
+                                        }
+                                    });
+                                    
+                                }
+                                
+                                break;
+                        }
+                        callSerially(new Runnable() {
+                            public void run() {
+                                
+                                switch (kevt.getKeyCode()) {
+                                    case 9 : // tab
+                                    case 11 : // vertical tab
+                                    case 10 : // lf
+                                    case 13 : // cr
+                                    {
+                                        if (!(isEditingSingleLine || hasDoneListener) && kevt.getKeyCode() != 9 && kevt.getKeyCode() != 11) {
+                                            // We don't do any special handling for multiline text fields.
+                                            return;
+                                        }
+                                        doneEventFired = true;
+                                        boolean isNextButton = false;
+                                        if (isPhoneOrTablet_()) {
+                                            if (currentEditingField != null) {
+                                                Form f = currentEditingField.getComponentForm();
+                                                if (f != null) {
+                                                    Component next = f.getNextComponent(currentEditingField);
+                                                    if (next != null) {
+                                                        isNextButton = true;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (kevt.getKeyCode() == 9 || kevt.getKeyCode() == 11 || isNextButton ) {
+                                            tabNext = !kevt.isShiftKey();
+                                            tabPrev = !tabNext;
+                                        }
+                                        if (currentEditingField != null) {
+                                            pendingTextChanges = currentEditingField.getText();
+                                        }
+                                        finishTextEditing();
+                                    }
+                                }
+                                
+                            }
+                        });
+                    }
+                    
+                });
+                
+                if (preemptiveFocusTextField == null) {
+                    doc().getBody().appendChild(inputEl);
+                } else {
+                    preemptiveFocusTextField = null;
+                }
+            }
+            currentInputField = inputEl;
+            currentEditingField = ta;
+            // Show the text field... 
+            inputEl.getStyle().setProperty("display", "block");
+            
+            inputEl.setAttribute("maxlength", maxSize+"");
+            inputEl.getStyle().setProperty("font", ((NativeFont)cmp.getStyle().getFont().getNativeFont()).getScaledCSS());
+            inputEl.getStyle().setProperty("color", HTML5Graphics.color(cmp.getStyle().getFgColor()));
+
+            final Style taStyle = ta.getStyle();
+            Font font = taStyle.getFont();
+            //int txty = ta.getAbsoluteY();
+            //int txtx = ta.getAbsoluteX();
+            int paddingTop = taStyle.getPadding(Component.TOP);;
+            int paddingLeft = taStyle.getPadding(ta.isRTL(), Component.LEFT);
+            int paddingRight = taStyle.getPadding(ta.isRTL(), Component.RIGHT);
+            int paddingBottom = taStyle.getPadding(Component.BOTTOM);
+
+            if (ta.isSingleLineTextArea()) {
+
+                switch (ta.getVerticalAlignment()) {
+                    case Component.BOTTOM:
+                        paddingTop = ta.getHeight() - taStyle.getPadding(false, Component.BOTTOM) - font.getHeight();
+                        break;
+                    case Component.CENTER:
+                        paddingTop = ta.getHeight() / 2 - font.getHeight() / 2;
+                        break;
+                    default:
+                        paddingTop = taStyle.getPadding(false, Component.TOP);
+                        break;
+                }
+            } else {
+                paddingTop = taStyle.getPadding(false, Component.TOP);
+            }
+
+            inputEl.getStyle().setProperty("padding-top", scaleCoord((double)paddingTop)+"px");
+            inputEl.getStyle().setProperty("padding-left", scaleCoord((double)paddingLeft)+"px");
+            inputEl.getStyle().setProperty("padding-bottom", scaleCoord((double)paddingBottom)+"px");
+            inputEl.getStyle().setProperty("padding-right", scaleCoord((double)paddingRight)+"px");
+            inputEl.getStyle().setProperty("top", scaleCoord((double)(cmp.getAbsoluteY()+cmp.getScrollY()))+"px");
+            inputEl.getStyle().setProperty("left", scaleCoord((double)(cmp.getAbsoluteX()+cmp.getScrollX()))+"px");
+            inputEl.getStyle().setProperty("width", scaleCoord((double)(cmp.getWidth()-paddingLeft-paddingRight))+"px");
+            inputEl.getStyle().setProperty("height", scaleCoord((double)(cmp.getHeight()-paddingTop-paddingBottom))+"px");
+            inputEl.getStyle().setProperty("border", "none");
+            inputEl.getStyle().setProperty("margin", "0");
+            inputEl.getStyle().setProperty("outline", "none");  // for chrome
+            
+            final String inputType = applyInputConstraints(inputEl, ta);
+            
+
+
+            boolean valid = 
+                (initiatingKeycode > 47 && initiatingKeycode < 58)   || // number keys
+                initiatingKeycode == 32 || initiatingKeycode == 13   || // spacebar & return key(s) (if you want to allow carriage returns)
+                (initiatingKeycode > 64 && initiatingKeycode < 91)   || // letter keys
+                (initiatingKeycode > 95 && initiatingKeycode < 112)  || // numpad keys
+                (initiatingKeycode > 185 && initiatingKeycode < 193) || // ;=,-./` (in order)
+                (initiatingKeycode > 218 && initiatingKeycode < 223);   // [\]' (in order)
+            
+            switch (initiatingKeycode) {
+                case 8 : { // backspace 
+                    if (valid && text.length() > 0) {
+                        text = text + (char)initiatingKeycode;
+                    }
+                    break;
+                }
+
+                case 10 :
+                case 13 : { // newline
+                    if (ta.isSingleLineTextArea()) {
+                        Display.getInstance().onEditingComplete(cmp, text);
+                        isEditing = false;
+                        return;
+                    } else if (valid) {
+                        text = text + (char) initiatingKeycode;
+                    }
+                    break;
+                }
+
+                case 0 : // Null char
+                    break;
+                default : {
+                    if (valid) {
+                        text = text + (char) initiatingKeycode;
+                    }
+                }
+
+
+            }
+            
+
+
+            inputEl.setValue(text);
+            if ("text".equals(inputType)) {
+                ((TextElement)inputEl).setSelectionRange(text.length(), text.length());
+            }
+            
+            
+            Form currentForm = Display.getInstance().getCurrent();
+            if (currentForm != null) {
+                if (currentForm.getFocused() != ta) {
+                    ta.requestFocus();
+                }
+            }
+            
+            final FocusListener focusListener = new FocusListener() {
+
+                @Override
+                public void focusGained(Component cmpnt) {
+                    
+                }
+
+                @Override
+                public void focusLost(Component cmpnt) {
+                    
+                    finishTextEditing();
+                }
+                
+            };
+            
+            
+            
+            dataChangedListener = null;
+            
+            
+            final HTMLInputElement el = inputEl;
+            dataChangedListener = new DataChangedListener() {
+
+                @Override
+                public void dataChanged(int i, int i1) {
+                    String val = ta.getText();
+                    if (val != null && !val.equals(el.getValue())) {
+                        //lastCN1InputTime = System.currentTimeMillis();
+                        el.setValue(val);
+                        finishTextEditing();
+                    }
+                }
+            };
+            ta.addDataChangedListener(dataChangedListener);
+            
+            
+            ta.addFocusListener(focusListener);
+            
+            
+            
+            ta.repaint();
+            
+            doneEventFired = false;
+            tabNext = false;
+            tabPrev = false;
+            
+            final HTMLInputElement finalInputEl = inputEl;
+            // We need to resize the canvas whenever the soft keyboard is shown
+            
+            //inputEl.blur();
+            
+            // A runnable to help re-layout the form and text field to deal with
+            // changes outside of our control (e.g. virtual keyboards causeing
+            // scrolling or resizing.
+            final Runnable layoutForm = new Runnable() {
+                @Override
+                public void run() {
+
+                    //safeSleep(100);
+                    // On iOS and Android the VKB causes the browser to scroll
+                    // down to the field that is being edited if it would be 
+                    // covered by the keyboard.
+                    // We detect the scroll position and then add appropriate
+                    // padding to the bottom of the form... then scroll up to the
+                    // top again to compensate.
+                    vkbHeight = getScrollY_();
+                    Form current = Display.getInstance().getCurrent();
+                    if (!current.isFormBottomPaddingEditingMode()) {
+                        //We only re-layout the form if form bottom padding is enabled
+                        return;
+                    }
+                    current.getContentPane().getUnselectedStyle().setPaddingUnit(new byte[] {Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS});
+                    current.getContentPane().getUnselectedStyle().setPadding(Component.BOTTOM, unscaleCoord(vkbHeight));
+
+
+                    Display.getInstance().callSerially(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            Display.getInstance().getCurrent().forceRevalidate();
+                            finalInputEl.getStyle().setProperty("top", scaleCoord(cmp.getAbsoluteY()+cmp.getScrollY())+"px");
+                            finalInputEl.getStyle().setProperty("left", scaleCoord(cmp.getAbsoluteX()+cmp.getScrollX())+"px");
+                            //safeSleep(100);
+                            scrollToY(0);
+                            Display.getInstance().getCurrent().forceRevalidate();
+                        }
+
+                    });
+
+
+                }
+            };
+        
+            // A handler for the input into the text field to fire data change listeners etc..
+            EditingInputHandler inputHandler = new EditingInputHandler(ta, inputEl, layoutForm);
+            
+            final JSFunction inputHandle = EventUtil.addEventListener(inputEl, "input", inputHandler);
+            
+            // We need to listen for resize events because some platforms (e.g. MS Surface)
+            // will resize the window to show the VKB.
+            final JSFunction resizeHandle = EventUtil.addEventListener(window, "resize", new EventListener() {
+
+                @Override
+                public void handleEvent(Event evt) {
+                    callSerially(new Runnable() {
+                        public void run() {
+                            safeSleep(50);
+                            layoutForm.run();
+                        }
+                    });
+                }
+                
+            });
+            
+            // On some platforms (Android and iOS) it can be very hard to 
+            // track down the final scroll position of the page as a result
+            // of showing the VKB.  For this reason we set an interval to 
+            // continually check the scroll and focus every 100ms and 
+            // adjust the layout accordingly.
+            final int[] intervalCounter = new int[1];
+            
+            
+            
+            final int intervalHandle = Window.setInterval(new TimerHandler() {
+                @Override
+                public void onTimer() {
+                    
+                    if (!jQuery_is_(finalInputEl, ":focus")) {
+                        finalInputEl.focus();
+                    }
+                    
+                    if (getScrollY_() > 1) {
+                        callSerially(layoutForm);
+                    }
+                    
+                }
+            }, 100);
+            
+            // We only want the interval to run for a maximum of 2 seconds
+            // since that should be sufficient to detect any scroll changes
+            // as a result of the VKB being shown.  Set a timer for
+            // 2 seconds which just clears the interval.
+            final boolean[] intervalCleared = new boolean[1];
+            Window.setTimeout(new TimerHandler() {
+                public void onTimer() {
+                    if (!intervalCleared[0]) {
+                        intervalCleared[0] = true;
+                        Window.clearInterval(intervalHandle);
+                    }
+                }
+            }, 2000);
+            
+            // In order to force the VKB to appear on touch devices we'll force
+            // the input field to focus.
+            // THIS DOESN' WORK ON IOS SAFARI since you can only programmatically
+            // focus a field as a result of a user event....  But it does work
+            // in every other browser/platform.
+            // On iOS the user has to click the field twice for now.... once
+            // to make it visible, and a second time to focus it.
+            inputEl.focus();
+            
+            // This is where we block the EDT and wait for the editing lock to be
+            // released.
+            
+            
+            
+            editingCompleteCallback = new Runnable() {
+                public void run() {
+                    try {     
+                        // Fix for https://github.com/shannah/cn1-teavm-port/issues/48
+                        // on iPad the invisible input field may retain focus and we can't
+                        // seem to return focus to the canvas.
+                        if (!usePreemptiveNativeTextFieldApproach() || (!nextEditPending && !prevEditPending)) {
+                            
+                            inputEl.blur();
+                            outputCanvas.focus();
+                        } else {
+                            nextEditPending = false;
+                            prevEditPending = false;
+                        }
+
+                        // Remove all of the event listeners that we added to the input field
+                        // and text field before blocking.
+                        
+                        EventUtil.removeEventListener(inputEl, "input", inputHandle);
+                        //EventUtil.removeEventListener(inputEl, "blur", blurHandle);
+                        //EventUtil.removeEventListener(inputEl, "focus", focusHandle);
+                        //EventUtil.removeEventListener(inputEl, "click", clickHandle);
+                        EventUtil.removeEventListener(window, "resize", resizeHandle);
+                        if (!intervalCleared[0]) {
+                            intervalCleared[0] = true;
+                            Window.clearInterval(intervalHandle);
+                        }
+
+                        ta.removeFocusListener(focusListener);
+                        if (dataChangedListener != null && ta instanceof TextField) {
+                            ((TextField)ta).removeDataChangeListener(dataChangedListener);
+                        }
+
+                        //if (lastHTMLInputTime > lastCN1InputTime) {
+                            text = inputEl.getValue();
+                        //} else {
+                        //    text = ta.getText();
+                        //}
+
+
+                        Form current = Display.getInstance().getCurrent();
+                        current.getContentPane().getUnselectedStyle().setPaddingUnit(new byte[] {Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS});
+                        current.getContentPane().getUnselectedStyle().setPadding(Component.BOTTOM, 0);
+                        current.forceRevalidate();
+
+
+                        if (pendingTextChanges != null && !pendingTextChanges.equals(ta.getText())) {
+                            pendingTextChanges = null;
+                            text = ta.getText();
+                        }
+
+                    } finally {
+                        cleanup.run();
+                    }
+                }
+            };
+            /*
+            Display.getInstance().invokeAndBlock(new Runnable(){
+
+                @Override
+                public void run() {
+                    while (isEditing){
+                        synchronized (editingLock){
+                            try {
+                                editingLock.wait(1000);
+                            } catch (InterruptedException ex) {
+                                //Log.e(ex);
+                            }
+                        }
+                    }
+                }
+
+            });
+            */
+        } catch (Throwable t) {
+            cleanup.run();
+        }
+            
+        
+        
+    }
+    
+    private int inputIdCounter=0;
+    
+    public static HTML5Implementation getInstance() {
+        return instance;
+    }
+
+    @Override
+    public PeerComponent createNativePeer(Object nativeComponent) {
+        return new HTML5Peer((HTMLElement)nativeComponent);
+    }
+
+    private final java.util.Map<PeerComponent, HTML5GLSurface> glSurfaces =
+            new IdentityHashMap<PeerComponent, HTML5GLSurface>();
+
+    private final com.codename1.impl.gpu.GpuImplementation gpuImpl =
+            new com.codename1.impl.gpu.GpuImplementation() {
+        @Override
+        public PeerComponent createPeer(com.codename1.gpu.RenderView view) {
+            HTML5GLSurface surface = HTML5GLSurface.create(view);
+            if (surface == null) {
+                return null;
+            }
+            glSurfaces.put(surface, surface);
+            return surface;
+        }
+
+        @Override
+        public void setContinuous(PeerComponent peer, boolean continuous) {
+            HTML5GLSurface surface = glSurfaces.get(peer);
+            if (surface != null) {
+                surface.setContinuous(continuous);
+            }
+        }
+
+        @Override
+        public void requestRender(PeerComponent peer) {
+            HTML5GLSurface surface = glSurfaces.get(peer);
+            if (surface != null) {
+                surface.requestRender();
+            }
+        }
+    };
+
+    @Override
+    public com.codename1.impl.gpu.GpuImplementation getGpuImplementation() {
+        return gpuImpl;
+    }
+
+    @Override
+    public com.codename1.impl.CameraImpl createCameraImpl() {
+        return new HTML5CameraImpl();
+    }
+    
+    
+    
+    private static class EditingInputHandler implements EventListener {
+        
+        private final TextArea ta;
+        private final HTMLInputElement el;
+        private final int id;
+        private Runnable layoutForm;
+        
+        EditingInputHandler(TextArea ta, HTMLInputElement el, Runnable layoutForm) {
+            this.ta = ta;
+            this.el = el;
+            this.id = instance.inputIdCounter++;
+            this.layoutForm = layoutForm;
+        }
+        
+        @Override
+        public void handleEvent(Event evt) {
+            //instance.lastHTMLInputTime = System.currentTimeMillis();
+            callSerially(new Runnable() {
+                public void run() {
+                    if (!ta.hasFocus()) {
+                        // As long as we're typing in the field
+                        // The CN1 text field should have focus.
+                        ta.requestFocus();
+                    }
+                    String val = el.getValue();
+                    if (val != null && !val.equals(ta.getText())) {
+                        ta.setText(el.getValue());
+                    }
+                }
+            });
+            /*
+            if (getScrollY_() > 1) {
+                callSerially(layoutForm);
+            }
+            */
+        }
+        
+    }
+    /**
+     * Flag to indicate whether we use overlay text fields on touch devices rather than
+     * the "old" way of creating a native overlay on demand.
+     * 
+     * NOTE: Native overlays are completely disabled right now as they introduced problems.
+     */
+    private boolean useNativeOverlaysForTextFieldsOnTouchDevices=false;
+    
+    private boolean useNativeOverlaysForTextFields() {
+        return useNativeOverlaysForTextFieldsOnTouchDevices && isPhoneOrTablet_();
+    }
+    
+    private void finishTextEditing(){
+        if (!useNativeOverlaysForTextFields()) {
+            if (editingCompleteCallback != null) {
+                Display.getInstance().callSerially(editingCompleteCallback);
+                editingCompleteCallback = null;
+            } else {
+                isEditing=false;
+            }
+        }
+        
+    }
+    
+    /**
+     * Since we are using requestAnimationFrame() we are running
+     * the graphics output on a native thread so we don't have regular
+     * locking... we need to make sure that they don't conflict.
+     */
+    boolean graphicsLocked;
+    
+    /**
+     * Mark the calling green thread as the only one ``drain`` will dispatch
+     * until the matching ``endGraphicsAtomic()``. While set, ALL other Java
+     * green threads on the worker stay parked even when their wait timeouts
+     * expire; the runtime's drain loop sees the atomic-thread flag and
+     * picks only this thread.
+     *
+     * Why: ``flushGraphics`` issues a JSO call per canvas op (``ctx.save``,
+     * ``ctx.fillStyle``, ``ctx.fillRect``, ...). Each JSO call yields the
+     * green thread waiting for HOST_CALLBACK. Without this marker the
+     * runtime would interleave OTHER green threads during those yields --
+     * those other threads can call repaint(), Component invalidations,
+     * Form transitions, requestAnimationFrame -- each of which queues
+     * MORE canvas ops. The recursive flood of host->worker host-callback
+     * messages then crowded out ``self.onmessage`` for incoming pointer
+     * events (the OK click on a Dialog modal stopped reaching the worker).
+     *
+     * Holding the atomic marker for the duration of the per-frame batch
+     * mirrors how other Codename One ports run paint on a single thread
+     * with no input interleaving, and keeps the host->worker message
+     * queue fair-shareable for incoming DOM events between frames.
+     */
+    @JSBody(params={}, script="if (typeof jvm !== 'undefined') jvm.atomicThread = jvm.currentThread;")
+    private static native void beginGraphicsAtomic();
+
+    @JSBody(params={}, script="if (typeof jvm !== 'undefined') jvm.atomicThread = null;")
+    private static native void endGraphicsAtomic();
+
+    @Override
+    public void flushGraphics(int x, int y, int width, int height) {
+        displayFlushes++;
+        if (textLayer != null) {
+            // Releases runs whose component has been removed, hidden, or whose form is no longer
+            // displayed; none of those ever paints again, so nothing else would clean them up.
+            //
+            // Here rather than in the drain because of when the buffer closes. The components of
+            // this frame have finished painting and their ops are still in ``upcoming``, so a
+            // detach recorded now travels with the very pixels that replace the text -- the host
+            // applies both in one task and the frame is never seen half-updated.
+            textLayer.syncToForm(Display.getInstance().getCurrent());
+        }
+        JavaScriptRenderQueueCoordinator.waitUntilFlushable(new JavaScriptRenderQueueCoordinator.FlushBarrier() {
+            @Override
+            public boolean isGraphicsLocked() {
+                return graphicsLocked;
+            }
+
+            @Override
+            public void sleep(int millis) throws InterruptedException {
+                Thread.sleep(millis);
+            }
+        }, pendingDisplay);
+
+        List<ExecutableOp> flushedOps;
+        synchronized(pendingDisplay){
+            flushedOps = graphics.flush(x, y, width, height);
+            JavaScriptRenderQueueCoordinator.queueFlush(new JavaScriptRenderQueueCoordinator.GraphicsLock() {
+                @Override
+                public void setGraphicsLocked(boolean locked) {
+                    graphicsLocked = locked;
+                }
+            }, pendingDisplay, flushedOps, x, y, width, height);
+        }
+        beginGraphicsAtomic();
+        try {
+            drainPendingDisplayFrame();
+        } finally {
+            endGraphicsAtomic();
+        }
+        // If anything got queued mid-flush (e.g. a re-entrant flushGraphics
+        // call ran while we held the atomic flag and its ops landed after
+        // our snapshot), make sure the rAF chain runs at least one more
+        // tick to catch them. ``handleAnimationFrame`` no longer re-arms
+        // unconditionally, so without this poke the queued ops would sit
+        // forever.
+        if (pendingDisplay.hasPendingOps()) {
+            scheduleAnimationFrame();
+        }
+        if (isEditing) {
+            resizeNativeEditor();
+        }
+        if (activePicker != null) {
+            activePicker.resizeNativeElement();
+        }
+
+
+    }
+
+    @Override
+    public void flushGraphics() {
+        flushGraphics(0, 0, getDisplayWidth(), getDisplayHeight());
+    }
+
+    @Override
+    public void screenshot(final SuccessCallback<Image> callback) {
+        if (callback == null) {
+            return;
+        }
+        if (outputCanvas == null) {
+            super.screenshot(callback);
+            return;
+        }
+        // Reading the screen back as pixels and promoting text into the DOM cannot both be
+        // authoritative: a surface read cannot see a DOM layer, so a capture taken while text is
+        // promoted comes back with its labels missing. An application that reads pixels is
+        // telling us which representation it needs, so promotion stops for good at the first
+        // such call and the text returns to the canvas, where the reads can see it.
+        //
+        // The first capture then has to wait for a frame that was actually painted with
+        // promotion off. That paint is NOT driven from inside this call: calling paintDirty()
+        // here re-enters the render queue at a point it is not built for, and it measurably
+        // breaks rendering -- graphics-draw-gradient-stops came back with its gradients
+        // unpainted, reproducibly and across a re-run, while every other golden was unchanged.
+        // The repaint is requested and the read deferred instead, which this API can do because
+        // it answers through a callback. The read then waits for the painting to actually stop
+        // rather than for a fixed number of event-thread hops: a form whose paint takes more
+        // than one flush -- this application's image grid does -- can be caught between them,
+        // and what comes back is a frame with the last panels still unpainted.
+        if (readbackRepaintPending) {
+            // A capture is already waiting for the frame that puts the text back on the canvas.
+            // Reading now would hand this caller the canvas as it stands, which is the one
+            // missing every promoted glyph, so this capture waits for the same frame.
+            pendingReadbacks.add(callback);
+            return;
+        }
+        if (textLayer != null && !textLayer.isSuspended()) {
+            textLayer.setSuspended(true);
+            textLayerDisabledByReadback = true;
+            readbackRepaintPending = true;
+            // The semantic overlay stops mirroring labels while the text layer renders them and
+            // starts again once it does not. Nothing else would notice the switch, so ask for a
+            // semantic refresh here -- otherwise find-in-page would keep finding nothing until
+            // some unrelated invalidation happened along.
+            com.codename1.ui.accessibility.AccessibilityManager.getInstance().invalidateAll();
+            Form current = getCurrentForm();
+            if (current != null) {
+                current.repaint();
+            }
+            awaitPaintedFrame(new Runnable() {
+                        @Override
+                        public void run() {
+                            readbackRepaintPending = false;
+                            // Whatever else asked for a capture while this one was waiting reads
+                            // the same frame, rather than the one before the text came back. The
+                            // waiting list is taken and emptied before any of them run: a
+                            // callback that throws would otherwise leave the rest of the list
+                            // standing with nothing left to drain it -- the flag that sends a
+                            // capture to the queue is already down, so every later capture would
+                            // take the immediate path and walk straight past them.
+                            List<SuccessCallback<Image>> waiting =
+                                    new ArrayList<SuccessCallback<Image>>(pendingReadbacks);
+                            pendingReadbacks.clear();
+                            deliverReadback(callback);
+                            for (int i = 0; i < waiting.size(); i++) {
+                                deliverReadback(waiting.get(i));
+                            }
+                        }
+                    });
+            return;
+        }
+        readDisplaySurface(callback);
+    }
+
+    /**
+     * Hands one waiting capture its frame, keeping its failure to itself.
+     *
+     * <p>These callbacks belong to unrelated callers that happened to ask during the same
+     * frame, so one of them throwing is not a reason for the others to go unanswered.</p>
+     *
+     * @param callback the capture to satisfy
+     */
+    private void deliverReadback(SuccessCallback<Image> callback) {
+        try {
+            readDisplaySurface(callback);
+        } catch (Throwable t) {
+            Log.e(t);
+        }
+    }
+
+    /**
+     * Runs the given work once the display has stopped painting.
+     *
+     * <p>Counts flushes rather than event-thread hops. A repaint is not one flush: a form can
+     * paint over several, and a read taken between them returns a frame whose last components
+     * were never drawn -- blank where the application had put something. Two consecutive checks
+     * with no flush in between mean the frame is finished.</p>
+     *
+     * <p>Bounded, because a form that animates never stops flushing and a capture still has to
+     * be answered: after enough checks the read goes ahead with whatever is on the canvas, which
+     * is what it would have done immediately before.</p>
+     *
+     * @param work what to run once the frame has settled
+     */
+    private void awaitPaintedFrame(final Runnable work) {
+        final int[] state = new int[] { displayFlushes, 0, 0 };
+        Display.getInstance().callSerially(new Runnable() {
+            @Override
+            public void run() {
+                boolean flushed = displayFlushes != state[0];
+                state[0] = displayFlushes;
+                state[1] = flushed ? 0 : state[1] + 1;
+                state[2]++;
+                if (state[1] >= 2 || state[2] >= 60) {
+                    work.run();
+                    return;
+                }
+                Display.getInstance().callSerially(this);
+            }
+        });
+    }
+
+    /**
+     * How many times the display surface has been flushed. Only ever compared with itself, to
+     * tell a frame that is still being painted from one that has settled.
+     */
+    private int displayFlushes;
+
+    /**
+     * True while a capture is waiting for the frame that rasterizes the text the layer had
+     * promoted. Any capture asked for in the meantime waits for that frame too.
+     */
+    private boolean readbackRepaintPending;
+
+    /**
+     * Captures asked for while that frame is on its way.
+     */
+    private final List<SuccessCallback<Image>> pendingReadbacks = new ArrayList<SuccessCallback<Image>>();
+
+    /**
+     * Reads the display surface back and hands the pixels to the caller.
+     *
+     * @param callback receives the captured image
+     */
+    private void readDisplaySurface(SuccessCallback<Image> callback) {
+        flushGraphics();
+        final int width = getDisplayWidth();
+        final int height = getDisplayHeight();
+        if (width <= 0 || height <= 0) {
+            super.screenshot(callback);
+            return;
+        }
+        drainPendingDisplayFrame();
+        // Read the display SURFACE pixels by id (the one legitimate pixel
+        // read-back) instead of getContext().getImageData() on the canvas
+        // host-ref. nativeSurfaceReadRGB returns ARGB straight into ``rgb``.
+        final int[] rgb = new int[width * height];
+        nativeSurfaceReadRGB(DISPLAY_SURFACE_ID, 0, 0, width, height, rgb);
+        callback.onSucess(Image.createImage(rgb, width, height));
+    }
+
+    @Override
+    public void getRGB(Object nativeImage, int[] arr, int offset, int x, int y, int width, int height) {
+    	final NativeImage im = (NativeImage)nativeImage;
+        if (im.img != null && !im.loaded) {
+            im.load();
+        }
+        // The host computes ARGB and writes it straight into ``dest`` -- the one
+        // legitimate pixel read-back across the barrier. Read into ``arr``
+        // directly when offset is 0, else into a temp then splice.
+        final int[] dest = (offset == 0) ? arr : new int[width * height];
+        final boolean[] ok = new boolean[1];
+        JavaScriptNativeImageAdapter.readPixels(im.getImageModel(), new JavaScriptNativeImageAdapter.PixelReadTarget() {
+            @Override
+            public void readLoadedImage() {
+                nativeReadImagePixels(im.img, x, y, width, height, dest);
+                ok[0] = true;
+            }
+
+            @Override
+            public void readMutableSurface() {
+                im.mutableGraphics.flush();
+                nativeSurfaceReadRGB(im.mutableGraphics.getSurfaceId(), x, y, width, height, dest);
+                ok[0] = true;
+            }
+        });
+        if (!ok[0]) {
+            throw new RuntimeException("Failed to get RGB data.  Image not loaded " + nativeImage);
+        }
+        if (offset != 0) {
+            System.arraycopy(dest, 0, arr, offset, width * height);
+        }
+    }
+
+    
+
+    @Override
+    public LocationManager getLocationManager() {
+        return new HTML5LocationManager();
+    }
+
+    // Web Bluetooth backend. Constructed lazily on first use because the
+    // JSBluetooth constructor performs host-bridge round-trips (capability
+    // probe + event-callback registration) that must not run during
+    // implementation init.
+    private JSBluetooth bluetooth;
+
+    @Override
+    public com.codename1.bluetooth.Bluetooth getBluetooth() {
+        if (bluetooth == null) {
+            bluetooth = new JSBluetooth();
+        }
+        return bluetooth;
+    }
+
+    private com.codename1.health.Health health;
+
+    /// Returns a local health store. There is no platform health provider
+    /// on this port, so the store reports
+    /// {@code HealthAvailability.LOCAL_ONLY}: reads and writes work and
+    /// are this app's own, but nothing else writes into it. The Bluetooth
+    /// sensor layer is unaffected and works fully.
+    @Override
+    public com.codename1.health.Health getHealth() {
+        // Guarded because everything the store serializes is per-instance:
+        // the authorization queue, the subscription registry, drain
+        // coalescing and the persisted-cursor lock. Two threads racing this
+        // getter each got their own store, and two stores coordinate on
+        // nothing -- they would launch overlapping permission flows despite
+        // the queue inside each one being correct.
+        synchronized (HTML5Implementation.class) {
+            if (health == null) {
+                health = new com.codename1.impl.health.LocalHealth();
+            }
+            return health;
+        }
+    }
+
+    private com.codename1.home.spi.HomeBridge homeBridge;
+
+    private com.codename1.impl.nearby.LocalNearbyBridge nearbyBridge;
+
+    /// Returns a local simulated home. There is no HomeKit or Google Home on
+    /// this port, so the bridge reports
+    /// {@code HomeAvailability.LOCAL_ONLY}: the accessories are furnished by
+    /// {@code SyntheticHome}, reads and writes work and are durable, and
+    /// nothing outside this app can see them.
+    ///
+    /// Worth having rather than answering unsupported, because almost all of a
+    /// smart-home feature -- laying out a room, wiring a control to a write,
+    /// rendering an unreachable accessory -- is code that has nothing to do
+    /// with hardware, and a port that reported nothing would make all of it
+    /// testable only on a phone.
+    @Override
+    public com.codename1.home.spi.HomeBridge getHomeBridge() {
+        // Guarded because the bridge holds the graph, the current trait
+        // values and the undelivered-change queues. Two threads racing this
+        // getter would each get their own home, and two homes coordinate on
+        // nothing -- a write through one would be invisible to a
+        // subscription registered against the other.
+        synchronized (HTML5Implementation.class) {
+            if (homeBridge == null) {
+                com.codename1.impl.home.LocalHomeBridge local =
+                        new com.codename1.impl.home.LocalHomeBridge();
+                com.codename1.impl.home.SyntheticHome.populate(local);
+                homeBridge = local;
+            }
+            return homeBridge;
+        }
+    }
+
+    /// The nearby bridge for the JavaScript port: a simulated
+    /// implementation rather than no implementation, for the same reason
+    /// [#getHomeBridge()] carries one.
+    /// Ranging UI, an association flow and a transport screen are almost
+    /// entirely code with nothing to do with radios, and a port that reported
+    /// nothing would make all of it testable only on a pair of phones.
+    ///
+    /// It reports `LOCAL_ONLY`, never `AVAILABLE`, so an app can tell the
+    /// developer the peers it is tracking are not real.
+    @Override
+    public com.codename1.nearby.spi.NearbyBridge getNearbyBridge() {
+        // Guarded for the reason the home bridge is: the bridge holds the
+        // live sessions, the association store and the connection set, and
+        // two threads racing this getter would each get their own -- a
+        // session prepared through one would be invisible to the other.
+        synchronized (HTML5Implementation.class) {
+            if (nearbyBridge == null) {
+                com.codename1.impl.nearby.LocalNearbyBridge local =
+                        new com.codename1.impl.nearby.LocalNearbyBridge();
+                com.codename1.impl.nearby.SyntheticNearby.populate(local);
+                nearbyBridge = local;
+            }
+            return nearbyBridge;
+        }
+    }
+
+
+    private com.codename1.media.VideoIO videoIO;
+    private boolean videoIOResolved;
+
+    @Override
+    public com.codename1.media.VideoIO getVideoIO() {
+        if (!videoIOResolved) {
+            videoIOResolved = true;
+            try {
+                videoIO = new HTML5VideoIO();
+            } catch (Throwable t) {
+                videoIO = null;
+            }
+        }
+        return videoIO;
+    }
+
+    @Override
+    public ImageIO getImageIO() {
+        return new ImageIO(){
+
+            @Override
+            public void save(InputStream image, OutputStream response, String format, int width, int height, float quality) throws IOException {
+                Image img = Image.createImage(image).scaled(width, height);
+                if (width < 0) {
+                    width = img.getWidth();
+                }
+                if (height < 0) {
+                    height = img.getHeight();
+                }
+                //NativeImage nimg = (NativeImage)createImage(image);
+                saveImage(img, response, format, quality);
+            }
+
+            private void saveImage(NativeImage nimg, OutputStream response, String format, int width, int height, float quality) throws IOException {
+                // Encode straight from the host-side surface canvas: a mutable
+                // image IS a surface, so flush it and read its PNG/JPEG data URL.
+                // A loaded image is rendered onto a scratch surface first. This
+                // replaces the old createCanvas + nimg.draw(realCtx) + toBlob path
+                // which no longer works -- nimg.draw targets a SurfaceCommandRecorder,
+                // not a live canvas context.
+                int surfaceId;
+                if (nimg.mutableGraphics != null) {
+                    nimg.mutableGraphics.flush();
+                    surfaceId = nimg.mutableGraphics.getSurfaceId();
+                } else {
+                    HTML5Graphics scratch = createSurfaceGraphics(width, height);
+                    nimg.draw((CanvasRenderingContext2D)scratch.getContext(), 0, 0, width, height);
+                    scratch.flush();
+                    surfaceId = scratch.getSurfaceId();
+                }
+                String dataUrl = nativeSurfaceToDataUrl(surfaceId, "image/"+format, quality);
+                if (dataUrl == null) {
+                    throw new IOException("Failed to encode surface "+surfaceId+" to image/"+format);
+                }
+                int comma = dataUrl.indexOf(',');
+                String b64 = comma >= 0 ? dataUrl.substring(comma + 1) : dataUrl;
+                response.write(Base64.decode(b64.getBytes()));
+            }
+            
+            @Override
+            protected void saveImage(Image image, OutputStream response, String format, float quality) throws IOException {
+                
+                saveImage((NativeImage)image.getImage(), response, format, image.getWidth(), image.getHeight(), quality);
+            }
+
+            @Override
+            public boolean isFormatSupported(String format) {
+                return ImageIO.FORMAT_JPEG.equals(format) || ImageIO.FORMAT_PNG.equals(format);
+            }
+            
+        };
+    }
+
+    
+    
+    @Override
+    public Object createImage(int[] rgb, int width, int height) {
+        // An ARGB int[] becomes a mutable surface: allocate it and write the
+        // pixels host-side in one fire-and-forget op. No ImageData host-ref and
+        // no per-pixel writeArgbBuffer round-trip.
+        NativeImage img = new NativeImage();
+        HTML5Graphics graphics = createSurfaceGraphics(width, height);
+        attachMutableImageSurface(img, graphics);
+        nativeSurfaceWritePixels(graphics.getSurfaceId(), rgb, width, height);
+        return img;
+    }
+
+    @Override
+    public boolean isAlphaGlobal() {
+        return true;
+    }
+
+    @Override
+    public boolean isAlphaMutableImageSupported() {
+        return true;
+    }
+    
+    
+    
+    
+    
+
+    private int isTablet = -1;
+
+    @Override
+    public boolean isTablet() {
+
+        if (isTablet == -1) {
+            String overrideVal = getParameterByName("isTablet");
+            if ("1".equals(overrideVal)) {
+                isTablet = 1;
+            } else if ("0".equals(overrideVal)) {
+                isTablet = 0;
+            } else if (isPhone_()) {
+                isTablet = 0;
+            } else {
+                // The mobile-browser regex above leaves headless Chromium
+                // (and any desktop browser opened at a phone-sized viewport)
+                // classified as a tablet. That kicks widgets into their
+                // tablet layout path — Picker's tablet branch in particular
+                // wraps the Spinner3D in PickerDialogTablet, which inflates
+                // to fill the screen and pushes the date wheels off-canvas
+                // at narrow viewports. Fall back to Material Design's sw600
+                // breakpoint on the shortest viewport side in CSS px. The
+                // display dimensions are already in native pixels so divide
+                // by DPR to compare against a CSS-pixel threshold (without
+                // this divide, a 375x667 retina viewport reports 750x1334
+                // and trips the sw600 gate).
+                double dpr = devicePixelRatioValue();
+                if (dpr <= 0) dpr = 1.0;
+                int minSide = (int) (Math.min(getDisplayWidth(), getDisplayHeight()) / dpr);
+                isTablet = minSide >= 600 ? 1 : 0;
+            }
+        }
+        return isTablet==1;
+    }
+    
+
+    // The original implementations of register/fire SaveBlobHandler ran their
+    // scripts inside the worker, where ``document`` doesn't exist -- the
+    // generated download <a> element / .click() trick threw the moment the
+    // backside hook fired, with no Blob ever reaching the user. Route through
+    // host-bridge handlers (__cn1_register_save_blob__ + __cn1_fire_save_blob__)
+    // in browser_bridge.js so registration and the click-driven download both
+    // happen on the main thread.
+    @JSBody(params={"fileName", "blob"}, script=
+        "if (typeof jvm === 'undefined' || typeof jvm.invokeHostNative !== 'function') return null;\n" +
+        "yield jvm.invokeHostNative('__cn1_register_save_blob__', [{fileName: fileName, blob: blob}]);\n" +
+        "return null;")
+    private static native void registerSaveBlobHandler(String fileName, Blob blob);
+
+    @JSBody(params={"fileName", "dataUrl"}, script=
+        "if (typeof jvm === 'undefined' || typeof jvm.invokeHostNative !== 'function') return null;\n" +
+        "yield jvm.invokeHostNative('__cn1_register_save_blob_dataurl__', [{fileName: fileName, dataUrl: dataUrl}]);\n" +
+        "return null;")
+    private static native void registerSaveBlobHandlerDataUrl(String fileName, String dataUrl);
+
+    @JSBody(params={}, script=
+        "if (typeof jvm === 'undefined' || typeof jvm.invokeHostNative !== 'function') return null;\n" +
+        "yield jvm.invokeHostNative('__cn1_deregister_save_blob__', []);\n" +
+        "return null;")
+    private static native void deregisterSaveBlobHandler();
+
+    @JSBody(params={}, script=
+        "if (typeof jvm === 'undefined' || typeof jvm.invokeHostNative !== 'function') return null;\n" +
+        "yield jvm.invokeHostNative('__cn1_fire_save_blob__', []);\n" +
+        "return null;")
+    private static native void fireSaveBlobHandler();
+
+    /**
+     * JS-port-only fast path for "download these bytes as a file". Skips the
+     * LocalForage/IndexedDB round-trip used by Display.execute(file:// URL)
+     * -- which on this port is broken: the bundled localforage's setItem
+     * callback returns null even when the input Uint8Array is non-null, the
+     * subsequent getItem also returns null, and exists() never sees the just-
+     * written file. The Initializr Generate flow was stuck forever on this.
+     *
+     * This method packages the bytes into a Blob in memory, registers it with
+     * the main-thread save-blob host handler, and fires the download
+     * immediately via the backside hook (the user's click is still on the
+     * call stack, so the browser's "downloads need a user gesture" check
+     * passes). Returns true on success, false if the backside hook isn't
+     * available (e.g. on Safari-without-gesture-relay or in unit tests).
+     */
+    public boolean downloadBytesAsFile(final String fileName, byte[] bytes) {
+        if (bytes == null || fileName == null) {
+            return false;
+        }
+        try {
+            // Deliver as a base64 ``data:`` URL rather than a worker-side Blob.
+            // A worker Blob does not survive the worker->main host-bridge
+            // serialization (toHostTransferArg has no Blob case), so
+            // __cn1_register_save_blob__ never reaches the host. A plain string
+            // data: URL marshals cleanly through invokeHostNative.
+            String dataUrl = "data:application/octet-stream;base64,"
+                    + com.codename1.util.Base64.encodeNoNewline(bytes);
+            registerSaveBlobHandlerDataUrl(fileName, dataUrl);
+        } catch (Throwable t) {
+            return false;
+        }
+        if (isBacksideHookAvailable()) {
+            addBacksideHook(new JSRunnable() {
+                public void run() {
+                    fireSaveBlobHandler();
+                }
+            });
+            return true;
+        }
+        // No backside hook: best-effort fire right away. May be blocked by
+        // browser gesture policy on some configurations, but better than
+        // silently doing nothing.
+        try {
+            fireSaveBlobHandler();
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+
+    public boolean paintNativePeersBehind() {
+        return true;
+    }
+
+    @JSBody(params={"js"}, script="eval(js)")
+    private native static void eval_(String js);
+
+    /**
+     * Value of the {@code javascript.execute.target} property: open in a new
+     * window/tab and silently fall back to navigating the current page when the
+     * browser blocks the popup. This is the default -- it is the only mode that
+     * never needs a confirmation Sheet.
+     */
+    private static final String EXECUTE_TARGET_AUTO = "auto";
+
+    /**
+     * Value of the {@code javascript.execute.target} property: only ever open a
+     * new window/tab. When the browser blocks it (no live user gesture) a
+     * confirmation Sheet is shown so the user's tap on it supplies the gesture.
+     */
+    private static final String EXECUTE_TARGET_BLANK = "_blank";
+
+    /**
+     * Value of the {@code javascript.execute.target} property: always navigate
+     * the page the app is running in. Never blocked, never shows a Sheet, but
+     * it unloads the app.
+     */
+    private static final String EXECUTE_TARGET_SELF = "_self";
+
+    /**
+     * Resolves the {@code javascript.execute.target} property to one of the
+     * three documented values, falling back to {@code auto}. An unrecognized
+     * value is logged rather than silently accepted, so a typo is diagnosable
+     * instead of looking like the default was chosen deliberately.
+     */
+    private String executeTarget() {
+        String target = Display.getInstance().getProperty("javascript.execute.target", EXECUTE_TARGET_AUTO);
+        if (EXECUTE_TARGET_SELF.equals(target)) {
+            return EXECUTE_TARGET_SELF;
+        }
+        if (EXECUTE_TARGET_BLANK.equals(target)) {
+            return EXECUTE_TARGET_BLANK;
+        }
+        if (!EXECUTE_TARGET_AUTO.equals(target)) {
+            _log("javascript.execute.target: unrecognized value '" + target
+                    + "', expected auto, _blank or _self. Using auto.");
+        }
+        return EXECUTE_TARGET_AUTO;
+    }
+
+    /**
+     * Quotes a string as a JavaScript string literal so it can be embedded in a
+     * script handed to {@link #eval_(String)}.
+     */
+    private static String toJavaScriptStringLiteral(String value) {
+        StringBuilder sb = new StringBuilder(value.length() + 8);
+        sb.append('"');
+        int len = value.length();
+        for (int i = 0; i < len; i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '"':
+                    sb.append("\\\"");
+                    break;
+                case '\\':
+                    sb.append("\\\\");
+                    break;
+                case '\n':
+                    sb.append("\\n");
+                    break;
+                case '\r':
+                    sb.append("\\r");
+                    break;
+                case '\t':
+                    sb.append("\\t");
+                    break;
+                case '<':
+                    // Avoid terminating an enclosing script element early.
+                    sb.append("\\u003c");
+                    break;
+                default:
+                    if (c < ' ' || c > 126) {
+                        String hex = Integer.toHexString(c);
+                        sb.append("\\u");
+                        for (int j = hex.length(); j < 4; j++) {
+                            sb.append('0');
+                        }
+                        sb.append(hex);
+                    } else {
+                        sb.append(c);
+                    }
+                    break;
+            }
+        }
+        sb.append('"');
+        return sb.toString();
+    }
+
+    /**
+     * Severs {@code window.opener} on a window we just opened, so the page in
+     * it cannot navigate the app's own page (reverse tabnabbing).
+     *
+     * <p>Deliberately not the {@code noopener} window feature: that makes
+     * {@code window.open()} return null in every browser, which would destroy
+     * the only signal available for telling a blocked popup from a successful
+     * one. Clearing the property gets the same protection while keeping the
+     * handle. Wrapped, since the assignment can throw once the new window has
+     * navigated cross-origin.</p>
+     */
+    private static final String SEVER_OPENER = "try { cn1w.opener = null; } catch (e) {}";
+
+    /**
+     * Hands a URL to the page's main thread for opening. {@code window} and
+     * {@code window.open} do not exist inside the Web Worker the app runs in, so
+     * this routes through the eval-on-main host bridge (see the
+     * {@code eval_} binding in port.js) where the page's real window lives.
+     *
+     * @param url the URL to open
+     * @param sameWindow when true navigate the current page, when false open a
+     *   new window/tab
+     * @param fallBackToSameWindow when opening a new window, navigate the
+     *   current page instead if the browser blocked the popup. The check runs
+     *   inside the page-side script because the popup verdict is only knowable
+     *   there.
+     * @return true if the script reached the page, false if the main-thread
+     *   bridge is unavailable and the caller should degrade
+     */
+    private boolean openUrlOnMainThread(String url, boolean sameWindow, boolean fallBackToSameWindow) {
+        String literal = toJavaScriptStringLiteral(url);
+        // When the host bundle predates the __cn1_eval_on_main__ handler,
+        // port.js degrades to evaluating the script inside the worker. Opening
+        // fails loudly there (no window.open), but a same-window navigation
+        // would NOT: assigning to the worker's read-only location is a silent
+        // no-op in non-strict eval code, so execute() would appear to succeed
+        // and do nothing. Assert we are on the page so every variant fails
+        // detectably and the caller can degrade.
+        String guard = "if (typeof document === 'undefined') {"
+                + " throw new Error('cn1: not running on the page'); }";
+        String script;
+        if (sameWindow) {
+            script = guard + "window.location.href = " + literal + ";";
+        } else if (fallBackToSameWindow) {
+            // Only attempt the popup while the page still has transient user
+            // activation -- otherwise the browser blocks it and shows its
+            // "popup blocked" indicator before we navigate anyway. Browsers
+            // without navigator.userActivation just try and let !cn1w decide.
+            script = guard
+                    + "var cn1a = window.navigator && window.navigator.userActivation;"
+                    + "var cn1w = (!cn1a || cn1a.isActive) ? window.open(" + literal + ", '_blank') : null;"
+                    + "if (!cn1w) { window.location.href = " + literal + "; } else { " + SEVER_OPENER + " }";
+        } else {
+            // Report a blocked popup instead of returning as if it opened. The
+            // page-side null is the only evidence available -- there is no
+            // callback -- so turn it into a throw the host call propagates.
+            script = guard + "var cn1w = window.open(" + literal + ", '_blank');"
+                    + "if (!cn1w) { throw new Error('cn1: popup blocked'); }"
+                    + SEVER_OPENER;
+        }
+        try {
+            // Wrapped in a function: __cn1_eval_on_main__ runs this through
+            // indirect eval, so a bare "var cn1w" would land on the page's
+            // global object -- clobbering an identically named global of the
+            // embedding page, and throwing outright against a top-level let or
+            // const of that name, which would break the default popup path.
+            eval_("(function(){" + script + "})();");
+            return true;
+        } catch (Throwable t) {
+            _log("Failed to open URL on the main thread: " + t);
+            return false;
+        }
+    }
+
+    /**
+     * Longest URL the confirmation Sheet shows before it is ellipsized. Chosen
+     * to stay inside a narrow phone viewport at the default font.
+     */
+    private static final int MAX_DISPLAY_URL_LENGTH = 40;
+
+    /** Marker appended to a URL shortened for the confirmation Sheet. */
+    private static final String DISPLAY_URL_ELLIPSIS = "...";
+
+    /** 0 unknown, 1 reachable, -1 not reachable. */
+    private int mainThreadBridgeState;
+
+    /**
+     * Whether scripts can reach the page at all, cached after one probe.
+     *
+     * <p>A host bundle predating the {@code __cn1_eval_on_main__} handler leaves
+     * the worker with no page-side channel, so every open fails. Knowing that
+     * up front matters because the recovery for a blocked popup -- ask the user
+     * -- is worthless here: the Sheet would promise something no button on it
+     * can deliver.</p>
+     */
+    private boolean isMainThreadBridgeAvailable() {
+        if (mainThreadBridgeState == 0) {
+            try {
+                // A no-op that asserts page context, nothing else.
+                eval_("if (typeof document === 'undefined') {"
+                        + " throw new Error('cn1: not running on the page'); }");
+                mainThreadBridgeState = 1;
+            } catch (Throwable t) {
+                mainThreadBridgeState = -1;
+            }
+        }
+        return mainThreadBridgeState == 1;
+    }
+
+    /**
+     * Tells the user a link cannot be opened, for the one case where no
+     * confirmation could help. Informational, so a single dismiss button.
+     */
+    private void showCannotOpenMessage(String url) {
+        final Sheet sheet = new Sheet(null, "Open Link");
+        SpanLabel message = new SpanLabel(
+                "This app cannot open links. Its web runtime is out of date.");
+        Button close = new Button("Close");
+        close.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent evt) {
+                sheet.back();
+            }
+        });
+        sheet.getContentPane().setLayout(BoxLayout.y());
+        sheet.getContentPane().add(message);
+        Label detail = new Label(shortenUrlForDisplay(url));
+        detail.setEndsWith3Points(true);
+        sheet.getContentPane().add(detail);
+        sheet.getContentPane().add(FlowLayout.encloseCenter(close));
+        sheet.show();
+    }
+
+
+    /**
+     * Hands a {@code data:} download to the bridge's structured handler.
+     *
+     * <p>Three constraints apply and the current bridge can satisfy only two.
+     * The download must happen once; a blocked attempt should be retryable; and
+     * the payload must not be copied more than necessary. Registering fires the
+     * click eagerly, so re-firing the stash duplicates it. Clicking the anchor
+     * ourselves through eval-on-main avoids that and restores the retry, but
+     * escapes a multi-megabyte base64 string into JavaScript source, builds
+     * several payload-sized copies of it and makes the page parse it as code.</p>
+     *
+     * <p>So: register and return. One download, and the payload travels once as
+     * structured host-call data rather than as source text. The retry is what is
+     * given up, and recovering it needs a bridge-side change --
+     * {@code __cn1_register_save_blob_dataurl__} would have to accept a
+     * no-eager-fire flag -- which lives in the translator, not here.</p>
+     */
+    private void downloadDataUrl(String dataUrl, String fileName) {
+        registerSaveBlobHandlerDataUrl(fileName, dataUrl);
+    }
+
+    /**
+     * A raw URL has no spaces for {@code SpanLabel} to wrap on, so putting one
+     * in the confirmation Sheet blew the content pane's preferred width past the
+     * screen and pushed the buttons out of reach. Shorten it for display; the
+     * full URL is never needed to answer "open this link?".
+     */
+    static String shortenUrlForDisplay(String url) {
+        if (url == null) {
+            return "";
+        }
+        String rest;
+        // Special URLs also accept "\\" wherever they accept "/", so the
+        // authority ends there too -- otherwise https://evil.example\\<long
+        // trusted looking path> reads as one over-long authority and the tail
+        // rule below would show the attacker's suffix instead of the host.
+        boolean special;
+        if (startsWithAuthorityMarker(url)) {
+            // Scheme relative. isExternalUrl() accepts these, so they reach the
+            // Sheet and carry an authority that needs the same parsing --
+            // indexOf("://") does not find one. The page's own scheme applies,
+            // which for a served app is http(s), so treat it as special.
+            rest = url.substring(2);
+            special = true;
+        } else {
+            int schemeEnd = url.indexOf("://");
+            if (schemeEnd >= 0) {
+                rest = url.substring(schemeEnd + 3);
+                special = isSpecialScheme(url.substring(0, schemeEnd));
+            } else {
+                int colon = schemeColon(url);
+                if (colon > 0 && isSpecialScheme(url.substring(0, colon))) {
+                    // A special scheme tolerates missing slashes: browsers parse
+                    // http:host/path, and even http:/host/path, with host as the
+                    // authority. Without this the slashless form would skip the
+                    // parsing below and display its leading user info.
+                    //
+                    // UNLESS the scheme matches the page's own. Then it is a
+                    // relative reference, not an authority: on an https page
+                    // https:example.com/p resolves under the page's host, with
+                    // example.com as the start of the PATH. Naming example.com
+                    // as the destination would be simply false.
+                    String scheme = url.substring(0, colon);
+                    String page = pageScheme();
+                    // ...and only when fewer than two separators follow the
+                    // colon. Two of them, in any mix of "/" and "\\", are an
+                    // authority marker that outranks the same-scheme rule:
+                    // https:\\\\evil.example/p navigates to evil.example even
+                    // from an https page, so claiming the app's own host there
+                    // would name a destination the browser is not going to.
+                    boolean authorityFollows =
+                            startsWithAuthorityMarker(url.substring(colon + 1));
+                    if (!authorityFollows && page != null && page.equalsIgnoreCase(scheme)) {
+                        String host = mainLocationPart("host");
+                        if (host != null && host.length() > 0) {
+                            return host + "/" + DISPLAY_URL_ELLIPSIS;
+                        }
+                        return ellipsizeTail(url);
+                    }
+                    rest = url.substring(colon + 1);
+                    // Only reached when the scheme is special; the separator
+                    // skip below covers http:/host as well as http:host.
+                    special = true;
+                } else if (colon > 0) {
+                    // A scheme we do not parse an authority for (mailto:, tel:).
+                    return ellipsizeTail(url);
+                } else {
+                    // No scheme at all, so the browser resolves it against the
+                    // page: the destination host is the page's own, and the
+                    // text is a path under it. Returning the text alone invited
+                    // reading "evil.example" as a host when the link goes to
+                    // <page host>/evil.example.
+                    String host = mainLocationPart("host");
+                    if (host == null || host.length() == 0) {
+                        return ellipsizeTail(url);
+                    }
+                    String path = url.startsWith("/") ? url : "/" + url;
+                    String combined = host + path;
+                    return combined.length() <= MAX_DISPLAY_URL_LENGTH
+                            ? combined
+                            : host + "/" + DISPLAY_URL_ELLIPSIS;
+                }
+            }
+        }
+        if (special) {
+            // Browsers ignore any number of separators after the scheme, so
+            // https:////host and https:/\\/host both open host. Skip them, or
+            // the scan below stops on the leftover separator, reads an empty
+            // authority and falls back to showing the raw prefix.
+            while (rest.startsWith("/") || rest.startsWith("\\")) {
+                rest = rest.substring(1);
+            }
+            if (rest.length() == 0) {
+                return ellipsizeTail(url);
+            }
+        }
+        int authorityEnd = rest.length();
+        for (int i = 0; i < rest.length(); i++) {
+            char c = rest.charAt(i);
+            if (c == '/' || c == '?' || c == '#' || (special && c == '\\')) {
+                authorityEnd = i;
+                break;
+            }
+        }
+        String authority = rest.substring(0, authorityEnd);
+        // Everything before the last '@' is user info. An attacker picks it
+        // freely and can spell it to read like a trusted host, so showing it --
+        // or truncating the display in the middle of it -- would let
+        // https://www.paypal.com@evil.example/ be confirmed as "www.paypal.com".
+        // What confirming actually opens is the host, so show only that.
+        int at = authority.lastIndexOf('@');
+        if (at >= 0) {
+            authority = authority.substring(at + 1);
+        }
+        if (authority.length() == 0) {
+            // Scheme-relative or path-only, e.g. imdb:///find?q=godfather.
+            return ellipsizeTail(rest);
+        }
+        if (authority.length() > MAX_DISPLAY_URL_LENGTH) {
+            // Keep the END of an over-long host: the registrable domain is the
+            // rightmost labels, so dropping the front is what preserves the
+            // part that decides where the link goes.
+            authority = DISPLAY_URL_ELLIPSIS + authority.substring(
+                    authority.length() - (MAX_DISPLAY_URL_LENGTH - DISPLAY_URL_ELLIPSIS.length()));
+        }
+        // A lone trailing "/" is not worth an ellipsis.
+        boolean hasPath = rest.length() - authorityEnd > 1;
+        return hasPath ? authority + "/" + DISPLAY_URL_ELLIPSIS : authority;
+    }
+
+    /**
+     * Index of the colon terminating a syntactically valid scheme, or -1 when
+     * the string carries none.
+     *
+     * <p>Shared so "does this have a scheme" is answered once. A colon inside a
+     * path -- {@code /host:8443/p}, {@code ./user:pw@host} -- is not one, and
+     * treating it as one made those read as unparsed schemes rather than as the
+     * page-relative references they are.</p>
+     */
+    private static int schemeColon(String url) {
+        int colon = url.indexOf(':');
+        if (colon < 1) {
+            return -1;
+        }
+        // scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ), per RFC 3986.
+        for (int i = 0; i < colon; i++) {
+            char c = url.charAt(i);
+            boolean alpha = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+            boolean extra = i > 0 && ((c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.');
+            if (!alpha && !extra) {
+                return -1;
+            }
+        }
+        return colon;
+    }
+
+    /**
+     * The page's own scheme, without the trailing colon, or null if unreadable.
+     */
+    private static String pageScheme() {
+        try {
+            String protocol = mainLocationPart("protocol");
+            if (protocol == null) {
+                return null;
+            }
+            return protocol.endsWith(":")
+                    ? protocol.substring(0, protocol.length() - 1)
+                    : protocol;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * The WHATWG URL "special" schemes, which browsers parse with an authority
+     * even when the {@code //} is missing.
+     */
+    private static boolean isSpecialScheme(String scheme) {
+        return "http".equalsIgnoreCase(scheme)
+                || "https".equalsIgnoreCase(scheme)
+                || "ws".equalsIgnoreCase(scheme)
+                || "wss".equalsIgnoreCase(scheme)
+                || "ftp".equalsIgnoreCase(scheme)
+                // Special for PARSING, which is all this governs. Routing still
+                // sends file: to storage -- see isExternalUrl() -- but when one
+                // does reach the Sheet, file:\\\\host/p carries a real authority
+                // and must be read as one.
+                || "file".equalsIgnoreCase(scheme);
+    }
+
+    /**
+     * Trims a string with no authority to protect down to the display cap.
+     */
+    private static String ellipsizeTail(String value) {
+        if (value.length() <= MAX_DISPLAY_URL_LENGTH) {
+            return value;
+        }
+        return value.substring(0, MAX_DISPLAY_URL_LENGTH - DISPLAY_URL_ELLIPSIS.length())
+                + DISPLAY_URL_ELLIPSIS;
+    }
+
+    /**
+     * Builds the "browser blocked this, please confirm" Sheet used by
+     * {@link #execute(String)}. The message, the (shortened) URL and the buttons
+     * each get their own row: the old single-row BorderLayout put the buttons
+     * east of a label whose preferred width was the whole URL, which pushed them
+     * off screen where they could not be tapped.
+     */
+    private Sheet createConfirmationSheet(String title, String message, String detail, final Runnable onConfirm) {
+        final Sheet sheet = new Sheet(null, title);
+        SpanLabel messageLabel = new SpanLabel(message);
+        Button ok = new Button("OK");
+        Button cancel = new Button("Cancel");
+        ok.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent evt) {
+                sheet.back();
+                onConfirm.run();
+            }
+        });
+        cancel.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent evt) {
+                sheet.back();
+            }
+        });
+        sheet.getContentPane().setLayout(BoxLayout.y());
+        sheet.getContentPane().add(messageLabel);
+        if (detail != null && detail.length() > 0) {
+            // A plain Label truncates with an ellipsis when it does not fit,
+            // unlike SpanLabel which would just overflow on an unbreakable URL.
+            Label detailLabel = new Label(detail);
+            detailLabel.setEndsWith3Points(true);
+            sheet.getContentPane().add(detailLabel);
+        }
+        sheet.getContentPane().add(FlowLayout.encloseCenter(cancel, ok));
+        return sheet;
+    }
+
+    /**
+     * True when a backside-hook drain is pending because of an actual user
+     * gesture, rather than merely because the polling interval enabled by
+     * {@code platformHint.javascript.backsideHooksInterval} is running.
+     *
+     * <p>{@link #isBacksideHookAvailable()} accepts either, which is right for
+     * media -- browsers relax autoplay once the page has engagement -- but not
+     * for a popup. The interval drains from {@code Window.setInterval}, which
+     * grants no transient activation, so a {@code window.open()} queued on it
+     * can be blocked with nothing shown to the user. The semaphore, in
+     * contrast, is only raised by
+     * {@code installBacksideHooksInUserInteraction()} off a real pointer or key
+     * event.</p>
+     */
+    private boolean isGestureBackedHookAvailable() {
+        return backsideHooksSemaphore > 0;
+    }
+
+    /**
+     * Identifies the user interaction currently in play. Bumped by
+     * {@link #installBacksideHooksInUserInteraction()}, which runs once per
+     * pointer or key event.
+     */
+    private int gestureGeneration;
+
+    /**
+     * The {@link #gestureGeneration} that has already had a popup queued
+     * against it, or -1.
+     *
+     * <p>One interaction authorizes ONE {@code window.open()}: the first
+     * consumes the transient activation, so anything else queued behind the
+     * same interaction is blocked. The count of pending drains cannot express
+     * this -- a single interaction schedules three (300ms, 1500ms, 5000ms), and
+     * a second interaction within five seconds raises the shared semaphore
+     * again before the first one's drains have run, so neither "the first drain
+     * ran" nor "the semaphore reached zero" marks a gesture boundary. Comparing
+     * generations does: a genuinely new interaction gets its own popup, while
+     * everything else in the same one goes to the Sheet and earns a gesture of
+     * its own.</p>
+     */
+    private int popupReservedForGeneration = -1;
+
+    /**
+     * Applies the cleanup a browser performs before it parses a URL: strip
+     * leading and trailing C0 controls and spaces, then remove every tab and
+     * newline wherever they appear.
+     *
+     * <p>Applied once at the top of {@link #execute(String)} so classification,
+     * the confirmation Sheet's display and the URL actually handed to the page
+     * all see the same string. Parsing the raw input separately in each place is
+     * what let " https:host@evil.example/" be classified and displayed off a
+     * scheme of {@code " https"} while the browser navigated to
+     * {@code evil.example}.</p>
+     */
+    static String normalizeUrlForParsing(String url) {
+        if (url == null) {
+            return null;
+        }
+        int start = 0;
+        int end = url.length();
+        while (start < end && url.charAt(start) <= ' ') {
+            start++;
+        }
+        while (end > start && url.charAt(end - 1) <= ' ') {
+            end--;
+        }
+        StringBuilder sb = new StringBuilder(end - start);
+        for (int i = start; i < end; i++) {
+            char c = url.charAt(i);
+            if (c != '\t' && c != '\n' && c != '\r') {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * True when the string opens with two path separators, which makes it
+     * scheme relative: the browser reads what follows as an authority.
+     *
+     * <p>Any combination of {@code /} and {@code \\} counts, because a special
+     * base URL -- and an app served over http(s) always has one -- treats them
+     * alike. So {@code \\\\host/p}, {@code \\/host/p} and {@code /\\host/p} all
+     * navigate to {@code host} exactly as {@code //host/p} does.</p>
+     *
+     * <p>Shared by every place that has to agree on where an authority starts:
+     * classification, the storage gate and the confirmation display. Answering
+     * this question separately in each is what let earlier authority shapes be
+     * fixed in one and missed in another.</p>
+     */
+    private static boolean startsWithAuthorityMarker(String url) {
+        return url.length() >= 2
+                && (url.charAt(0) == '/' || url.charAt(0) == '\\')
+                && (url.charAt(1) == '/' || url.charAt(1) == '\\');
+    }
+
+    /**
+     * True when {@code url} carries exactly {@code scheme}, compared without
+     * regard to case since URI schemes are case-insensitive. Guards the
+     * {@code javascript:} and {@code data:} branches of {@link #execute(String)},
+     * which would otherwise let {@code JavaScript:} slip through to the
+     * external-link path.
+     */
+    private static boolean hasScheme(String url, String scheme) {
+        return url.length() > scheme.length()
+                && url.charAt(scheme.length()) == ':'
+                && url.regionMatches(true, 0, scheme, 0, scheme.length());
+    }
+
+    /**
+     * True when the URL names something the browser itself can hand off, as
+     * opposed to a path into local storage that {@link #execute(String)} is
+     * expected to turn into a download. Only these get the
+     * {@code javascript.execute.target} treatment -- pointing the current page
+     * at a storage path would unload the app and land on nothing.
+     *
+     * <p>Anything carrying a URI scheme qualifies, whatever its case. That
+     * deliberately includes custom deep links such as the {@code imdb:///find}
+     * example in {@code Display.execute}'s javadoc, which the browser passes to
+     * a registered handler, and it includes protocol-relative {@code //host/path}
+     * URLs. {@code file:} is the exception: like the bare paths that carry no
+     * scheme at all, it names local content.</p>
+     */
+    private static boolean isExternalUrl(String url) {
+        if (startsWithAuthorityMarker(url)) {
+            // Scheme relative -- the page's own scheme applies.
+            return true;
+        }
+        // RFC 3986 allows a single ALPHA scheme, so x:payload is a legitimate
+        // deep link. A colon inside a path is not a scheme -- schemeColon()
+        // holds that grammar for every caller.
+        int colon = schemeColon(url);
+        if (colon < 1) {
+            return false;
+        }
+        // equalsIgnoreCase rather than toLowerCase(): case folding a scheme
+        // through the default locale turns "FILE" into "fIle" under a Turkish
+        // locale and would classify a file: URL as external.
+        return !"file".equalsIgnoreCase(url.substring(0, colon));
+    }
+
+    /**
+     * Opens a URL, or asks the user to, honoring the
+     * {@code javascript.execute.target} property. See {@link #execute(String)}.
+     */
+    private void openExternalUrl(final String url) {
+        String target = executeTarget();
+        if (EXECUTE_TARGET_SELF.equals(target)
+                && openUrlOnMainThread(url, true, false)) {
+            return;
+        }
+        if (EXECUTE_TARGET_AUTO.equals(target)
+                && openUrlOnMainThread(url, false, true)) {
+            return;
+        }
+        // _blank, or _self / auto whose page-side script never ran because the
+        // host bundle predates the eval-on-main handler -- degrade rather than
+        // leave execute() with no effect at all.
+        //
+        // Only _blank actually asked for a new window. Under auto or _self the
+        // Sheet is a compatibility fallback the caller never requested, so
+        // promising a new window there would describe behavior they did not
+        // choose.
+        openInNewWindowWithConfirmation(url, EXECUTE_TARGET_BLANK.equals(target)
+                ? "Open this link in a new window?"
+                : "Open this link?");
+    }
+
+    /**
+     * Opens {@code url} in a new window/tab the gesture-aware way: a popup only
+     * survives inside a live user gesture, so ride a backside hook when a
+     * gesture-backed one is pending and otherwise ask the user, whose tap on the
+     * Sheet becomes the gesture.
+     *
+     * <p>An interval-only hook is deliberately not enough here. Draining from a
+     * timer would let the browser block the popup with nothing shown, which is
+     * worse than the Sheet.</p>
+     */
+    private void openInNewWindowWithConfirmation(final String url, final String prompt) {
+        if (!isMainThreadBridgeAvailable()) {
+            // Guarded here rather than at each caller: every popup path funnels
+            // through this method, and putting it in openExternalUrl() alone
+            // left the local-path fallback and the download legs prompting for
+            // something no button could deliver.
+            _log("execute(): no page-side channel on this host bundle, cannot open " + url);
+            showCannotOpenMessage(url);
+            return;
+        }
+        if (isGestureBackedHookAvailable() && popupReservedForGeneration != gestureGeneration) {
+            // Tied to the interaction rather than to any drain of it -- see the
+            // field. Never cleared; the next interaction simply carries a
+            // different generation.
+            popupReservedForGeneration = gestureGeneration;
+            addGestureOnlyHook(new JSRunnable() {
+                @Override
+                public void run() {
+                    // openUrlOnMainThread reports the reason on failure --
+                    // popup blocked or no page-side channel -- so do not
+                    // second-guess it with a duplicate line here.
+                    if (!openUrlOnMainThread(url, false, false)) {
+                        // A browser setting, an extension or an activation that
+                        // expired before the drain can still block the one
+                        // reserved attempt. Fall back to asking rather than
+                        // leaving the caller with a dead click. Hop to the EDT
+                        // first -- this runs on a hook drain.
+                        callSerially(new Runnable() {
+                            @Override
+                            public void run() {
+                                showOpenConfirmation(url, prompt);
+                            }
+                        });
+                    }
+                }
+            }, new Runnable() {
+                @Override
+                public void run() {
+                    // Superseded by a newer interaction. Ask rather than
+                    // re-queue: queueing again would open this URL off a
+                    // gesture the user made for something else.
+                    showOpenConfirmation(url, prompt);
+                }
+            });
+            return;
+        }
+        showOpenConfirmation(url, prompt);
+    }
+
+    /**
+     * Asks the user whether to open {@code url}, and on OK queues the open
+     * against the tap that answered. Always shows the Sheet -- never queues a
+     * popup on its own -- so it is safe as the fallback for a hook that could
+     * not run.
+     */
+    private void showOpenConfirmation(final String url, final String prompt) {
+        if (!isMainThreadBridgeAvailable()) {
+            // Reached directly by the superseded and blocked-popup fallbacks,
+            // which bypass the entry point above.
+            _log("execute(): no page-side channel on this host bundle, cannot open " + url);
+            showCannotOpenMessage(url);
+            return;
+        }
+        createConfirmationSheet("Open Link", prompt,
+                shortenUrlForDisplay(url), new Runnable() {
+            @Override
+            public void run() {
+                // This callback runs on the EDT, by which point the browser no
+                // longer counts the OK tap as an ongoing gesture -- opening
+                // from here would be discarded by a popup blocker, which is the
+                // very thing the Sheet exists to recover from. That tap did
+                // install a backside hook though (pointer handling calls
+                // installBacksideHooksInUserInteraction), so queue the open on
+                // it and let the drain perform it inside the gesture. On the
+                // gesture-only queue, or the polling interval could drain it
+                // first with no activation and block the link the user just
+                // confirmed.
+                addGestureOnlyHook(new JSRunnable() {
+                    @Override
+                    public void run() {
+                        if (!openUrlOnMainThread(url, false, false)) {
+                            // The user confirmed and it still did not open --
+                            // a browser setting, an extension, or an activation
+                            // that expired before this drain. Do not stop at a
+                            // log: they acted and deserve a way through. Offer
+                            // the current tab, which needs no activation and so
+                            // cannot be blocked in turn. Not a loop -- that
+                            // path is a navigation, not another popup.
+                            _log("execute(): confirmed open did not succeed for "
+                                    + url);
+                            callSerially(new Runnable() {
+                                @Override
+                                public void run() {
+                                    showBlockedPopupFallback(url);
+                                }
+                            });
+                        }
+                    }
+                }, new Runnable() {
+                    @Override
+                    public void run() {
+                        // The confirming tap was superseded before its drain
+                        // ran. Ask again rather than spend the newer gesture.
+                        showOpenConfirmation(url, prompt);
+                    }
+                });
+            }
+        }).show();
+    }
+
+    /**
+     * Last resort after a confirmed open was blocked anyway: offer the current
+     * tab, which needs no activation and so cannot be blocked in turn.
+     */
+    private void showBlockedPopupFallback(final String url) {
+        if (!isMainThreadBridgeAvailable()) {
+            _log("execute(): no page-side channel on this host bundle, cannot open " + url);
+            showCannotOpenMessage(url);
+            return;
+        }
+        createConfirmationSheet("Open Link",
+                "Your browser blocked the new window."
+                        + " Open this link in the current tab instead?",
+                shortenUrlForDisplay(url), new Runnable() {
+            @Override
+            public void run() {
+                openUrlOnMainThread(url, true, false);
+            }
+        }).show();
+    }
+
+    @Override
+    public void execute(String rawUrl) {
+        // Normalization exists to make classification, the Sheet's display and
+        // the string handed to the page agree on what the BROWSER will parse.
+        // It is therefore only applied to those: a javascript: payload and a
+        // storage path are consumed verbatim below, since stripping their tabs
+        // and newlines would change a program's meaning and a key's identity.
+        if (rawUrl == null) {
+            // Pre-existing behavior was an NPE off the first startsWith. There
+            // is nothing to open, so say so and return rather than crash the
+            // caller's EDT.
+            _log("execute(): ignoring null URL");
+            return;
+        }
+        final String url = normalizeUrlForParsing(rawUrl);
+        if (hasScheme(url, "javascript")) {
+            // Payload taken from the raw string. Normalizing it would splice
+            // out newlines that terminate a // comment and tabs that separate
+            // tokens, silently changing what the caller asked to run.
+            String cmd = rawUrl.substring(rawUrl.indexOf(":")+1);
+            eval_(cmd);
+            return;
+        }
+
+        String fileName = null;
+        boolean useBlobHandler = false;
+        Button nativeButton = new Button();
+        // Storage names are unrestricted, so NO shape can be ruled out in
+        // advance: report:2026.pdf, https:report.pdf and https://example.com/x
+        // are all legal keys, and three successive attempts to characterize
+        // "cannot be a key" each regressed one of them. Consult storage for
+        // everything and let the miss decide. The parent implementation did
+        // the same for every shape but http:, mailto: and data:.
+        //
+        // data: stays excluded, and it is the only exclusion that holds up:
+        // there the string is the download's payload rather than a name, and
+        // exists() would push a multi-megabyte base64 blob through the host
+        // bridge as a key, twice, for something that can never match.
+        //
+        // Looked up under the path exactly as given -- a key may legitimately
+        // open or close with a space, and nothing here is parsed by the
+        // browser.
+        if (!hasScheme(url, "data") && exists(rawUrl)) {
+            try {
+                Blob blob = openFileAsBlob(rawUrl);
+                char sep = getFileSystemSeparator();
+                fileName = rawUrl;
+                if (fileName.indexOf(sep) >= 0) {
+                    fileName = fileName.substring(fileName.lastIndexOf(sep) + 1);
+                }
+                registerSaveBlobHandler(fileName, blob);
+                useBlobHandler = true;
+            } catch (Throwable ex) {
+                // openFileAsBlob failed -- fall through to the no-blob-handler
+                // branch below which opens the URL in a new window instead.
+            }
+        }
+
+        String buttonText = null;
+        //String icon = null;
+        if (useBlobHandler) {
+            //popover.setContents("<button style='white-space:nowrap' onclick='window.cn1SaveBlobHandler();'><span style='font-size:3em;vertical-align:text-bottom;' class='glyphicon glyphicon-download'/><span style='font-size:2em;vertical-align:top;'> Download "+(fileName!=null?fileName:"File")+"</span></button>");
+            buttonText = "Click to Download "+(fileName!=null?fileName:"File");
+            nativeButton.setText(buttonText);
+            nativeButton.setMaterialIcon(FontImage.MATERIAL_SAVE);
+        } else if (hasScheme(url, "data")) {
+            // The RAW URL, not the normalized one: normalization strips tabs
+            // and newlines anywhere in the string, and this value is the
+            // download's payload, not something we are only classifying. Same
+            // rule as the javascript: payload and the storage key -- normalize
+            // what the browser parses, never what it carries.
+            downloadDataUrl(rawUrl, fileName == null ? "download" : fileName);
+            return;
+        } else if (isExternalUrl(url)) {
+            // Reached only by URLs the data: branch above did not claim.
+            // isExternalUrl() is true for data: as well -- it does carry a
+            // scheme -- so that branch MUST stay ahead of this one or data:
+            // URLs would navigate instead of downloading.
+            openExternalUrl(url);
+            return;
+        } else {
+            // A local/storage path we could not turn into a Blob: exists() said
+            // no, or openFileAsBlob() threw (see downloadBytesAsFile above on
+            // how readily the storage round trip fails on this port). Keep it
+            // off the external-link target policy -- under auto or _self that
+            // would point the page at a path the server does not serve and
+            // unload the app instead of downloading anything. Best effort in a
+            // new window, which is what this port did before -- and through the
+            // gesture-aware path, since opening straight from the EDT would let
+            // the browser block the popup with no confirmation shown.
+            _log("execute(): no downloadable content for " + url);
+            openInNewWindowWithConfirmation(url, "Open this link?");
+            return;
+        }
+        // A final copy of useBlobHandler, needed because the anonymous classes
+        // below cannot capture it -- it is assigned in the branches above and
+        // so is not effectively final. Captured AFTER the chain: the data:
+        // branch registers a handler too, and capturing beforehand read false
+        // for that case and sent the download down the popup leg.
+        final boolean handlerRegistered = useBlobHandler;
+        final Runnable startDownload = new Runnable() {
+            @Override
+            public void run() {
+                if (handlerRegistered) {
+                    fireSaveBlobHandler();
+                } else {
+                    _log("Opening URL in new window");
+                    openUrlOnMainThread(url, false, false);
+                }
+            }
+        };
+        // Firing the registered blob handler is a download, which browsers gate
+        // on engagement rather than transient activation, so an interval-only
+        // hook is good enough for it. The no-blob-handler leg opens a popup
+        // instead, and that does need a real gesture -- draining it from a timer
+        // would let the browser block it with no Sheet shown. Pick the gate that
+        // matches the leg this run will actually take.
+        boolean hookAvailable = handlerRegistered
+                ? isBacksideHookAvailable()
+                : isGestureBackedHookAvailable();
+        if (hookAvailable) {
+            JSRunnable hook = new JSRunnable() {
+                @Override
+                public void run() {
+                    startDownload.run();
+                }
+            };
+            if (handlerRegistered) {
+                addBacksideHook(hook);
+            } else {
+                // The no-blob leg opens a popup, so it needs the activation
+                // only a gesture-backed drain carries -- same reason its gate
+                // above is the stricter one. If a newer interaction supersedes
+                // it, ask rather than spend that interaction's activation.
+                addGestureOnlyHook(hook, new Runnable() {
+                    @Override
+                    public void run() {
+                        showOpenConfirmation(url, "Open this link?");
+                    }
+                });
+            }
+
+        } else {
+            String dlName = fileName == null ? "file" : fileName;
+            createConfirmationSheet("Download file", "Download " + dlName + " now?", null, new Runnable() {
+                @Override
+                public void run() {
+                    JSRunnable confirmed = new JSRunnable() {
+                        @Override
+                        public void run() {
+                            startDownload.run();
+                        }
+                    };
+                    // Same split as the unconfirmed path above: the popup leg
+                    // needs the activation the OK tap just granted, which the
+                    // polling interval would not carry.
+                    if (handlerRegistered) {
+                        addBacksideHook(confirmed);
+                    } else {
+                        addGestureOnlyHook(confirmed, new Runnable() {
+                            @Override
+                            public void run() {
+                                showOpenConfirmation(url, "Open this link?");
+                            }
+                        });
+                    }
+                }
+            }).show();
+        }
+
+    }
+
+    
+    @Override
+    public Boolean canExecute(String url) {
+        return true;
+    }
+
+    class HTML5Image extends com.codename1.ui.Image {
+        HTML5Image(NativeImage im) {
+            super(im);
+        }
+    }
+
+    @Override
+    public boolean supportsNativeImageCache() {
+        return true;
+    }
+
+    private void attachMutableImageSurface(final NativeImage image, HTML5Graphics graphics) {
+        image.mutableGraphics = graphics;
+        // The host owns the surface's backing canvas (keyed by surface id in the
+        // surface table); when this Java image is GC'd the worker finalizer
+        // releases it via nativeSurfaceDispose -- the host never reclaims on its
+        // own. registerSurfaceDisposal arms that finalizer on the owning image.
+        registerSurfaceDisposal(image, graphics.getSurfaceId());
+        image.mutableGraphics.setMutationListener(new Runnable() {
+            @Override
+            public void run() {
+                JavaScriptNativeImageAdapter.invalidatePatternCache(image.getImageModel());
+            }
+        });
+    }
+
+
+    
+    @Override
+    public void downloadImageToCache(String _url, final SuccessCallback<Image> onSuccess, final FailureCallback<Image> onFail) {
+        if (urlProxifier != null){
+            _url = urlProxifier.proxifyURL(_url);
+        }
+        final String url = _url;
+        final NativeImage im = new NativeImage();
+        im.img = renderingBackend.createCrossOriginImageElement(url);
+        registerImageResource(im, im.img);
+        im.setSuppressRepaint(true);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                im.load();
+                im.setSuppressRepaint(false);
+                if (im.loaded) {
+                    final HTML5Image cn1Im = new HTML5Image(im);
+                    
+                    Display.getInstance().callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            onSuccess.onSucess(cn1Im);
+                        }
+                    });
+                } else {
+                    Display.getInstance().callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            onFail.onError(this, new IOException("Failed to load image from url "+url), 500, "Failed to load image from url "+url);
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+    
+    
+    
+    @Override
+    public void downloadImageToStorage(String _url, final String fileName, final SuccessCallback<Image> onSuccess, final FailureCallback<Image> onFail) {
+        if (urlProxifier != null){
+            _url = urlProxifier.proxifyURL(_url);
+        }
+        final String url = _url;
+        final NativeImage im = new NativeImage();
+        im.img = renderingBackend.createCrossOriginImageElement(url);
+        registerImageResource(im, im.img);
+        im.setSuppressRepaint(true);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                im.load();
+                im.setSuppressRepaint(false);
+                if (im.loaded) {
+                    final HTML5Image cn1Im = new HTML5Image(im);
+                    ImageIO imageIO = ImageIO.getImageIO();
+                    OutputStream fos = null;
+                    try {
+                        fos = com.codename1.io.Storage.getInstance().createOutputStream(fileName);
+                        imageIO.save(cn1Im, fos, ImageIO.FORMAT_PNG, 1f);
+                    } catch (final IOException ex) {
+                        Display.getInstance().callSerially(new Runnable() {
+                            public void run() {
+                                onFail.onError(this, ex, 500, ex.getMessage());
+                            }
+                        });
+                       
+                        return;
+                    } finally {
+                        if (fos != null) {
+                            try {
+                                fos.close();
+                            } catch (Exception ex){}
+                        }
+                    }
+                    
+                    Display.getInstance().callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            onSuccess.onSucess(cn1Im);
+                        }
+                    });
+                } else {
+                    Display.getInstance().callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            onFail.onError(this, new IOException("Failed to load image from url "+url), 500, "Failed to load image from url "+url);
+                        }
+                    });
+                }
+            }
+        }).start();
+        
+    }
+    
+    @Override
+    public void downloadImageToFileSystem(String _url, final String fileName, final SuccessCallback<Image> onSuccess, final FailureCallback<Image> onFail) {
+        if (urlProxifier != null){
+            _url = urlProxifier.proxifyURL(_url);
+        }
+        final String url = _url;
+        final NativeImage im = new NativeImage();
+        im.img = renderingBackend.createCrossOriginImageElement(url);
+        registerImageResource(im, im.img);
+        im.setSuppressRepaint(true);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                im.load();
+                im.setSuppressRepaint(false);
+                if (im.loaded) {
+                    final HTML5Image cn1Im = new HTML5Image(im);
+                    ImageIO imageIO = ImageIO.getImageIO();
+                    OutputStream fos = null;
+                    try {
+                        fos = FileSystemStorage.getInstance().openOutputStream(fileName);
+                        imageIO.save(cn1Im, fos, ImageIO.FORMAT_PNG, 1f);
+                        
+                    } catch (final IOException ex) {
+                        Display.getInstance().callSerially(new Runnable() {
+                            public void run() {
+                                onFail.onError(this, ex, 500, ex.getMessage());
+                            }
+                        });
+                       
+                        return;
+                    } finally {
+                        if (fos != null) {
+                            try {
+                                fos.close();
+                            } catch (Exception ex){}
+                        }
+                    }
+                    
+                    Display.getInstance().callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            onSuccess.onSucess(cn1Im);
+                        }
+                    });
+                } else {
+                    Display.getInstance().callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            onFail.onError(this, new IOException("Failed to load image from url "+url), 500, "Failed to load image from url "+url);
+                        }
+                    });
+                } 
+            }
+        }).start();
+        
+    }
+
+    
+    
+    @Override
+    public Object createImage(String path) throws IOException {
+        if (exists(path) && !isDirectory(path)){
+            NativeImage im = new NativeImage();
+            Blob blob = openFileAsBlob(path);
+            im.img = renderingBackend.createBlobImageElement(blob);
+            registerImageResource(im, im.img);
+            im.load();
+            return im;
+        } else {
+            InputStream in = this.getResourceAsStream(getClass(), path);
+            if (in == null) {
+                throw new IOException("Resource not found. " + path);
+            }
+            try {
+                return this.createImage(in);
+            } finally {
+                if (in != null) {
+                    try {
+                        in.close();
+                    } catch (Exception ignored) {
+                        ;
+                    }
+                }
+            }
+        }
+        //throw new IOException("Image could not be loaded from file "+path+" not found");
+        
+    }
+    
+    @JSBody(params={"o"}, script="console.log(o)")
+    private static native void consoleLog(JSObject o);
+    
+    private static void debugLog(String str) {
+        if (debugFlag("debugLog")) {
+            consoleLog(str);
+        }
+    }
+    
+    private static void consoleLog(String str) {
+        consoleLog(JSString.valueOf(str));
+    }
+    
+    private static void consoleLog(int val) {
+        consoleLog(JSNumber.valueOf(val));
+    }
+
+    @Override
+    public Object createImage(InputStream i) throws IOException {
+       int avail = i.available();
+       int buffLen = 2048;
+       if (avail>buffLen){
+           buffLen = avail;
+       }
+       byte[] buffer = new byte[buffLen];
+       ArrayList<byte[]> bytes = new ArrayList<>();
+       int num = -1;
+       int totalRead = 0;
+       while ((num=i.read(buffer)) != -1){
+           bytes.add(buffer);
+           totalRead += num;
+           buffer = new byte[buffLen];
+       }
+       
+       byte[] fullBuff = new byte[totalRead];
+       int pos=0;
+       for (byte[] buff : bytes){
+           System.arraycopy(buff, 0, fullBuff, pos, Math.min(buffLen, totalRead-pos));
+           pos += buffLen;
+       }
+       return this.createImage(fullBuff, 0, totalRead);
+       
+    }
+
+    
+    
+    @Override
+    public Object createMutableImage(int width, int height, int fillColor) {
+        // A mutable image is a host-side SURFACE: the worker holds only its id +
+        // dimensions and records draw ops into the surface's command buffer.
+        // There is no canvas/context proxy and no getContext() round-trip --
+        // which is what removed the per-mutable-image "Number 667" host-ref
+        // staleness that wedged the suite. Only getRGB ever reads pixels back.
+        HTML5Graphics graphics = createSurfaceGraphics(width, height);
+        // Seed the fill exactly as the canvas path did. Image.createImage(w, h,
+        // fillColor) takes an ARGB int whose alpha byte drives transparency;
+        // route the alpha through setAlpha so the recorded FillRect op picks it
+        // up (it uses state.alpha as globalAlpha), then restore the default 255
+        // so the returned graphics has the state the caller expects.
+        int colorAlpha = (fillColor >>> 24) & 0xFF;
+        graphics.setColor(fillColor & 0xFFFFFF);
+        if (colorAlpha != 0xFF) {
+            graphics.setAlpha(colorAlpha);
+            graphics.fillRect(0, 0, width, height);
+            graphics.setAlpha(255);
+        } else {
+            graphics.fillRect(0, 0, width, height);
+        }
+        NativeImage img = new NativeImage();
+        attachMutableImageSurface(img, graphics);
+        return img;
+
+    }
+
+    @Override
+    public boolean areMutableImagesFast() {
+        return true;
+    }
+
+    @Override
+    public boolean isGaussianBlurSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean blurRegion(Object graphics, int x, int y, int width, int height, float radius) {
+        g(graphics).blurRegion(x, y, width, height, radius, 0f);
+        return true;
+    }
+
+    @Override
+    public boolean glassRegion(Object graphics, int x, int y, int width, int height, float radius,
+            float cornerRadius, float sat, float scale, float offset, float refract, float specular) {
+        // Preserve the complete named GlassRecipe. The host bridge applies the
+        // same affine colour material and rounded-shape optics as iOS around
+        // the browser's native Gaussian blur. Dropping these parameters made
+        // the tab-bar pill far more transparent than native.
+        g(graphics).glassRegion(x, y, width, height, radius, cornerRadius,
+                sat, scale, offset, refract, specular);
+        return true;
+    }
+
+    @Override
+    public boolean lensRegion(Object graphics, int x, int y, int width, int height, float cornerRadius,
+            float magnify, float aberration, int tintColor, float tintStrength) {
+        // The host-side canvas bridge runs the same per-pixel lens as JavaSE:
+        // centre magnification, rim refraction, chromatic aberration, luminance-
+        // keyed accent tint and the subtle glass highlights/shadows. Keeping the
+        // complete parameter set here is important -- the old browser fallback
+        // reduced this to a uniform zoom plus a blue rectangle, which made every
+        // in-flight frame visibly harsher than the Simulator.
+        g(graphics).lensRegion(x, y, width, height, cornerRadius, magnify,
+                aberration, tintColor, tintStrength);
+        return true;
+    }
+
+    @Override
+    public Image gaussianBlurImage(Image image, float radius) {
+        if (image == null) {
+            return image;
+        }
+        NativeImage src = (NativeImage) image.getImage();
+        int w = src.getWidth();
+        int h = src.getHeight();
+        if (w <= 0 || h <= 0) {
+            return image;
+        }
+        NativeImage blurred = new NativeImage();
+        blurred.width = w;
+        blurred.height = h;
+        HTML5Graphics blurGraphics = createSurfaceGraphics(w, h);
+        attachMutableImageSurface(blurred, blurGraphics);
+        if (src.img != null && !src.loaded) {
+            src.load();
+        }
+        // The host applies the canvas2d filter:blur in one op onto the
+        // destination surface, reading from either the loaded image host
+        // resource or another surface (by id). -1 srcSurfaceId means use the
+        // image; otherwise the source surface must be flushed first.
+        if (src.img != null && src.loaded) {
+            nativeSurfaceBlur(blurGraphics.getSurfaceId(), src.img, -1, w, h, radius);
+        } else if (src.mutableGraphics != null) {
+            src.mutableGraphics.flush();
+            nativeSurfaceBlur(blurGraphics.getSurfaceId(), null, src.mutableGraphics.getSurfaceId(), w, h, radius);
+        } else {
+            return image;
+        }
+        return Image.createImage(blurred);
+    }
+
+    /**
+     * Apply a canvas2d gaussian blur onto a destination surface in one host op,
+     * reading from a loaded image (``srcImage``, ``srcSurfaceId`` == -1) or
+     * another surface (``srcSurfaceId`` >= 0).
+     */
+    @JSBody(params = {"dstId", "srcImage", "srcSurfaceId", "w", "h", "radius"}, script="")
+    private static native void nativeSurfaceBlur(int dstId, JSObject srcImage, int srcSurfaceId, int w, int h, float radius);
+
+    @Override
+    public boolean isAntiAliasingSupported() {
+        // Canvas2D primitive paths (stroke/fill/clip) are ALWAYS antialiased
+        // -- there is no way to disable it. ``setAntiAliased(false)`` falls
+        // through to a state-tracking-only no-op below; tests that assert
+        // crisp vs antialiased rendering will see identical antialiased
+        // pixels on the JS port across both panes.
+        return true;
+    }
+
+    @Override
+    public boolean isAntiAliasedTextSupported() {
+        // Same story for ``fillText``/``strokeText`` -- canvas2d always
+        // antialiases glyphs via the platform's text rasterizer.
+        return true;
+    }
+
+    @Override
+    public void setAntiAliased(Object graphics, boolean a) {
+        g(graphics).getRenderState().setAntiAliased(a);
+    }
+
+    @Override
+    public boolean isAntiAliased(Object graphics) {
+        return g(graphics).getRenderState().isAntiAliased();
+    }
+
+    @Override
+    public void setAntiAliasedText(Object graphics, boolean a) {
+        g(graphics).getRenderState().setAntiAliasedText(a);
+    }
+
+    @Override
+    public boolean isAntiAliasedText(Object graphics) {
+        return g(graphics).getRenderState().isAntiAliasedText();
+    }
+
+    @Override
+    public void setRenderingHints(Object graphics, int hints) {
+        g(graphics).getRenderState().setRenderingHints(hints);
+    }
+
+    @Override
+    public int getRenderingHints(Object graphics) {
+        return g(graphics).getRenderState().getRenderingHints();
+    }
+
+    @Override
+    public boolean cacheLinearGradients() {
+        // Match iOS: rasterize gradients on-the-fly via Canvas2D
+        // ``createLinearGradient`` (called from the fillLinearGradient path)
+        // instead of allocating a cached Image. Avoids 1-2-LSB drift at
+        // gradient extremes between the cached raster and the live ramp.
+        return false;
+    }
+
+    @Override
+    public boolean cacheRadialGradients() {
+        return false;
+    }
+
+    @Override
+    public boolean isDrawShadowSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isDrawShadowFast() {
+        // Canvas2D shadow* is hardware-accelerated on every modern browser,
+        // but ``isDrawShadowFast`` gates ``RoundBorder``/``RoundRectBorder``
+        // skipping shadow caching. Match iOS (false) so the shadow image is
+        // cached and re-used rather than re-rasterized on every paint -- the
+        // CSS shadow path is "fast" per pixel but the surrounding setup
+        // (color/blur/offset state changes, save/restore) is per-call.
+        return false;
+    }
+
+    @Override
+    public void drawShadow(Object graphics, Object image, int x, int y, int offsetX, int offsetY, int blurRadius, int spreadRadius, int color, float opacity) {
+        if (image == null) {
+            return;
+        }
+        NativeImage src = (NativeImage) image;
+        if (src.img != null && !src.loaded) {
+            src.load();
+        }
+        int w = src.getWidth();
+        int h = src.getHeight();
+        if (w <= 0 || h <= 0) {
+            return;
+        }
+        CanvasRenderingContext2D ctx = g(graphics).getContext();
+        if (ctx == null) {
+            return;
+        }
+        // Use canvas2d's built-in shadow rendering. The trick: drawImage with
+        // shadowColor + shadowOffset set casts the shadow at (drawX + offset,
+        // drawY + offset). To get ONLY the shadow on the destination (not the
+        // source silhouette too -- the caller draws the actual component
+        // separately), draw the source far off-canvas so its silhouette is
+        // outside the clip, but compensate shadowOffsetX/Y so the shadow lands
+        // at (x + offsetX, y + offsetY). ``spreadRadius`` is folded into the
+        // blur on this path (canvas2d has no native spread); approximation is
+        // acceptable for the typical zero-spread CN1 callers and matches
+        // Android RenderEffect behavior closely enough that shadow-using
+        // theme tests should be re-baselined per-port anyway.
+        final int parkX = -16384;
+        final int parkY = -16384;
+        ctx.save();
+        ctx.setShadowColor(HTML5Graphics.colorWithAlpha(((Math.round(opacity * 255f) & 0xFF) << 24) | (color & 0xFFFFFF)));
+        ctx.setShadowOffsetX(x + offsetX - parkX);
+        ctx.setShadowOffsetY(y + offsetY - parkY);
+        ctx.setShadowBlur(Math.max(0, blurRadius + spreadRadius));
+        if (src.img != null && src.loaded) {
+            ctx.drawImage(src.img, parkX, parkY);
+        } else if (src.mutableGraphics != null) {
+            src.mutableGraphics.flush();
+            retainBlitSource(src);
+            ((SurfaceCommandRecorder)ctx).blitSurface(src.mutableGraphics.getSurfaceId(), parkX, parkY, -1, -1);
+        }
+        ctx.restore();
+    }
+
+
+    @Override
+    public Object createImage(byte[] bytes, int offset, int len) {
+        return createNativeImage(bytes, offset, len);
+    }
+
+    @Override
+    public int getImageWidth(Object i) {
+        return ((NativeImage)i).getWidth();
+    }
+
+    @Override
+    public int getImageHeight(Object i) {
+        return ((NativeImage)i).getHeight();
+    }
+
+    @Override
+    public Object scale(Object nativeImage, int width, int height) {
+        NativeImage img = (NativeImage)nativeImage;
+        
+        NativeImage scaled = new NativeImage();
+        scaled.width = width;
+        scaled.height = height;
+        HTML5Graphics target = createSurfaceGraphics(width, height);
+        attachMutableImageSurface(scaled, target);
+        SurfaceCommandRecorder ctx = (SurfaceCommandRecorder)target.getContext();
+        if (img.img != null && !img.loaded) {
+            img.load();
+        }
+        if (img.img != null && img.loaded) {
+            int srcW = img.img.getNaturalWidth();
+            int srcH = img.img.getNaturalHeight();
+            if (srcW > 0 && srcH > 0) {
+                ctx.drawImage(img.img, 0, 0, srcW, srcH, 0, 0, width, height);
+            } else {
+                String msg = "Failed to scale image because the width or height is non-positive. "+srcW+"x"+srcH;
+                _log(msg);
+            }
+        } else if (img.mutableGraphics != null) {
+            img.mutableGraphics.flush();
+            ctx.blitSurface(img.mutableGraphics.getSurfaceId(), 0, 0, img.getWidth(), img.getHeight(), 0, 0, width, height);
+        }
+        target.flush();
+        return scaled;
+    }
+
+    public int getSoftkeyCount() {
+        return 0;
+    }
+
+    public int[] getSoftkeyCode(int index) {
+        return null;
+    }
+
+   
+
+    @Override
+    public boolean isTouchDevice() {
+        return true;
+    }
+
+    @Override
+    public boolean isMultiTouch() {
+        return true;
+    }
+
+    @Override
+    public int getKeyboardType() {
+        return Display.KEYBOARD_TYPE_QWERTY;
+    }
+
+    
+    
+    
+    @Override
+    public int getColor(Object graphics) {
+        return g(graphics).getColor();
+
+    }
+
+    private HTML5Graphics g(Object graphics){
+        return (HTML5Graphics)graphics;
+    }
+
+    @Override
+    public void setColor(Object graphics, int RGB) {
+        g(graphics).setColor(RGB);
+    }
+
+    @Override
+    public void setAlpha(Object graphics, int alpha) {
+        g(graphics).setAlpha(alpha);
+    }
+
+    @Override
+    public int getAlpha(Object graphics) {
+        return g(graphics).getAlpha();
+    }
+
+    @Override
+    public void setNativeFont(Object graphics, Object font) {
+        if (font == null){
+            font = this.getDefaultFont();
+        }
+        g(graphics).setFont((NativeFont)font);
+    }
+
+    @Override
+    public int getClipX(Object graphics) {
+        return g(graphics).getClipX();
+    }
+
+    @Override
+    public int getClipY(Object graphics) {
+        return g(graphics).getClipY();
+    }
+
+    @Override
+    public int getClipWidth(Object graphics) {
+        return g(graphics).getClipWidth();
+    }
+
+    @Override
+    public int getClipHeight(Object graphics) {
+        return g(graphics).getClipHeight();
+    }
+
+    @Override
+    public void setClip(Object graphics, Shape shape) {
+        g(graphics).setClip(shape);
+    }
+
+    @Override
+    public void setClip(Object graphics, int x, int y, int width, int height) {
+        g(graphics).setClip(x, y, width, height);
+    }
+
+    @Override
+    public void clipRect(Object graphics, int x, int y, int width, int height) {
+        g(graphics).clipRect(x, y, width, height);
+    }
+
+    @Override
+    public void pushClip(Object graphics) {
+        // CodenameOneImplementation.pushClip is an empty stub ("NOt implemented
+        // yet"). Without this override, every g.pushClip() was a no-op, which
+        // meant g.popClip() left any intermediate clipRect/setClip(Shape) in
+        // place - the Sheet/Picker rounded-panel clip never restored, the Clip
+        // screenshot test lost its post-popClip green rect, and generally any
+        // component that temporarily narrowed its clip contaminated its
+        // siblings. Route to the HTML5Graphics clip stack so clips actually
+        // unwind in LIFO order.
+        g(graphics).pushClip();
+    }
+
+    @Override
+    public void popClip(Object graphics) {
+        g(graphics).popClip();
+    }
+
+    @Override
+    public void drawLine(Object graphics, int x1, int y1, int x2, int y2) {
+        g(graphics).drawLine(x1, y1, x2, y2);
+    }
+
+    @Override
+    public void fillRect(Object graphics, int x, int y, int width, int height) {
+        g(graphics).fillRect(x, y, width, height);
+    }
+    
+    @Override
+    public void clearRect(Object graphics, int x, int y, int width, int height) {
+        g(graphics).clearRect(x, y, width, height);
+    }
+    
+
+    @Override
+    public void fillLinearGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height, boolean horizontal) {
+        g(graphics).fillLinearGradient(x, y, width, height, startColor, endColor, horizontal);
+    }
+
+    @Override
+    public void fillPolygon(Object graphics, int[] xPoints, int[] yPoints, int nPoints) {
+        g(graphics).fillPolygon(xPoints, yPoints, nPoints);
+    }
+
+    
+    @Override
+    public void drawRect(Object graphics, int x, int y, int width, int height) {
+        g(graphics).drawRect(x,y,width,height);
+    }
+
+    
+    
+    @Override
+    public void drawRoundRect(Object graphics, int x, int y, int width, int height, int arcWidth, int arcHeight) {
+        g(graphics).drawRoundRect(x,y,width,height,arcWidth,arcHeight);
+    }
+
+    @Override
+    public void fillRoundRect(Object graphics, int x, int y, int width, int height, int arcWidth, int arcHeight) {
+        g(graphics).fillRoundRect(x,y,width,height,arcWidth,arcHeight);
+    }
+
+    @Override
+    public void fillArc(Object graphics, int x, int y, int width, int height, int startAngle, int arcAngle) {
+        g(graphics).fillArc(x,y,width,height,startAngle, arcAngle);
+    }
+
+    @Override
+    public void fillRadialGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height) {
+        fillRadialGradient(graphics, startColor, endColor, x, y, width, height, 0, 360);
+    }
+    @Override
+    public void fillRadialGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height, int startAngle, int arcAngle) {
+        g(graphics).fillRadialGradient(startColor, endColor, x, y, width, height, startAngle, arcAngle);
+    }
+
+    @Override
+    public void fillRectRadialGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height,
+            float relativeX, float relativeY, float relativeSize) {
+        g(graphics).fillRectRadialGradient(startColor, endColor, x, y, width, height, relativeX, relativeY, relativeSize);
+    }
+    
+    
+
+    @Override
+    public void drawArc(Object graphics, int x, int y, int width, int height, int startAngle, int arcAngle) {
+        g(graphics).drawArc(x,y,width,height,startAngle, arcAngle);
+    }
+
+    /**
+     * Draws text that carries a decoration.
+     *
+     * <p>The lines an underline or a strike-through are made of are drawn after the glyphs and
+     * over them. Promoting the glyphs into the DOM layer would lift them above the whole
+     * canvas, and the line meant to cross the text would end up behind it, broken wherever a
+     * glyph stands. Decorated runs therefore stay on the canvas entirely.</p>
+     */
+    @Override
+    public void drawString(Object nativeGraphics, Object nativeFont, String str, int x, int y,
+            int textDecoration) {
+        if (textDecoration == 0 || !(g(nativeGraphics) instanceof BufferedGraphics)) {
+            super.drawString(nativeGraphics, nativeFont, str, x, y, textDecoration);
+            return;
+        }
+        BufferedGraphics buffered = (BufferedGraphics) g(nativeGraphics);
+        buffered.setPromotionSuspended(true);
+        try {
+            super.drawString(nativeGraphics, nativeFont, str, x, y, textDecoration);
+        } finally {
+            buffered.setPromotionSuspended(false);
+        }
+    }
+
+    @Override
+    public void drawString(Object graphics, String str, int x, int y) {
+        g(graphics).drawString(str, x, y);
+    }
+
+    @Override
+    public void drawShape(Object graphics, Shape shape, Stroke stroke) {
+        g(graphics).drawShape(shape, stroke); 
+    }
+
+    @Override
+    public void fillShape(Object graphics, Shape shape) {
+        g(graphics).fillShape(shape);
+    }
+
+    @Override
+    public boolean isShapeClipSupported(Object graphics) {
+        return true;
+    }
+    
+    
+
+    @Override
+    public boolean isShapeSupported(Object graphics) {
+        return true;
+    }
+
+    @Override
+    public boolean isTransformSupported() {
+        return true;
+    }
+
+    @Override
+    public void concatenateTransform(Object t1, Object t2) {
+        JSAffineTransform a = (JSAffineTransform)t1;
+        JSAffineTransform b = (JSAffineTransform)t2;
+        if (a.is3D() || b.is3D()) {
+            a.concatenate3(b);
+        } else {
+            a.concatenate(b);
+        }
+    }
+
+    @Override
+    public void copyTransform(Object src, Object dest) {
+        ((JSAffineTransform)dest).copyFrom((JSAffineTransform)src);
+    }
+
+    @Override
+    public Object makeTransformAffine(double m00, double m10, double m01, double m11, double m02, double m12) {
+        JSAffineTransform t = JSAffineTransform.Factory.getTranslateInstance(0, 0);
+        t.setTransform(m00, m10, m01, m11, m02, m12);
+        return t;
+    }
+
+    @Override
+    public void setTransformAffine(Object nativeTransform, double m00, double m10, double m01, double m11, double m02, double m12) {
+        ((JSAffineTransform)nativeTransform).setTransform(m00, m10, m01, m11, m02, m12);
+    }
+
+    // ---- Perspective / camera / orthographic (4x4) transforms -------------
+    // The JS port backs these with a pure-Java 4x4 matrix (JSMatrix4) carried
+    // inside JSAffineTransform; the affine projection is mirrored onto the 2D
+    // backing so ordinary rendering is unaffected. Apps that project points
+    // themselves (transformPoint) get the full homogeneous result, matching the
+    // Android port. See JSMatrix4 + JSAffineTransform.is3D().
+
+    @Override
+    public boolean isPerspectiveTransformSupported() {
+        return true;
+    }
+
+    private static JSAffineTransform make4x4(double[] m16) {
+        JSAffineTransform t = JSAffineTransform.Factory.getTranslateInstance(0, 0);
+        t.setMatrix4(m16);
+        return t;
+    }
+
+    @Override
+    public Object makeTransformPerspective(float fovy, float aspect, float zNear, float zFar) {
+        return make4x4(JSMatrix4.perspective(fovy, aspect, zNear, zFar));
+    }
+
+    @Override
+    public void setTransformPerspective(Object nativeTransform, float fovy, float aspect, float zNear, float zFar) {
+        ((JSAffineTransform)nativeTransform).setMatrix4(JSMatrix4.perspective(fovy, aspect, zNear, zFar));
+    }
+
+    @Override
+    public Object makeTransformOrtho(float left, float right, float bottom, float top, float near, float far) {
+        return make4x4(JSMatrix4.ortho(left, right, bottom, top, near, far));
+    }
+
+    @Override
+    public void setTransformOrtho(Object nativeTransform, float left, float right, float bottom, float top, float near, float far) {
+        ((JSAffineTransform)nativeTransform).setMatrix4(JSMatrix4.ortho(left, right, bottom, top, near, far));
+    }
+
+    @Override
+    public Object makeTransformCamera(float eyeX, float eyeY, float eyeZ, float centerX, float centerY, float centerZ, float upX, float upY, float upZ) {
+        return make4x4(JSMatrix4.lookAt(eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX, upY, upZ));
+    }
+
+    @Override
+    public void setTransformCamera(Object nativeTransform, float eyeX, float eyeY, float eyeZ, float centerX, float centerY, float centerZ, float upX, float upY, float upZ) {
+        ((JSAffineTransform)nativeTransform).setMatrix4(JSMatrix4.lookAt(eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX, upY, upZ));
+    }
+
+    @Override
+    public Object makeTransformIdentity() {
+        return JSAffineTransform.Factory.getTranslateInstance(0, 0);
+    }
+
+    @Override
+    public void setTransformIdentity(Object transform) {
+        ((JSAffineTransform)transform).setToTranslation(0, 0);
+    }
+    
+    @Override
+    public Object makeTransformRotation(float angle, float x, float y, float z) {
+        return JSAffineTransform.Factory.getRotateInstance(angle, x, y);
+    }
+
+    @Override
+    public void setTransformRotation(Object nativeTransform, float angle, float x, float y, float z) {
+        ((JSAffineTransform)nativeTransform).setToRotation(angle, x, y);
+    }
+    
+    
+
+    @Override
+    public Object makeTransformScale(float scaleX, float scaleY, float scaleZ) {
+        return JSAffineTransform.Factory.getScaleInstance(scaleX, scaleY);
+    }
+
+    @Override
+    public void setTransformScale(Object nativeTransform, float scaleX, float scaleY, float scaleZ) {
+        ((JSAffineTransform)nativeTransform).setToScale(scaleX, scaleY);
+    }
+    
+    
+
+    @Override
+    public Object makeTransformTranslation(float translateX, float translateY, float translateZ) {
+        return JSAffineTransform.Factory.getTranslateInstance(translateX, translateY);
+    }
+
+    @Override
+    public void setTransformTranslation(Object nativeTransform, float translateX, float translateY, float translateZ) {
+        if (nativeTransform == null) return;
+        ((JSAffineTransform)nativeTransform).setToTranslation(translateX, translateY);
+    }
+
+
+
+    @Override
+    public Object makeTransformInverse(Object nativeTransform) {
+        if (nativeTransform == null) return null;
+        return ((JSAffineTransform)nativeTransform).createInverse();
+    }
+
+    @Override
+    public void setTransformInverse(Object nativeTransform) throws Transform.NotInvertibleException {
+        if (nativeTransform == null) return;
+        ((JSAffineTransform)nativeTransform).copyFrom((JSAffineTransform)makeTransformInverse(nativeTransform));
+    }
+
+    @Override
+    public void transformTranslate(Object nativeTransform, float x, float y, float z) {
+        if (nativeTransform == null) return;
+        JSAffineTransform t = (JSAffineTransform)nativeTransform;
+        if (t.is3D() || z != 0) {
+            t.translate3(x, y, z);
+        } else {
+            t.translate(x, y);
+        }
+    }
+
+    @Override
+    public void transformScale(Object nativeTransform, float x, float y, float z) {
+        if (nativeTransform == null) return;
+        JSAffineTransform t = (JSAffineTransform)nativeTransform;
+        if (t.is3D() || z != 1) {
+            t.scale3(x, y, z);
+        } else {
+            t.scale(x, y);
+        }
+    }
+
+    @Override
+    public void transformRotate(Object nativeTransform, float angle, float x, float y, float z) {
+        if (nativeTransform == null) return;
+        // Transform.rotate(angle, px, py) decomposes to translate + rotate around
+        // the z axis + translate, so x,y,z here is always a rotation AXIS (never a
+        // pivot). A pure z-axis rotation collapses to the 2D affine rotate; any
+        // other axis (or an already-3D transform) needs the 4x4 path.
+        JSAffineTransform t = (JSAffineTransform)nativeTransform;
+        boolean zAxis = x == 0 && y == 0;
+        if (t.is3D() || !zAxis) {
+            t.rotate3(angle, x, y, z);
+        } else {
+            t.rotate(angle, 0, 0);
+        }
+    }
+
+    @Override
+    public boolean transformEqualsImpl(Transform t1, Transform t2) {
+        if (t2 == null || t1 == null) {
+            return t1 == t2;
+        }
+        JSAffineTransform at1 = (JSAffineTransform)t1.getNativeTransform();
+        JSAffineTransform at2 = (JSAffineTransform)t2.getNativeTransform();
+        if (at1 == null || at2 == null) {
+            return at1 == at2;
+        }
+        return at1.isEqualTo(at2);
+    }
+    
+    @Override
+    public void transformPoint(Object nativeTransform, float[] in, float[] out) {
+        if (nativeTransform == null) {
+            // The JS port can reach this method with a null native backing in scene/
+            // Node/SpinnerNode paths where Transform.getNativeTransform() hasn't been
+            // materialized. iOS/Android never arrive here because their equivalent
+            // Transform paths always keep a non-null native. Treat null as identity
+            // (pass-through) so the spinner render path in ValidatorLightweightPicker
+            // et al. doesn't crash the worker with a TypeError and block the suite.
+            out[0] = in[0];
+            out[1] = in[1];
+            if (out.length > 2) {
+                out[2] = in.length > 2 ? in[2] : 0;
+            }
+            return;
+        }
+        JSAffineTransform t = (JSAffineTransform)nativeTransform;
+        if (t.is3D()) {
+            t.transformPoint3(in, out);
+            return;
+        }
+        Float64Array jsIn = Float64Array.create(2);
+        jsIn.set(0, in[0]);
+        jsIn.set(1, in[1]);
+        Float64Array jsOut = Float64Array.create(2);
+        t.transform(jsIn, 0, jsOut, 0, 1);
+        out[0] = (float)jsOut.get(0);
+        out[1] = (float)jsOut.get(1);
+
+    }
+    
+    @Override
+    public void setTransform(Object graphics, Transform transform) {
+        Transform existing = ((HTML5Graphics)graphics).getTransform();
+        if (existing == null) {
+            existing = transform==null ? Transform.makeIdentity() : transform.copy();
+            ((HTML5Graphics)graphics).setTransform(existing);
+        } else {
+            if (transform == null) {
+                existing.setIdentity();
+            } else {
+                existing.setTransform(transform);
+            }
+            ((HTML5Graphics)graphics).setTransformChanged();
+            ((HTML5Graphics)graphics).applyTransform();
+        }
+    }
+
+    @Override
+    public Transform getTransform(Object graphics) {
+       Transform existing = ((HTML5Graphics)graphics).getTransform();
+       if (existing == null) {
+           return Transform.makeIdentity();
+       } else {
+           return existing.copy();
+       }       
+    }
+
+    @Override
+    public void getTransform(Object nativeGraphics, Transform t) {
+        Transform existing = ((HTML5Graphics)nativeGraphics).getTransform();
+        if (existing == null) {
+            t.setIdentity();
+        } else {
+            t.setTransform(existing);
+        }
+    }
+    
+    @Override
+    public boolean isTransformSupported(Object graphics) {
+        return true;
+    }
+
+    @Override
+    public void rotate(Object nativeGraphics, float angle) {
+        ((HTML5Graphics)nativeGraphics).rotate(angle);
+    }
+
+    @Override
+    public void rotate(Object nativeGraphics, float angle, int pivotX, int pivotY) {
+        ((HTML5Graphics)nativeGraphics).rotate(angle, pivotX, pivotY);
+    }
+    
+    
+
+    @Override
+    public void shear(Object nativeGraphics, float x, float y) {
+        //((HTML5Graphics)nativeGraphics).shear(x, y);
+        throw new UnsupportedOperationException("Graphics.shear() not implemented yet");
+    }
+
+    @Override
+    public void scale(Object nativeGraphics, float x, float y) {
+        ((HTML5Graphics)nativeGraphics).scale(x, y);
+    }
+
+    @Override
+    public boolean isTranslateMatrixSupported() {
+        return true;
+    }
+
+    @Override
+    public void translateMatrix(Object nativeGraphics, float x, float y) {
+        ((HTML5Graphics)nativeGraphics).translateMatrix(x, y);
+    }
+
+    @Override
+    public boolean isAffineSupported() {
+        return true;
+    }
+
+    @Override
+    public void resetAffine(Object nativeGraphics) {
+        ((HTML5Graphics)nativeGraphics).resetAffine();
+    }
+    
+    
+
+    @Override
+    public void drawImage(Object graphics, Object img, int x, int y) {
+        if (img == null) return;
+        g(graphics).drawImage(img, x, y);
+    }
+
+    @Override
+    public void drawImage(Object graphics, Object img, int x, int y, int w, int h) {
+        if (img == null) return;
+        g(graphics).drawImage(img, x, y, w, h);
+    }
+
+    // Tried to implement tiling but it is creating artifacts... low priority
+    // so leaving it for now.
+    @Override
+    public void tileImage(Object graphics, Object img, int x, int y, int w, int h) {
+        if (img == null) return;
+        g(graphics).tileImage(img, x, y, w, h);
+    }
+
+    
+    
+    @Override
+    public void drawRGB(Object graphics, int[] rgbData, int offset, int x, int y, int w, int h, boolean processAlpha) {
+        
+        g(graphics).drawRGB(rgbData, offset, x, y, w, h, processAlpha);
+    }
+
+    @Override
+    public Object getNativeGraphics() {
+        return graphics;
+    }
+
+    @Override
+    public Object getNativeGraphics(Object image) {
+        return ((NativeImage)image).mutableGraphics;
+    }
+
+    @Override
+    public int charsWidth(Object nativeFont, char[] ch, int offset, int length) {
+        return ((NativeFont)nativeFont).stringWidth(new String(ch, offset, length));
+    }
+
+    @Override
+    public int stringWidth(Object nativeFont, String str) {
+        //return graphics.stringWidth(nativeFont, str);
+        return ((NativeFont)nativeFont).stringWidth(str);
+    }
+
+    @Override
+    public int charWidth(Object nativeFont, char ch) {
+        return ((NativeFont)nativeFont).charWidth(ch);
+        //return stringWidth(nativeFont, ch+"");
+    }
+    
+    
+
+    @Override
+    public int getHeight(Object nativeFont) {
+        return ((NativeFont)nativeFont).fontHeight();
+
+    }
+
+    
+    
+    @Override
+    public int getFontAscent(Object nativeFont) {
+        return g(graphics).getFontAscent(nativeFont);
+    }
+
+    @Override
+    public boolean isBaselineTextSupported() {
+        return true;
+    }
+    
+    
+
+    @Override
+    public int getFontDescent(Object nativeFont) {
+        return g(graphics).getFontDescent(nativeFont);
+    }
+
+    @Override
+    public boolean isNativeFontSchemeSupported() {
+        return true;
+    }
+    
+    
+    
+
+    @Override
+    public Object getDefaultFont() {
+        NativeFont f = new NativeFont();
+        //f.css = defaultFont.css;
+        f.face = defaultFont.face;
+        f.size = defaultFont.size;
+        f.style = defaultFont.style;
+        f.height = defaultFont.height;
+        f.ascent = defaultFont.ascent;
+        f.fileName = defaultFont.fileName;
+        f.fontName = defaultFont.fontName;
+        return f;
+    }
+
+    
+    @JSBody(params={"fontName", "dataUrl", "fontFormat"}, script="var newStyle = document.createElement('style');\n" +
+"newStyle.appendChild(document.createTextNode(\"\\\n" +
+"@font-face {\\\n" +
+"    font-family: '\" + cn1_escape_single_quotes(fontName) + \"';\\\n" +
+"    src: url('\" + cn1_escape_single_quotes(dataUrl) + \"') format('\" + cn1_escape_single_quotes(fontFormat) + \"');\\\n" +
+"}\\\n" +
+"\"));\n" +
+"\n" +
+"document.head.appendChild(newStyle);"
+            + "WebFont.load({"
+            + "custom:{families:[fontName]}, "
+            + "active:function(){document.dispatchEvent(new CustomEvent('fontLoaded', {detail:{fontName:fontName, success:true}}));},"
+            + "inactive:function(){document.dispatchEvent(new CustomEvent('fontLoaded', {detail:{fontName:fontName, success:false}}))}}); ")
+    private native static void loadTrueTypeFont_(String fontName, String dataUrl, String fontFormat);
+    
+    private Set<String> loadedFonts = new HashSet<String>();
+    
+    @Override
+    public Object loadTrueTypeFont(String fontName, String fileName) {
+        String resolvedFontName = fontName == null || fontName.length() == 0 ? Font.NATIVE_MAIN_REGULAR : fontName;
+        String resolvedFileName = fileName;
+        if (resolvedFontName.indexOf("native:") != 0
+                && resolvedFileName != null
+                && resolvedFileName.length() > 0
+                && !"null".equals(resolvedFileName)
+                && !loadedFonts.contains(resolvedFontName)) {
+            // Hand the bare filename to the host via the port.js native binding.
+            // HTML5Implementation.getResourceAsStream rewrites relative resource
+            // paths to "assets/..."; the host bridge mirrors that so the browser
+            // can fetch the TTF directly into a FontFace without having to
+            // transfer a ~500 KB ArrayBuffer through the worker bridge.
+            // The existing arrayBufferToBase64 path runs through Window.current,
+            // which is not reachable from the worker and truncates the data URL
+            // to 26 chars, so the old byte->dataURL approach 100% failed to load
+            // the font.
+            loadTrueTypeFont_(resolvedFontName, resolvedFileName, fontFormatOf(resolvedFileName));
+            loadedFonts.add(resolvedFontName);
+        }
+        return createFallbackTrueTypeFont(resolvedFontName, resolvedFileName);
+
+    }
+
+    /**
+     * The format hint handed to the FontFace constructor. Browsers treat
+     * "truetype" and "opentype" as the same SFNT container, but naming the
+     * actual one keeps the hint honest and leaves no room for a UA that decides
+     * to skip a source whose hint doesn't match.
+     */
+    private static String fontFormatOf(String fileName) {
+        return fileName != null && fileName.toLowerCase().endsWith(".otf") ? "opentype" : "truetype";
+    }
+
+    private NativeFont createFallbackTrueTypeFont(String fontName, String fileName) {
+        NativeFont out = (NativeFont)createFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_MEDIUM);
+        out.fontName = nativeFontName(fontName);
+        out.fileName = fileName;
+        if (fontName != null && fontName.startsWith("native:") && fontName.contains("Italic")) {
+            out.style = Font.STYLE_ITALIC;
+        }
+        return out;
+    }
+    
+    private String nativeFontName(String fontName) {
+        if(fontName != null && fontName.startsWith("native:")) {
+            if("native:MainThin".equals(fontName)) {
+                return "native-MainThin";
+            }
+            if("native:MainLight".equals(fontName)) {
+                return "native-MainLight";
+            }
+            if("native:MainRegular".equals(fontName)) {
+                return "native-MainRegular";
+            }
+            
+            if("native:MainBold".equals(fontName)) {
+                return "native-MainBold";
+            }
+            
+            if("native:MainBlack".equals(fontName)) {
+                return "native-MainBlack";
+            }
+            
+            if("native:ItalicThin".equals(fontName)) {
+                return "native-ItalicThin";
+            }
+            
+            if("native:ItalicLight".equals(fontName)) {
+                return "native-ItalicLight";
+            }
+            
+            if("native:ItalicRegular".equals(fontName)) {
+                return "native-ItalicRegular";
+            }
+            
+            if("native:ItalicBold".equals(fontName) || "native:ItalicBlack".equals(fontName)) {
+                return "native-ItalicBold";
+            }
+        }            
+        return fontName;
+    }
+
+    @Override
+    public Object deriveTrueTypeFont(Object font, float size, int weight) {
+        NativeFont f = (NativeFont)font;
+        NativeFont f2 = new NativeFont();
+        
+        int fontstyle = Font.STYLE_PLAIN;
+        if ((weight & Font.STYLE_BOLD) != 0) {
+            fontstyle |= Font.STYLE_BOLD;
+        }
+        if ((weight & Font.STYLE_ITALIC) != 0) {
+            fontstyle |= Font.STYLE_ITALIC;
+        }
+        f2.face = f.face;
+        f2.size = f.size;
+        f2.style = fontstyle;
+        f2.height = size;
+        
+        f2.fontName = f.fontName;
+        f2.fileName = f.fileName;
+        return f2;
+        
+    }
+
+    @Override
+    public boolean isTrueTypeSupported() {
+        return true;
+    }
+
+    
+    @JSBody(params={}, script="var baseFont=window.getParameterByName('baseFont');"
+            + "if (baseFont) return parseInt(baseFont); else return 0;")
+    private native static int getBaseFontSize();
+    
+    @JSBody(params={}, script="var density=window.getParameterByName('density');"
+            + "if (density) return parseInt(density); else return 0;")
+    private native static int getDensityOverride();
+    
+    /**
+     * How much a font is scaled for the display's density.
+     *
+     * <p>Font heights are kept in device pixels, and this is the band the base size is scaled
+     * by when a font is created. Keeping an existing font current as the display changes is a
+     * different question, answered by the pixel ratio rather than the band -- see
+     * {@code NativeFont.syncDensity()}.</p>
+     *
+     * @return the multiplier applied to the base font size
+     */
+    private double fontDensityFactor() {
+        switch (getDeviceDensity()) {
+            case Display.DENSITY_LOW:
+            case Display.DENSITY_VERY_LOW:
+                return 0.5;
+            case Display.DENSITY_HIGH:
+                return 1.5;
+            case Display.DENSITY_VERY_HIGH:
+                return 2;
+            case Display.DENSITY_HD:
+                return 3;
+            case Display.DENSITY_560:
+                return 4;
+            case Display.DENSITY_2HD:
+                return 5;
+            case Display.DENSITY_4K:
+                return 6;
+            default:
+                return 1;
+        }
+    }
+
+    @Override
+    public Object createFont(int face, int style, int size) {
+        
+        int height = getBaseFontSize();
+        if (height == 0) {
+            height = 16;
+        }
+        height = (int) (height * fontDensityFactor());
+        int diff = height / 3;
+
+        switch (size) {
+            case Font.SIZE_SMALL:
+                height -= diff;
+                break;
+            case Font.SIZE_LARGE:
+                height += diff;
+                break;
+        }
+        NativeFont f = new NativeFont();
+        //f.css = height+"px Sans-serif";
+        f.face = face;
+        f.style = style;
+        f.size = size;
+        f.height = height;
+        
+        return f;
+    }
+
+    @Override
+    public int getFace(Object nativeFont) {
+        if (nativeFont == null){
+            return Font.FACE_SYSTEM;
+        };
+        return ((NativeFont)nativeFont).face;
+    }
+
+    @Override
+    public int getSize(Object nativeFont) {
+        if (nativeFont == null){
+            return Font.SIZE_MEDIUM;
+        }
+        return ((NativeFont)nativeFont).size;
+    }
+
+    @Override
+    public int getStyle(Object nativeFont) {
+        if (nativeFont == null){
+            return Font.STYLE_PLAIN;
+        }
+        return ((NativeFont)nativeFont).style;
+    }
+
+    @Override
+    public Object connect(String url, boolean read, boolean write, int timeout) throws IOException {
+        return JavaScriptNetworkAdapter.connect(url, read, write, timeout,
+                urlProxifier == null ? null : new JavaScriptNetworkAdapter.UrlTransformer() {
+                    @Override
+                    public String transform(String input) {
+                        return urlProxifier.proxifyURL(input);
+                    }
+                },
+                new JavaScriptNetworkAdapter.ConnectionFactory<NetworkConnection>() {
+                    @Override
+                    public NetworkConnection create(String targetUrl, boolean readConnection, boolean writeConnection, int connectionTimeout) throws IOException {
+                        return new NetworkConnection(targetUrl, readConnection, writeConnection, connectionTimeout);
+                    }
+                });
+    }
+    
+    
+    
+    
+    
+    
+    
+    
+
+    @Override
+    public Object connect(String url, boolean read, boolean write) throws IOException {
+        
+        return connect(url, read, write, -1);
+        
+    }
+
+    @Override
+    public void setHeader(Object connection, String key, String val) {
+        JavaScriptNetworkAdapter.setHeader((JavaScriptNetworkAdapter.Connection) connection, key, val);
+    }
+
+    @Override
+    public void setHttpMethod(Object connection, String method) throws IOException {
+        JavaScriptNetworkAdapter.setHttpMethod((JavaScriptNetworkAdapter.Connection) connection, method);
+    }
+
+    
+    
+    @Override
+    public int getContentLength(Object connection) {
+        return JavaScriptNetworkAdapter.getContentLength((JavaScriptNetworkAdapter.Connection) connection);
+    }
+
+    @Override
+    public OutputStream openFileOutputStream(String file) throws IOException {
+        if (isTempFile(file)) {
+            throw new IOException("Temp file writing not supported yet.");
+        }
+        if (isDirectory(file)) {
+            throw new IOException("Failed to open output stream for "+file+" because it is a directory.");
+        }
+        return LocalForage.getInstance().openOutputStream(wrapFile(file), new ItemSavedListener(){
+
+            @Override
+            public void onSave(LocalForage.ItemSavedEvent evt) {
+                FileInfo finfo = createFileInfo(evt.getSize(), System.currentTimeMillis());
+                try {
+                    LocalForage.getInstance().setItem(evt.getKey()+".cn1fileinfo", finfo);
+                } catch (IOException ex) {
+                    //Log.e(ex);
+                    consoleLog("Error onSave in localForage");
+                    consoleLog(ex.getMessage());
+                }
+            }
+            
+        });
+    }
+    
+
+    
+    
+    @Override
+    public OutputStream openOutputStream(Object connection) throws IOException {
+        return JavaScriptNetworkAdapter.openOutputStream(connection, new JavaScriptNetworkAdapter.FileOutputStreamProvider() {
+            @Override
+            public OutputStream openFileOutputStream(String file) throws IOException {
+                return HTML5Implementation.this.openFileOutputStream(file);
+            }
+        });
+    }
+
+    @Override
+    public OutputStream openOutputStream(Object connection, int offset) throws IOException {
+        throw new RuntimeException("getOutputStream with offset not supported yet");
+    }
+
+    @Override
+    public boolean shouldWriteUTFAsGetBytes() {
+        return true;
+    }
+
+    
+    
+    @Override
+    public InputStream openInputStream(Object connection) throws IOException {
+        return JavaScriptNetworkAdapter.openInputStream(connection);
+    }
+
+    @Override
+    public void cleanup(Object o) {
+        super.cleanup(o);
+        JavaScriptNetworkAdapter.cleanup(o);
+    }
+
+    
+    
+    @Override
+    public void setPostRequest(Object connection, boolean p) {
+        JavaScriptNetworkAdapter.setPostRequest((JavaScriptNetworkAdapter.Connection) connection, p);
+    }
+
+    @Override
+    public int getResponseCode(Object connection) throws IOException {
+        return JavaScriptNetworkAdapter.getResponseCode((JavaScriptNetworkAdapter.Connection) connection);
+    }
+
+    @Override
+    public String getResponseMessage(Object connection) throws IOException {
+        return JavaScriptNetworkAdapter.getResponseMessage((JavaScriptNetworkAdapter.Connection) connection);
+    }
+
+    @Override
+    public String getHeaderField(String name, Object connection) throws IOException {
+        return JavaScriptNetworkAdapter.getHeaderField(name, (JavaScriptNetworkAdapter.Connection) connection);
+    }
+
+    @Override
+    public String[] getHeaderFieldNames(Object connection) throws IOException {
+        return JavaScriptNetworkAdapter.getHeaderFieldNames((JavaScriptNetworkAdapter.Connection) connection);
+    }
+
+    @Override
+    public String[] getHeaderFields(String name, Object connection) throws IOException {
+        return JavaScriptNetworkAdapter.getHeaderFields(name, (JavaScriptNetworkAdapter.Connection) connection);
+    }
+
+    private LocalForage getLocalForage(){
+        return LocalForage.getInstance();
+    }
+    
+    private String wrapStorageKey(String name){
+        return JavaScriptRuntimeFacade.wrapStorageKey(name);
+    }
+    
+    private String unwrapStorageKey(String name){
+        return JavaScriptRuntimeFacade.unwrapStorageKey(name);
+    }
+    
+    private String wrapFile(String path){
+        return JavaScriptRuntimeFacade.wrapFile(path);
+    }
+    
+    private String unwrapFile(String path){
+        return JavaScriptRuntimeFacade.unwrapFile(path);
+    }
+    
+    @Override
+    public void deleteStorageFile(String name) {
+        try {
+            JavaScriptStorageAdapter.deleteStorageFile(createStorageBackend(), name);
+        } catch (IOException ex){
+            consoleLog("Error on deleteStorageFile "+name+", : "+ex.getMessage());
+            
+        }
+    }
+
+    
+    @Override
+    public OutputStream createStorageOutputStream(String name) throws IOException {
+        return JavaScriptStorageAdapter.createStorageOutputStream(createStorageBackend(), name);
+    }
+
+    @Override
+    public InputStream createStorageInputStream(String name) throws IOException {
+        return JavaScriptStorageAdapter.createStorageInputStream(createStorageBackend(), name);
+    }
+
+    @Override
+    public boolean storageFileExists(String name) {
+        try {
+            return JavaScriptStorageAdapter.storageFileExists(createStorageBackend(), name);
+        } catch (IOException ex) {
+            //Log.e(ex);
+            consoleLog("Error checking storage for storageFileExists");
+            consoleLog(ex.getMessage());
+        }
+        return false;
+    }
+
+    /// The same question with the third answer kept, which this port is the reason for.
+    ///
+    /// IndexedDB can refuse transiently -- a connection closing during a page lifecycle change,
+    /// storage evicted under pressure, a private-mode quota -- and the boolean above has nowhere
+    /// to put that, so it reports the entry as ABSENT. A caller that reads absence as a decision
+    /// then acts on a storage failure: for a vault's metadata record, "not here" means "this
+    /// device is not enrolled", and the enrolment that follows writes fresh metadata under a new
+    /// data key over secrets that were all sealed under the old one.
+    @Override
+    public int storageEntryState(String name) {
+        try {
+            return JavaScriptStorageAdapter.storageFileExists(createStorageBackend(), name)
+                    ? STORAGE_ENTRY_PRESENT : STORAGE_ENTRY_ABSENT;
+        } catch (IOException ex) {
+            consoleLog("Error checking storage for storageEntryState");
+            consoleLog(ex.getMessage());
+            return STORAGE_ENTRY_UNKNOWN;
+        }
+    }
+
+    @Override
+    public int getStorageEntrySize(String name) {
+        try {
+            return JavaScriptStorageAdapter.getStorageEntrySize(createStorageBackend(), name);
+        } catch (IOException ex) {
+            //Log.e(ex);
+            return -1;
+        }
+    }
+    
+    
+
+    @Override
+    public String[] listStorageEntries() {
+        try {
+            return JavaScriptStorageAdapter.listStorageEntries(createStorageBackend());
+        } catch (IOException ex) {
+            //Log.e(ex);
+            consoleLog("Error in listStorageEntries");
+            consoleLog(ex.getMessage());
+        } 
+        return new String[]{};
+    }
+
+    private JavaScriptStorageAdapter.Backend createStorageBackend() {
+        return new JavaScriptStorageAdapter.Backend() {
+            @Override
+            public void removeItem(String key) throws IOException {
+                getLocalForage().removeItem(key);
+            }
+
+            @Override
+            public OutputStream openOutputStream(String key) throws IOException {
+                return getLocalForage().openOutputStream(key);
+            }
+
+            @Override
+            public InputStream openInputStream(String key) throws IOException {
+                return getLocalForage().openInputStream(key);
+            }
+
+            @Override
+            public Object getItem(String key) throws IOException {
+                return getLocalForage().getItem(key);
+            }
+
+            @Override
+            public int getSize(String key) throws IOException {
+                return getLocalForage().getSize(key);
+            }
+
+            @Override
+            public String[] keys() throws IOException {
+                return getLocalForage().keys();
+            }
+        };
+    }
+
+    @Override
+    public String[] listFilesystemRoots() {
+        return new String[]{"file:///"};
+    }
+
+    @Override
+    public String getAppHomePath() {
+        return listFilesystemRoots()[0];
+    }
+    
+    
+
+    @Override
+    public String[] listFiles(String directory) throws IOException {
+        String wrapped = stripTrailingSlash(wrapFile(directory))+"/";
+        try {
+            List<String> out = new ArrayList<>();
+            String[] keys = getLocalForage().keys();
+            for (String key : keys){
+                if (!key.startsWith(wrapped) || key.endsWith(".cn1fileinfo")) {
+                    continue;
+                }
+                String fileName = key;
+                int pos = fileName.lastIndexOf("/");
+                if (pos >= 0) {
+                    fileName = fileName.substring(pos+1);
+                }
+                
+                if (key.equals(wrapped + fileName)) {
+                    if (fileName.endsWith(".cn1dir")) {
+                        fileName = fileName.substring(0, fileName.lastIndexOf('.'));
+                    }
+                    out.add(fileName);
+                }
+            }
+
+            return out.toArray(new String[out.size()]);
+        } catch (IOException ex) {
+            //Log.e(ex);
+            consoleLog("Error in listFiles");
+            consoleLog(ex.getMessage());
+        } 
+        return new String[]{};
+    }
+
+    @Override
+    public long getRootSizeBytes(String root) {
+        return -1;
+    }
+
+    @Override
+    public long getRootAvailableSpace(String root) {
+        return -1;
+    }
+
+    @Override
+    public void mkdir(String directory) {
+        String wrapped = stripTrailingSlash(wrapFile(directory))+".cn1dir";
+        if (!this.exists(directory)) {
+            try {
+                LocalForage.getInstance().setItem(wrapped, "");
+            } catch (IOException ex) {
+                //Log.e(ex);
+                consoleLog("error in mkdir");
+                consoleLog(ex.getMessage());
+            }
+        } else {
+            consoleLog("Directory "+directory+" already exists");
+        }
+    }
+
+    @Override
+    public void deleteFile(String file) {
+        if (isTempFile(file)) {
+            deleteTempFile(file);
+            return;
+        }
+        String wrapped = stripTrailingSlash(wrapFile(file));
+        boolean isDirectory = this.isDirectory(file);
+        if (isDirectory) {
+            if (isRootFile(file)) {
+                consoleLog("Failed to delete file "+file+" because it is the root directory");
+                return;
+            }
+            try {
+                String[] children = listFiles(file);
+                if (children.length != 0) {
+                    consoleLog("Failed to delete directory "+file+" because it is not empty");
+                    return;
+                }
+            } catch (IOException ex) {
+                //Log.e(ex);
+                consoleLog("Error in deleteFile");
+                consoleLog(ex.getMessage());
+                return;
+            }
+            try {
+                consoleLog("Attempting to delete directory "+file+" - wrapped=>" + wrapped);
+                LocalForage.getInstance().removeItem(wrapped+".cn1dir"); // actually delete the entry
+            } catch (IOException ex) {
+                consoleLog("Error in deleteFile");
+                consoleLog(ex.getMessage());
+            }
+            return;
+        }
+        
+        try {
+            LocalForage lf = LocalForage.getInstance();
+            
+           lf.removeItem(wrapped);
+           lf.removeItem(wrapped+".cn1fileinfo");
+        } catch (IOException ex) {
+            consoleLog("Error in deleteFile");
+            consoleLog(ex.getMessage());
+        }
+        
+    }
+
+    @Override
+    public boolean isHidden(String file) {
+        return false;
+    }
+
+    @Override
+    public void setHidden(String file, boolean h) {
+        
+    }
+
+    /**
+     * Schema for info object that stores info about a file in the file system.
+     * These are stored as javascript objects under the name <filename>.cn1fileinfo
+     * in the same directory as <filename>.
+     */
+    private static interface FileInfo extends JSObject {
+        @JSProperty
+        public double getFileLength();
+        
+        @JSProperty
+        public double getLastModified();
+        
+        @JSProperty
+        public void setFileLength(double len);
+        
+        @JSProperty
+        public void setLastModified(double timestamp);
+    }
+    
+    
+    @JSBody(params={"fileLength", "lastModified"}, script="return {fileLength: fileLength, lastModified: lastModified}")
+    private static native FileInfo createFileInfo(double len, double modified);
+    
+    @JSBody(params={"blob"}, script="window.cn1TmpFiles = window.cn1TmpFiles || []; return window.cn1TmpFiles.push(blob)-1;")
+    private native static int createTempFile_(Blob blob);
+    
+    @JSBody(params={"index"}, script="window.cn1TmpFiles = window.cn1TmpFiles || []; return window.cn1TmpFiles[index];")
+    private native static Blob getTempFile_(int index);
+    
+    @JSBody(params={"index"}, script="window.cn1TmpFiles = window.cn1TmpFiles || []; window.cn1TmpFiles[index] = null;")
+    private static native void deleteTempFile_(int index);
+    
+    @JSBody(params={"blob"}, script="return blob.name || null;")
+    private static native String getFileName(Blob blob);
+    
+    public static boolean isTempFile(String path) {
+        return path.indexOf("tmp://") == 0;
+    }
+    
+    private static int getTempFileIndex(String path) {
+        int lastPos = path.lastIndexOf("/");
+        if (lastPos < 0 || lastPos >= path.length()-1) return -1;
+        int startPos = lastPos+1;
+        int endPos = path.indexOf("-", startPos);
+        if (endPos < 0) {
+            endPos = path.length();
+        }
+        
+        return Integer.parseInt(path.substring(startPos, endPos));
+    }
+    
+    public static Blob getTempFile(String path) {
+        int index = getTempFileIndex(path);
+        if (index < 0) return null;
+        return getTempFile_(index);
+    }
+    
+    public static String createTempFile(Blob blob) {
+        int index = createTempFile_(blob);
+        String filename = getFileName(blob);
+        return "tmp://"+index+(filename==null ? "" : ("-"+filename));
+    }
+    
+    public static void deleteTempFile(String path) {
+        int index = getTempFileIndex(path);
+        if (index < 0) return;
+        deleteTempFile_(index);
+    }
+    
+    /**
+     * Gets the FileInfo object for a given file.  Returns a file info object
+     * with -1 length and -1 mod time if there was an error retrieving the info.
+     * @param file The full path tot he file to get the info for.
+     * @return 
+     */
+    private FileInfo getFileInfo(String file) {
+        if (isTempFile(file)) {
+            Blob b = getTempFile(file);
+            if (b == null) {
+                return createFileInfo(-1,-1);
+            }
+            return createFileInfo(b.getSize(), -1);
+        }
+        if (isDirectory(file)) {
+            return getFileInfo(stripTrailingSlash(file)+".cn1dir");
+        }
+        String wrapped = stripTrailingSlash(wrapFile(file));
+        try {
+            return (FileInfo) LocalForage.getInstance().getItem(wrapped+".cn1fileinfo");
+        } catch (IOException ex) {
+             //Log.e(ex);
+             return createFileInfo(-1, -1);
+        }
+    }
+    
+    @Override
+    public long getFileLength(String file) {
+        return (long) getFileInfo(file).getFileLength();
+        
+    }
+
+    @Override
+    public InputStream openFileInputStream(String file) throws IOException {
+        if (isTempFile(file)) {
+            Blob b = getTempFile(file);
+            if (b == null) {
+                throw new IOException("Failed to find temp file "+file);
+            }
+            return BlobUtil.openInputStream(b);
+        }
+        String wrapped = stripTrailingSlash(wrapFile(file));
+        if (!exists(file)) {
+            throw new IOException("Failed to open input stream for file "+file+" because it does not exist.");
+        }
+        
+        if (isDirectory(file)) {
+            throw new IOException("Failed to open input stream for file "+file+" because it is a directory.");
+        }
+        
+        return LocalForage.getInstance().openInputStream(wrapped);
+    }
+    
+    // Runs in a Web Worker where `window` is a partial shim without built-in
+    // constructors (Blob/Uint8Array); `window[type]` was undefined and the
+    // instanceof threw. Resolve off the real worker global and guard it.
+    @JSBody(params={"o", "type"}, script="var t=(typeof globalThis!=='undefined'?globalThis:self)[type]; return (typeof t==='function')?(o instanceof t):false;")
+    private static native boolean instanceOf(JSObject o, String type);
+    
+    
+    private Blob openFileAsBlob(String file) throws IOException {
+        
+        if (!exists(file)) {
+            throw new IOException("Failed to open input stream for file "+file+" because it does not exist.");
+        }
+        
+        if (isDirectory(file)) {
+            throw new IOException("Failed to open input stream for file "+file+" because it is a directory.");
+        }
+        
+        JSObject obj = null;
+        if (isTempFile(file)) {
+            obj = getTempFile(file);
+        } else {
+            String wrapped = stripTrailingSlash(wrapFile(file));
+            obj = LocalForage.getInstance().getItem(wrapped);
+        }
+        if (instanceOf(obj, "Blob")) {
+            return (Blob)obj;
+        } else if (instanceOf(obj, "Uint8Array")) {
+            return BlobUtil.createBlob((Uint8Array)obj, "application/octet-stream");
+        } else {
+            // Files written via openOutputStream are stored in LocalForage's
+            // serialized byte form (e.g. a "b:<base64>" string), not as a live
+            // Blob/Uint8Array. Recover the bytes through the input-stream path
+            // (the same one openFileInputStream uses) and wrap them so e.g.
+            // Image.createImage(capturedPhotoPath) works.
+            InputStream in = null;
+            try {
+                in = openFileInputStream(file);
+                byte[] data = com.codename1.io.Util.readInputStream(in);
+                return BlobUtil.createBlob(data, "application/octet-stream");
+            } finally {
+                com.codename1.io.Util.cleanup(in);
+            }
+        }
+    }
+
+    private static String stripTrailingSlash(String path) {
+        return JavaScriptRuntimeFacade.stripTrailingSlash(path);
+    }
+    @Override
+    public boolean isDirectory(String file) {
+        if (isRootFile(file)) {
+            return true;
+        }
+        if (isTempFile(file)) {
+            return false;
+        }
+        try {
+            String wrapped = stripTrailingSlash(wrapFile(file));
+            
+            return LocalForage.getInstance().getItem(wrapped+".cn1dir") != null;
+        } catch (IOException ex) {
+            //Log.e(ex);
+            return false;
+        }
+    }
+
+    @Override
+    public boolean exists(String file) {
+        if (isRootFile(file)) {
+            return true;
+        }
+        if (isTempFile(file)) {
+            return getTempFile(file) != null;
+        }
+        try {
+            String wrapped = stripTrailingSlash(wrapFile(file));
+            return LocalForage.getInstance().getItem(wrapped) != null
+                    || LocalForage.getInstance().getItem(wrapped + ".cn1dir") != null;
+        } catch (IOException ex) {
+            return false;
+        }
+    }
+
+    private boolean isRootFile(String file) {
+        return JavaScriptRuntimeFacade.isRootFile(file);
+    }
+    
+    /**
+     * 
+     * @param file Full path to file to rename
+     * @param newName New name (file nmame only)
+     */
+    @Override
+    public void rename(String file, String newName) {
+        rename(file, newName, true);
+    }
+    private void rename(String file, String newName, boolean checkParent) {
+        if (newName.indexOf('/') < 0) {
+            if(file.endsWith("/")) {
+                file = file.substring(0, file.length() - 1);
+            }
+            int pos = file.lastIndexOf('/');
+            if(pos > -1) {
+                newName = file.substring(0, pos) + "/" + newName;
+            }
+        }
+        if (isRootFile(file) || isRootFile(newName)) {
+            System.out.println("Failed to rename file "+file+" to "+newName+". Cannot rename to root");
+            return;
+        }
+        file = stripTrailingSlash(file);
+        newName = stripTrailingSlash(newName);
+        if (isTempFile(file)) {
+            System.out.println("Cannot rename temp files");
+            return;
+        }
+        if (exists(newName)) {
+            System.out.println("Failed to rename "+file+" to "+newName+" because a file already exists with that name");
+            return;
+        }  
+        if (!exists(file)) {
+            System.out.println("Failed to rename "+file+" to "+newName+" because the source file does not exist.");
+            return;
+        }
+        String parent = newName.substring(0, newName.lastIndexOf('/'));
+        if (checkParent) {
+            if (!isRootFile(parent) && !exists(parent)) {
+                System.out.println("Cannot rename file "+file+" to "+newName+" because the parent directory "+parent+" does not exist");
+                return;
+            }
+            
+        }
+        boolean isDirectory = isDirectory(file);
+        String wrappedInput = stripTrailingSlash(wrapFile(file));
+        String wrappedOutput = stripTrailingSlash(wrapFile(newName));
+        if (isDirectory) {
+            wrappedOutput += ".cn1dir";
+            wrappedInput += ".cn1dir";
+        }
+        
+        
+        
+        FileInfo finfo = getFileInfo(file);
+        LocalForage forage = LocalForage.getInstance();
+        try {
+            
+            if (isDirectory) {
+                // We need to rename all of the children of directories explicitly
+                // because the localforage database stores each file in its own row with full path.
+                for (String child : listFiles(file)) {
+                    rename(file + "/" + child, newName + "/" + child, false);
+                }
+            }
+            
+            JSObject contents = forage.getItem(wrappedInput);
+            forage.setItem(wrappedOutput, contents);
+            if (!isDirectory) {
+                forage.setItem(wrappedOutput+".cn1fileinfo", finfo);
+            }
+            forage.removeItem(wrappedInput);
+            if (!isDirectory) {
+                forage.removeItem(wrappedInput+".cn1fileinfo");
+            }
+            
+        } catch (IOException ex) {
+            //Log.e(ex);
+            consoleLog("Error in rename");
+            consoleLog(ex.getMessage());
+        }
+        
+        
+    }
+
+    @Override
+    public char getFileSystemSeparator() {
+        return '/';
+    }
+
+    @Override
+    public String getPlatformName() {
+        return "HTML5";
+    }
+
+    @JSBody(params={"str"}, script="return window.parseFloat(str)")
+    private native static double _parseDouble(String str);
+    
+    @JSBody(params={"n"}, script="return n.toLocaleString()")
+    private native static String _toLocaleString(double n);
+    
+    @JSBody(params={"n"}, script="return n.toLocaleString()")
+    private native static String _toLocaleString(int n);
+    
+    @JSBody(params={"locale", "n"}, script="return n.toLocaleString(locale)")
+    private native static String _toLocaleString(String locale, int n);
+    
+    @JSBody(params={"locale", "n"}, script="return n.toLocaleString(locale)")
+    private native static String _toLocaleString(String locale, double n);
+    
+    
+    @JSBody(params={}, script="var number=0;try {number.toLocaleString('i');} catch (e) { return e.name ==='RangeError';} return false")
+    private native static boolean _toLocaleStringSupportsLocales();
+    
+    private static int toLocaleStringSupportsLocales=-1;
+    
+    private static boolean toLocaleStringSupportsLocales() {
+        if (toLocaleStringSupportsLocales == -1) {
+            toLocaleStringSupportsLocales = _toLocaleStringSupportsLocales() ? 1 : 0;
+        }
+        return toLocaleStringSupportsLocales == 1;
+    }
+    
+    private static String toLocaleString(String locale, int n) {
+        if (toLocaleStringSupportsLocales()) {
+            return _toLocaleString(locale, n);
+        } else {
+            return _toLocaleString(n);
+        }
+    }
+    
+    private static String toLocaleString(String locale, double n) {
+        if (toLocaleStringSupportsLocales()) {
+            return _toLocaleString(locale, n);
+        } else {
+            return _toLocaleString(n);
+        }
+    }
+    
+    
+    
+    
+    
+    JSNumberFormat numberFormatter;
+    Map<String, JSNumberFormat> currencyFormatters = new HashMap<String, JSNumberFormat>();
+    Map<String, JSDateFormat> dateFormatters = new HashMap<String, JSDateFormat>();
+    
+    @JSBody(params={}, script="return navigator.language || navigator.browserLanguage")
+    private static native String getBrowserLanguage();
+    
+    @JSBody(params={}, script="try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch(e) { return null; }")
+    private static native String detectTimezone();
+   
+    @Override
+    public L10NManager getLocalizationManager() {
+        if (l10n == null) {
+            Locale l = Locale.getDefault();
+            l10n = new L10NManager(l.getLanguage(), l.getCountry()) {
+                
+                private String thousandsSeparator;
+                private String decimalSeparator;
+                
+                private String decimalSeparator() {
+                    if (decimalSeparator == null) {
+                        String formatted = this.format(2.1);
+                        for (char c : formatted.toCharArray()) {
+                           if (Character.isDigit(c)) {
+                                
+                            } else {
+                                decimalSeparator = String.valueOf(c);
+                                break;
+                            }
+                        }
+                        if (decimalSeparator == null) {
+                            throw new RuntimeException("Cannot find decimal separator");
+                        }
+                    }
+                    return decimalSeparator;
+                }
+                
+                private String thousandsSeparator() {
+                    if (thousandsSeparator == null) {
+                        String formatted = this.format(1000);
+                        for (char c : formatted.toCharArray()) {
+                            if (Character.isDigit(c)) {
+                                
+                            } else {
+                                thousandsSeparator = String.valueOf(c);
+                                break;
+                            }
+                        }
+                        if (thousandsSeparator == null) {
+                            thousandsSeparator = ",";
+                        }
+                    }
+                    return thousandsSeparator;
+                }
+                
+                private JSNumberFormat numberFormatter() {
+                    if (numberFormatter == null) {
+                        numberFormatter = new JSNumberFormat(this.getLocaleStr());
+                    }
+                    return numberFormatter;
+                }
+                
+                private JSNumberFormat getCurrencyFormatter(String currency) {
+                    JSNumberFormat fmt = currencyFormatters.get(currency+"-"+this.getLocaleStr());
+                    if (fmt == null) {
+                        fmt = new JSNumberFormat(this.getLocaleStr());
+                        fmt.setStyle("currency");
+                        fmt.setCurrency(currency);
+                        currencyFormatters.put(currency+"-"+this.getLocaleStr(), fmt);
+                    }
+                    
+                    return fmt;
+                    
+                }
+                
+                private JSDateFormat getDateFormatter(String style) {
+                    JSDateFormat fmt = dateFormatters.get(style);
+                    if (fmt == null) {
+                        fmt = new JSDateFormat(this.getLocaleStr());
+                        fmt.setStyle(style);
+                        dateFormatters.put(this.getLocaleStr(), fmt);
+                    }
+                    return fmt;
+                }
+                
+                @Override
+                public String getLongMonthName(Date date) {
+                    // The ParparVM Java API in vm/JavaAPI/src/java/text/SimpleDateFormat.java
+                    // only exposes the no-arg and single-String constructors; the
+                    // `(String, Locale)` overload isn't present in the minimal runtime
+                    // and trying to use it produces a ReferenceError at worker runtime.
+                    // Locale-sensitivity for month names flows through the getLocaleStr()
+                    // path above via JSDateFormat, so dropping the locale here only
+                    // affects the month-name fallback (English labels, matching the
+                    // default locale everywhere these tests run).
+                    java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("MMMM");
+                    return fmt.format(date);
+                }
+
+                @Override
+                public String getShortMonthName(Date date) {
+                    java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("MMM");
+                    return fmt.format(date);
+                }
+                
+                private String getLocaleStr() {
+                    Locale l = Locale.getDefault();
+                    return l.getLanguage()+"-"+l.getCountry();
+                }
+                
+                public double parseDouble(String localeFormattedDecimal) {
+                    localeFormattedDecimal = StringUtil.replaceAll(localeFormattedDecimal, thousandsSeparator(), "");
+                    localeFormattedDecimal = localeFormattedDecimal.replace(decimalSeparator().charAt(0), '.');
+                    double out = _parseDouble(localeFormattedDecimal);
+                    return out;
+                    
+                }
+                
+                public String format(int number) {
+                    return _toLocaleString(number);
+                }
+
+                public String format(double number) {
+                    return _toLocaleString(number);
+                }
+
+                public String formatCurrency(double currency) {
+                    
+                    return getCurrencyFormatter(Display.getInstance().getProperty("l10n.currency", "USD")).format(currency);
+                }
+
+                public String formatDateLongStyle(Date d) {
+                    return getDateFormatter(JSDateFormat.DATE_LONG).format(d);
+                }
+
+                public String formatDateShortStyle(Date d) {
+                    return getDateFormatter(JSDateFormat.DATE_SHORT).format(d);
+                }
+
+                public String formatDateTime(Date d) {
+                    return getDateFormatter(JSDateFormat.DATETIME_LONG).format(d);
+                }
+
+                public String formatDateTimeMedium(Date d) {
+                    return getDateFormatter(JSDateFormat.DATETIME_MEDIUM).format(d);
+                }
+
+                public String formatDateTimeShort(Date d) {
+                    return getDateFormatter(JSDateFormat.DATETIME_SHORT).format(d);
+                }
+
+                public String getCurrencySymbol() {
+                    return Display.getInstance().getProperty("l10n.currency.symbol", "$");
+                }
+
+                
+                public void setLocale(String locale, String language) {
+                    
+                    super.setLocale(locale, language);
+                    Locale l = new Locale(language, locale);
+                    Locale.setDefault(l);
+                }
+            };
+        }
+        return l10n;
+    }
+
+    @Override
+    public boolean postMessage(Object browserPeer, String message, String targetOrigin) {
+        
+        ((HTML5BrowserComponent)browserPeer).postMessage(message, targetOrigin);
+        return true;
+    }
+
+    @Override
+    public boolean installMessageListener(Object browserPeer) {
+        ((HTML5BrowserComponent)browserPeer).installMessageListener();
+        return true;
+    }
+
+    @Override
+    public boolean uninstallMessageListener(Object browserPeer) {
+        ((HTML5BrowserComponent)browserPeer).uninstallMessageListener();
+        return true;
+    }
+    
+    
+   
+    
+    
+    @Override
+    public boolean isNativeBrowserComponentSupported() {
+        if (!"false".equals(Display.getInstance().getProperty("javascript.nativeBrowser", "true"))) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    @JSBody(script="var el = jQuery('<iframe src=\"about:blank\"></iframe>').get(0); el.parentNode.removeChild(el);return el")
+    private static native HTMLIFrameElement createBlankIFrame();
+    
+    private class SystemBrowserComponent extends BrowserComponent {
+        
+    }
+
+    @Override
+    protected BrowserComponent createSharedJavascriptContext() {
+        return new SystemBrowserComponent();
+    }
+    
+    
+    
+    
+    @Override
+    public PeerComponent createBrowserComponent(Object browserComponent) {
+        if (browserComponent instanceof SystemBrowserComponent) {
+            return new HTML5BrowserComponent(null, browserComponent);
+        }
+        // In ParparVM worker/host bridging, createElement("iframe") can be surfaced as a
+        // generic HTMLElement wrapper. Keep this typed as HTMLElement to avoid strict cast
+        // failures while still constructing the browser peer correctly.
+        HTMLElement el = doc().createElement("iframe");
+        //HTMLIFrameElement el = createBlankIFrame();
+        
+        HTML5BrowserComponent browser = new HTML5BrowserComponent(el, browserComponent);
+        return browser;
+    }
+
+    @Override
+    public Object createNativeBrowserWindow(String startURL) {
+        return new HTML5BrowserWindow(startURL, "");
+    }
+
+    @Override
+    public void nativeBrowserWindowShow(Object window) {
+        ((HTML5BrowserWindow)window).show();
+    }
+
+    @Override
+    public void nativeBrowserWindowCleanup(Object window) {
+        ((HTML5BrowserWindow)window).cleanup();
+    }
+
+    @Override
+    public void nativeBrowserWindowSetSize(Object window, int width, int height) {
+        ((HTML5BrowserWindow)window).setSize(width, height);
+    }
+
+    @Override
+    public void nativeBrowserWindowSetTitle(Object window, String title) {
+        ((HTML5BrowserWindow)window).setTitle(title);
+    }
+
+    @Override
+    public void nativeBrowserWindowHide(Object window) {
+        ((HTML5BrowserWindow)window).hide();
+    }
+
+    @Override
+    public void nativeBrowserWindowAddCloseListener(Object window, ActionListener l) {
+        ((HTML5BrowserWindow)window).addCloseListener(l);
+    }
+
+    @Override
+    public void nativeBrowserWindowRemoveCloseListener(Object window, ActionListener l) {
+        ((HTML5BrowserWindow)window).removeCloseListener(l);
+    }
+
+    @Override
+    public void addNativeBrowserWindowOnLoadListener(Object window, ActionListener l) {
+        ((HTML5BrowserWindow)window).addLoadListener(l);
+    }
+
+    @Override
+    public void removeNativeBrowserWindowOnLoadListener(Object window, ActionListener l) {
+        ((HTML5BrowserWindow)window).removeLoadListener(l);
+    }
+
+    @Override
+    public void nativeBrowserWindowEval(Object window, BrowserWindow.EvalRequest req) {
+        ((HTML5BrowserWindow)window).eval(req);
+    }
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    @Override
+    public void browserExecute(PeerComponent browserPeer, String javaScript) {
+        ((HTML5BrowserComponent)browserPeer).execute(javaScript);
+    }
+
+    public boolean supportsBrowserExecuteAndReturnString(PeerComponent internal) {
+        return true;
+    }
+    
+    @Override
+    public String browserExecuteAndReturnString(PeerComponent internal, String javaScript) {
+        return ((HTML5BrowserComponent)internal).executeAndReturnString(javaScript);
+    }
+
+    @Override
+    public boolean browserHasBack(PeerComponent browserPeer) {
+        return ((HTML5BrowserComponent)browserPeer).hasBack();
+    }
+
+    @Override
+    public void browserBack(PeerComponent browserPeer) {
+        ((HTML5BrowserComponent)browserPeer).back();
+    }
+    
+    
+
+    @Override
+    public boolean browserHasForward(PeerComponent browserPeer) {
+        return ((HTML5BrowserComponent)browserPeer).hasForward();
+    }
+
+    @Override
+    public void browserForward(PeerComponent browserPeer) {
+        ((HTML5BrowserComponent)browserPeer).forward();
+    }
+
+    @Override
+    public void browserClearHistory(PeerComponent browserPeer) {
+        
+    }
+
+    
+    
+    @Override
+    public void browserDestroy(PeerComponent internal) {
+        
+    }
+
+    @Override
+    public void browserStop(PeerComponent browserPeer) {
+        
+    }
+
+    /// Caches any object, not just a `JSObject`, behind a reference the browser's
+    /// collector is genuinely free to clear.
+    ///
+    /// Two things had to be true for this to mean anything, and neither was.
+    ///
+    /// The cached value used to have to be a `JSObject` and everything else fell
+    /// through to `super`, which answers `new WeakReference(o)`. ParparVM's
+    /// `WeakReference` never held what it was constructed with, so that branch was a
+    /// reference that was empty the moment it was made -- and the framework's caches
+    /// are built on ordinary Java objects, not `JSObject`s, so that was every one of
+    /// them. `EncodedImage` was the visible casualty: `getInternal()` keeps the
+    /// decoded picture in one of these, so a permanent miss made it hand the bytes
+    /// back to the browser on EVERY draw and paint nothing until that decode landed,
+    /// with no repaint scheduled for when it did. That is a picture that can stay
+    /// blank on screen, and in CI it was `graphics-draw-image-rect` differing in
+    /// about a third of runs, each run missing a different subset of the cells that
+    /// draw the same EncodedImage.
+    ///
+    /// The JS side was then built on a `WeakMap` keyed by a throwaway token, with the
+    /// referent as the map VALUE. A `WeakMap` holds keys weakly and values strongly,
+    /// so the referent was reachable for exactly as long as the token this method
+    /// returns -- which is to say, for exactly as long as an ordinary strong field.
+    /// Nothing was reclaimable, and the callers that own the token map rather than
+    /// borrow it (`CacheMap.weakCache`, `com.codename1.ui.util.WeakHashMap`, both
+    /// plain hashtables that drop an entry only on explicit remove/clear) grew
+    /// without bound. The token is now a `WeakRef`, whose `deref()` is `get()`.
+    @Override
+    public Object createSoftWeakRef(Object o) {
+        if (useES6WeakRefs()) {
+            if (o == null) {
+                return new JSObjectWrapper();
+            }
+            JSObject token = createSoftWeakRefImpl(o);
+            if (token == null) {
+                // The native declined this referent (no WeakRef in this realm, or a
+                // shape it cannot target). Falling back is the difference between a
+                // strong ref that works and a token that reads back null forever,
+                // which is an invisible permanent cache miss.
+                return super.createSoftWeakRef(o);
+            }
+            JSObjectWrapper keyOut = new JSObjectWrapper();
+            keyOut.o = token;
+            return keyOut;
+        } else {
+            return super.createSoftWeakRef(o);
+        }
+    }
+
+    /// Reads back whatever `#createSoftWeakRef(Object)` handed out.
+    ///
+    /// Dispatches on the shape of the token rather than on `WeakRef` being available
+    /// now, which is what the two used to disagree about: create fell through to
+    /// `super` for anything it could not store, extract did not, so a `super` token
+    /// came back null however alive its referent was. The token is the only thing
+    /// that says which side made it, so it is the only thing worth asking. Tested
+    /// with `instanceof` rather than a cast because a failed cast does not throw
+    /// under ParparVM.
+    @Override
+    public Object extractHardRef(Object o) {
+        if (o == null) {
+            return null;
+        }
+        if (o instanceof JSObjectWrapper) {
+            JSObjectWrapper w = (JSObjectWrapper)o;
+            return w.o == null ? null : extractHardRefImpl(w.o);
+        }
+        return super.extractHardRef(o);
+    }
+
+    /// Whether the ES6 weak-reference path is both wanted and available.
+    ///
+    /// Resolved once. The callers are hot -- `Image`'s scale cache, `Border`'s
+    /// round-rect cache and every `EncodedImage` decode go through
+    /// `createSoftWeakRef` -- and this was a `Display.getProperty` string compare
+    /// plus a native call on every single one of them. A benign race between two
+    /// threads resolving it costs one extra probe and reaches the same answer.
+    private boolean useES6WeakRefs() {
+        if (!weakRefsResolved) {
+            weakRefsUsable = Display.getInstance().getProperty("javascript.useES6WeakRefs", "true").equals("true")
+                    && isWeakRefSupported();
+            weakRefsResolved = true;
+        }
+        return weakRefsUsable;
+    }
+
+    private boolean weakRefsResolved;
+    private boolean weakRefsUsable;
+
+    private static class JSObjectWrapper {
+        JSObject o;
+    }
+
+    // These three @JSBody scripts are shadowed at runtime: port.js binds the same
+    // natives with bindNative and its override replaces the emitted body. They are
+    // kept, and kept correct, precisely because that binding is by mangled name --
+    // a signature drift silently un-binds it, and what runs then is whatever is
+    // written here. The previous versions could not survive that: they reached for
+    // `window.cn1GlobalWeakMap`, a global that only ever existed on the main thread
+    // while these natives run in the worker, so an un-binding turned a cache miss
+    // into a thrown TypeError. The translator unwraps object arguments and wraps the
+    // result on this path, so the script sees and returns plain JS values.
+    @JSBody(params={}, script="return typeof WeakRef === 'function';")
+    private static native boolean isWeakRefSupported();
+
+    @JSBody(params={"o"}, script="return (typeof WeakRef === 'function' && o != null && (typeof o === 'object' || typeof o === 'function')) ? new WeakRef(o) : null;")
+    private native static JSObject createSoftWeakRefImpl(Object o);
+
+    @JSBody(params={"key"}, script="if(key == null || typeof key.deref !== 'function') { return null; } var v = key.deref(); return v === undefined ? null : v;")
+    private native static Object extractHardRefImpl(JSObject key);
+    
+    @JSBody(params={}, script="return window.cn1IsPreview === true")
+    private native static boolean isPreview_();
+
+    @Override
+    public void setBrowserPageInHierarchy(PeerComponent browserPeer, String url) throws IOException {
+        if (url.length() > 0 && url.charAt(0) != '/') {
+            url = "/" + url;
+
+        }
+        // Build an ABSOLUTE iframe URL rather than the relative "assets/cn1html/..".
+        // A relative iframe src is resolved by the browser against the host
+        // document's base URL at the moment it is set; the Playground mutates its
+        // own location (share links, history.pushState), so a relative src
+        // intermittently resolved against the wrong base and the editor iframe
+        // 404'd ("Nothing matches the given URI"). Anchoring it to origin +
+        // current directory makes the load deterministic.
+        String pathName = window.getLocation().getPathname();
+        String dirPath = pathName == null ? "" : pathName;
+        int lastSlash = dirPath.lastIndexOf("/");
+        if (lastSlash >= 0) {
+            dirPath = dirPath.substring(0, lastSlash);
+        }
+        String absolute = ((WindowLocation) window.getLocation()).getOrigin() + dirPath + "/assets/cn1html" + url;
+        setBrowserURL(browserPeer, absolute);
+    }
+
+    
+    
+    @Override
+    public void setBrowserURL(PeerComponent browserPeer, String url) {
+        if (url.startsWith("jar:")) {
+            url = url.substring(6);
+            while (url.indexOf("/") == 0) {
+                url = url.substring(1);
+            }
+            
+            String currPath = window.getLocation().getPathname();
+            String dirPath = currPath;
+            if (dirPath.indexOf("/") != -1){
+                dirPath = dirPath.substring(0, dirPath.lastIndexOf("/"));
+            }
+            
+            
+            url = ((WindowLocation)window.getLocation()).getOrigin()+
+                    dirPath + "/assets/" + url;
+            
+            if (isPreview_()) {
+                try {
+                    InputStream resource = Display.getInstance().getResourceAsStream(null, url.substring(url.lastIndexOf("/")));
+                    String str = Util.readToString(resource);
+                    Util.cleanup(resource);
+                    setBrowserPage(browserPeer, str, url);
+                    return;
+                } catch (IOException ex) {
+                    //Log.e(ex);
+                    consoleLog("Error in setBrowserURL");
+                    consoleLog(ex.getMessage());
+                }
+            }
+
+            
+        } else if (url.startsWith("file://")) {
+            
+        }
+        ((HTML5BrowserComponent)browserPeer).setURL(url);
+    }
+
+    @Override
+    public void setBrowserPage(PeerComponent browserPeer, String html, String baseUrl) {
+        ((HTML5BrowserComponent)browserPeer).setPage(html, baseUrl);
+    }
+
+    @Override
+    public void setBrowserProperty(PeerComponent browserPeer, String key, Object value) {
+        ((HTML5BrowserComponent)browserPeer).setProperty(key, value);
+    }
+
+    @Override
+    public String getBrowserURL(PeerComponent browserPeer) {
+        return ((HTML5BrowserComponent)browserPeer).getURL();
+    }
+
+    @Override
+    public String getBrowserTitle(PeerComponent browserPeer) {
+        return "Untitled Page";
+    }
+
+    @Override
+    public void browserReload(PeerComponent browserPeer) {
+        ((HTML5BrowserComponent)browserPeer).reload();
+    }
+    
+    private String[] mediaExtensions = new String[]{
+      "mp4", "mpg", "mov", "aiff", "mp3", "mpeg"  
+    };
+    private boolean isMediaResource(String resource){
+        for (String ext : mediaExtensions){
+            if (resource.endsWith("."+ext)){
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    public InputStream getStream(String url){
+        return getArrayBufferInputStream(url);
+        
+         
+    }
+    
+    static String arrayBufferToDataURL(ArrayBuffer buf, String type){
+        return "data:"+type+";base64,"+((WindowExt)Window.current()).arrayBufferToBase64(buf);
+    }
+    
+    static String blobToDataURL(Blob blob){
+        return BlobUtil.blobToBase64(blob);
+    }
+    /*
+    static void blobToDataURL(Blob blob, final AsyncCallback<String> callback){
+        ((WindowExt)JS.getGlobal()).BlobToBase64(blob, new DataURLCallback(){
+
+            @Override
+            public void callback(String str) {
+                callback.complete(str);
+            }
+            
+        });
+    }
+    */
+    
+    private String buildVersion;
+    
+    @JSBody(script="return (typeof document !== 'undefined' && document.documentElement) ? document.documentElement.getAttribute('data-cn1-app-version') : null")
+    private native static String getBuildVersion_();
+    
+    public String getBuildVersion() {
+        if (buildVersion == null) {
+            buildVersion = getBuildVersion_();
+        }
+        if (buildVersion == null) {
+            buildVersion = Display.getInstance().getProperty("AppVersion", "1.0");
+        }
+        return buildVersion;
+    }
+
+    /**
+     * True while a back command is being dispatched in response to popstate, so the form change
+     * it causes does not push a new entry and trap the user in the app.
+     */
+    private boolean handlingPopState;
+
+    /**
+     * Pushes a history entry so the browser's Back button has something to pop.
+     *
+     * <p>This used to be a {@code @JSBody}, which is compiled into the worker -- where there is
+     * no {@code history} object, so it threw on every form change and the port logged that the
+     * back command would not work. Going through the window binding puts the call on the main
+     * thread, where the History API actually exists.</p>
+     */
+    /**
+     * Monotonic id stamped into each pushed history entry. popstate fires for forward
+     * traversal too, and comparing the restored id against this one is what tells the two
+     * apart.
+     */
+    private int historyIndex;
+
+    /**
+     * The highest id this session has pushed.
+     *
+     * <p>An entry carrying more than this was not created by this session, whatever it says: the
+     * entry the page was loaded on keeps the id a previous life of the application left there,
+     * and a reload starts the counters again from zero. Every entry the port can traverse to
+     * carries an id it pushed, so anything above this belongs to the page rather than the
+     * application -- which is what tells a stale id apart from a genuine Forward.</p>
+     */
+    private int historyHighWater;
+
+    private void pushHistoryState() {
+        if (handlingPopState) {
+            return;
+        }
+        if (historyUnavailable) {
+            return;
+        }
+        try {
+            historyIndex++;
+            window.getHistory().pushState(HISTORY_STATE_PREFIX + historyIndex, "");
+            historyHighWater = Math.max(historyHighWater, historyIndex);
+            historyEntriesPushed++;
+        } catch (Throwable ignored) {
+            // A sandboxed or file:// document can refuse pushState. Back stays inert from here
+            // on: the entry was never created, and going on as though it had been would have a
+            // later in-app back traverse history that does not belong to this application --
+            // out of the document, rather than back a form.
+            historyIndex--;
+            historyUnavailable = true;
+        }
+    }
+
+    /**
+     * Traversals the port itself asked the browser to make, each with the moment it stops being
+     * expected. A popstate takes the oldest of them rather than clearing a single flag: two
+     * in-app back navigations can each ask for one before either event arrives, and one flag
+     * would let the first event answer for both -- leaving the second to be read as the user
+     * pressing Back and a form leaving that the user never asked to leave.
+     */
+    private final List<Long> suppressedTraversals = new ArrayList<Long>();
+
+    /**
+     * How long a traversal the port asked for is given to raise its popstate before it stops
+     * being expected. On the clock rather than on turns of the event loop: the event comes from
+     * the main thread and an idle loop can turn many times while it is on its way.
+     */
+    private static final long SUPPRESSION_TIMEOUT_MILLIS = 1000;
+
+    /**
+     * Asks the browser to traverse history on the port's own behalf, and expects the popstate
+     * that follows to be ignored.
+     *
+     * <p>The traversal may not happen at all -- asking to go further back than the session has
+     * entries does nothing, and raises no popstate. The expectation is therefore given up after a
+     * bounded wait: left standing it would swallow the user's next real Back and leave the
+     * application on a form the browser has already moved away from.</p>
+     *
+     * @param delta entries to move, negative for backwards
+     */
+    private void requestSuppressedTraversal(int delta) {
+        if (delta == 0 || historyUnavailable) {
+            return;
+        }
+        suppressedTraversals.add(Long.valueOf(System.currentTimeMillis() + SUPPRESSION_TIMEOUT_MILLIS));
+        try {
+            window.getHistory().go(delta);
+        } catch (Throwable ignored) {
+            suppressedTraversals.remove(suppressedTraversals.size() - 1);
+            return;
+        }
+        awaitSuppressionConsumed();
+    }
+
+    /**
+     * True when this popstate belongs to a traversal the port asked for, in which case it is that
+     * traversal's and no form should move for it.
+     */
+    private boolean consumeSuppressedTraversal() {
+        if (suppressedTraversals.isEmpty()) {
+            return false;
+        }
+        suppressedTraversals.remove(0);
+        return true;
+    }
+
+    private void awaitSuppressionConsumed() {
+        callSerially(new Runnable() {
+            @Override
+            public void run() {
+                long now = System.currentTimeMillis();
+                while (!suppressedTraversals.isEmpty()
+                        && suppressedTraversals.get(0).longValue() <= now) {
+                    // Never arrived -- a traversal the browser had nowhere to make. Giving it up
+                    // keeps it from swallowing the user's next real Back.
+                    suppressedTraversals.remove(0);
+                }
+                if (!suppressedTraversals.isEmpty()) {
+                    awaitSuppressionConsumed();
+                }
+            }
+        });
+    }
+
+    /**
+     * Handles a history traversal.
+     *
+     * <p>popstate fires for Forward as well as Back. Without telling them apart, pressing
+     * Forward would run the form's back command and immediately undo the navigation the user
+     * asked for.</p>
+     */
+    private void handlePopStateEvent(Event evt) {
+        final int restored = parseHistoryIndex(((PopStateEvent) evt).getState());
+        final int previous = historyIndex;
+        final boolean backward = restored < previous;
+        if (restored > historyHighWater) {
+            // An id this session never pushed. The entry the page loaded on keeps whatever a
+            // previous life of the application wrote there while these counters start again at
+            // zero, so an id above everything pushed since is that entry -- not a step forward
+            // through this session's history, which can only reach entries it created. The
+            // numbering is left where it was: nothing in it has been traversed.
+            consumeSuppressedTraversal();
+            return;
+        }
+        historyIndex = restored;
+        if (consumeSuppressedTraversal()) {
+            // The port asked for this one, to spend an entry belonging to a form an in-app back
+            // command had already left.
+            return;
+        }
+        if (restored == previous) {
+            // Neither direction, as far as this port can tell: the entry carries no id of ours
+            // and the application is on its root, which reads the same way. It belongs to
+            // whatever hosts this page -- a site that navigates around the canvas -- and the
+            // user asked for it. Stepping anywhere from here would take the page off the entry
+            // they chose.
+            return;
+        }
+        if (!backward) {
+            // Forward traversal. The port cannot replay it -- it has no way to know which form
+            // an entry stood for, and re-showing one would need the application's own
+            // navigation -- so rather than leave the browser sitting on an entry the app is not
+            // on, step back to the entry that does match. Forward is inert, which is the honest
+            // degradation.
+            //
+            // The whole way back, not one step: the Forward menu can jump several entries at
+            // once, and returning only one would leave the browser somewhere in between, out
+            // of step with the form on screen for every Back after it.
+            requestSuppressedTraversal(previous - restored);
+            return;
+        }
+        // A traversal can cross more than one entry at once -- the Back button's history menu,
+        // or history.go(-N) -- so the distance decides how many forms to leave, not one.
+        final int distance = Math.max(1, previous - restored);
+        historyEntriesPushed = Math.max(0, historyEntriesPushed - distance);
+        // The browser has already crossed every entry of the jump in this one traversal, so
+        // the count of what the application still owes is the state the replay works from --
+        // and what a back command that skips forms draws down as it goes.
+        //
+        // Added to rather than assigned: a second Back pressed while a transition is still
+        // running arrives here before the first has landed, and overwriting would lose the
+        // entries the first one was still working through -- the browser would end up several
+        // entries ahead of the application, for good.
+        pendingTraversalEntries += distance;
+        if (traversalActive) {
+            // A replay is already walking the forms; it reads the count after each one lands,
+            // so this traversal joins the one in flight rather than starting a second that
+            // would run the same form's back command twice.
+            return;
+        }
+        // Which entries were crossed is read from the event here, synchronously, because the
+        // event does not outlive the call. Running the back command belongs on the EDT, and
+        // that is the coordinator's shape.
+        JavaScriptBrowserLifecycleCoordinator.handlePopState(
+                new JavaScriptBrowserLifecycleCoordinator.BackNavigationHooks() {
+                    @Override
+                    public void callSerially(Runnable runnable) {
+                        HTML5Implementation.this.callSerially(runnable);
+                    }
+
+                    @Override
+                    public void runBackCommand() {
+                        replayTraversal();
+                    }
+                });
+    }
+
+    /**
+     * Marks a history entry as this port's. A page can be running its own navigation before
+     * Codename One starts -- a host application embedding the canvas, for instance -- and its
+     * states are commonly plain numbers too. Without something to tell them apart, returning to
+     * one of those entries would read as a Codename One id and be taken for a Forward, which
+     * bounces the browser straight back out again without ever running the form's back command.
+     */
+    private static final String HISTORY_STATE_PREFIX = "cn1-history:";
+
+    /**
+     * True once the document has refused to take an entry. Nothing this port pushed is there to
+     * traverse, so it stops asking.
+     */
+    private boolean historyUnavailable;
+
+    /**
+     * Reads the id stamped into a history entry. Entries this port did not push -- the document
+     * entry the app started on, or anything the host page pushed -- carry no id of ours and
+     * read as being before everything.
+     */
+    private int parseHistoryIndex(Object state) {
+        // Anything that is not one of this port's own stamps reads as being before everything,
+        // and a host page's router object is exactly that: not a string, and not ours.
+        if (!(state instanceof String)) {
+            return 0;
+        }
+        String text = (String) state;
+        if (!text.startsWith(HISTORY_STATE_PREFIX)) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(text.substring(HISTORY_STATE_PREFIX.length()));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Entries a browser traversal has already crossed that the application has not yet
+     * followed. A back command can leave more than one form at a time, so the replay draws
+     * this down by however many forms each step actually left rather than by one.
+     */
+    private int pendingTraversalEntries;
+
+    /**
+     * True while the replay is walking forms. Further traversals add to the count it reads
+     * rather than starting a walk of their own.
+     */
+    private boolean traversalActive;
+
+    /**
+     * Runs one step of a browser traversal and, once it lands, whatever is still outstanding.
+     *
+     * <p>The steps cannot be run in a loop: a transition defers the form change, so a second
+     * back command issued straight away would read the form the first one was still leaving and
+     * run its command again -- two entries would be spent while the application moved one.
+     * Each step waits for the form to actually change before the next is issued.</p>
+     */
+    /**
+     * How long a back command is given to land before it is taken as refused. Long enough for a
+     * form transition, which the framework runs before installing the destination.
+     */
+    private static final long BACK_OUTCOME_TIMEOUT_MILLIS = 2000;
+
+    private void replayTraversal() {
+        if (pendingTraversalEntries <= 0) {
+            traversalActive = false;
+            return;
+        }
+        final Form current = Display.getInstance().getCurrent();
+        if (current == null) {
+            pendingTraversalEntries = 0;
+            traversalActive = false;
+            return;
+        }
+        Command back = current.getBackCommand();
+        if (back == null) {
+            pendingTraversalEntries = 0;
+            traversalActive = false;
+            leaveDocument();
+            return;
+        }
+        traversalActive = true;
+        // Held until the form change actually lands, not just until the command returns: a
+        // transition defers the change, and if the flag were already clear by then the change
+        // would look like an ordinary showBack() and traverse the entry this gesture had
+        // already spent.
+        handlingPopState = true;
+        // Read before the command runs. With transitions off the form changes inside
+        // dispatchCommand, and the count is drawn down before this line -- so reading it
+        // afterwards would report nothing outstanding and the wait would take the change for a
+        // form it was not unwinding towards.
+        int outstanding = pendingTraversalEntries;
+        current.dispatchCommand(back, new ActionEvent(back));
+        awaitBackOutcome(current, outstanding,
+                System.currentTimeMillis() + BACK_OUTCOME_TIMEOUT_MILLIS);
+        // Nothing is pushed to replace the entry that was just popped. Every form show pushes
+        // one, so the history depth already tracks the navigation depth: popping one entry and
+        // going back one form keeps them in step. Re-pushing here left a dead entry behind, so
+        // from the root form the first Back did nothing and only the second left the app.
+    }
+
+    /**
+     * Waits for a back command to either navigate or turn out to have been refused.
+     *
+     * @param before the form that was displayed when the command was dispatched
+     * @param outstanding entries owed when the command was dispatched, read before it ran
+     * @param deadline when to stop waiting and take the command as refused
+     */
+    private void awaitBackOutcome(final Form before, final int outstanding, final long deadline) {
+        callSerially(new Runnable() {
+            @Override
+            public void run() {
+                if (Display.getInstance().getCurrent() != before) {
+                    handlingPopState = false;
+                    if (pendingTraversalEntries >= outstanding) {
+                        // The form that appeared was not one this traversal was unwinding
+                        // towards, so nothing was drawn down. Count the step anyway: the
+                        // application has moved and the replay has to end somewhere. Never below
+                        // nothing owed -- a negative count would have to be climbed back through
+                        // before the next Back was replayed at all.
+                        pendingTraversalEntries = Math.max(0, outstanding - 1);
+                    }
+                    replayTraversal();
+                    return;
+                }
+                if (System.currentTimeMillis() < deadline) {
+                    // Waited on the clock rather than on a number of turns of the event loop. A
+                    // form transition takes a couple of hundred milliseconds and the framework
+                    // does not install the destination until it ends, while forty turns of an
+                    // idle loop can pass in a fraction of that -- and reading that as a refusal
+                    // pushes browser history the wrong way for a navigation that was about to
+                    // land.
+                    awaitBackOutcome(before, outstanding, deadline);
+                    return;
+                }
+                // The same form is still showing, so a pop guard refused the navigation. The
+                // browser has already moved across every entry still outstanding, so all of
+                // them are returned, not only this step's. The steps after it are dropped:
+                // they would ask the same guard again on the same form, and one of the later
+                // answers could navigate even though the traversal was refused.
+                handlingPopState = false;
+                traversalActive = false;
+                int owed = pendingTraversalEntries;
+                pendingTraversalEntries = 0;
+                restoreTraversal(owed);
+            }
+        });
+    }
+
+    /**
+     * Returns the browser to the entry a refused traversal started from.
+     *
+     * <p>Going forward rather than pushing: the entries the gesture moved across are still
+     * there to return to, while a push would replace them and lose everything the user could
+     * still have reached with Forward.</p>
+     *
+     * @param steps how many entries the traversal crossed without the application following
+     */
+    private void restoreTraversal(int steps) {
+        if (steps <= 0) {
+            return;
+        }
+        historyEntriesPushed += steps;
+        requestSuppressedTraversal(steps);
+    }
+
+    /**
+     * Carries a Back gesture outwards, out of the document.
+     *
+     * <p>That is what Back means on a form offering no back action: the form was shown
+     * normally so it has an entry, but popping that entry would look like a press that did
+     * nothing and the user would have to press again.</p>
+     */
+    private void leaveDocument() {
+        if (historyUnavailable) {
+            return;
+        }
+        // Every entry this port pushed has to go, not just one: a form reached through several
+        // others still has theirs above the document, and stepping over a single one would
+        // leave the browser inside a history the application has no forms for.
+        //
+        // The document's own entry counts too. The gesture that got here has already spent the
+        // entry belonging to the form being left, so what remains above the document is the
+        // rest of the pushed entries -- traversing only those would land on the document with
+        // the same form still showing, and the user would have to press Back again to leave.
+        int remaining = historyEntriesPushed + 1;
+        int available = 0;
+        try {
+            available = window.getHistory().getLength() - 1;
+        } catch (Throwable ignored) {
+            // No length to go by; ask for the full distance and let the browser stop where its
+            // history does.
+        }
+        if (available > 0 && remaining > available) {
+            remaining = available;
+        }
+        requestSuppressedTraversal(-remaining);
+    }
+
+    /**
+     * True once a form has been shown, so the very first one does not push an entry.
+     */
+    private boolean historyRootShown;
+
+    /**
+     * The forms shown so far, newest last, used to recognise a backward navigation. The
+     * implementation is not told the direction of a form change, so it is inferred from whether
+     * the incoming form is the one behind the current entry.
+     *
+     * <p>Bounded: an app that never navigates back would otherwise accumulate an entry per
+     * screen for the life of the session. Losing the oldest entries only means a very deep
+     * unwind stops being recognised, which degrades to the old behaviour of pushing.</p>
+     */
+    private final java.util.List<Form> historyStack = new java.util.ArrayList<Form>();
+
+    private static final int HISTORY_STACK_LIMIT = 32;
+
+    /**
+     * How many entries this port has pushed and not yet spent.
+     *
+     * <p>Counted separately from the form chain because that chain is bounded -- it only has to
+     * be long enough to recognise a backward jump -- while the browser keeps every entry. Using
+     * the chain's length to leave the document would land inside the history rather than out of
+     * it once an application had navigated more times than the chain holds.</p>
+     */
+    private int historyEntriesPushed;
+
+    @Override
+    public void setCurrentForm(Form f) {
+        super.setCurrentForm(f);
+        // A form built before the last scheme or density change still holds the styles it
+        // resolved then, so it is brought up to date as it appears rather than coming back in
+        // the old palette.
+        refreshThemeIfStale(f);
+        // Taken for every arrival, whatever is done with it: the framework queues one direction
+        // per display asked for, and a queue read only on some paths would drift out of step
+        // with what is still waiting.
+        boolean navigatingBack = com.codename1.ui.Accessor.isNavigatingBack(f);
+        if (!historyRootShown) {
+            // The first form has nothing behind it. Pushing for it left a dead entry that the
+            // first Back popped without navigating anywhere, so leaving the app from the root
+            // form took two presses.
+            historyRootShown = true;
+            historyStack.add(f);
+            return;
+        }
+        int depth = historyStack.size();
+        int previousIndex = f == null ? -1 : historyStack.lastIndexOf(f);
+        if (previousIndex >= 0 && previousIndex == depth - 1) {
+            // The form already on screen. One navigation can arrive here twice: dismissing a
+            // menu restores the form underneath it and then shows it again, and when the form
+            // being shown is the one being restored both arrivals name the same form. Nothing
+            // moved, so nothing is pushed -- an entry here is one the user has to press Back
+            // through to get out of a screen they never left.
+            return;
+        }
+        // The direction comes from the framework rather than from which form appeared: an
+        // application can legitimately show an earlier form again as forward navigation --
+        // A, B, then A again -- and treating that as a back would spend entries the user can
+        // still reach.
+        if (previousIndex >= 0 && previousIndex < depth - 1
+                && (handlingPopState || navigatingBack)) {
+            // Backward navigation, from a toolbar back command or showBack(). Keeping the whole
+            // chain rather than a single predecessor is what lets consecutive unwinds -- C to B
+            // to A -- each be recognised.
+            //
+            // The browser entry has to be spent as well, not just the Java one: leaving it in
+            // place means the next browser Back pops an entry that no longer corresponds to a
+            // form, finds no back command, and appears to do nothing. Going back fires popstate,
+            // which is why the next one is marked as already accounted for.
+            // A back command can skip forms -- A, B, C then showBack() to A -- so every form
+            // above the one being shown is being left, and one entry per form has to go with
+            // them. Recognising only a single step left the extra entries behind for later
+            // Back presses to pop without any form change.
+            int steps = depth - 1 - previousIndex;
+            for (int i = 0; i < steps; i++) {
+                historyStack.remove(historyStack.size() - 1);
+            }
+            if (handlingPopState) {
+                // The gesture has already crossed entries the application had not yet
+                // followed, so those are what this form change settles first. Only forms left
+                // beyond them still have an entry standing above the displayed form, and only
+                // those need a traversal of their own -- going back for the ones the user's
+                // own gesture already crossed would leave the document early, or spend an
+                // entry the replay was about to account for.
+                int settled = Math.min(steps, pendingTraversalEntries);
+                pendingTraversalEntries -= settled;
+                int extra = steps - settled;
+                if (extra > 0) {
+                    historyEntriesPushed = Math.max(0, historyEntriesPushed - extra);
+                    requestSuppressedTraversal(-extra);
+                }
+                return;
+            }
+            historyEntriesPushed = Math.max(0, historyEntriesPushed - steps);
+            // One traversal for the whole jump, so it raises a single popstate.
+            requestSuppressedTraversal(-steps);
+            return;
+        }
+        historyStack.add(f);
+        if (historyStack.size() > HISTORY_STACK_LIMIT) {
+            historyStack.remove(0);
+        }
+        pushHistoryState();
+    }
+    
+    
+    
+    // Asset bytes cache. CN1's Resources / UIManager bootstrap reads the
+    // same .res file (e.g. iOS7Theme.res) multiple times during a single
+    // boot — once for the requested theme, again as a layered fallback,
+    // and once more from the EncodedImage multi-image lazy load. Each
+    // call hit the network synchronously; iOS7Theme.res alone was
+    // downloaded 3x = ~1.4 MB wasted on the wire. Cache the bytes once
+    // they've been fetched and serve a fresh ArrayBufferInputStream over
+    // the same Uint8Array on every subsequent open.
+    private static final java.util.Map<String, Uint8Array> assetByteCache =
+            new java.util.HashMap<String, Uint8Array>();
+    // Cache of URLs that the host bundle does NOT have. The
+    // ``getBundledAssetAsDataURL`` host call returns null for any
+    // URL the app didn't embed -- Initializr embeds none, so all
+    // ~5 boot calls returned null. Cache the negative result so
+    // repeats hit the in-worker cache instead of round-tripping.
+    // We never cache the positive case because the data URL would
+    // be huge to keep around when we already process the bytes.
+    private static final java.util.Set<String> bundledAssetMissCache =
+            new java.util.HashSet<String>();
+
+    public InputStream getArrayBufferInputStream(String url){
+        String dataURL = bundledAssetMissCache.contains(url) ? null
+                : ((WindowExt)window).getCn1().getBundledAssetAsDataURL(url);
+        if (dataURL != null) {
+            Blob blob = ((WindowExt)window).Base64ToBlob(dataURL);
+            ArrayBufferInputStream out;
+            try {
+                out = new ArrayBufferInputStream(BlobUtil.toUint8Array(blob), "application/octet-stream");
+                return out;
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
+        } else {
+            bundledAssetMissCache.add(url);
+        }
+
+        if (isMediaResource(url)){
+            ArrayBufferInputStream out = new ArrayBufferInputStream(Uint8Array.create(0), null);
+            out.setSrc(url);
+            return out;
+        }
+        final XMLHttpRequest req = XMLHttpRequest.create();
+        if (url.indexOf("assets/") == 0 && url.indexOf("?") == -1) {
+            url = url + "?v=" + getBuildVersion();
+        }
+        Uint8Array cachedBytes = assetByteCache.get(url);
+        if (cachedBytes != null) {
+            return new ArrayBufferInputStream(cachedBytes, "arraybuffer");
+        }
+        req.open("get", url, false);
+        // ``responseType = "arraybuffer"`` lets the browser hand back a
+        // typed-array view of the bytes directly. The previous path used
+        // ``overrideMimeType("text/plain; charset=x-user-defined")`` and
+        // then walked the response string char-by-char into a fresh
+        // Uint8Array -- ~735k JS->JSO ``out.set(i, ...)`` calls for
+        // theme.res, ~939 ms wall on the worker per fetch. With the
+        // arraybuffer path the same fetch lands in ~3 ms (measured on
+        // localhost). Falls back to the text/charset path when the
+        // arraybuffer response is empty (some hosts strip the response
+        // body for non-2xx, in which case the text path's status
+        // diagnostics are still useful).
+        req.setResponseType("arraybuffer");
+        req.send();
+
+        // Static hosts that fall back to index.html for unknown paths
+        // (Cloudflare Pages SPA mode is the common one) hand back the
+        // HTML page with status 4xx but a non-empty body. The previous
+        // path treated that body as if it were the requested asset and
+        // wrapped the ``<!DOCTYPE html>...`` bytes in an
+        // ArrayBufferInputStream -- ZipInputStream then threw
+        // ``Wrong Local header signature: 6f64213c`` (the little-endian
+        // encoding of ``<!do``) and copyZipEntriesToMap silently
+        // copied zero entries. Reject 4xx/5xx up front so the
+        // ``getResourceAsStream`` fallback to the bundle root path
+        // gets a chance to try the next candidate URL.
+        int status = req.getStatus();
+        if (status >= 400) {
+            return null;
+        }
+
+        Uint8Array responseBytes = toResponseBytes(req);
+        if (responseBytes == null) {
+            System.out.println(req.getAllResponseHeaders());
+            System.out.println(req.getStatusText());
+            System.out.println("Failed to load resource "+url);
+            System.out.println("Status code was "+req.getStatus());
+            return null;
+        }
+
+        assetByteCache.put(url, responseBytes);
+        ArrayBufferInputStream out = new ArrayBufferInputStream(responseBytes, req.getResponseType());
+        return out;
+    }
+
+    private Uint8Array toResponseBytes(XMLHttpRequest req) {
+        if ("arraybuffer".equals(req.getResponseType()) && req.getResponse() != null) {
+            return Uint8Array.create((ArrayBuffer)req.getResponse());
+        }
+        String responseText = req.getResponseText();
+        if (responseText == null) {
+            return null;
+        }
+        Uint8Array out = Uint8Array.create(responseText.length());
+        for (int i = 0; i < responseText.length(); i++) {
+            out.set(i, (short)(responseText.charAt(i) & 0xff));
+        }
+        return out;
+    }
+        
+    
+    @JSBody(params={"resource"}, script="cn1LoadedFile(resource)")
+    private native static void notifyProgressLoaderThatResourceIsLoaded(String resource);
+    
+    @Override
+    public InputStream getResourceAsStream(Class cls, String resource)  {
+        if (resource == null || resource.length() == 0 || "null".equals(resource)) {
+            return null;
+        }
+        int lastSlash = resource.lastIndexOf("/");
+        if ( lastSlash >= 0 ){
+            resource = resource.substring(lastSlash+1);
+        }
+        // The ParparVM translator emits the app's own theme.res /
+        // CN1Resource.res at the bundle root, while assets/ holds the merged
+        // system themes (iOS7Theme.res, tzone_theme.res, etc.). The default
+        // path below always prepends assets/, which meant
+        // Resources.openLayered("/theme") used to return the big system
+        // theme and the app's theme.css-compiled overrides (Style UIIDs like
+        // TabsColorSync) were silently discarded. Try the root first for the
+        // two known app-level bundle entries; everything else keeps the
+        // assets/ prefix so iOS7Theme.res etc. still resolve correctly.
+        if ("theme.res".equals(resource) || "CN1Resource.res".equals(resource)) {
+            InputStream rootStream = getStream(resource);
+            if (rootStream != null) {
+                notifyProgressLoaderThatResourceIsLoaded(resource);
+                return rootStream;
+            }
+        }
+        String assetPath = "icon.png".equals(resource) ? resource : ("assets/" + resource);
+        InputStream out = getStream(assetPath);
+        if (out != null) {
+            notifyProgressLoaderThatResourceIsLoaded(assetPath);
+            return out;
+        }
+        // Fall back to the bundle root for resources the translator drops
+        // there directly (most ``.properties`` resource bundles, for one —
+        // ``ParparVMBootstrap`` mirrors the jar layout and only the explicit
+        // relocations in ``build-javascript-port-initializr.sh`` /
+        // ``build-javascript-port-hellocodenameone.sh`` move things into
+        // ``assets/``). Without this fallback every
+        // ``ResourceBundle.getResourceAsStream("/messages_xx.properties")``
+        // call returns null, the ``Resources.getL10N`` lookup throws (or
+        // returns null), and any UI that catches the throw and logs via
+        // ``Log.e`` floods the console with ``Exception: null`` — see
+        // ``initializr/common/.../TemplatePreviewPanel.loadBundleProperties``.
+        InputStream rootFallback = getStream(resource);
+        if (rootFallback != null) {
+            notifyProgressLoaderThatResourceIsLoaded(resource);
+            return rootFallback;
+        }
+        notifyProgressLoaderThatResourceIsLoaded(assetPath);
+        return null;
+
+    }
+
+    @JSBody(script="jQuery(\"div#cn1-splash\").fadeOut(100, function(){ jQuery(this).remove(); });")
+    private native static void hideSplash();
+    
+    @JSBody(script="window.setTimeout(function(){if (!window.loadServiceWorker) return; window.loadServiceWorker()}, 1000);")
+    private native static void loadServiceWorker();
+    
+    @Override
+    public void confirmControlView() {
+        super.confirmControlView();
+        hideSplash();
+        loadServiceWorker();
+    }
+    
+    public static void registerSaveBlobToFile() {
+        BlobUtil.registerNativeBlobToFileConverter();
+    }
+    
+    private NativeImage createNativeImage(byte[] bytes, int offset, int len){
+        // The previous path called ``arr.set(i, bytes[i+offset])`` per
+        // byte -- one JSO bridge call per element, ~50k calls for a
+        // typical theme PNG, ~50 such images per theme load. With
+        // ``copyBytesToUint8Array`` the entire copy lives in JS and
+        // executes as a single typed-array memcpy: ~hundreds of times
+        // faster on the Initializr profile (theme decode 979 ms ->
+        // see ``run:lifecycle.init`` perf marker).
+        Uint8Array arr = Uint8Array.create(len);
+        copyBytesToUint8Array(bytes, offset, len, arr);
+        Blob blob = BlobUtil.createBlob(arr, "image/png");
+        NativeImage nimg = new NativeImage();
+        nimg.img = renderingBackend.createBlobImageElement(blob);
+        registerImageResource(nimg, nimg.img);
+        nimg.load();
+        return nimg;
+    }
+
+    /**
+     * Bulk-copy ``len`` bytes from a Java ``byte[]`` (sliced at
+     * ``offset``) into a freshly-allocated Uint8Array. Java byte
+     * arrays land on the worker side as plain JS Arrays of signed
+     * integers, but ``Uint8Array.set(arrayLike)`` coerces each
+     * element through ``ToUint8``, matching the per-element
+     * ``arr.set(i, bytes[i+offset]) & 0xff`` semantics of the loop
+     * this replaces.
+     */
+    @JSBody(params = {"bytes", "offset", "len", "out"}, script = ""
+            + "var src = bytes;"
+            + "if (offset === 0 && len === src.length) {"
+            + "  out.set(src);"
+            + "} else {"
+            + "  out.set(src.subarray ? src.subarray(offset, offset + len) : src.slice(offset, offset + len));"
+            + "}")
+    private static native void copyBytesToUint8Array(byte[] bytes, int offset, int len, Uint8Array out);
+
+    @JSBody(params={"str"}, script="return encodeURIComponent(str)")
+    private native static String encodeURIComponent(String str);
+    
+    @Override
+    public void sendMessage(String[] recipients, String subject, Message msg) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("mailto:");
+        boolean first = true;
+        for (String recipient : recipients) {
+            if (first) {
+                first = false;
+            } else {
+                sb.append(",");
+            }
+            sb.append(recipient);
+        }
+        sb.append("?");
+        if (subject != null) {
+            sb.append("subject=").append(encodeURIComponent(subject));
+        }
+        if (msg != null && msg.getContent() != null) {
+            sb.append("&body=").append(encodeURIComponent(msg.getContent()));
+        }
+        final JSObject beforeUnloadHandler = getBeforeUnloadHandler();
+        removeBeforeUnload();
+        Window.setTimeout(new TimerHandler() {
+            @Override
+            public void onTimer() {
+                setBeforeUnloadHandler(beforeUnloadHandler);
+            }
+            
+        }, 1000);
+        Window.current().getLocation().replace(sb.toString());
+        
+    }
+
+    
+    
+    @Override
+    public boolean isScaledImageDrawingSupported() {
+        return true;
+    }
+    
+    
+    
+    public class NativeImage {
+        HTMLImageElement img;
+        int width;
+        int height;
+        boolean loaded;
+        boolean error;
+        final JavaScriptAsyncImageLoadCoordinator.State loadState = new JavaScriptAsyncImageLoadCoordinator.State();
+        HTML5Graphics mutableGraphics;
+        CanvasPattern pattern;
+        boolean doNotRepaint = false;
+        private final JavaScriptNativeImageAdapter.ImageModel imageModel = new JavaScriptNativeImageAdapter.ImageModel() {
+            @Override
+            public int getExplicitWidth() {
+                return width;
+            }
+
+            @Override
+            public int getExplicitHeight() {
+                return height;
+            }
+
+            @Override
+            public boolean hasLoadedImage() {
+                // The ``loaded`` flag is set asynchronously from the
+                // HTMLImageElement's "load" event listener installed in
+                // ``NativeImage.load()``. Between createNativeImage()
+                // returning and the listener firing, the element can be
+                // fully decoded (naturalWidth > 0) while ``loaded`` is
+                // still false. ``JavaScriptNativeImageAdapter.resolveWidth``
+                // falls through to a hard-coded 10 fallback in that
+                // window, which the caller (typically EncodedImage.getWidth)
+                // then *caches* as the recorded width. The real PNG
+                // arrives later, but EncodedImage now records 10 — so
+                // every drawImage call from then on scales the actual
+                // 125x24 corner image down to 10x24 and the rounded
+                // shape disappears (Initializr Dialog 9-piece border).
+                //
+                // Treat the image as loaded as soon as the underlying
+                // element exposes a positive natural size, regardless of
+                // whether the async ``load`` event has fired yet.
+                return img != null && (loaded || img.getNaturalWidth() > 0);
+            }
+
+            @Override
+            public int getLoadedImageWidth() {
+                return img.getNaturalWidth();
+            }
+
+            @Override
+            public int getLoadedImageHeight() {
+                return img.getNaturalHeight();
+            }
+
+            @Override
+            public boolean hasMutableSurface() {
+                return mutableGraphics != null;
+            }
+
+            @Override
+            public int getMutableSurfaceWidth() {
+                // Java-side dimension: never read canvas.getWidth() back across
+                // the barrier (those number reads are exactly what crossed with
+                // getContext() object reads -> "Number 667" staleness). Also
+                // avoids rasterizing a deferred image just to measure it.
+                return mutableGraphics.getCanvasWidth();
+            }
+
+            @Override
+            public int getMutableSurfaceHeight() {
+                return mutableGraphics.getCanvasHeight();
+            }
+
+            @Override
+            public Object getPatternCache() {
+                return pattern;
+            }
+
+            @Override
+            public void setPatternCache(Object patternCache) {
+                pattern = (CanvasPattern)patternCache;
+            }
+        };
+        public HTMLImageElement getImg(){
+            return img;
+        }
+        
+        public HTML5Graphics getMutableGraphics() {
+            return mutableGraphics;
+        }
+
+        JavaScriptNativeImageAdapter.ImageModel getImageModel() {
+            return imageModel;
+        }
+
+        public void setSuppressRepaint(boolean suppress) {
+            doNotRepaint = suppress;
+            loadState.setSuppressRepaint(suppress);
+        }
+        
+        public void load(){
+            ImageExt imageExt = (ImageExt)img;
+            if (img!=null && imageExt.isComplete()){
+                if (JavaScriptAsyncImageLoadCoordinator.handleImmediateCompletion(loadState, img.getNaturalWidth(), img.getNaturalHeight())) {
+                    loaded = loadState.isLoaded();
+                    error = loadState.isError();
+                    width = loadState.getWidth();
+                    height = loadState.getHeight();
+                    return;
+                }
+                loaded = loadState.isLoaded();
+                error = loadState.isError();
+            }
+            if ( error || !loaded && img != null){
+                final Object lock = new Object();
+                JavaScriptAsyncImageLoadCoordinator.beginLoading(loadState);
+                loaded = false;
+                error = false;
+                if (!loadState.areListenersInstalled()) {
+                    loadState.setListenersInstalled(true);
+                    img.addEventListener("load", new EventListener(){
+
+                        @Override
+                        public void handleEvent(Event evt) {
+                            new Thread(){
+
+                                @Override
+                                public void run() {
+                                    JavaScriptAsyncImageLoadCoordinator.handleLoad(loadState, img.getNaturalWidth(), img.getNaturalHeight());
+                                    loaded = loadState.isLoaded();
+                                    error = loadState.isError();
+                                    width = loadState.getWidth();
+                                    height = loadState.getHeight();
+                                    if (JavaScriptAsyncImageLoadCoordinator.shouldRepaintOnLoad(loadState)) {
+                                        Display.getInstance().callSerially(new Runnable() {
+                                            @Override
+                                            public void run() {
+                                                renderingBackend.repaintCurrentForm();
+                                            }
+                                        });
+                                    }
+                                    synchronized(lock){
+                                        lock.notifyAll();
+                                    }
+                                }
+                                
+                            }.start();
+                        }
+                        
+                    }, false);
+                    img.addEventListener("error", new EventListener(){
+
+                        @Override
+                        public void handleEvent(final Event evt) {
+                            new Thread(){
+
+                                @Override
+                                public void run() {
+                                    JavaScriptAsyncImageLoadCoordinator.handleError(loadState);
+                                    loaded = loadState.isLoaded();
+                                    error = loadState.isError();
+                                    synchronized(lock){
+                                        lock.notifyAll();
+                                    }
+                                }
+                                
+                            }.start();
+                        }
+                        
+                    }, false);
+                }
+                loaded = loadState.isLoaded();
+                error = loadState.isError();
+               
+            }
+        }
+        
+        public int getWidth(){
+            awaitNaturalDimensions();
+            return JavaScriptNativeImageAdapter.resolveWidth(imageModel);
+        }
+
+        public int getHeight(){
+            awaitNaturalDimensions();
+            return JavaScriptNativeImageAdapter.resolveHeight(imageModel);
+        }
+
+        /**
+         * Block briefly (up to ~200 ms total) until the underlying
+         * {@code HTMLImageElement} exposes a positive natural width,
+         * so that {@link #getWidth()} / {@link #getHeight()} don't
+         * fall through to the hard-coded 10-pixel fallback in
+         * {@link JavaScriptNativeImageAdapter} during the gap between
+         * {@code createNativeImage()} returning and the main thread
+         * finishing decode of the Blob-backed image.
+         *
+         * <p>Without this wait, {@link com.codename1.ui.EncodedImage}
+         * caches the fallback 10 in its own width/height field on the
+         * first call and never re-queries, which manifests in image
+         * borders (e.g. the Initializr {@code PopupDialog} 9-piece
+         * border) as a visible strip of unpainted background showing
+         * the underlying form. The async {@code load} event later
+         * fires and a repaint is scheduled, but {@code EncodedImage}
+         * is still serving the cached 10 so the redraw is identical
+         * and the gap persists.</p>
+         *
+         * <p>For theme PNGs (decoded from in-memory Blob bytes) the
+         * main thread typically finishes decode within a millisecond
+         * or two, so this wait almost never reaches its outer
+         * deadline. The 200 ms cap exists for the pathological case
+         * (decoder errored, host unreachable) so a single broken
+         * image can't stall layout forever.</p>
+         */
+        private void awaitNaturalDimensions() {
+            if (img == null) {
+                return;
+            }
+            if (loaded || error) {
+                return;
+            }
+            if (img.getNaturalWidth() > 0) {
+                return;
+            }
+            // Outer deadline: total wall-time we'll block layout for
+            // a single image. 200 ms is generous for any local Blob
+            // decode and harmlessly short for the network/error case.
+            long deadline = System.currentTimeMillis() + 200;
+            // ``Thread.sleep`` in the JS-port worker is a cooperative
+            // yield, so the listener installed in ``load()`` (which
+            // runs on the main thread and posts a callback back into
+            // the worker) gets a chance to update ``loadState`` and
+            // bump ``naturalWidth`` during these short naps.
+            while (img.getNaturalWidth() <= 0 && !error
+                    && System.currentTimeMillis() < deadline) {
+                try {
+                    Thread.sleep(2);
+                } catch (InterruptedException ignored) {
+                    break;
+                }
+            }
+            // Once the natural size is known, refresh the cached
+            // ``loaded``/``width``/``height`` fields from ``loadState``
+            // so a subsequent ``getWidth()`` short-circuits via the
+            // ``loaded`` flag rather than re-polling the host.
+            if (img.getNaturalWidth() > 0 && !loaded) {
+                JavaScriptAsyncImageLoadCoordinator.handleLoad(loadState,
+                        img.getNaturalWidth(), img.getNaturalHeight());
+                loaded = loadState.isLoaded();
+                width = loadState.getWidth();
+                height = loadState.getHeight();
+            } else if (img.getNaturalWidth() <= 0 && !error) {
+                // Timed out without the host ever exposing a natural
+                // size. Latch ``error`` so the next ``getWidth()``
+                // returns immediately via the fallback path instead
+                // of paying another 200 ms wait per call. The async
+                // ``load`` listener will still flip ``loaded`` to
+                // true if the image eventually decodes, at which
+                // point ``resolveWidth`` starts returning the real
+                // dimension again.
+                JavaScriptAsyncImageLoadCoordinator.handleError(loadState);
+                error = true;
+            }
+        }
+        
+        public void draw(CanvasRenderingContext2D ctx, int x, int y, int width, int height){
+            JavaScriptNativeImageAdapter.draw(imageModel, new JavaScriptNativeImageAdapter.DrawTarget() {
+                @Override
+                public void drawLoadedImage(int drawX, int drawY, int drawWidth, int drawHeight) {
+                    renderingBackend.drawLoadedImage(ctx, img, drawX, drawY, drawWidth, drawHeight);
+                }
+
+                @Override
+                public void drawMutableSurface(int drawX, int drawY, int drawWidth, int drawHeight) {
+                    // The source is another surface: flush its pending commands
+                    // (so the host has its pixels) then record a blit by id onto
+                    // the target surface. No canvas host-ref crosses.
+                    mutableGraphics.flush();
+                    retainBlitSource(NativeImage.this);
+                    ((SurfaceCommandRecorder)ctx).blitSurface(mutableGraphics.getSurfaceId(), drawX, drawY, drawWidth, drawHeight);
+                }
+            }, x, y, width, height);
+        }
+
+        public void tile(CanvasRenderingContext2D ctx, int x, int y, int width, int height) {
+            if (width <= 0 || height <= 0) {
+                return;
+            }
+            int iw = getWidth();
+            int ih = getHeight();
+            if (iw <= 0 || ih <= 0) {
+                return;
+            }
+            // Tile by repeated drawImage rather than a CanvasPattern fill. In the
+            // surface-id render model a pattern set as fillStyle paints opaque
+            // BLACK on the display surface: the pattern is created successfully
+            // (createPattern returns non-null, and the very same pattern fills
+            // correctly on a scratch OffscreenCanvas) but the display context
+            // does not honour the pattern fill. That turned every image-border
+            // centre black -- the legacy iOS7 Toolbar/Title/StatusBar strips draw
+            // their left/right caps with drawImage (which renders fine) but the
+            // centre via tileImage, so the whole title bar came out black. The
+            // old TeaVM port rendered iOS7 correctly. drawImage IS honoured on
+            // the display surface, so tile the source image across the region.
+            long tilesX = ((long) width + iw - 1) / iw;
+            long tilesY = ((long) height + ih - 1) / ih;
+            if (tilesX * tilesY > 400L) {
+                // Pathologically fine tile over a large area: stretch instead of
+                // emitting thousands of draw ops. Visually exact for the near-
+                // uniform fills that reach this path.
+                draw(ctx, x, y, width, height);
+                return;
+            }
+            for (int ty = 0; ty < height; ty += ih) {
+                int dh = Math.min(ih, height - ty);
+                for (int tx = 0; tx < width; tx += iw) {
+                    int dw = Math.min(iw, width - tx);
+                    draw(ctx, x + tx, y + ty, dw, dh);
+                }
+            }
+        }
+        
+        public void draw(CanvasRenderingContext2D ctx, int x, int y){
+            draw(ctx, x, y, getWidth(), getHeight());
+            
+        }
+            
+    }
+        
+    
+    interface URLBuilderFactory extends JSObject {
+        @JSProperty
+        URLBuilder getURL();
+        
+        @JSProperty 
+        URLBuilder getWebkitURL();
+        
+        
+    }
+    
+    interface URLBuilder extends JSObject {
+        String createObjectURL(Blob blob);
+    }
+    
+    
+    
+      
+    
+      
+    
+    interface TouchEvent extends Event {
+        @JSProperty
+        JSArray<MouseEvent> getTargetTouches();
+        
+        @JSProperty
+        int getClientX();
+        
+        @JSProperty
+        int getClientY();
+        
+    }
+
+
+    interface Uint8ClampedArraySetter extends JSObject {
+        void set(Uint8ClampedArray arr);
+    }
+    
+    Map<String,Map<Character,Integer>> charWidthCache = new HashMap<String,Map<Character,Integer>>();
+    Map<String,Map<String,Integer>> stringWidthCache = new HashMap<String,Map<String,Integer>>();
+    private static final String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghizjlmnopqrstuvwxyz12345678980";
+    
+    // Note that we use a special case for the font height of Material fonts to
+    // try to optimize the result for FontImages and rotation.
+    // https://github.com/codenameone/CodenameOne/issues/2631
+    @JSBody(params={"fontStyle"}, script="window.cn1_font_height_cache = window.cn1_font_height_cache || {};\n"
+            + "var style = String(fontStyle == null ? '' : fontStyle);\n"
+            + "var result = window.cn1_font_height_cache[style];\n"
+            + "if (result == null) {\n"
+            + "  var match = /([0-9.]+)(?=pt|px)/.exec(style);\n"
+            + "  var fontSize = match ? parseFloat(match[1]) : 16;\n"
+            + "  if (style.indexOf('Material') !== -1) {\n"
+            + "    result = fontSize;\n"
+            + "  } else {\n"
+            + "    result = Math.ceil(fontSize * 1.2);\n"
+            + "  }\n"
+            + "  window.cn1_font_height_cache[style] = result;\n"
+            + "}\n"
+            + "return result;")
+    private native static double determineFontHeight(String fontStyle);
+    
+    @JSBody(params={"fontStyle"}, script="window.cn1_font_leading_cache = window.cn1_font_leading_cache || {};\n"
+            + "var style = String(fontStyle == null ? '' : fontStyle);\n"
+            + "var result = window.cn1_font_leading_cache[style];\n"
+            + "if (result == null) {\n"
+            + "  var match = /([0-9.]+)(?=pt|px)/.exec(style);\n"
+            + "  var fontSize = match ? parseFloat(match[1]) : 16;\n"
+            + "  var fontHeight = (style.indexOf('Material') !== -1) ? fontSize : Math.ceil(fontSize * 1.2);\n"
+            + "  result = Math.max(0, fontHeight - fontSize);\n"
+            + "  window.cn1_font_leading_cache[style] = result;\n"
+            + "}\n"
+            + "return result;")
+    private native static double determineFontLeading(String fontStyle);
+    
+    @JSBody(params={}, script="return window.cn1_use_baseline_text_rendering || false;")
+    public native static boolean useBaselineTextRendering();
+    
+    public class NativeFont {
+        //String css;
+        int face;
+        int style;
+        int size;
+        int ascent;
+        double height;
+        String fileName;
+        String fontName;
+        // The display's pixel ratio when this font's height was worked out. A height is in
+        // device pixels and everything drawn with it is divided by the ratio to reach CSS
+        // pixels, so the height only means anything alongside the ratio it was sized against.
+        double ratioBasis = devicePixelRatioValue();
+        // The height this font was created with, which never changes. Identity has to be built
+        // from something that does not move: a font can be a key in a map when the display's
+        // ratio changes, and a hash that changes underneath a stored key loses it.
+        double identityHeight = Double.NaN;
+        
+        String cssCached_, cssFontFamilyCached__;
+
+        /**
+         * Brings the height up to the current display density.
+         *
+         * <p>A browser zoom or a move to another screen changes the density under a font that
+         * has already been created and handed to a style. Left alone, its height stays in the
+         * old display's pixels while everything drawn with it is divided by the new ratio, so
+         * text comes out at the wrong size -- half of it, going from a 1x display to a 2x one.
+         * Styles hold their fonts, and the theme holds the ones it loaded, so there is no
+         * single place to recreate them: each brings itself up to date as it is used.</p>
+         */
+        void syncDensity() {
+            double current = devicePixelRatioValue();
+            if (current <= 0 || ratioBasis <= 0 || current == ratioBasis) {
+                return;
+            }
+            // Scaled by the ratio itself rather than by the density band it falls in. A ratio
+            // can change without changing bands -- a desktop window moved to a 1.5x display --
+            // and the band would then report no change while every coordinate drawn with this
+            // font is divided by the new ratio: text would come out two thirds of its size.
+            double scale = current / ratioBasis;
+            if (Double.isNaN(identityHeight)) {
+                identityHeight = height;
+            }
+            height = height * scale;
+            ascent = (int) Math.round(ascent * scale);
+            ratioBasis = current;
+            cssCached_ = null;
+        }
+        
+        public int fontLeading() {
+            return (int)Math.ceil(determineFontLeading(getCSS()));
+        }
+        
+        public String getCSSFontFamily() {
+            if (cssFontFamilyCached__ == null) {
+                StringBuilder sb = new StringBuilder();
+                if (fontName != null) {
+                    if (fontName.startsWith("native-")) {
+                        sb.append(fontFamily()).append(", ");
+                    } else {
+                        sb.append("'").append(fontName).append("'").append(", ");
+                    }
+                }
+                switch (face) {
+                    case Font.FACE_SYSTEM:
+                        sb.append("sans-serif");
+                        break;
+                    case Font.FACE_PROPORTIONAL:
+                        sb.append("serif");
+                        break;
+                    case Font.FACE_MONOSPACE:
+                        sb.append("monospace");
+                        break;
+                        
+                }
+                cssFontFamilyCached__ = sb.toString();
+            }
+            return cssFontFamilyCached__;
+        }
+        
+        private String fontStyle() {
+
+   
+            if ("native-ItalicThin".equals(fontName) || "native-ItalicLight".equals(fontName) || "native-ItalicRegular".equals(fontName) || "native-ItalicBold".equals(fontName) || (style & Font.STYLE_ITALIC) != 0) {
+                return "italic";
+            }
+    
+            return "";
+        }
+        
+        private String fontFamily() {
+            if (fontName.startsWith("native-")) {
+                if ("native-MainThin".equals(fontName) || "native-ItalicThin".equals(fontName)) {
+                    return "'HelveticaNeue-UltraLight', 'HelveticaNeue UltraLight', Sans-serif";
+                }
+                if ("native-MainLight".equals(fontName) || "native-ItalicLight".equals(fontName)) {
+                    return "'HelveticaNeue-Thin', 'HelveticaNeue Thin', Sans-serif";
+                }
+                if ("native-MainRegular".equals(fontName) || "native-ItalicRegular".equals(fontName)) {
+                    return "'HelveticaNeue-Medium', 'HelveticaNeue Medium', Sans-serif";
+                }
+                if ("native-MainBold".equals(fontName) ||  "native-ItalicBold".equals(fontName)) {
+                    return "'HelveticaNeue-Bold', 'HelveticaNeue Bold', Sans-serif";
+                }
+                if ("native-MainBlack".equals(fontName) || "native-ItalicBlack".equals(fontName)) {
+                    return "'HelveticaNeue-Black', 'HelveticaNeue Black', Sans-serif";
+                }
+            }
+            return fontName;
+        }
+        
+        private String fontWeight() {
+            
+            if ("native-MainThin".equals(fontName)) {
+                /*font-weight:100; 
+                font-stretch:condensed;*/
+                return "100";
+            }
+
+            
+
+
+            if ("native-MainLight".equals(fontName)) {
+                /*font-weight:300; 
+                font-stretch:condensed;*/
+                return "300";
+            }
+    
+            if ("native-MainRegular".equals(fontName)) {
+                /*font-weight:500; 
+                font-stretch:normal;*/
+                return "500";
+            }
+    
+            if ("native-MainBold".equals(fontName)) {
+                /*font-weight:600; 
+                font-stretch:normal;*/
+                return "600";
+   
+            }
+    
+            if ("native-MainBlack".equals(fontName)) {
+                /*font-weight:800; 
+                font-stretch:condensed;*/
+                return "800";
+            }
+   
+            if ("native-ItalicThin".equals(fontName)) {
+                    /*font-weight:100; 
+                    font-stretch:condensed;
+                    font-style: italic;*/
+                return "100";
+            }
+    
+            if ("native-ItalicLight".equals(fontName)) {
+                return "300";
+            }
+    
+            if ("native-ItalicRegular".equals(fontName)) {
+                return "500";
+            }
+    
+            if ("native-ItalicBold".equals(fontName)) {
+                return "600";
+            }
+    
+            if ((style & Font.STYLE_BOLD) != 0) {
+                return "bold";
+            }
+            
+            return "";
+        }
+        
+        public String getCSS(){
+            syncDensity();
+            if (cssCached_ == null) {
+                StringBuilder sb = new StringBuilder();
+                //sb.append(height).append("px ");
+                //if ((style & Font.STYLE_ITALIC) != 0 || fontName != null && fontName.contains("Italic")) {
+                //    sb.append("italic ");
+                //}
+                sb.append(fontStyle()).append(" ");
+                sb.append(fontWeight()).append(" ");
+                //if ((style & Font.STYLE_BOLD) != 0 || fontName != null && fontName.contains("Bold")){
+                //    sb.append("bold ");
+                //}
+                if (((int)height) ==0) {
+                    height = defaultFont.height;
+                }
+                sb.append(height).append("px/1.0 ");
+                sb.append(getCSSFontFamily());
+                cssCached_ = sb.toString();
+                
+            }
+            return cssCached_;
+        }
+        
+        public String getScaledCSS(){
+            syncDensity();
+            StringBuilder sb = new StringBuilder();
+            //sb.append(height).append("px ");
+            //if ((style & Font.STYLE_ITALIC) != 0) {
+            //    sb.append("italic ");
+            //}
+            sb.append(fontStyle()).append(" ");
+            //if ((style & Font.STYLE_BOLD) != 0 ){
+            //    sb.append("bold ");
+            //}
+            sb.append(fontWeight()).append(" ");
+            if (((int)height) ==0) {
+                height = defaultFont.height;
+            }
+            sb.append(scaleCoord(height)).append("px/1.0 ");
+            sb.append(getCSSFontFamily());
+            //if (fontName != null) {
+            //    sb.append(fontName).append(", ");
+            //}
+            //switch (face) {
+            //    case Font.FACE_SYSTEM:
+            //        sb.append("sans-serif");
+            //        break;
+            //    case Font.FACE_PROPORTIONAL:
+            //        sb.append("serif");
+            //        break;
+            //    case Font.FACE_MONOSPACE:
+            //        sb.append("monospace");
+            //        break;
+
+            //}
+            return sb.toString();
+              
+        }
+        
+        public String toString(){
+            return getCSS()+" (Face: "+face+" style "+style+" size "+size+")";
+        }
+
+        /**
+         * The height this font is identified by, which is the one it was created with even after
+         * the display's pixel ratio has moved the height it draws at. A font can be a key in a
+         * map, and a key whose hash changes while it is stored is a key that cannot be found
+         * again.
+         */
+        private double identity() {
+            return Double.isNaN(identityHeight) ? height : identityHeight;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof NativeFont)) {
+                return false;
+            }
+            NativeFont other = (NativeFont)obj;
+            return face == other.face
+                    && style == other.style
+                    && size == other.size
+                    && Double.doubleToLongBits(identity()) == Double.doubleToLongBits(other.identity())
+                    && java.util.Objects.equals(fileName, other.fileName)
+                    && java.util.Objects.equals(fontName, other.fontName);
+        }
+
+        @Override
+        public int hashCode() {
+            int hash = 17;
+            hash = 31 * hash + face;
+            hash = 31 * hash + style;
+            hash = 31 * hash + size;
+            long heightBits = Double.doubleToLongBits(identity());
+            hash = 31 * hash + (int)(heightBits ^ (heightBits >>> 32));
+            hash = 31 * hash + (fileName != null ? fileName.hashCode() : 0);
+            hash = 31 * hash + (fontName != null ? fontName.hashCode() : 0);
+            return hash;
+        }
+        
+        
+        
+        public int charWidth(char c){
+            Map<Character,Integer> cache = charWidthCache.get(getCSS());
+            if (cache == null){
+                cache = new HashMap<Character,Integer>();
+                charWidthCache.put(getCSS(), cache);
+            }
+            Character ch = c;
+            Integer i = cache.get(ch);
+            if (i != null){
+                return i.intValue();
+            }
+            int w = graphics.charsWidth(this, new char[]{c},0,1);
+            cache.put(ch, w);
+            return w;
+        }
+        
+        public int stringWidth(String str){
+            if (str.length() < 50){
+                Map<String,Integer> cache = stringWidthCache.get(getCSS());
+                if (cache == null){
+                    cache = new HashMap<String,Integer>();
+                    stringWidthCache.put(getCSS(), cache);
+                }
+
+                Integer i = cache.get(str);
+                if (i != null){
+                    return i.intValue();
+                }
+                int w = graphics.stringWidth(this, str);
+                cache.put(str, w);
+                return w;
+            } else {
+                return graphics.stringWidth(this, str);
+            }
+        }
+        
+       
+        public int fontHeight(){
+            //return (int)Math.round(height);
+            //return graphics.getFontHeight(this);
+            return (int)Math.ceil(determineFontHeight(getCSS()));
+            /*
+            Integer h = fontHeightCache.get(css);
+            if (h == null){
+                int height = graphics.getFontHeight(this);
+                h = new Integer(height);
+                fontHeightCache.put(css, h);
+            }
+            return h.intValue();
+                    */
+              
+            
+        }
+        
+        public int fontAscent() {
+            if (ascent == 0) {
+                // Ascent is derived purely from fontHeight()/fontLeading() and a
+                // family ratio -- the old canvas.getContext()/getFont() probe here
+                // was dead (its result was never used) and a forbidden barrier
+                // read, so it's gone.
+                ascent = (int)((fontHeight()-fontLeading()) * measureAscent(getCSSFontFamily()));
+            }
+            return ascent;
+        }
+        
+        
+    }
+    
+    @JSBody(params={"fontFamily"}, script="var family = String(fontFamily == null ? '' : fontFamily);\n"
+            + "if (typeof window.measureTextAscent === 'function') {\n"
+            + "  return window.measureTextAscent(family);\n"
+            + "}\n"
+            + "if (family.indexOf('Material') !== -1) {\n"
+            + "  return 0.86;\n"
+            + "}\n"
+            + "return 0.8;")
+    native static double measureAscent(String fontFamily);
+    @JSBody(params={"fontFamily"}, script="var family = String(fontFamily == null ? '' : fontFamily);\n"
+            + "if (typeof window.measureTextDescent === 'function') {\n"
+            + "  return window.measureTextDescent(family);\n"
+            + "}\n"
+            + "if (family.indexOf('Material') !== -1) {\n"
+            + "  return 0.14;\n"
+            + "}\n"
+            + "return 0.2;")
+    native static double measureDescent(String fontFamily);
+    
+    static void _log(String str){
+        ((WindowExt)instance.window).getConsole().log(str);
+    }
+    
+    
+    @JSBody(params={"obj"}, script="console.log(obj)")
+    native static void _logInt(int obj);
+    
+    
+    
+
+
+    @Override
+    public Database openOrCreateDB(String databaseName) throws IOException {
+        return openOrCreateDB(databaseName, null);
+    }
+
+    @Override
+    public Database openOrCreateDB(String databaseName, com.codename1.db.DatabaseConfig config)
+            throws IOException {
+        if (!com.codename1.impl.html5.database.SQLiteNative.init()) {
+            throw new IOException("The SQLite engine could not be loaded");
+        }
+        String key = null;
+        if (config != null && config.isEncrypted()) {
+            // The resolved file, not the name it was asked for: a managed key with no explicit
+            // alias is stored under what is passed here, so two accepted spellings of one database
+            // would derive two different keys and the second open would report a wrong key against
+            // intact data.
+            key = config.resolveKeyMaterial(DatabaseImpl.poolKeyFor(databaseName));
+        }
+        return new DatabaseImpl(databaseName, key);
+    }
+
+    /// The file an implicit managed key is stored under; see the open path, which resolves the
+    /// same way so two spellings of one database derive one key.
+    @Override
+    public String databaseManagedKeyIdentity(String databaseName) {
+        return com.codename1.impl.html5.database.DatabaseImpl.poolKeyFor(databaseName);
+    }
+
+    @Override
+    public boolean isDatabaseEncryptionSupported() {
+        return com.codename1.impl.html5.database.SQLiteNative.init()
+                && com.codename1.impl.html5.database.SQLiteNative.isCipherAvailable();
+    }
+
+    @Override
+    public boolean isBlobQueryParameterSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isDatabaseCustomPathSupported() {
+        // Storage is a virtual pool keyed by name, not a filesystem, so there are no paths.
+        return false;
+    }
+
+    /// Whether a database of this name is in the storage pool.
+    ///
+    /// An engine that will not start is not an empty pool. The load can fail for reasons that have
+    /// nothing to do with what is stored -- another tab holding the OPFS pool is the likely one --
+    /// and answering "no such database" there says the user's data is gone. It is worse than
+    /// unhelpful: `Database#isEncrypted(String)` gives up on a database that does not exist and
+    /// reports false, so an unreachable engine would have described an encrypted database as
+    /// plaintext.
+    ///
+    /// So an unreachable engine is not reported as absence. The caller goes on to open, which
+    /// fails with what actually happened, rather than concluding the database was never there.
+    @Override
+    public boolean existsDB(String databaseName) {
+        if (!com.codename1.impl.html5.database.SQLiteNative.init()) {
+            return true;
+        }
+        return com.codename1.impl.html5.database.SQLiteNative.exists(databaseName);
+    }
+
+    /// The browser's non-prompting secure store.
+    ///
+    /// Without one the base class answers "unknown" to every question, and ManagedKeys refuses to
+    /// generate a key it cannot prove is absent -- so DatabaseConfig.managed() failed at every
+    /// open on a port that reports encryption as supported. See HTML5SecureStorage for what this
+    /// does and does not protect: it is persistence in origin storage, not a key store.
+    @Override
+    public com.codename1.security.SecureStorage getSecureStorage() {
+        if (secureStorage == null) {
+            secureStorage = new HTML5SecureStorage();
+        }
+        return secureStorage;
+    }
+
+    private com.codename1.security.SecureStorage secureStorage;
+
+    /// The browser's device protection: an AES-GCM key kept in IndexedDB as a `CryptoKey` created
+    /// with `extractable: false`. Overridden here because the portable fallback keeps its
+    /// wrapping key in `SecureStorage`, and in a browser that is the same origin-private storage
+    /// the ciphertext sits in -- which would be no protection at all. See
+    /// [HTML5DeviceProtection].
+    @Override
+    public com.codename1.security.vault.spi.DeviceProtection getDeviceProtection() {
+        return HTML5DeviceProtection.getInstance();
+    }
+
+    @Override
+    public boolean isRelativeAttachmentNameResolvable() {
+        // No filesystem and no working directory: the engine is SQLite compiled to wasm over a
+        // storage pool, so a bare name in an ATTACH is a pool entry -- the same entry this port
+        // would open under that name. There is nothing here for a relative name to resolve
+        // against differently, so the reservation names the database that really gets attached.
+        return true;
+    }
+
+    @Override
+    public String databaseIdentityForEngineFile(String engineFile) {
+        // The engine here is SQLite compiled to wasm over a storage pool, so what it reports is a
+        // pool entry rather than a path. Dressing it as a file URL, which is right on every port
+        // backed by a filesystem, produced a name the pool has never held -- so the reservation
+        // for the database that really was attached got released and one was taken on nothing.
+        if (engineFile == null || engineFile.length() == 0) {
+            return null;
+        }
+        return com.codename1.impl.html5.database.DatabaseImpl.poolKeyFor(engineFile);
+    }
+
+    @Override
+    public void deleteDB(String databaseName) throws IOException {
+        // A failed init is not "nothing to delete". The engine is unavailable - another tab
+        // holding the storage, most likely - and the database is still there, so returning
+        // normally would report a deletion that did not happen.
+        if (!com.codename1.impl.html5.database.SQLiteNative.init()) {
+            throw new IOException("The database " + databaseName + " could not be deleted "
+                    + "because the SQLite engine is unavailable");
+        }
+        if (!com.codename1.impl.html5.database.SQLiteNative.delete(databaseName)) {
+            throw new IOException("The database " + databaseName + " could not be deleted: "
+                    + com.codename1.impl.html5.database.SQLiteNative.lastError());
+        }
+    }
+
+    @Override
+    public int isDatabaseFileEncrypted(String databaseName) {
+        // Databases live in a browser storage pool, not a filesystem, so there is no header to
+        // read. Ask the engine: opening without a key succeeds only for a plaintext database.
+        if (!com.codename1.impl.html5.database.SQLiteNative.init()) {
+            // Unreachable, so unanswered. Reporting "not encrypted" from here would be this port
+            // asserting the one thing it must never get wrong about a database it could not open.
+            return DATABASE_ENCRYPTION_UNKNOWN;
+        }
+        if (!com.codename1.impl.html5.database.SQLiteNative.exists(databaseName)) {
+            return DATABASE_NOT_ENCRYPTED;
+        }
+        try {
+            long peer = com.codename1.impl.html5.database.SQLiteNative.open(databaseName, null);
+            if (peer == 0) {
+                return DATABASE_ENCRYPTED;
+            }
+            com.codename1.impl.html5.database.SQLiteNative.close(peer);
+            return DATABASE_NOT_ENCRYPTED;
+        } catch (IOException cannotOpenUnkeyed) {
+            return DATABASE_ENCRYPTED;
+        }
+    }
+
+    @Override
+    public String getDatabasePath(String databaseName) {
+        // The name inside the storage pool. Not a real filesystem path, and deliberately not
+        // presented as one: FileSystemStorage cannot open it.
+        return databaseName;
+    }
+
+    @Override
+    public void startThread(String name, final Runnable r) {
+        
+        Thread t = new Thread(new Runnable() {
+
+            @Override
+            public void run() {
+                try {
+                    r.run();
+                } catch (Exception ex) {
+                    CodenameOneThread.handleException(ex);
+                }
+            }
+            
+                
+        }, name);
+        t.start();
+    }
+    
+    
+    
+    
+    
+    
+    private static HTMLButtonElement clickBtn;
+    
+    public static void showButton(String text, final EventListener onClick) {
+        final Window win = Window.current();
+        EventListener l = new EventListener() {
+
+            @Override
+            public void handleEvent(Event evt) {
+                
+                if (clickBtn != null) {
+                    clickBtn.getParentNode().removeChild(clickBtn);
+                    clickBtn = null;
+                }
+                onClick.handleEvent(evt);
+            }
+            
+        };
+        
+        HTMLButtonElement btn = showButton_(text, l);
+        btn.getStyle().setProperty("position", "absolute");
+        btn.getStyle().setProperty("top", "0");
+        btn.getStyle().setProperty("left", "0");
+        btn.getStyle().setProperty("width", ""+scaleCoord(instance.getDisplayWidth())+"px");
+        btn.getStyle().setProperty("height", ""+scaleCoord(instance.getDisplayHeight())+"px");
+        btn.getStyle().setProperty("padding", "0");
+        btn.getStyle().setProperty("margin", "0");
+        btn.getStyle().setProperty("font-size", "2em");
+        btn.getStyle().setProperty("opacity", "0.7");
+        
+        clickBtn = btn;
+    }
+    
+    // Use jQuery's .text() to set the label — concatenating label into the
+    // <button> markup would let any HTML tags or script inside label run as
+    // markup (XSS on user-controlled text).
+    @JSBody(params={"label","l"}, script=
+            "return jQuery('<button class=\"btn btn-default\"></button>')"
+            + ".text(label).click(l).appendTo(jQuery('body')).get(0);")
+    private native static HTMLButtonElement showButton_(String label, EventListener l);
+
+    @Override
+    public void registerPush(Hashtable metaData, boolean noFallback) {
+        PushCallback explicit = CodenameOneImplementation.getPushCallback();
+        if (explicit != null) {
+            setPushCallback(explicit);
+            HTML5Push.setPushCallback(explicit);
+        }
+        HTML5Push.registerPush();
+    }
+    
+    void _sendPushRegistrationError(String message, int errorCode) {
+        sendPushRegistrationError(message, errorCode);
+    }
+    
+    void _registerServerPush(String id) {
+        if (registerServerPush(id, getApplicationKey(), (byte)10, "", getPackageName())) {
+            super.sendRegisteredForPush(id);
+        } else {
+            super.sendPushRegistrationError("Failed to register server push", 0);
+        }
+    }
+    
+    void _pushReceived(String data) {
+        super.pushReceived(data);
+    }
+
+    private static interface BeforeInstallPromptEvent extends Event {
+        public void prompt();
+        
+        @JSProperty
+        public UserChoiceResultPromise getUserChoice();
+    }
+    
+    private static interface UserChoiceResultPromise extends JSObject {
+        public void then(UserChoiceCallback callback);
+    }
+    
+    @JSFunctor
+    private static interface UserChoiceCallback extends JSObject {
+        public void onResult(UserChoiceResult result);
+    }
+    
+    private static interface UserChoiceResult extends JSObject {
+        @JSProperty
+        public String getOutcome();
+    }
+    
+    private static final String USER_CHOICE_OUTCOME_ACCEPTED="accepted";
+    
+    private BeforeInstallPromptEvent deferredPromptForInstall;
+    
+    @Override
+    public boolean canInstallOnHomescreen() {
+        return deferredPromptForInstall != null;
+    }
+
+    @Override
+    public boolean promptInstallOnHomescreen() {
+        if (!canInstallOnHomescreen()) {
+            return false;
+        }
+        final boolean[] res = new boolean[1];
+        if (!CN.isEdt()) {
+            
+            CN.callSeriallyAndWait(new Runnable() {
+                public void run() {
+                    res[0] = promptInstallOnHomescreen();
+                }
+            });
+            return res[0];
+        }
+        
+        // Now we know we're on the EDT
+        
+        if (canInstallOnHomescreen()) {
+            CN.invokeAndBlock(new Runnable() {
+                public void run() {
+                    final boolean[] result = new boolean[1];
+                    final boolean[] complete = new boolean[1];
+                    deferredPromptForInstall.prompt();
+                    deferredPromptForInstall.getUserChoice().then(new UserChoiceCallback() {
+                        @Override
+                        public void onResult(final UserChoiceResult choice) {
+                            new Thread(new Runnable() {
+                                public void run() {
+                                    deferredPromptForInstall = null;
+
+                                    if (USER_CHOICE_OUTCOME_ACCEPTED.equals(choice.getOutcome())) {
+                                        result[0] = true;
+                                    }
+                                    synchronized(complete) {
+                                        complete[0] = true;
+                                        complete.notifyAll();
+                                    }
+                                }
+                            }).start();
+                            
+
+                        }
+
+                    });
+                    
+                    while (!complete[0]) {
+                        synchronized(complete) {
+                            try {
+                                complete.wait();
+                            } catch (Throwable t){}
+                        }
+                    }
+                    res[0] = result[0];
+                    
+                }
+                
+            });
+            
+            
+        }
+        return res[0];
+    }
+
+    
+    
+    @Override
+    public void onCanInstallOnHomescreen(final Runnable r) {
+        Window.current().addEventListener("beforeinstallprompt", new EventListener<BeforeInstallPromptEvent>() {
+            @Override
+            public void handleEvent(BeforeInstallPromptEvent evt) {
+                deferredPromptForInstall = evt;
+                evt.preventDefault();
+                new Thread(new Runnable() {
+                    public void run() {
+                        CN.callSerially(r);
+                    }
+                }).start();
+            }
+            
+        }, true);
+    }
+    
+    @JSBody(params={"onComplete"}, script="if (!document.body.requestFullscreen) return false; document.body.requestFullscreen().then(function(){onComplete(true);}).catch(function(err){onComplete(false)}); return true;")
+    private native static boolean requestFullScreen_(RequestFullScreenCallback onComplete);
+
+    @JSFunctor
+    private static interface RequestFullScreenCallback extends JSObject {
+        public void onComplete(boolean result);
+    
+    }
+    
+    // These run in the ParparVM worker context where `document` is undefined.
+    // Guard against ReferenceError before reading document.* — OrientationLockScreenshotTest
+    // invokes CN.lockOrientation(...) → HTML5Implementation.canForceOrientation() →
+    // isInFullScreenMode() → isFullScreen_(), which otherwise crashes the worker and
+    // blocks the rest of the suite.
+    @JSBody(params={}, script="return (typeof document !== 'undefined' && document.fullscreenElement) ? true : false")
+    private native static boolean isFullScreen_();
+
+    @JSBody(params={}, script="return (typeof document !== 'undefined' && document.body && document.body.requestFullscreen) ? true : false")
+    private native static boolean isFullScreenSupported_();
+
+    @Override
+    public boolean isFullScreenSupported() {
+        return isFullScreenSupported_();
+    }
+    
+    
+    
+    @Override
+    public boolean requestFullScreen() {
+        if (isFullScreen_()) return true;
+        if (!isFullScreenSupported_()) return false;
+        
+        final boolean[] complete = new boolean[1];
+        final boolean[] res = new boolean[1];
+        Button goFullScreenBtn = new Button("Click to Enter Fullscreen Mode");
+        goFullScreenBtn.setMaterialIcon(FontImage.MATERIAL_FULLSCREEN);
+        EventListener l = new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                requestFullScreen_(new RequestFullScreenCallback() {
+                    @Override
+                    public void onComplete(final boolean result) {
+                        // Notify directly -- the callback already runs on its own
+                        // thread/green-thread, and spawning a java.lang.Thread here
+                        // never executes on the single-threaded HTML5 worker, which
+                        // would leave the invokeAndBlock below waiting forever.
+                        synchronized(complete) {
+                            res[0] = result;
+                            complete[0] = true;
+                            try {
+                                complete.notifyAll();
+                            } catch (Throwable t) {
+
+                            }
+                        }
+                    }
+                });
+            }
+            
+        };
+        showNativeButton(goFullScreenBtn, l);
+        
+        CN.invokeAndBlock(new Runnable() {
+            public void run() {
+                while (!complete[0]) {
+                    synchronized(complete) {
+                        try {
+                            complete.wait();
+                        } catch (Throwable t){}
+                    }
+                }
+            
+            }
+        });
+        Log.p("Result of full-screen request was "+res[0]);
+        return res[0];
+        
+    }
+
+    @JSBody(params={"onComplete"}, script="if (!document.exitFullscreen) {onComplete(false); return;} document.exitFullscreen().then(function(){onComplete(true)}).catch(function(e){onComplete(false);});")
+    private native static void exitFullscreen_(RequestFullScreenCallback onComplete);
+    
+    @Override
+    public boolean exitFullScreen() {
+        if (!isInFullScreenMode()) return true;
+        if (!isFullScreenSupported_()) return true;
+        final boolean[] complete = new boolean[1];
+        final boolean[] res = new boolean[1];
+        exitFullscreen_(new RequestFullScreenCallback() {
+            @Override
+            public void onComplete(final boolean result) {
+                // Notify directly -- a java.lang.Thread never executes on the
+                // single-threaded HTML5 worker (see requestFullScreen()).
+                synchronized(complete) {
+                    res[0] = result;
+                    complete[0] = true;
+                    try {
+                        complete.notifyAll();
+                    } catch (Throwable t) {
+
+                    }
+                }
+            }
+
+        });
+        CN.invokeAndBlock(new Runnable() {
+            public void run() {
+                while (!complete[0]) {
+                    synchronized(complete) {
+                        try {
+                            complete.wait();
+                        } catch (Throwable t){}
+                    }
+                }
+            
+            }
+        });
+        return res[0];
+    }
+    
+    
+
+    @Override
+    public boolean isInFullScreenMode() {
+        return isFullScreen_();
+    }
+    
+    private HTMLButtonElement nativeBtn;
+    public void showNativeButton(Button nativeButton, final EventListener eventHandler) {
+        EventListener l = new EventListener() {
+
+            @Override
+            public void handleEvent(Event evt) {
+                if (nativeBtn != null) {
+                    nativeBtn.getParentNode().removeChild(nativeBtn);
+                    nativeBtn = null;
+                }
+                eventHandler.handleEvent(evt);
+                evt.preventDefault();
+                evt.stopPropagation(); 
+            }
+        };
+        HTMLButtonElement btn = showButton_("", l);
+        btn.getStyle().setProperty("position", "absolute");
+        btn.getStyle().setProperty("top", "0");
+        btn.getStyle().setProperty("left", "0");
+        btn.getStyle().setProperty("width", ""+scaleCoord(getDisplayWidth())+"px");
+        btn.getStyle().setProperty("height", ""+scaleCoord(getDisplayHeight())+"px");
+        btn.getStyle().setProperty("padding", "0");
+        btn.getStyle().setProperty("margin", "0");
+        //btn.getStyle().setProperty("font-size", "2em");
+        btn.getStyle().setProperty("opacity", "0.85");
+         
+        //((NativeImage)im.getImage()).load();
+        //_logObj(((NativeImage)im.getImage()).getImg());
+        nativeButton.setWidth(nativeButton.getPreferredW());
+        nativeButton.setHeight(nativeButton.getPreferredH());
+        HTML5Graphics mg = ((HTML5Implementation.NativeImage)nativeButton.toImage().getImage()).getMutableGraphics();
+        mg.flush();
+        nativeAttachSurfaceToElement(mg.getSurfaceId(), btn,
+                scaleCoord(nativeButton.getWidth())+"px", scaleCoord(nativeButton.getHeight())+"px");
+        //btn.click();
+        nativeBtn = btn;
+        
+    }
+    
+    
+    public static HTMLInputElement createButton(String cssClass, String label) {
+        HTMLDocument d = (HTMLDocument)Window.current().getDocument();
+        HTMLInputElement el = (HTMLInputElement)d.createElement("button");
+        //HTMLElement i = d.createElement("i");
+        //i.setAttribute("class", "fa "+fontAwesomeClass+" fa-"+size);
+        el.setAttribute("class", cssClass);
+        
+        //HTMLElement span = d.createElement("span");
+        el.appendChild(d.createTextNode(label));
+        //el.appendChild(i);
+        //el.appendChild(span);
+        return el;
+        
+    }
+    
+    @JSBody(params={}, script="return (window.screen && window.screen.orientation && window.screen.orientation.lock) ? true : false")
+    private native static boolean supportsScreenOrientation_();
+    
+    @JSBody(params={"type"}, script="window.screen.orientation.lock(type)")
+    private native static void lockOrientation_(String type);
+
+    @Override
+    public boolean canForceOrientation() {
+        return isInFullScreenMode() && supportsScreenOrientation_();
+    }
+
+    @Override
+    public void lockOrientation(boolean portrait) {
+        if (canForceOrientation()) {
+            lockOrientation_(portrait ? "portrait" : "landscape");
+        } else {
+            Log.p("lockOrientation not supported currently.  lockOrientation is only supported in some devices, and only when running in full-screen mode.");
+        }
+    }
+
+    @Override
+    public void unlockOrientation() {
+        if (canForceOrientation()) {
+            lockOrientation_("any");
+        }
+    }
+    
+    @JSBody(params={}, script="return (location.protocol == 'https:' && navigator.share !== undefined)")
+    private native static boolean isNavigatorShareSupported_();
+
+    @Override
+    public boolean isNativeShareSupported() {
+        return isNavigatorShareSupported_();
+    }
+
+    // navigator.share is Window-only, so on the worker-based port these scripts
+    // run where it does not exist. Fire-and-forget the share to the main thread
+    // (__cn1_native_share__ in browser_bridge.js) using the same host-call
+    // message shape the renderer uses for void surface ops. On the legacy
+    // main-thread (TeaVM) runtime navigator.share is present and used directly.
+    // __cn1Share(text, url) is the shared JS helper prepended to each script.
+    private static final String SHARE_POST_HELPER =
+        "function __cn1Share(t, u){"
+        // Worker args arrive as Java String objects; convert to native JS strings
+        // (toNativeString is a no-op on real strings, so this is safe on TeaVM).
+      + "  var hasJ = (typeof jvm !== 'undefined' && jvm && typeof jvm.toNativeString === 'function');"
+      + "  var ts = hasJ ? jvm.toNativeString(t) : t; var us = hasJ ? jvm.toNativeString(u) : u;"
+      + "  ts = (ts == null || ts === 'null') ? '' : String(ts); us = (us == null || us === 'null') ? '' : String(us);"
+      + "  try { if (typeof navigator !== 'undefined' && navigator.share) { navigator.share({text: ts, url: us}); return; } } catch (e) {}"
+      + "  try {"
+      + "    var m = { type: 'host-call', symbol: '__cn1_native_share__', args: [{ text: ts, url: us, __cn1_no_response: true }], id: 0 };"
+      + "    if (typeof self !== 'undefined') {"
+      + "      if (typeof self.emitVmMessage === 'function') { self.emitVmMessage(m); }"
+      + "      else if (typeof self.postMessage === 'function') { self.postMessage(m); }"
+      + "    }"
+      + "  } catch (e) {}"
+      + "}";
+
+    @JSBody(params={"url"}, script=SHARE_POST_HELPER + " __cn1Share('', url);")
+    private native static void shareURL_(String url);
+
+    @JSBody(params={"text"}, script=SHARE_POST_HELPER + " __cn1Share(text, '');")
+    private native static void shareText_(String text);
+
+    @JSBody(params={"text", "link"}, script=SHARE_POST_HELPER + " __cn1Share(text, link);")
+    private native static void shareTextAndLink_(String text, String link);
+    
+    @Override
+    public void share(final String text, final String image, String mimeType, Rectangle sourceRect) {
+        if (isNavigatorShareSupported_()) {
+            confirmDialog("Confirm Share", "The application has requested to share some content.  Click continue to proceed to the sharing dialog.", FontImage.MATERIAL_SHARE, "Continue", "Cancel", new JSRunnable() {
+                @Override
+                public void run() {
+                    if (text != null && image != null && (image.startsWith("http://") || image.startsWith("https://"))) {
+                        shareTextAndLink_(text, image);
+                        return;
+                    }
+                    if (text != null && (text.startsWith("http://") || text.startsWith("https://"))) {
+                        if (text.indexOf(" ") != -1) {
+                            String url = text.substring(0, text.indexOf(" "));
+                            String message = text.substring(url.length()+1);
+                            shareTextAndLink_(message, url);
+                            return;
+                        }
+                        shareURL_(text);
+                        return;
+                    }
+                    if (text != null) {
+                        shareText_(text);
+                        return;
+                    }
+                    if (image != null && (image.startsWith("http://") || image.startsWith("https://"))) {
+                        shareURL_(image);
+                        return;
+                    }
+                            
+                }
+            });
+        } else {
+            super.share(text, image, mimeType, sourceRect);
+        }
+    }
+
+    /// Printing works by loading the document into a hidden iframe and
+    /// invoking the browser print dialog, so it is always available.
+    @Override
+    public boolean isPrintingSupported() {
+        return true;
+    }
+
+    /// Print a document by loading it into a hidden iframe as a blob
+    /// object URL and invoking the browser print dialog on the iframe's
+    /// content window.
+    ///
+    /// Browsers don't reliably expose whether the user printed or
+    /// dismissed the dialog: where the iframe fires `afterprint` the
+    /// result is reported as completed when the dialog closes, otherwise
+    /// completed is reported on a best-effort basis shortly after
+    /// `print()` is invoked. Cancellation is therefore reported as
+    /// completed on this port.
+    ///
+    /// PDF documents print through the browser's built-in PDF viewer and
+    /// behavior varies between browsers; Firefox may print a blank or
+    /// placeholder page for PDF iframes.
+    ///
+    /// #### Parameters
+    ///
+    /// - `filePath`: path of the document in file system storage
+    ///
+    /// - `mimeType`: the document type, e.g. `application/pdf`, `image/png`
+    ///
+    /// - `listener`: callback for the print outcome. May be null.
+    @Override
+    public void print(final String filePath, final String mimeType, final PrintResultListener listener) {
+        final boolean[] fired = new boolean[1];
+        // callSerially rather than new Thread(): a java.lang.Thread never executes
+        // on the single-threaded HTML5 worker, so the work below (and the listener)
+        // would never run. callSerially keeps print() non-blocking on every port.
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                String b64;
+                try {
+                    // Read the document bytes through the file system input stream,
+                    // which recovers binary data even when LocalForage round-trips
+                    // it as an array-like (the host<->worker bridge drops the
+                    // Uint8Array type). The bytes are base64'd and handed to the
+                    // main thread, which builds the Blob + object URL + print
+                    // iframe there -- a worker-created blob: URL would be invalid
+                    // in the main-thread iframe.
+                    InputStream in = FileSystemStorage.getInstance().openInputStream(filePath);
+                    byte[] data;
+                    try {
+                        data = Util.readInputStream(in);
+                    } finally {
+                        Util.cleanup(in);
+                    }
+                    if (data == null || data.length == 0) {
+                        firePrintResult(listener, PrintResult.failed("Document is empty or could not be read"), fired);
+                        return;
+                    }
+                    b64 = Base64.encodeNoNewline(data);
+                } catch (Throwable ex) {
+                    Log.e(ex);
+                    firePrintResult(listener, PrintResult.failed(ex.getMessage()), fired);
+                    return;
+                }
+                final String type = (mimeType == null || mimeType.length() == 0) ? "application/octet-stream" : mimeType;
+                printData_(b64, type, new PrintFrameCallback() {
+                    public void onResult(final boolean completed, final String error) {
+                        // onResult is dispatched on the EDT (the port routes it
+                        // there), so report the result directly.
+                        if (completed) {
+                            firePrintResult(listener, PrintResult.completed(), fired);
+                        } else {
+                            firePrintResult(listener, PrintResult.failed(error), fired);
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    /// Reports a print result exactly once. The native print script fires
+    /// its callback at most once, but the load/afterprint/fallback paths
+    /// plus the Java-side error paths share this guard so the listener
+    /// can never be invoked twice.
+    private static void firePrintResult(PrintResultListener listener, PrintResult result, boolean[] fired) {
+        synchronized (fired) {
+            if (fired[0]) {
+                return;
+            }
+            fired[0] = true;
+        }
+        if (listener != null) {
+            listener.onResult(result);
+        }
+    }
+
+    @JSFunctor
+    private static interface PrintFrameCallback extends JSObject {
+        public void onResult(boolean completed, String error);
+    }
+
+    // Loads the object URL into a hidden iframe, prints it and reports the
+    // outcome through the callback. The iframe and the object URL are kept
+    // alive for 60 seconds (or until afterprint) because print dialogs read
+    // the frame content lazily.
+    @JSBody(params = {"b64", "mimeType", "callback"}, script =
+            "var done = false;\n"
+            + "var cleaned = false;\n"
+            + "var iframe = null;\n"
+            + "var url = null;\n"
+            + "var urlApi = (typeof URL !== 'undefined' && URL) ? URL : ((typeof window !== 'undefined' && window.webkitURL) ? window.webkitURL : null);\n"
+            + "var finish = function(ok, msg) { if (done) return; done = true; callback(ok, msg); };\n"
+            + "var cleanup = function() {\n"
+            + "    if (cleaned) return; cleaned = true;\n"
+            + "    try { if (urlApi && url) urlApi.revokeObjectURL(url); } catch (e) {}\n"
+            + "    try { if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe); } catch (e) {}\n"
+            + "};\n"
+            + "if (typeof document === 'undefined' || !document.body) { finish(false, 'Printing requires a browser document context'); return; }\n"
+            + "try {\n"
+            + "    var bin = atob(b64); var u8 = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) { u8[i] = bin.charCodeAt(i); }\n"
+            + "    var blob = new Blob([u8], { type: mimeType });\n"
+            + "    url = urlApi ? urlApi.createObjectURL(blob) : null;\n"
+            + "    if (!url) { finish(false, 'Object URLs are not supported in this browser'); return; }\n"
+            + "} catch (e) { finish(false, 'Failed to decode document for printing: ' + e); return; }\n"
+            + "iframe = document.createElement('iframe');\n"
+            + "iframe.style.cssText = 'position:fixed;visibility:hidden;right:0;bottom:0;width:0;height:0;border:0';\n"
+            + "iframe.onload = function() {\n"
+            + "    try {\n"
+            + "        var win = iframe.contentWindow;\n"
+            + "        try { win.addEventListener('afterprint', function() { finish(true, null); setTimeout(cleanup, 0); }); } catch (e) {}\n"
+            + "        win.focus();\n"
+            + "        win.print();\n"
+            + "        setTimeout(function() { finish(true, null); }, 1000);\n"
+            + "    } catch (e) {\n"
+            + "        finish(false, '' + e);\n"
+            + "        cleanup();\n"
+            + "    }\n"
+            + "};\n"
+            + "iframe.onerror = function() { finish(false, 'Failed to load document for printing'); cleanup(); };\n"
+            + "iframe.src = url;\n"
+            + "document.body.appendChild(iframe);\n"
+            // onload/afterprint don't fire reliably for an image blob in a hidden
+            // iframe; resolve as completed after a short grace period regardless.
+            + "setTimeout(function() { finish(true, null); }, 3000);\n"
+            + "setTimeout(cleanup, 60000);")
+    private native static void printData_(String b64, String mimeType, PrintFrameCallback callback);
+
+    private static interface CancelableEvent extends Event {
+        @JSProperty
+        public boolean isDefaultPrevented();
+    }
+    
+    
+
+    /**
+     * Creates a native confirm dialog that will run the given onOk runnable if the user clicks OK.  This is 
+     * handy for things that need to be triggered by user interaction.
+     * @param title Dialog title
+     * @param message Message
+     * @param icon Icon for the dialog
+     * @param ok OK button label
+     * @param cancel Cancel button label
+     * @param onOk Callback to be run on JS main thread when user clicks OK.
+     * @return 
+     */
+    private boolean confirmDialog(String title, String message, char icon, String ok, String cancel, final JSRunnable onOk) {
+        InteractionDialog dlg = new InteractionDialog();
+        dlg.setLayout(new BorderLayout());
+        dlg.setTitle(title);
+        dlg.add(BorderLayout.CENTER, new SpanLabel(message));
+        FontImage img = FontImage.createMaterial(icon, new Label().getStyle(), 15f);
+        dlg.add(BorderLayout.WEST, new Label(img));
+        final Button okBtn = new Button(ok);
+        final Button cancelBtn = new Button(cancel);
+        dlg.add(BorderLayout.SOUTH, FlowLayout.encloseRight(cancelBtn, okBtn));
+        dlg.setAnimateShow(true);
+        final int[] okBounds = new int[4];
+        final int[] cancelBounds = new int[4];
+        
+        // Containually update the bounds of the ok and cancel buttons so that we know 
+        // where they are for the native listener
+        UITimer t = UITimer.timer(200, true, new Runnable() {
+            @Override
+            public void run() {
+                copyBounds(okBtn, okBounds);
+                copyBounds(cancelBtn, cancelBounds);
+            }
+            
+        });
+        
+        dlg.showPopupDialog(CN.getCurrentForm());
+        
+        final boolean complete[] = new boolean[1];
+        final boolean result[] = new boolean[1];
+        EventListener clickListener = new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                MouseEvent mevt = (MouseEvent)evt;
+                int px = getClientX(mevt);
+                int py = getClientY(mevt);
+
+                if (contains(okBounds, px, py)) {
+                    // This click was on the ok buttn
+                    complete[0] = true;
+                    result[0] = true;
+                    if (onOk != null) {
+                        onOk.run();
+                    }
+                    new Thread(new Runnable() {
+                        public void run() {
+                            synchronized(complete) {
+                                complete.notify();
+                            }
+                        }
+                    }).start();
+                    
+                }
+                
+                if (contains(cancelBounds, px, py)) {
+                    // This click was on the ok buttn
+                    complete[0] = true;
+                    result[0] = false;
+                    new Thread(new Runnable() {
+                        public void run() {
+                            synchronized(complete) {
+                                complete.notify();
+                            }
+                        }
+                    }).start();
+                    
+                }
+            }
+            
+        };
+        registerNativeClickHandler(clickListener);
+        
+        
+        CN.invokeAndBlock(new Runnable() {
+            @Override
+            public void run() {
+                while (!complete[0]) {
+                    synchronized(complete) {
+                        try {
+                            complete.wait();
+                        } catch (Throwable t){}
+                    }
+                }
+            }
+            
+        });
+        dlg.disposeToTheBottom();
+        t.cancel();
+        unregisterNativeClickHandler(clickListener);
+        return result[0];
+    }
+    
+    private static void copyBounds(Component cmp, int[] destBounds) {
+        destBounds[0] = cmp.getAbsoluteX();
+        destBounds[1] = cmp.getAbsoluteY();
+        destBounds[2] = cmp.getWidth();
+        destBounds[3] = cmp.getHeight();
+    }
+    
+    private static boolean contains(int[] bounds, int x, int y) {
+        return bounds[0] <= x && bounds[2] + bounds[0] >= x && bounds[1] <= y && bounds[1] + bounds[3] >= y;
+    }
+    
+    private void registerNativeClickHandler(final EventListener l) {
+        nativeEventListener = new EventListener() {
+            @Override
+            public void handleEvent(Event evt) {
+                if (evt.isCancelable()) {
+                    evt.preventDefault();
+                }
+            }
+            
+        };
+        Window.current().getDocument().getBody().addEventListener("pointerup", l);
+        
+    }
+    
+    private void unregisterNativeClickHandler(EventListener l) {
+        nativeEventListener = null;
+        //Window.current().removeEventListener("click", l);
+        Window.current().getDocument().getBody().removeEventListener("pointerup", l);
+    }
+
+    private String selectedText;
+    private ActionListener textSelectionListener = new ActionListener() {
+        @Override
+        public void actionPerformed(ActionEvent t) {
+            selectedText = ((TextSelection)t.getSource()).getSelectionAsText();
+            outputCanvas.focus();
+        }
+            
+    };
+
+    @JSBody(params={"textArea", "valueForClipboard"}, script="var range = document.createRange();\n" +
+"            range.selectNodeContents(textArea);\n" +
+"\n" +
+"            var selection = window.getSelection();\n" +
+"            selection.removeAllRanges(); // remove previously selected ranges\n" +
+"            selection.addRange(range);\n" +
+"            textArea.setSelectionRange(0, valueForClipboard.length); ")
+    private static native void selectTextAreaIOS(HTMLTextAreaElement textArea, String valueForClipboard);
+    
+    @Override
+    public void copySelectionToClipboard(TextSelection sel) {
+        if (selectedText == null || selectedText.isEmpty()) {
+            return;
+        }
+        copyToClipboard(selectedText);
+        
+    }
+
+    @JSBody(params={"name"}, script="return (typeof document !== 'undefined' && document.execCommand) ? document.execCommand(name) : false")
+    private native static boolean execCommand(String name);
+    
+    
+    private class ClipboardCopyRequest{
+        Object content;
+        boolean triedBacksideHook, triedInSheet;
+        ClipboardCopyRequest(Object content) {
+            this.content = content;
+        }
+        
+    }
+    @JSBody(params={"command"}, script="if (typeof document === 'undefined' || !document.queryCommandEnabled) return false; return document.queryCommandEnabled(command);")
+    private native static boolean queryCommandEnabled(String command);
+
+    // Writes text to the system clipboard. On the worker-based JavaScript port
+    // this method is overridden by a port.js binding that hands the write to the
+    // main thread (the worker has no document/execCommand and no
+    // navigator.clipboard), so the @JSBody below is only ever used by the legacy
+    // main-thread (TeaVM) runtime, where document.execCommand is available.
+    @JSBody(params={"text", "html", "rtf", "markdown", "asciidoc"}, script=
+        "try {" +
+        "  var ta = document.createElement('textarea');" +
+        "  ta.setAttribute('readonly', '');" +
+        "  ta.style.position = 'fixed'; ta.style.top = '-1000px'; ta.style.left = '0'; ta.style.opacity = '0';" +
+        "  document.body.appendChild(ta);" +
+        "  ta.value = text;" +
+        "  var oncopy = function(e) {" +
+        "    try {" +
+        "      e.clipboardData.setData('text/plain', text || '');" +
+        "      if (html != null) e.clipboardData.setData('text/html', html);" +
+        "      if (rtf != null) e.clipboardData.setData('text/rtf', rtf);" +
+        "      if (markdown != null) e.clipboardData.setData('text/markdown', markdown);" +
+        "      if (asciidoc != null) e.clipboardData.setData('text/asciidoc', asciidoc);" +
+        "      e.preventDefault();" +
+        "    } catch (ignored) {}" +
+        "  };" +
+        "  var ok = false;" +
+        "  try { document.addEventListener('copy', oncopy); ta.focus(); ta.select(); ok = !!document.execCommand('copy'); } catch (e) { ok = false; }" +
+        "  document.removeEventListener('copy', oncopy);" +
+        "  document.body.removeChild(ta);" +
+        "  return ok;" +
+        "} catch (e) { return false; }")
+    private native static boolean nativeBrowserCopyToClipboard(String text, String html, String rtf,
+            String markdown, String asciidoc);
+
+    // Best-effort image copy via the modern async clipboard API. Like the text native above, this
+    // @JSBody is only reached by the legacy main-thread (TeaVM) runtime; the worker-based port
+    // overrides it with a port.js binding that routes to the main-thread host (navigator.clipboard is
+    // Window-only). navigator.clipboard.write REPLACES the whole clipboard and is permission-gated, so
+    // everything is wrapped in try/catch and returns false on any failure. The dataUrl is a
+    // "data:<mime>;base64,<...>" string; the blob MIME is derived from its header.
+    @JSBody(params={"dataUrl"}, script=
+        "try {" +
+        "  if (dataUrl == null) return false;" +
+        "  if (!navigator.clipboard || typeof navigator.clipboard.write !== 'function' || typeof ClipboardItem === 'undefined') return false;" +
+        "  var str = '' + dataUrl;" +
+        "  var comma = str.indexOf(',');" +
+        "  if (comma < 0) return false;" +
+        "  var header = str.substring(0, comma);" +
+        "  var colon = header.indexOf(':');" +
+        "  var semi = header.indexOf(';');" +
+        "  var mime = (colon >= 0 && semi > colon) ? header.substring(colon + 1, semi) : 'image/png';" +
+        "  var byteString = atob(str.substring(comma + 1));" +
+        "  var len = byteString.length;" +
+        "  var bytes = new Uint8Array(len);" +
+        "  for (var i = 0; i < len; i++) { bytes[i] = byteString.charCodeAt(i); }" +
+        "  var blob = new Blob([bytes], {type: mime});" +
+        "  var item = {};" +
+        "  item[mime] = blob;" +
+        "  navigator.clipboard.write([new ClipboardItem(item)]);" +
+        "  return true;" +
+        "} catch (e) { return false; }")
+    private native static boolean nativeBrowserCopyImageToClipboard(String dataUrl);
+
+    /// Returns a {@code data:<mime>;base64,<...>} URL for the first image flavor
+    /// (PNG, then JPEG, then GIF) carried by the clipboard content, or null when none is present.
+    private static String firstClipboardImageDataUrl(ClipboardContent rich) {
+        String[] mimes = { ClipboardContent.MIME_PNG, ClipboardContent.MIME_JPEG, ClipboardContent.MIME_GIF };
+        for (int i = 0; i < mimes.length; i++) {
+            byte[] bytes = clipboardBytes(rich, mimes[i]);
+            if (bytes != null && bytes.length > 0) {
+                return "data:" + mimes[i] + ";base64," + Base64.encodeNoNewline(bytes);
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public void copyToClipboard(Object obj) {
+        final ClipboardCopyRequest request = (obj instanceof ClipboardCopyRequest) ? (ClipboardCopyRequest)obj : new ClipboardCopyRequest(obj);
+        obj = request.content;
+        super.copyToClipboard(obj);
+        ClipboardContent rich = obj instanceof ClipboardContent ? (ClipboardContent)obj : null;
+        if (rich != null) {
+            // Best-effort image copy. clipboard.write replaces the whole clipboard, so when an image
+            // is present we prefer it and return on success; otherwise we fall through to the text path
+            // below. Guarded so a text-only copy is unaffected and a permission failure is silent.
+            try {
+                String imageDataUrl = firstClipboardImageDataUrl(rich);
+                if (imageDataUrl != null && nativeBrowserCopyImageToClipboard(imageDataUrl)) {
+                    return;
+                }
+            } catch (Throwable ignored) {
+            }
+            // Through clipboardValue, like every other port read: a provider is
+            // permitted to fail, and one that did threw the whole copy away.
+            obj = clipboardText(rich, ClipboardContent.MIME_TEXT);
+        }
+        if (!(obj instanceof String)) {
+            return;
+        }
+        String selectedText = (String)obj;
+        // Preferred path: let the main thread perform the copy via the modern
+        // async clipboard API (or an execCommand fallback). This is the only
+        // path that works on the worker-based port; the textarea/execCommand
+        // dance below runs in the worker where document is unavailable.
+        if (nativeBrowserCopyToClipboard(selectedText,
+                clipboardText(rich, ClipboardContent.MIME_HTML),
+                clipboardText(rich, ClipboardContent.MIME_RTF),
+                clipboardText(rich, ClipboardContent.MIME_MARKDOWN),
+                clipboardText(rich, ClipboardContent.MIME_ASCIIDOC))) {
+            return;
+        }
+        HTMLDocument doc = Window.current().getDocument();
+        HTMLTextAreaElement textArea = (HTMLTextAreaElement)doc.createElement("textarea");
+        textArea.setAttribute("readonly", "");
+        doc.getBody().appendChild(textArea);
+        textArea.setValue(selectedText);
+        if (isIOS()) {
+            selectTextAreaIOS(textArea, selectedText);
+        } else {
+            textArea.select();
+        }
+        boolean res = queryCommandEnabled("copy");
+        if (res) {
+            execCommand("copy");
+        }
+        doc.getBody().removeChild(textArea);
+        if (!res && !request.triedBacksideHook) {
+            // The copy failed
+            // let's try to add a backside hook
+            if (isBacksideHookAvailable()) {
+                addBacksideHook(new JSRunnable() {
+                    @Override
+                    public void run() {
+                        request.triedBacksideHook = true;
+                        copyToClipboard(request);
+                    }
+                });
+            } else {
+                request.triedBacksideHook = true;
+                copyToClipboard(request);
+            }
+        } else if (!res && !request.triedInSheet) {
+            // No backside hooks available
+            callSerially(new Runnable() {
+                @Override
+                public void run() {
+                    final Sheet sheet = new Sheet(Sheet.getCurrentSheet(), "Copy to Clipboard");
+                    SpanLabel message = new SpanLabel(CN.getProperty("AppName", "This application")+" has requested to copy content to the system clipboard.");
+                    sheet.getContentPane().setLayout(new BorderLayout());
+                    Button copy = new Button("Allow");
+                    Button cancel = new Button("Cancel");
+                    sheet.getContentPane().add(BorderLayout.CENTER, message);
+                    sheet.getContentPane().add(BorderLayout.SOUTH, GridLayout.encloseIn(2, cancel, copy));
+                    copy.addActionListener(new ActionListener() {
+                        @Override
+                        public void actionPerformed(ActionEvent t) {
+                            request.triedInSheet = true;
+                            copyToClipboard(request);
+                            sheet.back();
+                        }
+                    });
+                    
+                    cancel.addActionListener(new ActionListener() {
+                        public void actionPerformed(ActionEvent evt) {
+                            sheet.back();
+                        }
+                    });
+                    sheet.setPosition(BorderLayout.NORTH, BorderLayout.CENTER);
+                    sheet.show();
+                    
+                }
+                
+            });
+        } else if (!res) {
+            ToastBar.showErrorMessage("Failed to copy to clipboard due to browser permission restrictions.", 5000);
+        }
+        
+    }
+    
+    
+    
+    public String getSelectedText() {
+        return selectedText;
+    }
+    
+    @JSBody(params={"evt", "content"}, script="try { evt.clipboardData.setData('text/plain', content);} catch (e){}")
+    private native static void setClipboardData(Event evt, String content);
+    
+    EventListener copyListener = new EventListener() {
+        @SuppressSyncErrors
+        public void handleEvent(Event evt) {
+            if (selectedText == null || selectedText.isEmpty()) {
+                return;
+            }
+            if (!jQuery_is_(outputCanvas, ":focus")) {
+                return;
+            }
+            setClipboardData(evt, selectedText);
+            evt.preventDefault();
+        }
+    };
+    
+    EventListener selectAll = new EventListener() {
+        @SuppressSyncErrors
+        public void handleEvent(Event evt) {
+            if (jQuery_is_(outputCanvas, ":focus")) {
+                callSerially(new Runnable() {
+                    public void run() {
+                        Form f = CN.getCurrentForm();
+                        TextSelection sel = f.getTextSelection();
+                        if (sel.isEnabled()) {
+                            sel.selectAll();
+                        }
+                    }
+                });
+            }
+        }
+    };
+    private boolean contextListenerActive;
+    EventListener<MouseEvent> contextListener = new EventListener<MouseEvent>() {
+        @SuppressSyncErrors
+        public void handleEvent(final MouseEvent evt) {
+            _log("In context listener");
+            if (!jQuery_is_(outputCanvas, ":focus")) {
+                return;
+            }
+            _log("focused");
+            Form f = CN.getCurrentForm();
+            if (f == null) {
+                return;
+            }
+            _log("Form is there");
+            TextSelection sel = f.getTextSelection();
+            if (sel == null || !sel.isEnabled()) {
+                return;
+            }
+            _log("Text selection is on");
+            evt.preventDefault();
+            callSerially(new Runnable() {
+                public void run() {
+                    _log("Showing context menu");
+                    MouseEvent me = lastMouseEvent != null ? lastMouseEvent : evt;
+                    ContextMenu.showAt(unscaleCoord(me.getClientX()) + CN.convertToPixels(2), unscaleCoord(me.getClientY()) + CN.convertToPixels(2));
+                    
+                }
+            });
+        }
+    };
+    
+    @Override
+    public void initializeTextSelection(TextSelection sel) {
+        sel.addTextSelectionListener(textSelectionListener);
+        HTMLDocument doc = Window.current().getDocument();
+        doc.addEventListener("copy", copyListener);
+        contextListenerActive = true;
+        doc.addEventListener("contextmenu", contextListener);
+        
+        
+        
+    }
+
+    @Override
+    public void deinitializeTextSelection(TextSelection sel) {
+        contextListenerActive = false;
+        HTMLDocument doc = Window.current().getDocument();
+        doc.removeEventListener("copy", copyListener);
+        doc.removeEventListener("contextmenu", contextListener);
+        sel.removeTextSelectionListener(textSelectionListener);
+    }
+
+    private class HeavyButton {
+        private HTMLInputElement el;
+        private Button btn;
+        
+        HeavyButton(Button btn, HTMLInputElement el) {
+            this.el = el;
+            this.btn = btn;
+        }
+    }
+    
+    @Override
+    public Object createHeavyButton(Button btn) {
+        HTMLInputElement nativeButton = createButton("heavy-btn", "");
+        //nativeButton.appendChild(setStyleSize(((NativeImage)btn.toImage().getImage()).getMutableGraphics().getCanvas(), btn));
+        return new HeavyButton(btn, nativeButton);
+           
+    }
+    
+    
+    Map<ActionListener,EventListener> heavyListeners = new HashMap<ActionListener,EventListener>();
+    public void addHeavyActionListener(Object peer, final ActionListener l) {
+        HeavyButton hbtn = (HeavyButton)peer;
+        final HTMLInputElement el = hbtn.el;
+        EventListener eli = new EventListener() {
+            @SuppressSyncErrors
+            @Override
+            public void handleEvent(Event evt) {
+                l.actionPerformed(new ActionEvent(el));
+            }
+            
+        };
+        heavyListeners.put(l, eli);
+        el.addEventListener("click", eli);
+    }
+
+    public void removeHeavyActionListener(Object peer, ActionListener l) {
+        HeavyButton hbtn = (HeavyButton)peer;
+        HTMLInputElement el = hbtn.el;
+        EventListener eli = heavyListeners.get(l);
+        if (eli != null) {
+            el.removeEventListener("click", eli);
+        }
+    }
+
+    public void updateHeavyButtonBounds(Object peer, int x, int y, int width, int height) {
+        HeavyButton hbtn = (HeavyButton)peer;
+        HTMLInputElement el = hbtn.el;
+        el.getStyle().setProperty("top", scaleCoord(y)+"px");
+        el.getStyle().setProperty("left", scaleCoord(x)+"px");
+        el.getStyle().setProperty("width", scaleCoord(width)+"px");
+        el.getStyle().setProperty("height", scaleCoord(height)+"px");
+    }
+
+    @Override
+    public void initHeavyButton(Object peer) {
+        HeavyButton hbtn = (HeavyButton)peer;
+        HTMLInputElement el = hbtn.el;
+        while (el.getFirstChild() != null) {
+            el.removeChild(el.getFirstChild());
+        }
+        if (hbtn.btn.getWidth() == 0 || hbtn.btn.getHeight() == 0) {
+            hbtn.btn.setWidth(hbtn.btn.getPreferredW());
+            hbtn.btn.setHeight(hbtn.btn.getPreferredH());
+        }
+        if (hbtn.btn.getWidth() == 0 || hbtn.btn.getHeight() == 0) {
+
+        } else {
+            HTML5Graphics mg = ((NativeImage)hbtn.btn.toImage().getImage()).getMutableGraphics();
+            mg.flush();
+            nativeAttachSurfaceToElement(mg.getSurfaceId(), el,
+                    scaleCoord(hbtn.btn.getWidth())+"px", scaleCoord(hbtn.btn.getHeight())+"px");
+        }
+        Window.current().getDocument().getBody().appendChild(el);
+    }
+
+    @Override
+    public void deinitializeHeavyButton(Object peer) {
+        HeavyButton hbtn = (HeavyButton)peer;
+        Window.current().getDocument().getBody().removeChild(hbtn.el);
+        super.deinitializeHeavyButton(peer);
+    }
+
+    @Override
+    public boolean requiresHeavyButtonForCopyToClipboard() {
+        return true;
+    }
+    
+    
+    
+    
+    
+    private static final String DARK_SCHEME_QUERY = "(prefers-color-scheme: dark)";
+
+    /**
+     * Bumped whenever something invalidates resolved styles for every form, not just the one on
+     * screen -- a colour-scheme switch, a change of display density.
+     */
+    private int themeGeneration;
+
+    private static final String THEME_GENERATION_PROPERTY = "cn1$themeGeneration";
+
+    /**
+     * Re-resolves a form's styles if they predate the current generation.
+     *
+     * <p>A form that is not displayed still holds the Style instances it resolved, and nothing
+     * refreshes them when it is shown again, so without this a cached form would come back
+     * wearing the palette that was in force when it was last built.</p>
+     */
+    private void refreshThemeIfStale(Form f) {
+        if (f == null) {
+            return;
+        }
+        Object seen = f.getClientProperty(THEME_GENERATION_PROPERTY);
+        int generation = seen instanceof Integer ? ((Integer) seen).intValue() : 0;
+        if (generation == themeGeneration) {
+            return;
+        }
+        f.putClientProperty(THEME_GENERATION_PROPERTY, Integer.valueOf(themeGeneration));
+        if (generation != 0 || themeGeneration != 0) {
+            f.refreshTheme();
+        }
+    }
+
+    @Override
+    public Boolean isDarkMode() {
+        return Boolean.valueOf(matchesMediaQuery(DARK_SCHEME_QUERY));
+    }
+
+    /**
+     * Last known value of each media query, keyed by query text.
+     */
+    private final Map<String, Boolean> mediaQueryCache = new HashMap<String, Boolean>();
+
+    /**
+     * Evaluates an OS-level preference media query.
+     *
+     * <p>These used to be {@code @JSBody} scripts calling {@code window.matchMedia}. That script
+     * is compiled into the worker, which has no {@code matchMedia}, so every query silently
+     * answered false: dark mode was never detected, and neither was reduced motion or forced
+     * colors. The query is now evaluated on the main thread through the window binding.</p>
+     *
+     * <p>The result is cached and refreshed by a change listener rather than re-read per call,
+     * because reading it crosses the worker boundary and callers such as the theme layer ask
+     * repeatedly.</p>
+     *
+     * @param query the media query text
+     * @return true when the query currently matches
+     */
+    private boolean matchesMediaQuery(final String query) {
+        Boolean cached = mediaQueryCache.get(query);
+        if (cached != null) {
+            return cached.booleanValue();
+        }
+        boolean matches = false;
+        try {
+            MediaQueryList list = window.matchMedia(query);
+            if (list != null) {
+                matches = list.getMatches();
+                list.addEventListener("change", new EventListener() {
+                    @Override
+                    public void handleEvent(Event evt) {
+                        onMediaQueryChanged(query);
+                    }
+                });
+            }
+        } catch (Throwable ignored) {
+            // An old browser without matchMedia keeps the platform default of "not matching".
+        }
+        mediaQueryCache.put(query, Boolean.valueOf(matches));
+        return matches;
+    }
+
+    private void onMediaQueryChanged(final String query) {
+        callSerially(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    MediaQueryList list = window.matchMedia(query);
+                    if (list != null) {
+                        mediaQueryCache.put(query, Boolean.valueOf(list.getMatches()));
+                    }
+                } catch (Throwable ignored) {
+                    return;
+                }
+                Form current = Display.getInstance().getCurrent();
+                if (current == null) {
+                    return;
+                }
+                if (DARK_SCHEME_QUERY.equals(query)) {
+                    // Components hold the Style instances they resolved, and the dark variant is
+                    // chosen at resolution time, so repainting alone would redraw the old
+                    // colours. Forms that are not on screen hold theirs too, and refreshing only
+                    // this one would bring the old palette back when the user navigated to a
+                    // cached form -- so the generation is bumped and every form refreshes as it
+                    // is shown.
+                    themeGeneration++;
+                    refreshThemeIfStale(current);
+                }
+                current.repaint();
+            }
+        });
+    }
+
+    @Override
+    public boolean isHighContrastEnabled() {
+        return matchesMediaQuery("(forced-colors: active)")
+                || matchesMediaQuery("(prefers-contrast: more)");
+    }
+
+    @Override
+    public boolean isDifferentiateWithoutColorEnabled() {
+        return matchesMediaQuery("(forced-colors: active)");
+    }
+
+    @Override
+    public AccessibilityColorVisionDeficiency getColorVisionDeficiency() {
+        return AccessibilityColorVisionDeficiency.UNKNOWN;
+    }
+
+    @Override
+    public boolean isReduceMotionEnabled() {
+        return matchesMediaQuery("(prefers-reduced-motion: reduce)");
+    }
+
+    @Override
+    public boolean isReduceTransparencyEnabled() {
+        return matchesMediaQuery("(prefers-reduced-transparency: reduce)");
+    }
+    
+    
+
+    
+    
+    
+}

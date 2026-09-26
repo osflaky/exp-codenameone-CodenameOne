@@ -1,0 +1,330 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.ui.spinner;
+
+import com.codename1.ui.Component;
+import com.codename1.ui.List;
+
+import java.util.Calendar;
+import java.util.Map;
+
+/// A date spinner allows selecting a date value within the given date range
+///
+/// @author Shai Almog
+///
+/// #### Deprecated
+///
+/// use Picker instead
+public class DateSpinner extends BaseSpinner {
+    private Spinner month;
+    private Spinner day;
+    private Spinner year;
+
+
+    private int startYear = 1970;
+    private int endYear = 2100;
+    private int currentYear;
+    private int currentDay;
+    private int currentMonth;
+
+    private boolean monthDayYear = true;
+    private boolean numericMonths = false;
+
+    private String monthRenderingPrototype = "WWW";
+
+    /// Default constructor
+    public DateSpinner() {
+        Calendar c = Calendar.getInstance();
+        currentDay = c.get(Calendar.DAY_OF_MONTH);
+        currentMonth = c.get(Calendar.MONTH) + 1;
+        currentYear = c.get(Calendar.YEAR);
+    }
+
+    @Override
+    void initSpinner() {
+        if (month == null) {
+            day = Spinner.create(1, 32, currentDay, 1);
+            month = Spinner.create(1, 13, currentMonth, 1);
+            SpinnerRenderer<Object> render = new SpinnerRenderer<Object>() {
+                @Override
+                public Component getListCellRendererComponent(List list, Object value, int index, boolean isSelected) {
+                    if (value instanceof Integer) {
+                        // round the number in the spinner to two digits
+                        int d = ((Integer) value).intValue();
+                        if (numericMonths) {
+                            value = "" + d;
+                        } else {
+                            Map<String, String> t = getUIManager().getBundle();
+                            String text = DateTimeRenderer.MONTHS[Math.max(0, Math.min(d - 1, DateTimeRenderer.MONTHS.length - 1))];
+                            if (t != null) {
+                                Object o = t.get("Calendar." + text);
+                                if (o != null) {
+                                    text = (String) o;
+                                }
+                            }
+                            value = text;
+                        }
+                    }
+                    return super.getListCellRendererComponent(list, value, index, isSelected);
+                }
+            };
+            month.setRenderer(render);
+            month.initSpinnerRenderer();
+            month.setRenderingPrototype(monthRenderingPrototype);
+
+            year = Spinner.create(startYear, endYear, currentYear, 1);
+            addComponents();
+        }
+    }
+
+    private void addComponents() {
+        if (year != null) {
+            if (monthDayYear) {
+                addComponent(month);
+                addComponent(createSeparator());
+                addComponent(day);
+                addComponent(createSeparator());
+                addComponent(year);
+            } else {
+                addComponent(day);
+                addComponent(createSeparator());
+                addComponent(month);
+                addComponent(createSeparator());
+                addComponent(year);
+            }
+        }
+    }
+
+    /// #### Returns
+    ///
+    /// the startYear
+    public int getStartYear() {
+        return startYear;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `startYear`: the startYear to set
+    public void setStartYear(int startYear) {
+        this.startYear = startYear;
+        if (year != null) {
+            year.setModel(new SpinnerNumberModel(startYear, endYear, currentYear, 1));
+        }
+    }
+
+    /// #### Returns
+    ///
+    /// the endYear
+    public int getEndYear() {
+        return endYear;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `endYear`: the endYear to set
+    public void setEndYear(int endYear) {
+        this.endYear = endYear;
+        if (year != null) {
+            year.setModel(new SpinnerNumberModel(startYear, endYear, currentYear, 1));
+        }
+    }
+
+    /// #### Returns
+    ///
+    /// the currentYear
+    public int getCurrentYear() {
+        if (year != null) {
+            return ((Integer) year.getValue()).intValue();
+        }
+        return currentYear;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `currentYear`: the currentYear to set
+    public void setCurrentYear(int currentYear) {
+        this.currentYear = currentYear;
+        if (year != null) {
+            year.setModel(new SpinnerNumberModel(startYear, endYear, currentYear, 1));
+        }
+    }
+
+    /// #### Returns
+    ///
+    /// the currentDay
+    public int getCurrentDay() {
+        if (day == null || day.getValue() == null) {
+            return 1;
+        }
+        return ((Integer) day.getValue()).intValue();
+    }
+
+    /// #### Parameters
+    ///
+    /// - `currentDay`: the currentDay to set
+    public void setCurrentDay(int currentDay) {
+        this.currentDay = currentDay;
+        if (day != null) {
+            day.setModel(new SpinnerNumberModel(1, 32, currentDay, 1));
+        }
+    }
+
+    /// #### Returns
+    ///
+    /// the currentMonth
+    public int getCurrentMonth() {
+        if (month != null) {
+            return ((Integer) month.getValue()).intValue();
+        }
+        return currentMonth;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `currentMonth`: the currentMonth to set
+    public void setCurrentMonth(int currentMonth) {
+        this.currentMonth = currentMonth;
+        if (month != null) {
+            month.setModel(new SpinnerNumberModel(1, 13, currentMonth, 1));
+        }
+    }
+
+    /// #### Returns
+    ///
+    /// the monthDayYear
+    public boolean isMonthDayYear() {
+        return monthDayYear;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `monthDayYear`: the monthDayYear to set
+    public void setMonthDayYear(boolean monthDayYear) {
+        this.monthDayYear = monthDayYear;
+        removeAll();
+        addComponents();
+    }
+
+    /// #### Returns
+    ///
+    /// the numericMonths
+    public boolean isNumericMonths() {
+        return numericMonths;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `numericMonths`: the numericMonths to set
+    public void setNumericMonths(boolean numericMonths) {
+        this.numericMonths = numericMonths;
+        if (month != null) {
+            month.repaint();
+        }
+    }
+
+
+    /// {@inheritDoc}
+    @Override
+    public String[] getPropertyNames() {
+        return new String[]{"startYear", "endYear", "currentYear", "currentDay", "currentMonth", "monthDayYear", "numericMonths"};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Class[] getPropertyTypes() {
+        return new Class[]{Integer.class, Integer.class, Integer.class, Integer.class, Integer.class, Integer.class, Integer.class, Boolean.class, Boolean.class};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Object getPropertyValue(String name) {
+        if ("startYear".equals(name)) {
+            return Integer.valueOf(startYear);
+        }
+        if ("endYear".equals(name)) {
+            return Integer.valueOf(endYear);
+        }
+        if ("currentYear".equals(name)) {
+            return Integer.valueOf(currentYear);
+        }
+        if ("currentDay".equals(name)) {
+            return Integer.valueOf(currentDay);
+        }
+        if ("currentMonth".equals(name)) {
+            return Integer.valueOf(currentMonth);
+        }
+        if ("monthDayYear".equals(name)) {
+            return Boolean.valueOf(monthDayYear);
+        }
+        if ("numericMonths".equals(name)) {
+            return Boolean.valueOf(numericMonths);
+        }
+        return null;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String setPropertyValue(String name, Object value) {
+        if ("startYear".equals(name)) {
+            setStartYear(Integer.parseInt(value.toString()));
+            return null;
+        }
+        if ("endYear".equals(name)) {
+            setEndYear(Integer.parseInt(value.toString()));
+            return null;
+        }
+        if ("currentYear".equals(name)) {
+            setCurrentYear(Integer.parseInt(value.toString()));
+            return null;
+        }
+        if ("currentDay".equals(name)) {
+            setCurrentDay(Integer.parseInt(value.toString()));
+            return null;
+        }
+        if ("currentMonth".equals(name)) {
+            setCurrentMonth(Integer.parseInt(value.toString()));
+            return null;
+        }
+        if ("monthDayYear".equals(name)) {
+            setMonthDayYear(((Boolean) value).booleanValue());
+            return null;
+        }
+        if ("numericMonths".equals(name)) {
+            setNumericMonths(((Boolean) value).booleanValue());
+            return null;
+        }
+
+        return super.setPropertyValue(name, value);
+    }
+
+
+    /// Sets the Month Rendering Prototype to be used, useful when the language
+    /// is changed and you need the month spinner to be wider.
+    ///
+    /// #### Parameters
+    ///
+    /// - `monthPrototype`: a prototype to be used to calc the month cell size
+    public void setMonthRenderingPrototype(String monthPrototype) {
+        this.monthRenderingPrototype = monthPrototype;
+    }
+}

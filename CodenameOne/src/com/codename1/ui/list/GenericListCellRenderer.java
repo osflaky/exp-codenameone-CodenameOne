@@ -1,0 +1,868 @@
+/*
+ * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores
+ * CA 94065 USA or visit www.oracle.com if you need additional information or
+ * have any questions.
+ */
+package com.codename1.ui.list;
+
+import com.codename1.ui.Button;
+import com.codename1.ui.CheckBox;
+import com.codename1.ui.Command;
+import com.codename1.ui.Component;
+import com.codename1.ui.Container;
+import com.codename1.ui.Display;
+import com.codename1.ui.EncodedImage;
+import com.codename1.ui.Graphics;
+import com.codename1.ui.Image;
+import com.codename1.ui.Label;
+import com.codename1.ui.List;
+import com.codename1.ui.RadioButton;
+import com.codename1.ui.Slider;
+import com.codename1.ui.TextArea;
+import com.codename1.ui.TopLevelContainer;
+import com.codename1.ui.URLImage;
+import com.codename1.ui.animations.Animation;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+
+/// The generic list cell renderer can display containers or arbitrary Codename One components
+/// as items in a list, **notice** that
+/// [we strongly discourage usage of lists](https://www.codenameone.com/blog/avoiding-lists.html).. It relies on the source data being a `Map` object. It extracts values from
+/// the `Map` using the component name as an indication to the Map key lookup.
+///
+/// This renderer supports label tickering, check boxes/radio buttons etc. seamlessly.
+///
+/// Please notice that you must use at least two distinct instances of the component
+/// when passing them to the constructor, reusing the same instance **WILL NOT WORK!**
+///
+/// Furthermore, the renderer instance cannot be reused for multiple lists, each list will need
+/// a new instance of this renderer!
+///
+/// Sample usage for this renderer follows:
+///
+/// ```java
+/// public void showForm() {
+///     com.codename1.ui.List list = new com.codename1.ui.List(createGenericListCellRendererModelData());
+///     list.setRenderer(new GenericListCellRenderer(createGenericRendererContainer(), createGenericRendererContainer()));
+///     Form hi = new Form("GenericListCellRenderer", new BorderLayout());
+///     hi.add(BorderLayout.CENTER, list);
+///     hi.show();
+/// }
+///
+/// private Container createGenericRendererContainer() {
+///     Label name = new Label();
+///     name.setFocusable(true);
+///     name.setName("Name");
+///     Label surname = new Label();
+///     surname.setFocusable(true);
+///     surname.setName("Surname");
+///     CheckBox selected = new CheckBox();
+///     selected.setName("Selected");
+///     selected.setFocusable(true);
+///     Container c = BorderLayout.center(name).
+///             add(BorderLayout.SOUTH, surname).
+///             add(BorderLayout.WEST, selected);
+///     c.setUIID("ListRenderer");
+///     return c;
+/// }
+///
+/// private Object[] createGenericListCellRendererModelData() {
+///     Map[] data = new HashMap[5];
+///     data[0] = new HashMap<>();
+///     data[0].put("Name", "Shai");
+///     data[0].put("Surname", "Almog");
+///     data[0].put("Selected", Boolean.TRUE);
+///     data[1] = new HashMap<>();
+///     data[1].put("Name", "Chen");
+///     data[1].put("Surname", "Fishbein");
+///     data[1].put("Selected", Boolean.TRUE);
+///     data[2] = new HashMap<>();
+///     data[2].put("Name", "Ofir");
+///     data[2].put("Surname", "Leitner");
+///     data[3] = new HashMap<>();
+///     data[3].put("Name", "Yaniv");
+///     data[3].put("Surname", "Vakarat");
+///     data[4] = new HashMap<>();
+///     data[4].put("Name", "Meirav");
+///     data[4].put("Surname", "Nachmanovitch");
+///     return data;
+/// }
+/// ```
+///
+/// ```java
+/// public void showForm() {
+///     com.codename1.ui.List list = new com.codename1.ui.List(createGenericListCellRendererModelData());
+///     list.setRenderer(new GenericListCellRenderer(createGenericRendererContainer(), createGenericRendererContainer()));
+///     Form hi = new Form("GenericListCellRenderer", new BorderLayout());
+///     hi.add(BorderLayout.CENTER, list);
+///     hi.show();
+/// }
+///
+/// private Container createGenericRendererContainer() {
+///     Label name = new Label();
+///     name.setFocusable(true);
+///     name.setName("Name");
+///     Label surname = new Label();
+///     surname.setFocusable(true);
+///     surname.setName("Surname");
+///     CheckBox selected = new CheckBox();
+///     selected.setName("Selected");
+///     selected.setFocusable(true);
+///     Container c = BorderLayout.center(name).
+///             add(BorderLayout.SOUTH, surname).
+///             add(BorderLayout.WEST, selected);
+///     c.setUIID("ListRenderer");
+///     return c;
+/// }
+///
+/// private Object[] createGenericListCellRendererModelData() {
+///     Map[] data = new HashMap[5];
+///     data[0] = new HashMap<>();
+///     data[0].put("Name", "Shai");
+///     data[0].put("Surname", "Almog");
+///     data[0].put("Selected", Boolean.TRUE);
+///     data[1] = new HashMap<>();
+///     data[1].put("Name", "Chen");
+///     data[1].put("Surname", "Fishbein");
+///     data[1].put("Selected", Boolean.TRUE);
+///     data[2] = new HashMap<>();
+///     data[2].put("Name", "Ofir");
+///     data[2].put("Surname", "Leitner");
+///     data[3] = new HashMap<>();
+///     data[3].put("Name", "Yaniv");
+///     data[3].put("Surname", "Vakarat");
+///     data[4] = new HashMap<>();
+///     data[4].put("Name", "Meirav");
+///     data[4].put("Surname", "Nachmanovitch");
+///     return data;
+/// }
+/// ```
+///
+/// @author Shai Almog
+public class GenericListCellRenderer<T> implements ListCellRenderer<T>, CellRenderer<T> {
+
+    /// If this flag exists in a Map of data the renderer will enable/disable
+    /// the entries, the flag assumes either Boolean.TRUE or Boolean.FALSE.
+    /// Notice that just setting it to false when necessary will not work, when its
+    /// used it must be applied to all entries otherwise the reuse of the renderer
+    /// component will break this feature.
+    public static final String ENABLED = "$$ENABLED$$";
+    /// Put this flag as a Map key to indicate that a checkbox entry rendered by
+    /// this renderer should act as a "select all" entry and toggle all other entries.
+    /// The value for this entry is ignored
+    public static final String SELECT_ALL_FLAG = "$$SELECTALL$$";
+    private static URLImage.ImageAdapter defaultAdapter = URLImage.RESIZE_SCALE;
+    private final Label focusComponent = new Label();
+    private final Component selected;
+    private final Component unselected;
+    private final Component[] selectedEntries;
+    private final Component[] unselectedEntries;
+    private final Monitor mon = new Monitor();
+
+    /// The top level the monitor was registered on, so it is released from that one
+    /// rather than from wherever the list has since moved.
+    private TopLevelContainer monitorHost;
+    private final boolean firstCharacterRTL;
+    private final HashMap<String, EncodedImage> placeholders = new HashMap<String, EncodedImage>();
+    private Button lastClickedComponent;
+    private ArrayList<Image> pendingAnimations;
+    private Component selectedEven;
+    private Component unselectedEven;
+    private Component[] selectedEntriesEven;
+    private Component[] unselectedEntriesEven;
+    private Component parentList;
+    private boolean selectionListener = true;
+    private boolean fisheye;
+    private boolean waitingForRegisterAnimation;
+    private URLImage.ImageAdapter adapter = defaultAdapter;
+
+    /// Constructs a generic renderer with the given selected/unselected components
+    ///
+    /// #### Parameters
+    ///
+    /// - `selected`: indicates the selected value for the renderer
+    ///
+    /// - `unselected`: indicates the unselected value for the renderer
+    public GenericListCellRenderer(Component selected, Component unselected) {
+        if (selected == unselected) { //NOPMD CompareObjectsWithEquals
+            throw new IllegalArgumentException("Must use distinct instances for renderer!");
+        }
+        this.selected = selected;
+        this.unselected = unselected;
+        focusComponent.setUIID(selected.getUIID() + "Focus");
+        focusComponent.setFocus(true);
+
+        selectedEntries = initRenderer(selected);
+        unselectedEntries = initRenderer(unselected);
+        firstCharacterRTL = selected.getUIManager().isThemeConstant("firstCharRTLBool", false);
+        addSelectedEntriesListener(selectedEntries);
+        addSelectedEntriesListener(unselectedEntries);
+    }
+
+    /// Constructs a generic renderer with the given selected/unselected components for
+    /// odd/even values allowing a "pinstripe" effect
+    ///
+    /// #### Parameters
+    ///
+    /// - `odd`: indicates the selected value for the renderer
+    ///
+    /// - `oddUnselected`: indicates the unselected value for the renderer
+    ///
+    /// - `even`: indicates the selected value for the renderer
+    ///
+    /// - `evenUnselected`: indicates the unselected value for the renderer
+    public GenericListCellRenderer(Component odd, Component oddUnselected, Component even, Component evenUnselected) {
+        this(odd, oddUnselected);
+        selectedEven = even;
+        unselectedEven = evenUnselected;
+        selectedEntriesEven = initRenderer(even);
+        unselectedEntriesEven = initRenderer(evenUnselected);
+        addSelectedEntriesListener(selectedEntriesEven);
+        addSelectedEntriesListener(unselectedEntriesEven);
+    }
+
+    /// The default adapter to use for image URLs
+    ///
+    /// #### Returns
+    ///
+    /// the defaultAdapter
+    public static URLImage.ImageAdapter getDefaultAdapter() {
+        return defaultAdapter;
+    }
+
+    /// The default adapter to use for image URLs
+    ///
+    /// #### Parameters
+    ///
+    /// - `aDefaultAdapter`: the defaultAdapter to set
+    public static void setDefaultAdapter(URLImage.ImageAdapter aDefaultAdapter) {
+        defaultAdapter = aDefaultAdapter;
+    }
+
+    void deinitialize(List l) {
+        removeSelectedEntriesListener(selectedEntries);
+        removeSelectedEntriesListener(unselectedEntries);
+        l.removeActionListener(mon);
+    }
+
+    /// Updates the placeholder instances, this is useful for changing the URLImage placeholder in runtime as
+    /// might happen in the designer
+    public void updateIconPlaceholders() {
+        updateIconPlaceholders(selectedEntries);
+        updateIconPlaceholders(unselectedEntries);
+    }
+
+    private void updateIconPlaceholders(Component[] e) {
+        int elen = e.length;
+        for (int iter = 0; iter < elen; iter++) {
+            String n = e[iter].getName();
+            if (n != null) {
+                if (n.endsWith("_URLImage") && e[iter] instanceof Label) {
+                    placeholders.put(n, (EncodedImage) ((Label) e[iter]).getIcon());
+                }
+            }
+        }
+    }
+
+    private void removeSelectedEntriesListener(Component[] e) {
+        int elen = e.length;
+        for (int iter = 0; iter < elen; iter++) {
+            if (e[iter] instanceof Button) {
+                ((Button) e[iter]).removeActionListener(mon);
+            }
+        }
+    }
+
+    private void addSelectedEntriesListener(Component[] e) {
+        int elen = e.length;
+        for (int iter = 0; iter < elen; iter++) {
+            if (e[iter] instanceof Button) {
+                ((Button) e[iter]).addActionListener(mon);
+            }
+            String n = e[iter].getName();
+            if (n != null) {
+                if (n.endsWith("_URLImage") && e[iter] instanceof Label) {
+                    placeholders.put(n, (EncodedImage) ((Label) e[iter]).getIcon());
+                }
+            }
+        }
+    }
+
+    private Component[] initRenderer(Component r) {
+        r.setCellRenderer(true);
+        if (r instanceof Container) {
+            ArrayList selectedVector = new ArrayList();
+            findComponentsOfInterest(r, selectedVector);
+            return vectorToComponentArray(selectedVector);
+        } else {
+            return new Component[]{r};
+        }
+    }
+
+    /// Allows partitioning the renderer into "areas" that can be clicked. When
+    /// receiving an action event in the list this method allows a developer to
+    /// query the renderer to "see" whether a button within the component was "touched"
+    /// by the user on a touch screen device.
+    /// This method will reset the value to null after returning a none-null value!
+    ///
+    /// #### Returns
+    ///
+    /// a button or null
+    public Button extractLastClickedComponent() {
+        Button c = lastClickedComponent;
+        lastClickedComponent = null;
+        return c;
+    }
+
+    private Component[] vectorToComponentArray(ArrayList v) {
+        Component[] result = new Component[v.size()];
+        int rlen = result.length;
+        for (int iter = 0; iter < rlen; iter++) {
+            result[iter] = (Component) v.get(iter);
+        }
+        return result;
+    }
+
+    private void findComponentsOfInterest(Component cmp, ArrayList dest) {
+        if (cmp instanceof Container) {
+            Container c = (Container) cmp;
+            int count = c.getComponentCount();
+            for (int iter = 0; iter < count; iter++) {
+                findComponentsOfInterest(c.getComponentAt(iter), dest);
+            }
+            return;
+        }
+        // performance optimization for fixed images in lists
+        if (cmp.getName() != null) {
+            if (cmp instanceof Label) {
+                Label l = (Label) cmp;
+                if (l.getName().toLowerCase().endsWith("fixed") && l.getIcon() != null) {
+                    l.getIcon().lock();
+                }
+                dest.add(cmp);
+                return;
+            }
+            if (cmp instanceof TextArea) {
+                dest.add(cmp);
+            }
+        }
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Component getCellRendererComponent(Component list, Object model, T value, int index, boolean isSelected) {
+        Component cmp;
+        Component[] entries;
+        if (!fisheye && !Display.getInstance().shouldRenderSelection(list)) {
+            isSelected = false;
+        }
+        if (isSelected && (fisheye || list.hasFocus())) {
+            cmp = selected;
+            entries = selectedEntries;
+            if (selectedEven != null && index % 2 == 0) {
+                cmp = selectedEven;
+                entries = selectedEntriesEven;
+
+                // prevent the list from over-optimizing the background painting
+                if (list instanceof List) {
+                    ((List) list).setMutableRendererBackgrounds(true);
+                }
+            }
+            cmp.setFocus(true);
+            boolean lead = false;
+            if (cmp instanceof Container) {
+                lead = ((Container) cmp).getLeadComponent() != null;
+            }
+            if (value instanceof Map) {
+                Map h = (Map) value;
+                Boolean enabled = (Boolean) h.get(ENABLED);
+                if (enabled != null) {
+                    cmp.setEnabled(enabled.booleanValue());
+                }
+                int elen = entries.length;
+                for (int iter = 0; iter < elen; iter++) {
+                    String currentName = entries[iter].getName();
+
+                    Object val;
+                    if ("$number".equals(currentName)) {
+                        val = "" + (index + 1);
+                    } else {
+                        // a selected entry might differ in its value to allow for
+                        // behavior such as rollover images
+                        val = h.get("#" + currentName);
+                        if (val == null) {
+                            val = h.get(currentName);
+                        }
+                        val = updateModelValues(h, currentName, entries, iter, val);
+                    }
+                    setComponentValueWithTickering(entries[iter], val, list, cmp);
+                    entries[iter].setFocus(lead || entries[iter].isFocusable());
+                }
+            } else {
+                setComponentValueWithTickering(entries[0], value, list, cmp);
+                entries[0].setFocus(entries[0].isFocusable());
+            }
+            return cmp;
+        } else {
+            cmp = unselected;
+            entries = unselectedEntries;
+            if (unselectedEven != null && index % 2 == 0) {
+                cmp = unselectedEven;
+                entries = unselectedEntriesEven;
+
+                // prevent the list from over-optimizing the background painting
+                if (list instanceof List) {
+                    ((List) list).setMutableRendererBackgrounds(true);
+                }
+            }
+            cmp.setFocus(false);
+            if (value instanceof Map) {
+                Map h = (Map) value;
+                Boolean enabled = (Boolean) h.get(ENABLED);
+                if (enabled != null) {
+                    cmp.setEnabled(enabled.booleanValue());
+                }
+                int elen = entries.length;
+                for (int iter = 0; iter < elen; iter++) {
+                    String currentName = entries[iter].getName();
+                    if ("$number".equals(currentName)) {
+                        setComponentValue(entries[iter], "" + (index + 1), list, cmp);
+                        continue;
+                    }
+                    Object val = h.get(currentName);
+                    val = updateModelValues(h, currentName, entries, iter, val);
+                    setComponentValue(entries[iter], val, list, cmp);
+                }
+            } else {
+                if (entries.length > 0) {
+                    setComponentValue(entries[0], value, list, cmp);
+                }
+            }
+            return cmp;
+        }
+    }
+
+    private Object updateModelValues(Map h, String currentName, Component[] entries, int iter, Object val) {
+        String uiid = (String) h.get(currentName + "_uiid");
+        if (uiid != null) {
+            entries[iter].setUIID(uiid);
+        }
+        if (currentName.endsWith("_URLImage")) {
+            URLImage img = (URLImage) h.get(currentName + "Actual");
+            if (img != null) {
+                val = img;
+            } else {
+                String name = (String) h.get(currentName + "Name");
+                if (name == null) {
+                    name = val.toString();
+                    name = name.substring(name.lastIndexOf('/'));
+                }
+                val = URLImage.createToStorage(placeholders.get(currentName), name, val.toString(), adapter);
+                h.put(currentName + "Actual", val);
+            }
+        }
+        return val;
+    }
+
+
+    /// {@inheritDoc}
+    @Override
+    public Component getListCellRendererComponent(List list, T value, int index, boolean isSelected) {
+        return getCellRendererComponent(list, list.getModel(), value, index, isSelected);
+    }
+
+
+    private boolean isSelectedValue(Object v) {
+        return v != null && "true".equalsIgnoreCase(v.toString());
+    }
+
+    private void setComponentValueWithTickering(Component cmp, Object value, Component l, Component rootRenderer) {
+        setComponentValue(cmp, value, l, rootRenderer);
+        if (cmp instanceof Label) {
+            if (selectionListener) {
+                if (l instanceof List) {
+                    ((List) l).addActionListener(mon);
+                }
+                parentList = l;
+            }
+            Label label = (Label) cmp;
+            if (label.shouldTickerStart() && Display.getInstance().shouldRenderSelection()) {
+                if (!label.isTickerRunning()) {
+                    parentList = l;
+                    if (parentList != null) {
+                        // Resolve the top level rather than the Form: this renderer
+                        // works inside a Window, where getComponentForm() is null and
+                        // the ticker would silently never animate.
+                        TopLevelContainer f = parentList.getTopLevelContainer();
+                        if (f != null) {
+                            monitorHost = f;
+                            f.registerAnimated(mon);
+                            label.startTicker(cmp.getUIManager().getLookAndFeel().getTickerSpeed(), true);
+                        }
+                    }
+                }
+            } else {
+                if (label.isTickerRunning()) {
+                    label.stopTicker();
+                }
+                label.setTextPosition(0);
+            }
+        }
+    }
+
+    /// Initializes the given component with the given value
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: one of the components that is or is a part of the renderer
+    ///
+    /// - `value`: the value to install into the component
+    private void setComponentValue(Component cmp, Object value, Component parent, Component rootRenderer) {
+        // fixed components shouldn't be modified by the renderer, this allows for
+        // hardcoded properties in the renderer. We still want them to go through the
+        // process so renderer selected/unselected styles are applied
+        if (cmp.getName().toLowerCase().endsWith("fixed")) {
+            return;
+        }
+        if (cmp instanceof Label) {
+            if (value instanceof Image) {
+                Image i = (Image) value;
+                if (i.isAnimation()) {
+                    if (pendingAnimations == null) {
+                        pendingAnimations = new ArrayList<Image>();
+                    }
+                    if (!pendingAnimations.contains(i)) {
+                        pendingAnimations.add(i);
+                        if (parentList == null) {
+                            parentList = parent;
+                        }
+                        if (parentList != null) {
+                            TopLevelContainer f = parentList.getTopLevelContainer();
+                            if (f != null) {
+                                monitorHost = f;
+                                f.registerAnimated(mon);
+                                waitingForRegisterAnimation = false;
+                            } else {
+                                waitingForRegisterAnimation = true;
+                            }
+                        }
+                    } else {
+                        if (waitingForRegisterAnimation) {
+                            if (parentList != null) {
+                                TopLevelContainer f = parentList.getTopLevelContainer();
+                                if (f != null) {
+                                    monitorHost = f;
+                                    f.registerAnimated(mon);
+                                    waitingForRegisterAnimation = false;
+                                }
+                            }
+                        }
+                    }
+                }
+                Image oldImage = ((Label) cmp).getIcon();
+                ((Label) cmp).setIcon(i);
+                ((Label) cmp).setText("");
+                if (oldImage == null || oldImage.getWidth() != i.getWidth() || oldImage.getHeight() != i.getHeight()) {
+                    ((Container) rootRenderer).revalidate();
+                }
+                return;
+            } else {
+                ((Label) cmp).setIcon(null);
+            }
+            if (cmp instanceof CheckBox) {
+                ((CheckBox) cmp).setSelected(isSelectedValue(value));
+                return;
+            }
+            if (cmp instanceof RadioButton) {
+                ((RadioButton) cmp).setSelected(isSelectedValue(value));
+                return;
+            }
+            if (cmp instanceof Slider) {
+                ((Slider) cmp).setProgress(((Integer) value).intValue());
+                return;
+            }
+
+            Label l = (Label) cmp;
+            if (value == null) {
+                l.setText("");
+            } else {
+                if (value instanceof Label) {
+                    l.setText(((Label) value).getText());
+                    l.setIcon(((Label) value).getIcon());
+                } else {
+                    l.setText(value.toString());
+                }
+            }
+            if (firstCharacterRTL) {
+                String t = l.getText();
+                if (t.length() > 0) {
+                    l.setRTL(Display.getInstance().isRTL(t.charAt(0)));
+                }
+            }
+            return;
+        }
+        if (cmp instanceof TextArea) {
+            if (value == null) {
+                ((TextArea) cmp).setText("");
+            } else {
+                ((TextArea) cmp).setText(value.toString());
+            }
+        }
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Component getListFocusComponent(List list) {
+        return focusComponent;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Component getFocusComponent(Component list) {
+        return focusComponent;
+    }
+
+    /// #### Returns
+    ///
+    /// the selectionListener
+    public boolean isSelectionListener() {
+        return selectionListener;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `selectionListener`: the selectionListener to set
+    public void setSelectionListener(boolean selectionListener) {
+        if (parentList != null) {
+            if (parentList instanceof List) {
+                ((List) parentList).addActionListener(mon);
+            }
+        }
+        this.selectionListener = selectionListener;
+    }
+
+    /// #### Returns
+    ///
+    /// the selected
+    public Component getSelected() {
+        return selected;
+    }
+
+    /// #### Returns
+    ///
+    /// the unselected
+    public Component getUnselected() {
+        return unselected;
+    }
+
+    /// #### Returns
+    ///
+    /// the selectedEven
+    public Component getSelectedEven() {
+        return selectedEven;
+    }
+
+    /// #### Returns
+    ///
+    /// the unselectedEven
+    public Component getUnselectedEven() {
+        return unselectedEven;
+    }
+
+    /// In fisheye rendering mode the renderer maintains selected component drawing
+    ///
+    /// #### Returns
+    ///
+    /// the fisheye
+    public boolean isFisheye() {
+        return fisheye;
+    }
+
+    /// In fisheye rendering mode the renderer maintains selected component drawing
+    ///
+    /// #### Parameters
+    ///
+    /// - `fisheye`: the fisheye to set
+    public void setFisheye(boolean fisheye) {
+        this.fisheye = fisheye;
+    }
+
+    /// The adapter used when dealing with image URL's
+    ///
+    /// #### Returns
+    ///
+    /// the adapter
+    public URLImage.ImageAdapter getAdapter() {
+        return adapter;
+    }
+
+    /// The adapter used when dealing with image URL's
+    ///
+    /// #### Parameters
+    ///
+    /// - `adapter`: the adapter to set
+    public void setAdapter(URLImage.ImageAdapter adapter) {
+        this.adapter = adapter;
+    }
+
+
+    class Monitor implements ActionListener, Animation {
+        private boolean selectAllChecked;
+        private int selectAllOffset;
+
+        /// {@inheritDoc}
+        @Override
+        public boolean animate() {
+            boolean hasAnimations = false;
+            if (parentList != null) {
+                boolean repaint = false;
+                if (pendingAnimations != null && !pendingAnimations.isEmpty()) {
+                    int s = pendingAnimations.size();
+                    hasAnimations = true;
+                    for (int iter = 0; iter < s; iter++) {
+                        Image i = pendingAnimations.get(iter);
+                        repaint = i.animate() || repaint;
+                    }
+                    if (repaint) {
+                        pendingAnimations.clear();
+                    } else {
+                        // flush the queue if we have too many animations
+                        if (pendingAnimations.size() > 20) {
+                            repaint = true;
+                        }
+                    }
+                }
+                TopLevelContainer f = parentList.getTopLevelContainer();
+                if (f != null) {
+                    if (parentList.hasFocus() && Display.getInstance().shouldRenderSelection(parentList)) {
+                        int slen = selectedEntries.length;
+                        for (int iter = 0; iter < slen; iter++) {
+                            if (selectedEntries[iter] instanceof Label) {
+                                Label l = (Label) selectedEntries[iter];
+                                if (l.isTickerRunning()) {
+                                    repaint = true;
+                                    l.animate();
+                                }
+                            }
+                        }
+                    } else {
+                        int slen = selectedEntries.length;
+                        for (int iter = 0; iter < slen; iter++) {
+                            if (selectedEntries[iter] instanceof Label) {
+                                Label l = (Label) selectedEntries[iter];
+                                if (l.isTickerRunning()) {
+                                    l.stopTicker();
+                                    repaint = true;
+                                }
+                            }
+                        }
+                    }
+                    if (repaint) {
+                        parentList.repaint();
+                    } else {
+                        if (!hasAnimations) {
+                            // The top level that took the registration, not whatever the
+                            // list resolves to now: a list removed or reparented while a
+                            // ticker or animated image is running resolves to null or
+                            // somewhere else, and the original keeps this monitor for
+                            // good -- invoking it every frame and never sleeping.
+                            if (monitorHost != null) {
+                                monitorHost.deregisterAnimated(this);
+                                monitorHost = null;
+                            }
+                        }
+                    }
+                    return false;
+                }
+                if (repaint) {
+                    parentList.repaint();
+                }
+            }
+            return false;
+        }
+
+        /// {@inheritDoc}
+        @Override
+        public void paint(Graphics g) {
+        }
+
+        /// {@inheritDoc}
+        @Override
+        public void actionPerformed(ActionEvent evt) {
+            if (evt.getComponent() instanceof Button) {
+                lastClickedComponent = (Button) evt.getComponent();
+                return;
+            }
+            if (parentList instanceof List) {
+                // prevent list from losing focus on action
+                parentList.setHandlesInput(true);
+                Object selection = ((List) parentList).getSelectedItem();
+                if (selection instanceof Map) {
+                    Map h = (Map) selection;
+                    Command cmd = (Command) h.get("$navigation");
+                    if (cmd != null) {
+                        // Resolve the top level rather than the Form: this renderer
+                        // works in a Window too, where getComponentForm() is null and
+                        // this dereference would NPE on the EDT.
+                        TopLevelContainer top = parentList.getTopLevelContainer();
+                        if (top != null) {
+                            top.dispatchCommand(cmd, new ActionEvent(cmd, ActionEvent.Type.Command));
+                        }
+                        return;
+                    }
+                    int slen = selectedEntries.length;
+                    for (int iter = 0; iter < slen; iter++) {
+                        if (selectedEntries[iter] instanceof CheckBox ||
+                                selectedEntries[iter] instanceof RadioButton) {
+                            boolean sel = !isSelectedValue(h.get(selectedEntries[iter].getName()));
+                            if (h.get(SELECT_ALL_FLAG) != null) {
+                                selectAllChecked = sel;
+                                selectAllOffset = ((List) parentList).getSelectedIndex();
+
+                                // we need to toggle all entries
+                                int count = ((List) parentList).getModel().getSize();
+                                String selectionVal = "" + sel;
+                                for (int x = 0; x < count; x++) {
+                                    Object o = ((List) parentList).getModel().getItemAt(x);
+                                    if (o instanceof Map) {
+                                        ((Map) o).put(selectedEntries[iter].getName(), selectionVal);
+                                    }
+                                }
+                            } else {
+                                if (selectAllChecked) {
+                                    selectAllChecked = false;
+                                    Map selAll = (Map) ((List) parentList).getModel().getItemAt(selectAllOffset);
+                                    selAll.put(selectedEntries[iter].getName(), "false");
+                                }
+                                h.put(selectedEntries[iter].getName(), "" + sel);
+                            }
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

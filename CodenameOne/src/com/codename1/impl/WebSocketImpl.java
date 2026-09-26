@@ -1,0 +1,233 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+package com.codename1.impl;
+
+import com.codename1.io.WebSocketState;
+
+/// Platform contract behind the public `com.codename1.io.WebSocket` facade.
+/// Each port that supports WebSocket subclasses this and is returned from
+/// `CodenameOneImplementation.createWebSocketImpl(String)`.
+///
+/// Subclasses call `sink().onConnect()`, `sink().onTextMessage(...)`, etc.
+/// from whichever thread the native layer fires the event on. The sink is
+/// set exactly once, by the facade, before `connect(int)` is called.
+public abstract class WebSocketImpl {
+    private final String url;
+    private WebSocketEventSink sink;
+    private String[] requestedSubprotocols;
+    private final java.util.Hashtable requestHeaders = new java.util.Hashtable();
+    // Written by the port's connect/handshake thread, read by the user's
+    // connect handler -- volatile to publish the value across threads.
+    @SuppressWarnings("PMD.AvoidUsingVolatile")
+    private volatile String selectedSubprotocol;
+
+    protected WebSocketImpl(String url) {
+        this.url = url;
+    }
+
+    public final String getUrl() {
+        return url;
+    }
+
+    public final void setEventSink(WebSocketEventSink sink) {
+        this.sink = sink;
+    }
+
+    protected final WebSocketEventSink sink() {
+        return sink;
+    }
+
+    /// Sets the subprotocols (RFC 6455 `Sec-WebSocket-Protocol`) the client
+    /// offers, in preference order. Called by the public facade before
+    /// `connect(int)`; ports include them in the handshake. Null or empty
+    /// means "no subprotocol negotiation".
+    public final void setRequestedSubprotocols(String[] protocols) {
+        this.requestedSubprotocols = protocols;
+    }
+
+    /// The subprotocols the client offered, or null when none were set.
+    /// Ports read this while building the handshake.
+    protected final String[] requestedSubprotocols() {
+        return requestedSubprotocols;
+    }
+
+    /// Adds a header to the opening handshake. Called by the public facade
+    /// before `connect(int)`. A null or empty name is ignored; a null value
+    /// removes a previously set header.
+    ///
+    /// Ports that build the handshake themselves emit these; ports built on a
+    /// platform WebSocket that does not expose the handshake ignore them. See
+    /// the facade's `header` method for which those are.
+    public final void setRequestHeader(String name, String value) {
+        if (name == null || name.length() == 0) {
+            return;
+        }
+        // Keyed by the folded name, because HTTP header names are case-insensitive.
+        // Keying by the spelling the caller happened to use meant
+        // header("Authorization", v) followed by header("authorization", null) left the
+        // credential in place, and setting both emitted the field twice -- leaving the
+        // server to pick one, which is not a thing to leave to chance for an
+        // Authorization header. The caller's spelling is kept for emission.
+        String key = asciiLower(name);
+        if (value == null) {
+            requestHeaders.remove(key);
+        } else {
+            requestHeaders.put(key, new String[] {name, value});
+        }
+    }
+
+    /// The extra handshake headers, keyed by the ASCII-folded name. Each value is a
+    /// two-element `String[]` of `{ name as the caller spelled it, value }`, so lookups
+    /// and removals are case-insensitive the way HTTP is while emission preserves the
+    /// caller's capitalization. Never null; ports read this while building the
+    /// handshake. Ports must not emit an entry whose name collides with a header the
+    /// handshake sets itself.
+    protected final java.util.Hashtable requestHeaders() {
+        return requestHeaders;
+    }
+
+    /// Appends the extra handshake headers in `name: value` CRLF form, skipping
+    /// any that would collide with a header the handshake already wrote.
+    ///
+    /// Shared here rather than copied per port so the collision list and the
+    /// header-injection guard stay in one place: a header value carrying CR or
+    /// LF would otherwise let a caller inject arbitrary handshake headers.
+    protected final void appendRequestHeaders(StringBuilder req) {
+        java.util.Enumeration keys = requestHeaders.keys();
+        while (keys.hasMoreElements()) {
+            String key = (String) keys.nextElement();
+            String[] pair = (String[]) requestHeaders.get(key);
+            String name = pair[0];
+            String value = pair[1];
+            // The NAME is checked for being a legal field-name token before anything is
+            // decided about it. Screening only for CR and LF let "Sec-WebSocket-Extensions "
+            // -- one trailing space -- past the reserved-name comparison, and a lenient
+            // server trims that and negotiates the extension anyway. These readers do not
+            // process RSV1 or inflate payloads, so a compressed frame arrives as garbage:
+            // the reserved list exists precisely to stop that being negotiable, and a
+            // comparison that any non-token character walks around is not a list.
+            if (!isFieldNameToken(name)) {
+                continue;
+            }
+            if (isReservedHandshakeHeader(name)) {
+                continue;
+            }
+            if (containsCrLf(value)) {
+                continue;
+            }
+            req.append(name).append(": ").append(value).append("\r\n");
+        }
+    }
+
+    /// Whether this is a legal HTTP field name -- RFC 9110 token, so no spaces, no
+    /// separators, nothing outside printable ASCII.
+    ///
+    /// Rejecting rather than trimming: a caller that wrote a trailing space meant one
+    /// header and a lenient server would read another, and quietly repairing the
+    /// difference is how the two ends stop agreeing about what was sent.
+    private static boolean isFieldNameToken(String name) {
+        if (name == null || name.length() == 0) {
+            return false;
+        }
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (c <= 0x20 || c >= 0x7f) {
+                return false;
+            }
+            if (c == '(' || c == ')' || c == '<' || c == '>' || c == '@' || c == ','
+                    || c == ';' || c == ':' || c == '\\' || c == '"' || c == '/'
+                    || c == '[' || c == ']' || c == '?' || c == '=' || c == '{'
+                    || c == '}') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isReservedHandshakeHeader(String name) {
+        // ASCII folding, not toLowerCase(): under the Turkish and Azerbaijani locales an
+        // uppercase I folds to a dotless letter outside ASCII, so a header spelled
+        // CONNECTION would not be recognised as reserved and would be emitted alongside
+        // the handshake's own -- producing a conflicting or rejected opening handshake
+        // while the API promises reserved names are ignored.
+        String n = asciiLower(name);
+        return "host".equals(n) || "upgrade".equals(n) || "connection".equals(n)
+                || "sec-websocket-key".equals(n) || "sec-websocket-version".equals(n)
+                || "sec-websocket-protocol".equals(n)
+                // Extensions negotiate what the FRAMES mean, and no reader here
+                // implements one. Emitting it let a caller ask for permessage-deflate;
+                // a compliant server then agrees, sets RSV1 and sends compressed
+                // payloads -- and the readers mask off the opcode and pass the bytes
+                // straight through, so text arrives as mojibake and binary arrives
+                // compressed. The failure appears at the application, far from the one
+                // header that caused it, and only against servers that happen to offer
+                // the extension. Ignored until a port can actually inflate.
+                || "sec-websocket-extensions".equals(n)
+                || "content-length".equals(n);
+    }
+
+    /// Lowercases ASCII letters only, so the result never depends on the device locale.
+    private static String asciiLower(String s) {
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            sb.append(c >= 'A' && c <= 'Z' ? (char) (c + 32) : c);
+        }
+        return sb.toString();
+    }
+
+    private static boolean containsCrLf(String s) {
+        return s.indexOf('\r') >= 0 || s.indexOf('\n') >= 0;
+    }
+
+    /// Records the subprotocol the server selected. Ports call this once
+    /// the handshake completes, before firing `sink().onConnect()`, so the
+    /// value is visible to the user's connect handler.
+    protected final void setSelectedSubprotocol(String protocol) {
+        this.selectedSubprotocol = protocol;
+    }
+
+    /// The subprotocol the server selected, or null when none was
+    /// negotiated (or the connection has not completed yet).
+    public String getSelectedSubprotocol() {
+        return selectedSubprotocol;
+    }
+
+    /// Initiate the connection. May return immediately and complete
+    /// asynchronously; success is signalled via `sink().onConnect()`.
+    ///
+    /// @param connectTimeoutMs handshake timeout in milliseconds, or 0 for
+    /// the platform default.
+    public abstract void connect(int connectTimeoutMs);
+
+    /// Close the connection. Idempotent -- calling on an already-closed
+    /// connection is a no-op.
+    public abstract void close();
+
+    public abstract void sendText(String message);
+
+    public abstract void sendBinary(byte[] message);
+
+    public abstract WebSocketState getReadyState();
+}

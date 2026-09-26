@@ -1,0 +1,72 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.annotations;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+/// Indicates that a class has a known concrete implementation that ParparVM can
+/// target directly in native (C/Objective-C) pipelines.
+///
+/// When present, the translator may bypass virtual lookup when invoking methods
+/// on this type by preferring the concrete class provided in {@link #name()},
+/// and falling back to the annotated type implementation if the concrete class
+/// doesn't implement the method.
+@Retention(RetentionPolicy.CLASS)
+@Target(ElementType.TYPE)
+public @interface Concrete {
+    /// The fully-qualified class name of the concrete implementation to prefer
+    /// during ParparVM native translation (the iOS pipeline, historically the
+    /// only native target).
+    String name();
+
+    /// The fully-qualified class name of the concrete implementation to prefer
+    /// when translating for the native Windows port. When empty (the default),
+    /// the native Windows build falls back to the annotated (portable) base
+    /// class rather than the iOS {@link #name()} target -- so a type that has no
+    /// Windows specialization (e.g. a SIMD helper) translates to its software
+    /// base instead of pulling in the absent iOS class.
+    String win() default "";
+
+    /// The fully-qualified class name of the concrete implementation to prefer
+    /// when translating for the native Linux (GTK/Cairo) port. When empty (the
+    /// default), the native Linux build falls back to the annotated (portable)
+    /// base class rather than the iOS {@link #name()} target -- mirroring
+    /// {@link #win()} so a type with no Linux specialization translates to its
+    /// software base instead of pulling in the absent iOS class.
+    String linux() default "";
+
+    /// The fully-qualified class name of the concrete implementation to prefer
+    /// when translating for the native macOS (AppKit) port. When empty (the
+    /// default), the native macOS build falls back to the annotated (portable)
+    /// base class -- mirroring {@link #win()} and {@link #linux()}.
+    ///
+    /// Unlike those two, the macOS port shares the Apple native binding classes
+    /// with the iOS port, so a type whose iOS specialization also compiles
+    /// against the macOS SDK should name that same iOS class here rather than
+    /// leave this empty. Leaving it empty silently degrades to the portable
+    /// base, which is a green build with the specialization missing.
+    String mac() default "";
+}

@@ -1,0 +1,844 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation. Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Codename One in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codenameone.examples.hellocodenameone.tests;
+
+import com.codename1.io.Log;
+import com.codename1.io.Storage;
+import com.codename1.io.WebSocket;
+import com.codename1.io.WebSocketState;
+import com.codename1.ui.Display;
+import com.codename1.ui.Form;
+import com.codename1.ui.util.UITimer;
+import com.codename1.ui.Image;
+import com.codename1.ui.util.ImageIO;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+
+/// Device-side helper that ships screenshots to the host over a single
+/// transport: a WebSocket to the host-side Cn1ssScreenshotServer. The device
+/// connects to ws://HOST:8765, sends a JSON META text frame followed by the
+/// binary PNG, and the host writes the file and echoes an ACK. Native ports
+/// use the blocking, ACK-paced sink (Cn1ssWebSocketSink.trySend); the JS port
+/// (which can't block the browser event loop) uses the async sink that
+/// advances the sequential suite from the ACK callback. There is no
+/// base64-over-stdout or filesystem fallback -- when the socket is unavailable
+/// or a native send remains unacknowledged after its bounded retry, the runner
+/// retries that one test once.
+interface Cn1ssDeviceRunnerHelper {
+    // Standard, fixed port the host-side Cn1ssScreenshotServer listens on
+    // (scripts/lib/cn1ss.sh starts it with --port 8765). The runner does not
+    // inject the URL per-run; the device defaults to ws://HOST:8765 below so
+    // no platform-specific env/property plumbing is needed. Keep this value in
+    // sync with CN1SS_WS_PORT in scripts/lib/cn1ss.sh.
+    int CN1SS_WS_DEFAULT_PORT = 8765;
+    class TransportFailureState {
+        private static boolean failed;
+        private static String message;
+    }
+
+    static void runOnEdtSync(Runnable runnable) {
+        Display display = Display.getInstance();
+        if (display.isEdt()) {
+            runnable.run();
+        } else if (isHtml5()) {
+            display.callSerially(runnable);
+        } else {
+            display.callSeriallyAndWait(runnable);
+        }
+    }
+
+    static void emitCurrentFormScreenshot(String testName) {
+        emitCurrentFormScreenshot(testName, null);
+    }
+
+    static void emitImage(Image image, String testName, Runnable onComplete) {
+        String safeName = sanitizeTestName(testName);
+        if (image == null) {
+            println("CN1SS:ERR:test=" + safeName + " message=Image is null");
+            emitPlaceholderScreenshot(safeName);
+            complete(onComplete);
+            return;
+        }
+        int width = Math.max(1, image.getWidth());
+        int height = Math.max(1, image.getHeight());
+        boolean async = false;
+        try {
+            async = emitImageScreenshot(safeName, image, width, height, onComplete);
+        } finally {
+            if (!async) {
+                complete(onComplete);
+            }
+        }
+    }
+
+    static void emitCurrentFormScreenshot(String testName, Runnable onComplete) {
+        emitCurrentFormScreenshot(testName, onComplete, 0);
+    }
+
+    static void emitCurrentFormScreenshot(String testName, Runnable onComplete, int attempt) {
+        String safeName = sanitizeTestName(testName);
+        Form current = Display.getInstance().getCurrent();
+        if (current == null) {
+            println("CN1SS:ERR:test=" + safeName + " message=Current form is null");
+            emitPlaceholderScreenshot(safeName);
+            complete(onComplete);
+            return;
+        }
+        // Robustness against the GPU/Metal late-present race: on the iOS Metal (and
+        // occasionally the software) backend the current form can still be un-laid-out
+        // (width/height 0) a beat after it settled, which the capture would emit as a
+        // useless empty 1x1 image -- a run-to-run flake (observed: ShowcaseTheme_dark on
+        // build-ios-metal). Force a relayout + repaint and retry a bounded number of times
+        // before giving up, so an unready frame is never captured.
+        if ((current.getWidth() <= 1 || current.getHeight() <= 1) && attempt < 12) {
+            println("CN1SS:INFO:test=" + safeName + " message=form-not-laid-out retry=" + (attempt + 1)
+                    + " w=" + current.getWidth() + " h=" + current.getHeight());
+            current.revalidate();
+            current.repaint();
+            final String tn = testName;
+            final Runnable oc = onComplete;
+            UITimer.timer(150, false, current, () -> emitCurrentFormScreenshot(tn, oc, attempt + 1));
+            return;
+        }
+        int width = Math.max(1, current.getWidth());
+        int height = Math.max(1, current.getHeight());
+        Display.getInstance().screenshot(screen -> {
+            if (screen == null) {
+                println("CN1SS:ERR:test=" + safeName + " message=Screenshot callback returned null");
+                emitPlaceholderScreenshot(safeName);
+                complete(onComplete);
+                return;
+            }
+            boolean async = false;
+            try {
+                async = emitImageScreenshot(safeName, screen, width, height, onComplete);
+            } finally {
+                if (!async) {
+                    complete(onComplete);
+                }
+            }
+        });
+    }
+
+    /// Encodes the PNG once, logs the size/hash/dupe diagnostics, then sends it
+    /// to the host over the WebSocket sink (the only transport). Returns true
+    /// when the async WebSocket path (JS port) has taken ownership of
+    /// `onComplete` -- it will be invoked from the ACK callback, so the caller
+    /// must NOT call it. Returns false on every synchronous path (native WS, or
+    /// WS unavailable), where the caller advances the suite itself.
+    /// `onComplete` may be null.
+    private static boolean emitImageScreenshot(String safeName, Image screenshot, int width, int height,
+                                               Runnable onComplete) {
+        try {
+            ImageIO io = ImageIO.getImageIO();
+            if (io == null || !io.isFormatSupported(ImageIO.FORMAT_PNG)) {
+                println("CN1SS:ERR:test=" + safeName + " message=PNG encoding unavailable");
+                emitPlaceholderScreenshot(safeName);
+                return false;
+            }
+            if (Display.getInstance().isSimulator()) {
+                io.save(screenshot, Storage.getInstance().createOutputStream(safeName + ".png"), ImageIO.FORMAT_PNG, 1);
+            }
+            ByteArrayOutputStream pngOut = new ByteArrayOutputStream(Math.max(1024, width * height / 2));
+            io.save(screenshot, pngOut, ImageIO.FORMAT_PNG, 1f);
+            byte[] pngBytes = pngOut.toByteArray();
+            String hash = fnv1a64Hex(pngBytes);
+            println("CN1SS:INFO:test=" + safeName + " png_bytes=" + pngBytes.length
+                    + " png_fnv1a64=" + hash);
+            String previous = Cn1ssHashTracker.recordAndCheck(hash, safeName);
+            if (previous != null) {
+                println("CN1SS:WARN:test=" + safeName
+                        + " duplicate_image_with=" + previous + " png_fnv1a64=" + hash);
+            }
+
+            if (isHtml5()) {
+                // JS cannot block on a monitor; the async WS sink advances the
+                // suite from the ACK callback via onComplete.
+                if (Cn1ssWebSocketSink.trySendAsync(safeName, pngBytes, hash, onComplete)) {
+                    return true;
+                }
+                println("CN1SS:ERR:test=" + safeName + " message=websocket-unavailable");
+            } else {
+                boolean wsDelivered = Cn1ssWebSocketSink.trySend(safeName, pngBytes, hash);
+                if (!wsDelivered) {
+                    println("CN1SS:ERR:test=" + safeName + " message=websocket-unavailable");
+                    markTransportFailure(safeName);
+                }
+            }
+            return false;
+        } catch (IOException ex) {
+            println("CN1SS:ERR:test=" + safeName + " message=" + ex);
+            Log.e(ex);
+            emitPlaceholderScreenshot(safeName);
+            return false;
+        } finally {
+            screenshot.dispose();
+        }
+    }
+
+    static void clearTransportFailure() {
+        synchronized (TransportFailureState.class) {
+            TransportFailureState.failed = false;
+            TransportFailureState.message = null;
+        }
+    }
+
+    private static void markTransportFailure(String safeName) {
+        synchronized (TransportFailureState.class) {
+            TransportFailureState.failed = true;
+            TransportFailureState.message = safeName;
+        }
+    }
+
+    static String consumeTransportFailure() {
+        synchronized (TransportFailureState.class) {
+            if (!TransportFailureState.failed) {
+                return null;
+            }
+            String message = TransportFailureState.message;
+            clearTransportFailure();
+            return message == null ? "unknown" : message;
+        }
+    }
+
+    static String sanitizeTestName(String testName) {
+        if (testName == null || testName.length() == 0) {
+            return "default";
+        }
+        StringBuffer sanitized = new StringBuffer(testName.length());
+        for (int i = 0; i < testName.length(); i++) {
+            char ch = testName.charAt(i);
+            if (isSafeChar(ch)) {
+                sanitized.append(ch);
+            } else {
+                sanitized.append('_');
+            }
+        }
+        return sanitized.toString();
+    }
+
+    static boolean isSafeChar(char ch) {
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')) {
+            return true;
+        }
+        if (ch >= '0' && ch <= '9') {
+            return true;
+        }
+        return ch == '_' || ch == '.' || ch == '-';
+    }
+
+    static void println(String line) {
+        System.out.println(line);
+    }
+
+    static void emitPlaceholderScreenshot(String safeName) {
+        try {
+            ImageIO io = ImageIO.getImageIO();
+            if (io == null || !io.isFormatSupported(ImageIO.FORMAT_PNG)) {
+                println("CN1SS:END:" + safeName);
+                return;
+            }
+            Image placeholder = Image.createImage(1, 1, 0xffffffff);
+            try {
+                ByteArrayOutputStream pngOut = new ByteArrayOutputStream(128);
+                io.save(placeholder, pngOut, ImageIO.FORMAT_PNG, 1f);
+                byte[] pngBytes = pngOut.toByteArray();
+                println("CN1SS:INFO:test=" + safeName + " png_bytes=" + pngBytes.length + " placeholder=1");
+                if (isHtml5()) {
+                    // Fire-and-forget on JS (no onComplete: the caller advances
+                    // the suite for placeholders).
+                    Cn1ssWebSocketSink.trySendAsync(safeName, pngBytes, fnv1a64Hex(pngBytes), null);
+                } else {
+                    Cn1ssWebSocketSink.trySend(safeName, pngBytes, fnv1a64Hex(pngBytes));
+                }
+                // WebSocket-only: if the socket is unavailable the placeholder
+                // is dropped along with the real screenshot; no base64 channel.
+                println("CN1SS:END:" + safeName);
+            } finally {
+                placeholder.dispose();
+            }
+        } catch (Throwable t) {
+            println("CN1SS:ERR:test=" + safeName + " message=placeholder_emit_failed " + t);
+            println("CN1SS:END:" + safeName);
+        }
+    }
+
+    static void complete(Runnable runnable) {
+        if (runnable != null) {
+            runnable.run();
+        }
+    }
+
+    static boolean isHtml5() {
+        return "HTML5".equals(Display.getInstance().getPlatformName());
+    }
+
+    /// Returns the JS port's cumulative bridge-call counters as
+    /// "jso=N:host=M", or null on platforms without a JS bridge. On HTML5
+    /// the translated body below is replaced at runtime by a port.js
+    /// bindCiFallback override reading jvm.__cn1JsoDispatchCount /
+    /// jvm.__cn1HostCallCount. Consumed by BridgeBulkTransferGuardTest to
+    /// assert that large-volume transfers (resource streams, pixel
+    /// buffers, storage) cost bridge calls proportional to OPERATIONS,
+    /// not BYTES -- the per-element regression class that has now bitten
+    /// three separate times (single-byte ArrayBufferInputStream.read,
+    /// pre-bulk readBulkImpl, surface-encode/getRGB).
+    static String jsBridgeCallCounts() {
+        return null;
+    }
+
+    /// Computes a 64-bit FNV-1a hash of the given bytes. FNV-1a is fast and
+    /// has no platform dependencies (no java.security, no java.util.zip
+    /// CRC32 wrapping subtleties). 64 bits is enough to make accidental
+    /// collisions on real-world PNG payloads vanishingly unlikely while
+    /// keeping the hash short enough to log on a single line. The mixup
+    /// detector in `Cn1ssHashTracker` calls this on every emitted image so
+    /// that two tests producing bit-identical bytes (the symptom of an iOS
+    /// Metal stale-frame capture: MultiButtonTheme_light returning Tabs
+    /// Theme_light's pixels because the CAMetalLayer hadn't been re-
+    /// presented in time) get flagged with a CN1SS:WARN line.
+    static String fnv1a64Hex(byte[] bytes) {
+        long h = 0xcbf29ce484222325L;
+        long prime = 0x100000001b3L;
+        for (int i = 0; i < bytes.length; i++) {
+            h ^= bytes[i] & 0xff;
+            h *= prime;
+        }
+        StringBuilder sb = new StringBuilder(16);
+        for (int i = 60; i >= 0; i -= 4) {
+            int nib = (int) ((h >>> i) & 0xf);
+            sb.append((char) (nib < 10 ? '0' + nib : 'a' + (nib - 10)));
+        }
+        return sb.toString();
+    }
+}
+
+/// Tracks recently-emitted screenshot hashes per test name so a stale-frame
+/// capture (the same PNG bytes attributed to two different tests in a row)
+/// gets surfaced via CN1SS:WARN markers instead of silently shipping the
+/// wrong image to the comparator. Keeps the most recent 64 entries.
+///
+/// Lives in a separate package-private class because Cn1ssDeviceRunnerHelper
+/// is an interface and can't hold mutable static state.
+///
+/// Storage uses two parallel arrays (hash[i] paired with testName[i]) rather
+/// than a HashMap-typed static field. The Cn1ssDeviceRunner header-comment
+/// at lines 215-222 documents that "static collections initialised via a
+/// static method call ... broke iOS class loading -- Cn1ssDeviceRunner
+/// failed to load before runSuite() could even log a single starting
+/// test=... entry, leaving the suite to time out at the 300s end-marker
+/// deadline." The first attempt at this tracker used `private static final
+/// Map<String, String> hashToTest = new LinkedHashMap<>()` and reproduced
+/// exactly that symptom on the iOS Metal CI run -- the simulator booted,
+/// installed the app, then never emitted a single CN1SS line and timed
+/// out at 30 minutes. Plain primitive arrays of String avoid touching the
+/// HashMap class init path during the host class's `<clinit>`.
+final class Cn1ssHashTracker {
+    private static final int MAX_TRACKED = 64;
+    private static final String[] hashes = new String[MAX_TRACKED];
+    private static final String[] tests = new String[MAX_TRACKED];
+    private static int count;
+
+    private Cn1ssHashTracker() {
+    }
+
+    /// Records the hash for `safeName` and returns the test name that
+    /// previously emitted the same hash, or null if this is the first time.
+    /// Caller logs a CN1SS:WARN line when a duplicate is found so the
+    /// downstream comparator can flag the affected test as a likely
+    /// stale-frame capture.
+    ///
+    /// O(MAX_TRACKED) per call -- 64-entry linear scan is trivial vs the
+    /// PNG hash itself (which scans every byte of the image).
+    static synchronized String recordAndCheck(String hashHex, String safeName) {
+        String previous = null;
+        for (int i = 0; i < count; i++) {
+            if (hashHex.equals(hashes[i])) {
+                previous = tests[i];
+                if (safeName.equals(previous)) {
+                    return null;
+                }
+                break;
+            }
+        }
+        if (count < MAX_TRACKED) {
+            hashes[count] = hashHex;
+            tests[count] = safeName;
+            count++;
+        } else {
+            System.arraycopy(hashes, 1, hashes, 0, MAX_TRACKED - 1);
+            System.arraycopy(tests, 1, tests, 0, MAX_TRACKED - 1);
+            hashes[MAX_TRACKED - 1] = hashHex;
+            tests[MAX_TRACKED - 1] = safeName;
+        }
+        return previous;
+    }
+}
+
+/// Singleton WebSocket sink. Lazily connects on first send. ACK pacing:
+/// after every binary upload, the sender thread blocks on a per-test latch
+/// that the WS onTextMessage handler releases when the host echoes back an
+/// `ACK <safeName>` text frame. ACK_TIMEOUT_MS is generous (10s) -- the
+/// host writes the PNG to disk and ACKs immediately on LAN; if we hit the
+/// timeout something is genuinely broken and the test should fail loudly.
+///
+/// `trySend` returns true only after the host ACKs the PNG. It returns false
+/// when WS is unavailable or the ACK times out after a bounded reconnect retry,
+/// so the suite runner can rerun just the affected test once.
+final class Cn1ssWebSocketSink {
+    private static final int ACK_TIMEOUT_MS = 10_000;
+    private static final int CONNECT_TIMEOUT_MS = 5_000;
+    /// How many times the FIRST connect is attempted before the sink gives up.
+    ///
+    /// One attempt is not enough, and the failure is total rather than partial:
+    /// ensureConnected latches `unavailable` on the first miss, so a single slow
+    /// handshake loses every remaining screenshot in the suite and the run ends
+    /// in "FATAL: no CN1 renders delivered". That is not hypothetical -- three
+    /// hosted-runner runs died exactly this way (`reason=connect-timeout`, with
+    /// the server logging one `SocketException: Connection reset` as the client
+    /// walked away mid-handshake). On those runs the simulator was demonstrably
+    /// slow: the app took 63s to reach its first log line and 3.7s to render a
+    /// tile that normally takes 1.1s, so the 5s handshake budget was simply too
+    /// tight for a cold app on a loaded machine.
+    ///
+    /// Retrying is a genuine fix rather than a tolerance: the connection either
+    /// establishes or it does not, so a persistent failure still fails the run
+    /// loudly after the full budget, with one log line per attempt to say so.
+    /// The retries cost nothing on a healthy machine, where the first attempt
+    /// connects in milliseconds.
+    private static final int CONNECT_ATTEMPTS = 4;
+    private static final int CONNECT_RETRY_PAUSE_MS = 1_000;
+    private static final int SEND_ATTEMPTS = 2;
+    private static final Map<String, AckLatch> pending = new HashMap<String, AckLatch>();
+    private static WebSocket socket;
+    private static volatile boolean attemptedConnect;
+    private static volatile boolean unavailable;
+
+    // ---- Async path (JavaScript port) ----
+    // The JS port runs on the browser event loop and forbids blocking on a
+    // monitor (Object.wait throws BlockingDisallowedException, even off the
+    // EDT), so the blocking trySend/connect above cannot be used there. The
+    // async path never blocks: it connects, sends on open, and advances the
+    // sequential test suite from the ACK callback by invoking the per-test
+    // onComplete. ASYNC_IDLE -> ASYNC_CONNECTING -> ASYNC_OPEN / ASYNC_FAILED.
+    private static final int ASYNC_IDLE = 0;
+    private static final int ASYNC_CONNECTING = 1;
+    private static final int ASYNC_OPEN = 2;
+    private static final int ASYNC_FAILED = 3;
+    private static int asyncState = ASYNC_IDLE;
+    private static WebSocket asyncSocket;
+    private static final Map<String, Runnable> asyncPending = new HashMap<String, Runnable>();
+    // The suite is sequential (each test waits for onComplete before the next),
+    // so at most one screenshot is in flight; this holds the single send that
+    // arrived while the socket was still connecting. {name, png, hash, onComplete}
+    private static Object[] asyncQueuedWhileConnecting;
+
+    private Cn1ssWebSocketSink() {
+    }
+
+    /// The server URL: an explicit -Dcn1ss.websocket.url wins (JavaSE), else the
+    /// fixed standard port on the host loopback (10.0.2.2 from the Android
+    /// emulator, 127.0.0.1 elsewhere -- iOS sim, Mac Catalyst, the browser).
+    private static String resolveUrl() {
+        String url = Display.getInstance().getProperty("cn1ss.websocket.url", "");
+        if (url == null || url.length() == 0) {
+            String host = "and".equals(Display.getInstance().getPlatformName())
+                    ? "10.0.2.2" : "127.0.0.1";
+            url = "ws://" + host + ":" + Cn1ssDeviceRunnerHelper.CN1SS_WS_DEFAULT_PORT;
+        }
+        return url;
+    }
+
+    /// Non-blocking send for the JS port. Returns true when the WebSocket path
+    /// has taken ownership of completion (it will run onComplete from the ACK
+    /// callback, or immediately if the send fails); false when WS is
+    /// unavailable, in which case the screenshot is simply absent (no fallback).
+    static synchronized boolean trySendAsync(String safeName, byte[] pngBytes, String hashHex, Runnable onComplete) {
+        if (asyncState == ASYNC_FAILED) {
+            return false;
+        }
+        if (asyncState == ASYNC_IDLE) {
+            if (!WebSocket.isSupported()) {
+                asyncState = ASYNC_FAILED;
+                System.out.println("CN1SS:INFO:ws-sink-unavailable reason=not-supported");
+                return false;
+            }
+            connectAsync();
+        }
+        if (asyncState == ASYNC_OPEN) {
+            sendAsyncNow(safeName, pngBytes, hashHex, onComplete);
+            return true;
+        }
+        if (asyncState == ASYNC_CONNECTING) {
+            // Hold the single in-flight send until onConnect flushes it.
+            asyncQueuedWhileConnecting = new Object[] { safeName, pngBytes, hashHex, onComplete };
+            return true;
+        }
+        return false;
+    }
+
+    private static void connectAsync() {
+        asyncState = ASYNC_CONNECTING;
+        WebSocket ws = WebSocket.build(resolveUrl())
+                .onConnect(new WebSocket.ConnectHandler() {
+                    public void onConnect(WebSocket w) {
+                        asyncState = ASYNC_OPEN;
+                        flushQueuedAsync();
+                    }
+                })
+                .onTextMessage(new WebSocket.TextHandler() {
+                    public void onText(WebSocket w, String message) {
+                        handleAckAsync(message);
+                    }
+                })
+                .onClose(new WebSocket.CloseHandler() {
+                    public void onClose(WebSocket w, int code, String reason) {
+                        failAsync("closed:" + code);
+                    }
+                })
+                .onError(new WebSocket.ErrorHandler() {
+                    public void onError(WebSocket w, Exception ex) {
+                        failAsync("error:" + ex.getMessage());
+                    }
+                });
+        asyncSocket = ws;
+        ws.connect(0);
+    }
+
+    private static void sendAsyncNow(String name, byte[] png, String hash, Runnable onComplete) {
+        try {
+            String meta = "META {\"test\":\"" + name + "\",\"png_bytes\":"
+                    + png.length + ",\"png_fnv1a64\":\"" + hash + "\"}";
+            asyncSocket.send(meta);
+            asyncSocket.send(png);
+            if (onComplete != null) {
+                synchronized (asyncPending) {
+                    asyncPending.put(name, onComplete);
+                }
+            }
+        } catch (Throwable t) {
+            System.out.println("CN1SS:ERR:test=" + name + " message=ws-async-send-failed:" + t);
+            Log.e(t);
+            if (onComplete != null) {
+                onComplete.run(); // never stall the sequential suite
+            }
+        }
+    }
+
+    private static void flushQueuedAsync() {
+        Object[] q = asyncQueuedWhileConnecting;
+        asyncQueuedWhileConnecting = null;
+        if (q != null) {
+            sendAsyncNow((String) q[0], (byte[]) q[1], (String) q[2], (Runnable) q[3]);
+        }
+    }
+
+    private static void handleAckAsync(String text) {
+        if (text == null || !text.startsWith("ACK ")) {
+            return;
+        }
+        String body = text.substring(4).trim();
+        int sp = body.indexOf(' ');
+        String name = sp > 0 ? body.substring(0, sp) : body;
+        Runnable r;
+        synchronized (asyncPending) {
+            r = asyncPending.remove(name);
+        }
+        if (r != null) {
+            r.run(); // advance the suite to the next test
+        }
+    }
+
+    /// Connection failed or dropped: stop using WS and release every waiter so
+    /// the sequential suite proceeds. Missing screenshots then surface through
+    /// the host-side count guard rather than hanging the run.
+    private static void failAsync(String reason) {
+        boolean firstFailure = asyncState != ASYNC_FAILED;
+        asyncState = ASYNC_FAILED;
+        if (firstFailure) {
+            System.out.println("CN1SS:INFO:ws-sink-unavailable reason=" + reason);
+        }
+        Object[] q = asyncQueuedWhileConnecting;
+        asyncQueuedWhileConnecting = null;
+        if (q != null && q[3] != null) {
+            ((Runnable) q[3]).run();
+        }
+        java.util.List<Runnable> waiters = new java.util.ArrayList<Runnable>();
+        synchronized (asyncPending) {
+            waiters.addAll(asyncPending.values());
+            asyncPending.clear();
+        }
+        for (Runnable r : waiters) {
+            if (r != null) {
+                r.run();
+            }
+        }
+    }
+
+    static synchronized boolean trySend(String safeName, byte[] pngBytes, String hashHex) {
+        for (int attempt = 1; attempt <= SEND_ATTEMPTS; attempt++) {
+            if (trySendOnce(safeName, pngBytes, hashHex)) {
+                return true;
+            }
+            resetConnection();
+            if (attempt < SEND_ATTEMPTS) {
+                System.out.println("CN1SS:WARN:test=" + safeName
+                        + " message=ws-send-retry attempt=" + (attempt + 1));
+            }
+        }
+        return false;
+    }
+
+    private static boolean trySendOnce(String safeName, byte[] pngBytes, String hashHex) {
+        if (!ensureConnected()) {
+            return false;
+        }
+        final AckLatch latch = new AckLatch();
+        synchronized (pending) {
+            pending.put(safeName, latch);
+        }
+        try {
+            String meta = "META {\"test\":\"" + safeName + "\",\"png_bytes\":"
+                    + pngBytes.length + ",\"png_fnv1a64\":\"" + hashHex + "\"}";
+            socket.send(meta);
+            socket.send(pngBytes);
+        } catch (Throwable t) {
+            synchronized (pending) {
+                pending.remove(safeName);
+            }
+            System.out.println("CN1SS:ERR:test=" + safeName + " message=ws-send-failed:" + t);
+            Log.e(t);
+            return false;
+        }
+        boolean acked = latch.await(ACK_TIMEOUT_MS);
+        synchronized (pending) {
+            pending.remove(safeName);
+        }
+        if (!acked) {
+            System.out.println("CN1SS:ERR:test=" + safeName
+                    + " message=ws-ack-timeout-after-" + ACK_TIMEOUT_MS + "ms");
+        }
+        return acked;
+    }
+
+    private static void resetConnection() {
+        if (socket != null) {
+            try {
+                socket.close();
+            } catch (Throwable ignored) {
+                // The next send attempt creates a fresh socket regardless.
+            }
+        }
+        socket = null;
+        attemptedConnect = false;
+        unavailable = false;
+    }
+
+    private static boolean ensureConnected() {
+        if (socket != null && socket.getReadyState() == WebSocketState.OPEN) {
+            return true;
+        }
+        if (unavailable) {
+            return false;
+        }
+        if (attemptedConnect) {
+            // Previous attempt completed but the socket is no longer open
+            // (closed/errored). Treat as unavailable for the rest of the
+            // run; the runner script's whole point of launching the WS
+            // server is that it stays up for the whole suite.
+            unavailable = true;
+            return false;
+        }
+        // A -Dcn1ss.websocket.url override still wins where the launcher can
+        // set Display properties (e.g. the JavaSE simulator via the maven
+        // plugin's -Dproperty=...). Everywhere else we don't inject anything:
+        // the host runs Cn1ssScreenshotServer on the fixed standard port and
+        // the device defaults to ws://HOST:CN1SS_WS_DEFAULT_PORT. HOST is the
+        // host loopback as seen from the app -- the Android emulator reaches
+        // it via 10.0.2.2, every other target (iOS simulator, Mac Catalyst,
+        // the browser, JavaSE) shares 127.0.0.1.
+        String url = Display.getInstance().getProperty("cn1ss.websocket.url", "");
+        if (url == null || url.length() == 0) {
+            String host = "and".equals(Display.getInstance().getPlatformName())
+                    ? "10.0.2.2" : "127.0.0.1";
+            url = "ws://" + host + ":" + Cn1ssDeviceRunnerHelper.CN1SS_WS_DEFAULT_PORT;
+        }
+        if (!WebSocket.isSupported()) {
+            unavailable = true;
+            System.out.println("CN1SS:INFO:ws-sink-unavailable reason=not-supported");
+            return false;
+        }
+        attemptedConnect = true;
+        return connectWithRetries(url);
+    }
+
+    /// Runs connectOnce up to CONNECT_ATTEMPTS times, and only then declares the
+    /// sink unavailable. See CONNECT_ATTEMPTS for why a single attempt is wrong.
+    private static boolean connectWithRetries(String url) {
+        for (int attempt = 1; attempt <= CONNECT_ATTEMPTS; attempt++) {
+            if (connectOnce(url, attempt)) {
+                return true;
+            }
+            if (attempt < CONNECT_ATTEMPTS) {
+                try {
+                    Thread.sleep(CONNECT_RETRY_PAUSE_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        unavailable = true;
+        socket = null;
+        System.out.println("CN1SS:INFO:ws-sink-unavailable reason=connect-failed-after-"
+                + CONNECT_ATTEMPTS + "-attempts");
+        return false;
+    }
+
+    /// One connect attempt. Returns true when the socket is open. On failure it
+    /// reports the reason and returns false WITHOUT latching `unavailable` --
+    /// that decision belongs to connectWithRetries, which owns the budget.
+    private static boolean connectOnce(String url, int attempt) {
+        final Object connectGate = new Object();
+        final boolean[] connected = new boolean[1];
+        final String[] errReason = new String[1];
+        WebSocket ws = WebSocket.build(url)
+                .onConnect(new WebSocket.ConnectHandler() {
+                    @Override
+                    public void onConnect(WebSocket w) {
+                        synchronized (connectGate) {
+                            connected[0] = true;
+                            connectGate.notifyAll();
+                        }
+                    }
+                })
+                .onTextMessage(new WebSocket.TextHandler() {
+                    @Override
+                    public void onText(WebSocket w, String message) {
+                        handleAck(message);
+                    }
+                })
+                .onClose(new WebSocket.CloseHandler() {
+                    @Override
+                    public void onClose(WebSocket w, int code, String reason) {
+                        drainPending();
+                    }
+                })
+                .onError(new WebSocket.ErrorHandler() {
+                    @Override
+                    public void onError(WebSocket w, Exception ex) {
+                        synchronized (connectGate) {
+                            errReason[0] = ex.getMessage();
+                            connectGate.notifyAll();
+                        }
+                        drainPending();
+                    }
+                });
+        socket = ws;
+        ws.connect(CONNECT_TIMEOUT_MS);
+        long deadline = System.currentTimeMillis() + CONNECT_TIMEOUT_MS;
+        synchronized (connectGate) {
+            while (!connected[0] && errReason[0] == null) {
+                long remaining = deadline - System.currentTimeMillis();
+                if (remaining <= 0) {
+                    errReason[0] = "connect-timeout";
+                    break;
+                }
+                try {
+                    connectGate.wait(remaining);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    errReason[0] = "interrupted";
+                    break;
+                }
+            }
+        }
+        if (connected[0]) {
+            return true;
+        }
+        socket = null;
+        System.out.println("CN1SS:INFO:ws-connect-attempt " + attempt + "/" + CONNECT_ATTEMPTS
+                + " failed reason=" + errReason[0]);
+        return false;
+    }
+
+    private static void handleAck(String text) {
+        if (text == null || !text.startsWith("ACK ")) {
+            return;
+        }
+        String body = text.substring(4).trim();
+        String testName;
+        int spaceIdx = body.indexOf(' ');
+        if (spaceIdx > 0) {
+            testName = body.substring(0, spaceIdx);
+        } else {
+            testName = body;
+        }
+        AckLatch latch;
+        synchronized (pending) {
+            latch = pending.get(testName);
+        }
+        if (latch != null) {
+            latch.release();
+        }
+    }
+
+    private static void drainPending() {
+        synchronized (pending) {
+            for (Map.Entry<String, AckLatch> e : pending.entrySet()) {
+                e.getValue().release();
+            }
+            pending.clear();
+        }
+    }
+
+    private static final class AckLatch {
+        private boolean released;
+
+        synchronized boolean await(long timeoutMs) {
+            long deadline = System.currentTimeMillis() + timeoutMs;
+            while (!released) {
+                long remaining = deadline - System.currentTimeMillis();
+                if (remaining <= 0) {
+                    return false;
+                }
+                try {
+                    wait(remaining);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        synchronized void release() {
+            released = true;
+            notifyAll();
+        }
+    }
+}

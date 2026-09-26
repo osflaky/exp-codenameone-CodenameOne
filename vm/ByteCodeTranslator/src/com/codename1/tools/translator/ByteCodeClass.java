@@ -1,0 +1,2834 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *  
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ * 
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ * 
+ * Please contact Codename One through http://www.codenameone.com/ if you 
+ * need additional information or have any questions.
+ */
+
+package com.codename1.tools.translator;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
+
+/**
+ * Parsed class file
+ *
+ * @author Shai Almog
+ */
+public class ByteCodeClass {
+
+    /**
+     * The one class whose reference field the collector owns rather than traces.
+     *
+     * <p>{@code java.lang.ref.Reference.objReference} is the referent of every
+     * WeakReference and SoftReference in the program. Emitting the ordinary
+     * {@code gcMarkObject} for it would make it a STRONG edge -- which is exactly
+     * what ParparVM did until this opt-out existed, so that a "weak" reference
+     * pinned its referent for the life of the process and every cache built on
+     * {@code Display.createSoftWeakRef} was unbounded. The two emission sites
+     * below replace that with a weak edge and the load barrier that makes reading
+     * one safe while a concurrent mark is running.</p>
+     *
+     * <p>Matched by name rather than by any annotation because the class is part
+     * of the VM's own {@code java.lang} surface: there is nowhere to hang an
+     * annotation that {@code vm/JavaAPI} and {@code Ports/CLDC11} would both
+     * accept, and a marker interface would be one more thing to keep in step.
+     * {@code Reference} is final in practice -- its constructor is package
+     * private -- so the set of classes this can apply to is closed.</p>
+     */
+    static final String REFERENCE_CLASS = "java_lang_ref_Reference";
+
+    /** The referent field within {@link #REFERENCE_CLASS}. */
+    static final String REFERENCE_REFERENT_FIELD = "objReference";
+
+    /**
+     * True for the one field whose GC treatment and read accessor are special
+     * cased below. Both call sites must agree, hence the shared predicate:
+     * suppressing the mark without adding the barrier produces a collector that
+     * frees a referent a mutator is holding, and adding the barrier without
+     * suppressing the mark produces a weak reference that is still strong.
+     */
+    private static boolean isReferenceReferent(String owningClass, ByteCodeField fld) {
+        return REFERENCE_CLASS.equals(owningClass)
+                && REFERENCE_REFERENT_FIELD.equals(fld.getFieldName())
+                && REFERENCE_CLASS.equals(fld.getClsName());
+    }
+
+    /**
+     * @param isAnonymous the isAnonymous to set
+     */
+    public void setIsAnonymous(boolean isAnonymous) {
+        this.isAnonymous = isAnonymous;
+    }
+
+    /**
+     * @param isSynthetic the isSynthetic to set
+     */
+    public void setIsSynthetic(boolean isSynthetic) {
+        this.isSynthetic = isSynthetic;
+    }
+
+    /**
+     * @param isAnnotation the isAnnotation to set
+     */
+    public void setIsAnnotation(boolean isAnnotation) {
+        this.isAnnotation = isAnnotation;
+    }
+    private List<ByteCodeField> fullFieldList;
+    private List<ByteCodeField> staticFieldList;
+    private Set<String> dependsClassesInterfaces = new TreeSet<String>();
+    private Set<String> exportsClassesInterfaces = new TreeSet<String>();
+    private List<BytecodeMethod> methods = new ArrayList<BytecodeMethod>();
+    private List<ByteCodeField> fields = new ArrayList<ByteCodeField>();
+    private String clsName;
+    private String originalClassName;
+    private String baseClass;
+    private String concreteClass;
+    private List<String> baseInterfaces;
+    private boolean isInterface;
+    private boolean isAbstract;
+    private boolean isSynthetic;
+    private boolean isAnnotation;
+    private boolean isAnonymous;
+    private boolean eliminated;
+
+    private static boolean saveUnitTests;
+    private boolean isUnitTest;
+
+
+    private static Set<String> arrayTypes = new TreeSet<String>();
+    
+    private ByteCodeClass baseClassObject;
+    private List<ByteCodeClass> baseInterfacesObject;
+    
+    List<BytecodeMethod> virtualMethodList;
+    private String sourceFile;
+
+    private int classOffset;
+    
+    private boolean marked;
+    private static ByteCodeClass mainClass;
+    private static String preferredMainClass;
+    private boolean finalClass;
+    private boolean isEnum;
+    private static Set<String> writableFields = new HashSet<String>();
+
+    static void cleanup() {
+        arrayTypes.clear();
+        writableFields.clear();
+        mainClass = null;
+        preferredMainClass = null;
+        saveUnitTests = false;
+        concreteTarget = null;
+    }
+
+    /// Selects which {@code @Concrete} attribute the parser honours: {@code "win"}
+    /// for the native Windows build (use {@code Concrete.win()}), {@code "linux"}
+    /// for the native Linux build (use {@code Concrete.linux()}), {@code "mac"}
+    /// for the native macOS build (use {@code Concrete.mac()}), {@code null}/
+    /// anything else for the default iOS pipeline (use {@code Concrete.name()}).
+    /// Set once per translation run from the app type (see ByteCodeTranslator).
+    private static String concreteTarget;
+
+    static void setConcreteTarget(String target) {
+        concreteTarget = target;
+    }
+
+    static String getConcreteTarget() {
+        return concreteTarget;
+    }
+    
+    /**
+     * 
+     * @param clsName Class name with mangling.  e.g. java_lang_String
+     * @param originalClassName Classname without mangling.  e.g. java/lang/String
+     */
+    public ByteCodeClass(String clsName, String originalClassName) {
+        this.clsName = clsName;
+        this.originalClassName = originalClassName;
+    }
+
+    /**
+     * Checks if this class has been eliminated.
+     * @return
+     */
+    public boolean isEliminated() {
+        return eliminated;
+    }
+
+    /**
+     * Marks class as eliminated.  Will recursively set all class methods
+     * as eliminated too.
+     * @param eliminated True to set eliminated.
+     * @return Number of methods that were newly marked as eliminated by this call.
+     */
+    public int setEliminated(boolean eliminated) {
+        int nfound = 0;
+        if (this.eliminated) return nfound;
+        this.eliminated = eliminated;
+        if (eliminated) {
+            for (BytecodeMethod m : methods) {
+                if (!m.isEliminated()) {
+                    m.setEliminated(true);
+                    nfound++;
+                }
+            }
+        }
+        return nfound;
+
+    }
+
+    /**
+     * Restores a class definition for the JavaScript RTA pass without
+     * resurrecting all of its methods.  The conservative pass can remove a
+     * class after eliminating the only method that instantiates it; RTA may
+     * subsequently prove that method reachable through a runtime dispatch
+     * edge.  RTA then restores only the methods it actually reaches.
+     */
+    void restoreEliminatedClass() {
+        eliminated = false;
+    }
+    
+    /**
+     * Class name in original JVM format:  e.g. java/lang/String
+     * @return 
+     */
+    public String getOriginalClassName() {
+        return originalClassName;
+    }
+    static ByteCodeClass getMainClass() {
+		return mainClass;
+    }
+
+    static void setPreferredMainClass(String preferredMainClassName) {
+        preferredMainClass = preferredMainClassName;
+    }
+    
+    static void setSaveUnitTests(boolean save) {
+        saveUnitTests = save;
+    }
+    
+    public void addMethod(BytecodeMethod m) {
+        if(m.isMain()) {
+            if (preferredMainClass != null) {
+                if (clsName.equals(preferredMainClass)) {
+                    mainClass = this;
+                }
+            } else if (mainClass == null) {
+                mainClass = this;
+            } else {
+                throw new RuntimeException("Multiple main classes: "+mainClass.clsName+" and "+this.clsName);
+            }
+        }
+        m.setSourceFile(sourceFile);
+        m.setForceVirtual(isInterface);
+        methods.add(m);
+    }
+
+
+    public void addField(ByteCodeField m) {
+        fields.add(m);
+    }
+    
+    public String generateJavascriptCode(List<ByteCodeClass> allClasses) {
+        return JavascriptMethodGenerator.generateClassJavascript(this, allClasses);
+    }
+    
+    public void addWritableField(String field) {
+        writableFields.add(field);
+    }
+
+    /**
+     * Marks dependencies in this class based on the provided classes in this round of optimization.
+     * @param lst The list of classes that are available in this optimization step.
+     * @param nativeSources Array of native sources in this round. Used to check if native files reference
+     *                      this class or methods.
+     */
+    public static void markDependencies(List<ByteCodeClass> lst, String[] nativeSources) {
+        mainClass.markDependent(lst);
+        for(ByteCodeClass bc : lst) {
+            if (bc.marked) {
+                continue;
+            }
+            if (bc.isEliminated()) {
+                continue;
+            }
+            if(bc.clsName.equals("java_lang_Boolean")) {
+                bc.markDependent(lst);
+                continue;
+            }
+            if(bc.clsName.equals("java_lang_String")) {
+                bc.markDependent(lst);
+                continue;
+            }
+            if(bc.clsName.equals("java_lang_Integer")) {
+                bc.markDependent(lst);
+                continue;
+            }
+            if(bc.clsName.equals("java_lang_Byte")) {
+                bc.markDependent(lst);
+                continue;
+            }
+            if(bc.clsName.equals("java_lang_Short")) {
+                bc.markDependent(lst);
+                continue;
+            }
+            if(bc.clsName.equals("java_lang_Character")) {
+                bc.markDependent(lst);
+                continue;
+            }
+            if(bc.clsName.equals("java_lang_Thread")) {
+                bc.markDependent(lst);
+                continue;
+            }
+            if(bc.clsName.equals("java_lang_Long")) {
+                bc.markDependent(lst);
+                continue;
+            }
+            if(bc.clsName.equals("java_lang_Double")) {
+                bc.markDependent(lst);
+                continue;
+            }
+            if(bc.clsName.equals("java_lang_Float")) {
+                bc.markDependent(lst);
+                continue;
+            }
+            if(bc.clsName.equals("java_lang_StackOverflowError")) {
+                bc.markDependent(lst);
+                continue;
+            }
+            if(bc.clsName.equals("java_text_DateFormat")) {
+                bc.markDependent(lst);
+                continue;
+            }
+            if (bc.getUsedByNative() == UsedByNativeResult.Unknown) {
+                // We don't yet know if this class is used by native
+                // calculate it now.
+                bc.calcUsedByNative(nativeSources);
+            }
+            if(bc.getUsedByNative() == UsedByNativeResult.Used){
+                bc.markDependent(lst);
+                continue;
+            }
+            if(saveUnitTests && bc.isUnitTest) {
+                bc.markDependent(lst);
+                continue;
+            }
+        }
+        
+        // mark all non-final classes that aren't inherited as final for use in 
+        // additional optimizations
+        for(ByteCodeClass bc : lst) {
+            if(bc.isFinalClass() || bc.isInterface || bc.isIsAbstract()) {
+                continue;
+            }
+            boolean found = false;
+            for(ByteCodeClass bk : lst) {
+                if(bk.baseClassObject == bc) {
+                    found = true;
+                    break;
+                }
+            }
+            if(!found) {
+                bc.setFinalClass(true);
+            }
+        }
+        
+        // we try to disable the "virtual" aspect of methods where possible
+        for(ByteCodeClass bc : lst) {
+            if(bc.isFinalClass()) {
+                for(BytecodeMethod meth : bc.methods) {
+                    if(meth.canBeVirtual() && !bc.isMethodFromBaseOrInterface(meth)) {
+                        meth.setVirtualOverriden(true);
+                    }
+                } 
+            } 
+        }        
+    }
+    
+    
+    public boolean isMethodPrivate(String name, String desc) {
+        for (BytecodeMethod meth : methods) {
+            if (meth.getMethodName().equals(name) && desc.equals(meth.getSignature())) {
+                return meth.isPrivate();
+            }
+        }
+        return false;
+    }
+
+    public ByteCodeClass findMethodOwner(String name, String desc) {
+        return findMethodOwner(name, desc, new HashSet<ByteCodeClass>());
+    }
+
+    private ByteCodeClass findMethodOwner(String name, String desc, Set<ByteCodeClass> visited) {
+        if (!visited.add(this)) {
+            return null;
+        }
+        BytecodeMethod declaredMethod = findDeclaredMethod(name, desc);
+        if (declaredMethod != null && !declaredMethod.isAbstract()) {
+            return this;
+        }
+        if (baseClassObject != null) {
+            ByteCodeClass owner = baseClassObject.findMethodOwner(name, desc, visited);
+            if (owner != null) {
+                return owner;
+            }
+        }
+        if (baseInterfacesObject != null) {
+            for (ByteCodeClass iface : baseInterfacesObject) {
+                ByteCodeClass owner = iface.findMethodOwner(name, desc, visited);
+                if (owner != null) {
+                    return owner;
+                }
+            }
+        }
+        return null;
+    }
+
+    private BytecodeMethod findDeclaredMethod(String name, String desc) {
+        for (BytecodeMethod meth : methods) {
+            if (meth.getMethodName().equals(name) && desc.equals(meth.getSignature())) {
+                return meth;
+            }
+        }
+        return null;
+    }
+
+    public boolean hasDeclaredNonAbstractMethod(String name, String desc) {
+        BytecodeMethod declaredMethod = findDeclaredMethod(name, desc);
+        return declaredMethod != null && !declaredMethod.isAbstract();
+    }
+
+    /** any declaration (abstract or not) of the given method in THIS class. */
+    public boolean hasDeclaredMethod(String name, String desc) {
+        return findDeclaredMethod(name, desc) != null;
+    }
+
+    /// Walks {@code concrete} and then its superclass chain and returns the first
+    /// class that declares a non-abstract {@code name}/{@code desc}, or null when
+    /// none does.
+    ///
+    /// This is the method the runtime would dispatch to for an instance of
+    /// {@code concrete}, which is precisely what a {@code @Concrete}
+    /// devirtualization is allowed to bind directly. Looking only at
+    /// {@code concrete}'s own declarations -- which is what this replaced -- gave
+    /// up on every method the concrete class inherits rather than overrides. That
+    /// was harmless while every {@code @Concrete} target derived straight from the
+    /// annotated base, and stopped being harmless once a port's implementation
+    /// subclassed another port's (MacImplementation extends IOSImplementation),
+    /// because the ~1,200 inherited methods -- Graphics primitives among them --
+    /// silently fell back to full virtual dispatch.
+    public static ByteCodeClass findConcreteDeclaringClass(ByteCodeClass concrete, String name, String desc) {
+        ByteCodeClass c = concrete;
+        while (c != null) {
+            if (c.hasDeclaredNonAbstractMethod(name, desc)) {
+                return c;
+            }
+            c = c.getBaseClassObject();
+        }
+        return null;
+    }
+
+    public void unmark() {
+        marked = false;
+    }
+    
+    private void markDependent(List<ByteCodeClass> lst) {
+        if(marked) {
+            return;
+        }
+
+        marked = true;
+        
+        // make sure the method/classname are in the constant pool so we can later 
+        // look them up in case of a stack trace exception
+        Parser.addToConstantPool(clsName);
+        for(BytecodeMethod bm : methods) {
+            if(!bm.isEliminated()) {
+                Parser.addToConstantPool(bm.getMethodName());
+                bm.addToConstantPool();
+            }
+        }
+        
+        for(String s : dependsClassesInterfaces) {
+            ByteCodeClass cls = findClass(s, lst);
+            
+            // annotation can be null
+            if(cls != null) {
+                cls.markDependent(lst);
+            }
+        }
+    }
+    
+    public static List<ByteCodeClass> clearUnmarked(List<ByteCodeClass> lst) {
+        List<ByteCodeClass> response = new ArrayList<ByteCodeClass>();
+        for(ByteCodeClass bc : lst) {
+            if(bc.marked) {
+                response.add(bc);
+            }
+        }
+        return response;
+    }
+    
+    private ByteCodeClass findClass(String s, List<ByteCodeClass> lst) {
+        // lst is always Parser.classes here (markDependencies -> markDependent), so
+        // the shared name index gives the same first-match result in O(1) instead of
+        // the old O(N) scan that ran per dependency per class during marking.
+        return Parser.getClassObject(s);
+    }
+    
+    public void updateAllDependencies() {
+        dependsClassesInterfaces.clear();
+        exportsClassesInterfaces.clear();
+        dependsClassesInterfaces.add("java_lang_NullPointerException");
+        if(ByteCodeTranslator.isCheckedCastsEnabled()) {
+            // Kept alive for BC_CHECKCAST_CHECKED, which is emitted under the same
+            // flag. Retaining it only when the check is emitted keeps the class out
+            // of every build that does not enforce casts.
+            dependsClassesInterfaces.add("java_lang_ClassCastException");
+            dependsClassesInterfaces.add("java_lang_ArrayStoreException");
+        }
+        setBaseClass(baseClass);
+        if (isAnnotation) {
+            dependsClassesInterfaces.add("java_lang_annotation_Annotation");
+        }
+        for(String s : baseInterfaces) {
+            s = s.replace('/', '_').replace('$', '_');
+            if(!dependsClassesInterfaces.contains(s)) {
+                dependsClassesInterfaces.add(s);
+            }
+            exportsClassesInterfaces.add(s);
+        }
+        if(virtualMethodList != null) {
+            virtualMethodList.clear();
+        } else {
+            virtualMethodList = new ArrayList<BytecodeMethod>();
+        }
+        fillVirtualMethodTable(virtualMethodList);
+        for(BytecodeMethod m : methods) {
+            if(m.isEliminated()) {
+                continue;
+            }
+            // late fold-dependency re-scan (see the method's javadoc): must run
+            // now, when all classes are parsed, before the dep list is copied
+            m.updateInlinableFieldDependencies();
+
+            for(String s : m.getDependentClasses()) {
+                if(!dependsClassesInterfaces.contains(s)) {
+                    dependsClassesInterfaces.add(s);
+                }
+            }
+            //for (String s : m.getExportedClasses()) {
+            //    exportsClassesInterfaces.add(s);
+            //}
+        }
+        for(ByteCodeField m : fields) {
+            for(String s : m.getDependentClasses()) {
+                if(!dependsClassesInterfaces.contains(s)) {
+                    dependsClassesInterfaces.add(s);
+                }
+            }
+        }
+        
+        // Resolve concrete invoke dependencies.  Invoke.addDependencies runs at
+        // parse time when classes with @Concrete annotations may not yet be
+        // loaded, so the concrete target is missed.  Re-scan here — all classes
+        // have been parsed by the time updateAllDependencies is called.
+        List<String> concreteExtras = new ArrayList<String>();
+        for (String dep : dependsClassesInterfaces) {
+            ByteCodeClass depClass = Parser.getClassObject(dep);
+            if (depClass != null && depClass.getConcreteClass() != null) {
+                String concrete = depClass.getConcreteClass().replace('/', '_').replace('$', '_');
+                if (!dependsClassesInterfaces.contains(concrete) && !concreteExtras.contains(concrete)) {
+                    concreteExtras.add(concrete);
+                }
+            }
+        }
+        for (String c : concreteExtras) {
+            dependsClassesInterfaces.add(c);
+        }
+    }
+    
+    private boolean isMethodFromBaseOrInterface(BytecodeMethod bm) {
+        if(baseInterfacesObject != null) {
+            for(ByteCodeClass bi : baseInterfacesObject) {
+                if(bi.getMethods().contains(bm)) {
+                    return true;
+                }
+                if(bi.getBaseClassObject() != null) {
+                    boolean b = bi.isMethodFromBaseOrInterface(bm);
+                    if(b) {
+                        return true;
+                    }
+                }
+            }
+        }
+        if(baseClassObject != null) {
+            if(baseClassObject.getMethods().contains(bm)) {
+                return true;
+            }
+            return baseClassObject.isMethodFromBaseOrInterface(bm);
+        }
+        return false;
+    }
+    
+    private boolean hasDefaultConstructor() {
+        for(BytecodeMethod bm : methods) {
+            if(bm.isDefaultConstructor()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean hasFinalizer() {
+        for(BytecodeMethod bm : methods) {
+            if(bm.isFinalizer()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // True iff this class OR any ancestor actually declares a finalize() override, i.e.
+    // the emitted __FINALIZER_<class> chain runs real user code (not just the empty
+    // Object finalizer). Used to decide whether the clazz.finalizerFunction pointer is
+    // worth emitting: a class with no real finalizer anywhere in its hierarchy gets a
+    // null pointer, so freeAndFinalize / cn1BibopReclaimSlot (both guard `ptr != 0`)
+    // skip a no-op indirect call -- and the BiBOP sweep can treat such a page's dead
+    // slots as needing no per-slot reclaim work. Conservative on an unresolved base.
+    private boolean hasRealFinalizerInHierarchy() {
+        ByteCodeClass c = this;
+        while(c != null) {
+            if(c.hasFinalizer()) {
+                return true;
+            }
+            if(c.baseClassObject == null) {
+                // root (Object: baseClass==null) -> no real finalizer; otherwise the base
+                // is unresolved -> assume it might declare one.
+                return c.baseClass != null;
+            }
+            c = c.baseClassObject;
+        }
+        return false;
+    }
+
+    private boolean isInterfaceInHierarchy(String className) {
+        if (clsName.equals(className)) {
+            return true;
+        }
+        if (baseInterfacesObject != null) {
+            for (ByteCodeClass bc : baseInterfacesObject) {
+                if (bc.isInterfaceInHierarchy(className)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    public static void addArrayType(String type, int dimenstions) {
+        String arr = dimenstions + "_" + type;
+        if(!arrayTypes.contains(arr)) {
+            arrayTypes.add(arr);
+        }
+    }
+
+
+
+    // One reusable emit buffer for the whole output pass, reset per class rather
+    // than reallocated. Parser.writeOutput -> writeFile -> generateCCode is a
+    // single sequential loop with no executor and one call site, so there is no
+    // concurrent or re-entrant use to guard against.
+    //
+    // This is not micro-tuning. A fresh StringBuilder starts at capacity 16 and
+    // JavaAPI grows by 1.5x ((len>>1)+len+2), so building N chars allocates about
+    // 3N chars = 6N bytes in abandoned intermediate arrays. Across 5897 emitted
+    // files totalling 245MB that is roughly 1.4GB of pure churn, and MEASURED on
+    // ParparVM the emit phase allocated 2518MB in a single GC cycle against a
+    // 24MB trigger. Keeping the capacity across classes means the growth series
+    // runs only until the buffer reaches the largest class, then never again.
+    private static final StringBuilder EMIT_BUFFER = new StringBuilder(1 << 20);
+
+    public String generateCCode(List<ByteCodeClass> allClasses) {
+
+        StringBuilder b = EMIT_BUFFER;
+        b.setLength(0);
+        b.append("#include \"");
+        b.append(clsName);
+        
+        b.append(".h\"\n");
+        
+
+        for(String s : dependsClassesInterfaces) {
+            if (exportsClassesInterfaces.contains(s)) {
+                continue;
+            }
+            b.append("#include \"");
+            b.append(s);
+            b.append(".h\"\n");
+        }
+        // call-site-inlined fast paths for the hottest String/StringBuilder
+        // natives (self-disables via __has_include when those classes are
+        // eliminated from the build)
+        b.append("#include \"cn1_intrinsics.h\"\n");
+        
+        b.append("const struct clazz *base_interfaces_for_");
+        b.append(clsName);
+        b.append("[] = {");
+        boolean first = true;
+        for(String ints : baseInterfaces) {
+            if(!first) {
+                b.append(", ");            
+            }
+            first = false;
+            b.append("&class__");
+            b.append(ints.replace('/', '_').replace('$', '_'));
+        }
+        b.append("};\n");
+        
+        
+        // class struct, contains vtable, static fields and meta data (class name), type info etc.
+        b.append("struct clazz class__");
+        b.append(clsName);
+        b.append(" = {\n");
+        // object fields so class will be compatible to object
+        
+        if(clsName.equals("java_lang_Class")) {
+            b.append("  DEBUG_GC_INIT 0, 0, 0, ");
+        } else {
+            b.append("  DEBUG_GC_INIT &class__java_lang_Class, 0, 0, ");
+        }
+        // finalizerFunction: null unless a real finalize() exists in the hierarchy (the
+        // __FINALIZER_<class> chain is still emitted for classes that DO, so subclass
+        // chaining is unaffected).
+        if(hasRealFinalizerInHierarchy()) {
+            b.append("&__FINALIZER_");
+            b.append(clsName);
+        } else {
+            b.append("0");
+        }
+        b.append(" ,0 , &__GC_MARK_");
+        b.append(clsName);
+        
+        // initialized defaults to false
+        b.append(",  0, ");
+        
+        // the numberic id of the class 
+        b.append("cn1_class_id_");
+        b.append(clsName);
+        b.append(", ");
+        
+        // name of the class
+        b.append("\"");
+        b.append(clsName.replace('_', '.'));
+        b.append("\", ");
+        
+        // is array class type
+        b.append("0, ");
+        
+        // array type dimensions
+        b.append("0, ");
+        
+        // array internal type
+        b.append("0, ");
+        
+        // primitive type
+        b.append("JAVA_FALSE, ");
+        
+        // reference to the base class
+        if(baseClass != null) {
+            b.append("&class__");
+            b.append(baseClass.replace('/', '_').replace('$', '_'));
+        } else {
+            b.append("(const struct clazz*)0");
+        }
+        b.append(", ");
+        
+        // references to the base interfaces
+        b.append("base_interfaces_for_");
+        b.append(clsName);
+        b.append(", ");
+
+        // number of base interfaces
+        b.append(baseInterfaces.size());
+        
+        // new instance function pointer
+        if(!isInterface && !isAbstract && hasDefaultConstructor()) {
+            b.append(", &__NEW_INSTANCE_");
+            b.append(clsName);
+        } else {
+            b.append(", 0");
+        }
+        
+        // vtable 
+        b.append(", 0\n");
+        
+        if (isEnum) {
+            b.append(", &__VALUE_OF_");
+            b.append(clsName);
+        } else {
+            b.append(", 0");
+        }
+        
+        /*
+        JAVA_BOOLEAN isSynthetic;
+    JAVA_BOOLEAN isInterface;
+    JAVA_BOOLEAN isAnonymous;
+    JAVA_BOOLEAN isAnnotation;
+        */
+        b
+                .append(", ")
+                .append(isSynthetic?"JAVA_TRUE":"0")
+                .append(", ")
+                .append(isInterface?"JAVA_TRUE":"0")
+                .append(", ")
+                .append(isAnonymous?"JAVA_TRUE":"0")
+                .append(", ")
+                .append(isAnnotation?"JAVA_TRUE":"0")
+                .append(", ")
+                .append(getArrayClazz(1));
+        
+        
+        b.append("};\n\n");
+
+        // create class objects for 1 - 3 dimension arrays
+        for(int iter = 1 ; iter < 4 ; iter++) {
+            if(!(arrayTypes.contains(iter + "_" + clsName) || arrayTypes.contains((iter + 1) + "_" + clsName) || 
+                    arrayTypes.contains((iter + 2) + "_" + clsName))) {
+                continue;
+            }
+            b.append("struct clazz class_array");
+            b.append(iter);
+            b.append("__");
+            b.append(clsName);
+            if(clsName.equals("java_lang_Class")) {
+                b.append(" = {\n DEBUG_GC_INIT 0, 0, 0, 0, &arrayFinalizerFunction, &gcMarkArrayObject, 0, cn1_array_");
+            } else {
+                b.append(" = {\n DEBUG_GC_INIT &class__java_lang_Class, 0, 0, 0, &arrayFinalizerFunction, &gcMarkArrayObject, 0, cn1_array_");
+            }
+            b.append(iter);
+            b.append("_id_");
+            b.append(clsName);
+            b.append(", \"");
+            b.append(clsName.replace('_', '.'));
+            for (int arrayDim = 0; arrayDim < iter; arrayDim++) {
+                b.append("[]");
+            }
+            b.append("\", ");
+
+            // array class type, dimension & internal type
+            b.append("JAVA_TRUE, ");
+            b.append(iter);
+            b.append(", &class__");
+            b.append(clsName);
+
+            /*
+            JAVA_BOOLEAN primitiveType;
+
+            const struct clazz* baseClass;
+            const struct clazz** baseInterfaces;
+            const int baseInterfaceCount;
+
+            void* newInstanceFp;
+
+            // virtual method table lookup
+            void** vtable;
+
+            void* enumValueOfFp;
+            JAVA_BOOLEAN isSynthetic;
+            JAVA_BOOLEAN isInterface;
+            JAVA_BOOLEAN isAnonymous;
+            JAVA_BOOLEAN isAnnotation;
+            */
+            // primitive type is always false here object is always the base class of the array it has no base interfaces
+            b.append(", JAVA_FALSE, &class__java_lang_Object, EMPTY_INTERFACES, 0, ");
+
+            // new instance function pointer and vtable 
+            b.append("0, 0, 0, 0, 0, 0, 0, "+getArrayClazz(iter+1)+"\n};\n\n");
+        }
+
+        staticFieldList = new ArrayList<ByteCodeField>();
+        buildStaticFieldList(staticFieldList);
+        String enumValuesField = null;
+        // static fields for the class
+        for(ByteCodeField bf : staticFieldList) {
+            if(bf.isStaticField() && bf.getClsName().equals(clsName)) {
+                if (isEnum && ("_VALUES".equals(bf.getFieldName().replace('$','_')) || "ENUM_VALUES".equals(bf.getFieldName().replace('$','_')))) {
+                    enumValuesField = bf.getFieldName();
+                }
+                if(bf.isFinal() && bf.getValue() != null && !writableFields.contains(bf.getFieldName())) {
+                    // static getter 
+                    b.append(bf.getCDefinition());
+                    b.append(" get_static_");
+                    b.append(clsName);
+                    b.append("_");
+                    b.append(bf.getFieldName().replace('$', '_'));
+                    b.append("() {\n    return ");
+                    if(bf.getValue() instanceof String) {
+                        b.append("STRING_FROM_CONSTANT_POOL_OFFSET(");
+                        b.append(Parser.addToConstantPool((String)bf.getValue()));
+                        b.append(") /* ");
+                        b.append(String.valueOf(bf.getValue()).replace("*/", "* /"));
+                        b.append(" */");
+                    } else {
+                        if(bf.getValue() instanceof Number) {
+                            if(bf.getValue() instanceof Double) {
+                                Double d = ((Double)bf.getValue());
+                                if(d.isNaN()) {
+                                    b.append("0.0/0.0");                                    
+                                } else {
+                                    if(d.isInfinite()) {
+                                        if(d.doubleValue() > 0) {
+                                            b.append("1.0f / 0.0f");
+                                        } else {
+                                            b.append("-1.0f / 0.0f");
+                                        }
+                                    } else {
+                                        b.append(bf.getValue());
+                                    }
+                                }
+                            } else {
+                                if(bf.getValue() instanceof Float) {
+                                    Float d = ((Float)bf.getValue());
+                                    if(d.isNaN()) {
+                                        b.append("0.0/0.0");                                    
+                                    } else {
+                                        if(d.isInfinite()) {
+                                            if(d.floatValue() > 0) {
+                                                b.append("1.0f / 0.0f");
+                                            } else {
+                                                b.append("-1.0f / 0.0f");
+                                            }
+                                        } else {
+                                            b.append(bf.getValue());
+                                        }
+                                    }
+                                } else {
+                                    b.append(bf.getValue());
+                                }
+                            }
+                        } else {
+                            if(bf.getValue() instanceof Boolean) {
+                                if(((Boolean)bf.getValue()).booleanValue()) {
+                                    b.append("JAVA_TRUE");
+                                } else {
+                                    b.append("JAVA_FALSE");
+                                }
+                            } else {
+                                b.append("JAVA_NULL");
+                            }
+                        }
+                    }
+                    b.append(";\n}\n\n");                    
+                } else {
+                    b.append(bf.getCStorageDefinition());
+                    b.append(" STATIC_FIELD_");
+                    b.append(clsName);
+                    b.append("_");
+                    b.append(bf.getFieldName());
+                    if (bf.isVolatile()) {
+                        // No initializer. A static object is zero-initialized by
+                        // the language, and ATOMIC_VAR_INIT expands to a plain
+                        // parenthesized value -- which clang 14 (Debian bookworm,
+                        // and therefore the glibc backend builder image) rejects
+                        // on an atomic POINTER as "initializer element is not a
+                        // compile-time constant". The macro is also deprecated in
+                        // C17 and gone in C23, so this is where it was heading
+                        // regardless. Reached by any `volatile` static reference
+                        // field in user code.
+                        b.append(";\n");
+                    } else {
+                        b.append(" = 0;\n");
+                    }
+
+                    // static getter
+                    b.append(bf.getCDefinition());
+                    b.append(" get_static_");
+                    b.append(clsName);
+                    b.append("_");
+                    b.append(bf.getFieldName().replace('$', '_'));
+                    // Inline-guard rather than call: the initialiser's own first
+                    // line already returns when the flag is set, so the call was a
+                    // no-op after the first time -- but a CALL, on a path that runs
+                    // per static-field access. MEASURED: __STATIC_INITIALIZER_* was
+                    // 7.2% of mutator self-time, java.util.Iterator's alone 6.26%.
+                    // Safe as an ACQUIRE load now that the flag is release-stored.
+                    b.append("() {\n    __STATIC_INITIALIZER_");
+                    b.append(bf.getClsName());
+                    if (bf.isVolatile()) {
+                        b.append("(getThreadLocalData());\n     return atomic_load_explicit(&STATIC_FIELD_");
+                        b.append(bf.getClsName());
+                        b.append("_");
+                        b.append(bf.getFieldName());
+                        b.append(", memory_order_acquire);\n}\n\n");
+                    } else {
+                        b.append("(getThreadLocalData());\n     return STATIC_FIELD_");
+                        b.append(bf.getClsName());
+                        b.append("_");
+                        b.append(bf.getFieldName());
+                        b.append(";\n}\n\n");
+                    }
+
+                    // Static object fields may interact with heap bookkeeping, so they keep thread context.
+                    b.append("void set_static_");
+                    b.append(clsName);
+                    b.append("_");
+                    b.append(bf.getFieldName().replace('$', '_'));
+                    b.append("(");
+                    if (bf.isObjectType()) {
+                        b.append("CODENAME_ONE_THREAD_STATE, ");
+                    }
+                    b.append(bf.getCDefinition());
+                    b.append(" __cn1StaticVal) {\n    __STATIC_INITIALIZER_");
+                    b.append(bf.getClsName());
+                    if (bf.isObjectType()) {
+                        b.append("(threadStateData);\n    ");
+                        // A static field is a GC root outside any nursery -> a nursery
+                        // value stored here always escapes and must be promoted.
+                        b.append("CN1_WRITE_BARRIER(JAVA_NULL, __cn1StaticVal);\n    ");
+                        // SATB deletion barrier: preserve the overwritten static reference.
+                        b.append("CN1_SATB_DELETE(&STATIC_FIELD_").append(bf.getClsName())
+                         .append("_").append(bf.getFieldName()).append(");\n    ");
+                    } else {
+                        b.append("(getThreadLocalData());\n    ");
+                    }
+                    if (bf.isVolatile()) {
+                        b.append("atomic_store_explicit(&STATIC_FIELD_");
+                        b.append(bf.getClsName());
+                        b.append("_");
+                        b.append(bf.getFieldName());
+                        b.append(", __cn1StaticVal, memory_order_release);");
+                    } else {
+                        b.append("STATIC_FIELD_");
+                        b.append(bf.getClsName());
+                        b.append("_");
+                        b.append(bf.getFieldName());
+                        b.append(" = __cn1StaticVal;");
+                    }
+                    if(bf.shouldRemoveFromHeapCollection()) {
+                        if(bf.getType() != null && bf.getType().endsWith("String")) {
+                            b.append("\n    removeObjectFromHeapCollection(threadStateData, __cn1StaticVal);\n    if(__cn1StaticVal != 0) {\n        removeObjectFromHeapCollection(threadStateData, ((struct obj__java_lang_String*)__cn1StaticVal)->java_lang_String_value);\n    }\n}\n\n");
+                        } else {
+                            b.append("\n    removeObjectFromHeapCollection(threadStateData, __cn1StaticVal);\n}\n\n");
+                        }
+                    } else {
+                        b.append("\n}\n\n");
+                    }
+                }
+            }
+        }
+        
+        if(isInterface) {
+            b.append("int **classToInterfaceMap_");
+            b.append(clsName);
+            b.append(";\n");
+        }
+        
+        fullFieldList = new ArrayList<ByteCodeField>();
+        buildInstanceFieldList(fullFieldList);
+        
+        String nullCheck = "";
+        if (Util.getProperty("fieldNullChecks", "false").equals("true")) {
+            nullCheck = "if(__cn1T == JAVA_NULL){throwException(getThreadLocalData(), __NEW_INSTANCE_java_lang_NullPointerException(getThreadLocalData()));}\n";
+        }
+        for(ByteCodeField fld : fullFieldList) {
+            b.append(fld.getCDefinition());
+            b.append(" get_field_");
+            b.append(clsName);
+            b.append("_");
+            b.append(fld.getFieldName());
+            b.append("(JAVA_OBJECT __cn1T) {\n ").append(nullCheck).append("    ");
+            if(isReferenceReferent(clsName, fld)) {
+                // Reference.get() compiles into this accessor, and reading a weak referent
+                // while a concurrent mark is running needs a barrier an ordinary field read
+                // does not.
+                //
+                // ONE LOAD, and everything below acts on that value. The collector clears a
+                // reference after the strong mark reaches its fixpoint but with mutators
+                // still running, so a thread whose stack was scanned and released early can
+                // take the referent out of here and hold it in a local the collector has
+                // walked past -- neither marked nor fresh, the one case the sweep's "already
+                // marked or FRESH" invariant does not cover. Enqueuing puts it back in the
+                // snapshot, and the trial clear of gcSatbActive then finds a non-empty log,
+                // re-arms, marks it, and leaves the reference alone.
+                //
+                // REGISTERING BEFORE THE LOAD, and holding it across, is what makes that
+                // sound. Any flag sampled before registering can go stale in the gap: a
+                // thread that read the flag as 0 -- or read it as 1 and was then descheduled
+                // before registering -- can come away with an unmarked referent nothing
+                // enqueued, while the collector finishes termination and sweeps it.
+                // CN1_REF_LOAD_BEGIN registers first and answers afterwards, so the
+                // collector's quiesce cannot complete anywhere inside this accessor.
+                b.append("JAVA_BOOLEAN __cn1RefActive = CN1_REF_LOAD_BEGIN();\n    ");
+                b.append(fld.getCDefinition()).append(" __cn1Ref = __atomic_load_n(&((struct obj__")
+                 .append(clsName).append("*)__cn1T)->")
+                 .append(fld.getClsName()).append("_").append(fld.getFieldName())
+                 .append(", __ATOMIC_RELAXED);\n    ");
+                b.append("CN1_SATB_REF_KEEP(__cn1RefActive, __cn1Ref);\n    ");
+                // The touch stamp, and the entire per-read cost of ranking soft references
+                // by use: a store of an immediate. Unconditional rather than guarded by a
+                // "did it change" test, because the branch would cost more than the store.
+                b.append("__atomic_store_n(&((struct obj__").append(clsName).append("*)__cn1T)->")
+                 .append(REFERENCE_CLASS).append("_cn1TouchAge, CN1_REF_TOUCHED, __ATOMIC_RELAXED);\n    ");
+                b.append("CN1_REF_LOAD_END();\n    ");
+                b.append("return __cn1Ref;\n}\n\n");
+            } else if (fld.isVolatile()) {
+                b.append("return atomic_load_explicit(&((struct obj__");
+                b.append(clsName);
+                b.append("*)__cn1T)->");
+                b.append(fld.getClsName());
+                b.append("_");
+                b.append(fld.getFieldName());
+                b.append(", memory_order_acquire);\n}\n\n");
+            } else {
+                b.append("return ((struct obj__");
+                b.append(clsName);
+                b.append("*)__cn1T)->");
+                b.append(fld.getClsName());
+                b.append("_");
+                b.append(fld.getFieldName());
+                b.append(";\n}\n\n");
+            }
+
+            // Instance field setters don't use thread context directly.
+            b.append("void set_field_");
+            b.append(clsName);
+            b.append("_");
+            b.append(fld.getFieldName());
+            b.append("(");
+            b.append(fld.getCDefinition());
+            if(fld.isObjectType()) {
+                b.append(" __cn1Val, JAVA_OBJECT __cn1T) {\n ").append(nullCheck).append("   ");
+                // Nursery write barrier: a reference is being stored into a heap object's
+                // field, so a nursery value escapes and must be promoted. No-op unless
+                // -DCN1_NURSERY.
+                b.append("CN1_WRITE_BARRIER(__cn1T, __cn1Val); ");
+                // SATB deletion barrier: preserve the reference being overwritten for the
+                // current mark cycle. No-op (single flag load) outside GC.
+                // The referent takes the ATOMIC deletion barrier: the collector stores
+                // JAVA_NULL into that field concurrently, so the generic macro's plain
+                // volatile read would leave the pair a mixed atomic/non-atomic access.
+                b.append(isReferenceReferent(clsName, fld) ? "CN1_SATB_DELETE_REF" : "CN1_SATB_DELETE")
+                 .append("(&((struct obj__").append(clsName).append("*)__cn1T)->")
+                 .append(fld.getClsName()).append("_").append(fld.getFieldName()).append("); ");
+            } else {
+                b.append(" __cn1Val, JAVA_OBJECT __cn1T) {\n  ").append(nullCheck).append("  ");
+            }
+            if(isReferenceReferent(clsName, fld)) {
+                // Reference.clear() and the constructor both land here, and the collector
+                // stores JAVA_NULL into the same word concurrently. Atomic for the reason
+                // spelled out on the getter above.
+                b.append("__atomic_store_n(&((struct obj__").append(clsName).append("*)__cn1T)->")
+                 .append(fld.getClsName()).append("_").append(fld.getFieldName())
+                 .append(", __cn1Val, __ATOMIC_RELAXED);\n}\n\n");
+            } else if (fld.isVolatile()) {
+                b.append("atomic_store_explicit(&((struct obj__");
+                b.append(clsName);
+                b.append("*)__cn1T)->");
+                b.append(fld.getClsName());
+                b.append("_");
+                b.append(fld.getFieldName());
+                b.append(", __cn1Val, memory_order_release);\n}\n\n");
+            } else {
+                b.append("((struct obj__");
+                b.append(clsName);
+                b.append("*)__cn1T)->");
+                b.append(fld.getClsName());
+                b.append("_");
+                b.append(fld.getFieldName());
+                b.append(" = __cn1Val;\n}\n\n");
+            }
+        }
+                
+        
+        // finalizer and GC_RELEASE to cleanup variables
+        b.append("JAVA_VOID __FINALIZER_");
+        b.append(clsName);
+        b.append("(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT objToDelete) {\n");
+        if(hasFinalizer()) {
+            b.append("    ");
+            b.append(clsName);
+            b.append("_finalize__(threadStateData, objToDelete);\n");
+        }
+        // invoke the finalize method of the base
+        if(baseClass != null) {
+            b.append("    __FINALIZER_");
+            b.append(baseClass.replace('/', '_').replace('$', '_'));
+            b.append("(threadStateData, objToDelete);\n");
+        }
+        
+        b.append("}\n\n");
+                
+        // mark function for the GC mark cycle to tag the objects that are reachable
+        b.append("void __GC_MARK_");
+        b.append(clsName);
+        b.append("(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT objToMark, JAVA_BOOLEAN force) {\n");
+        // The cast is only worth making for a class that marks fields of its own.
+        // A class that declares no object fields -- and there are thousands, every
+        // one that holds nothing but primitives -- marks nothing here and only
+        // chains to its base, so the declaration would be a variable no statement
+        // in the function reads. Emitting it regardless was ~2,400
+        // -Wunused-variable warnings in one application build.
+        boolean marksOwnFields = false;
+        for(ByteCodeField fld : fullFieldList) {
+            if(!fld.isStaticField() && fld.isObjectType() && fld.getClsName().equals(clsName)) {
+                marksOwnFields = true;
+                break;
+            }
+        }
+        if(marksOwnFields) {
+            b.append("    struct obj__");
+            b.append(clsName);
+            b.append("* objInstance = (struct obj__");
+            b.append(clsName);
+            b.append("*)objToMark;\n");
+        }
+        for(ByteCodeField fld : fullFieldList) {
+            if(!fld.isStaticField() && fld.isObjectType() && fld.getClsName().equals(clsName)) {
+                if(isReferenceReferent(clsName, fld)) {
+                    // THE REFERENT IS NOT TRACED. Handing it to gcMarkObject here is
+                    // what made every WeakReference strong; instead the collector is
+                    // told the reference exists and is given the addresses it needs to
+                    // decide, once the strong mark has closed, whether to keep the
+                    // referent or clear the field.
+                    //
+                    // Addresses rather than the object, deliberately: cn1_globals.m is a
+                    // fixed template compiled beside whatever the translator emitted, and
+                    // it cannot name `struct obj__java_lang_ref_Reference` -- the class is
+                    // absent from any program that never uses a reference, and including
+                    // its generated header would make the runtime fail to build for those.
+                    // Passing field pointers keeps the layout knowledge on this side,
+                    // where it is generated from the layout itself.
+                    b.append("    cn1GcDiscoverReference(threadStateData, objToMark, force, &objInstance->");
+                    b.append(fld.getClsName()).append("_").append(fld.getFieldName());
+                    b.append(", &objInstance->").append(REFERENCE_CLASS).append("_cn1TouchAge");
+                    b.append(", &objInstance->").append(REFERENCE_CLASS).append("_cn1AgedCycle");
+                    b.append(", objInstance->").append(REFERENCE_CLASS).append("_cn1Strength);\n");
+                    continue;
+                }
+                // TYPE-IDENTITY CHECK, verifier builds only.
+                //
+                // CN1_GC_VERIFY already proves every traced reference RESOLVES, which
+                // is why a reclaimed-and-recycled slot slips past it: the slot holds a
+                // perfectly valid object, just not the one the field was pointing at.
+                // A Linux suite core caught the consequence -- ArrayList.add running on
+                // an object whose class word said charts.compat.Canvas, reading the
+                // list's backing-array slot out of two of Canvas's int fields.
+                //
+                // The field's DECLARED type is known here and thrown away, so the
+                // collector has no way to notice. Passing it lets the verifier ask
+                // whether what the field holds is assignable to what it was declared
+                // as, which is exactly the question a recycled slot answers wrongly --
+                // and it names the field, instead of leaving a SIGSEGV in an unrelated
+                // method a whole cycle later.
+                //
+                // Arrays are skipped for now: their id mapping is dimensional and the
+                // failure this was written for was a plain object field.
+                // getRuntimeDescriptor() is the mangled type for a plain object field
+                // and carries "[]" for an array, which is how arrays are excluded.
+                String fldType = fld.getRuntimeDescriptor();
+                if (fldType != null && fldType.indexOf('[') < 0
+                        && Parser.getClassObject(fldType) != null) {
+                    b.append("#ifdef CN1_GC_VERIFY\n");
+                    b.append("    cn1GcVerifyFieldType(threadStateData, objToMark, objInstance->");
+                    b.append(fld.getClsName()).append("_").append(fld.getFieldName());
+                    b.append(", cn1_class_id_").append(fldType);
+                    b.append(", \"").append(clsName).append(".").append(fld.getFieldName()).append("\");\n");
+                    b.append("#endif\n");
+                }
+                b.append("    gcMarkObject(threadStateData, ");
+                if (fld.isVolatile()) {
+                    b.append("atomic_load_explicit(&objInstance->");
+                    b.append(fld.getClsName());
+                    b.append("_");
+                    b.append(fld.getFieldName());
+                    b.append(", memory_order_acquire)");
+                } else {
+                    b.append("objInstance->");
+                    b.append(fld.getClsName());
+                    b.append("_");
+                    b.append(fld.getFieldName());
+                }
+                b.append(", force);\n");
+            }
+        }
+        // invoke the mark method of the base
+        if(baseClass != null) {
+            b.append("    __GC_MARK_");
+            b.append(baseClass.replace('/', '_').replace('$', '_'));
+            b.append("(threadStateData, objToMark, force);\n");
+        } else {
+            // we can do this in Object.java only since all code will reach here eventually.
+            //
+            // ATOMIC, and it has to be: this is the root of every generated mark chain, so
+            // it is THE collector-side write of the mark word, and the SATB barrier
+            // (cn1SatbEnqueue) atomically loads the same field from mutator threads while
+            // the mark is running. A plain store here would leave that pair a mixed
+            // atomic/non-atomic access, which is undefined in C -- the same defect the
+            // hand-written stores in cn1_globals.m were converted for. Relaxed is the same
+            // instruction on every target we build; what it buys is that the write is one
+            // the reader is allowed to observe.
+            b.append("    __atomic_store_n(&objToMark->__codenameOneGcMark, currentGcMarkValue, __ATOMIC_RELAXED);\n");
+        }
+        b.append("}\n\n");
+
+        // initialize object instances
+
+        if(!isInterface && !isAbstract) {
+            b.append("JAVA_OBJECT __NEW_");
+            b.append(clsName);
+            b.append("(CODENAME_ONE_THREAD_STATE) {\n    __STATIC_INITIALIZER_");
+            b.append(clsName);
+            b.append("(threadStateData);\n    JAVA_OBJECT o = codenameOneGcMalloc(threadStateData, sizeof(struct obj__");
+            b.append(clsName);
+            b.append("), &class__");
+            b.append(clsName);
+            b.append(");\n    return o;\n}\n\n");
+
+            if(hasDefaultConstructor()) {
+                b.append("JAVA_OBJECT __NEW_INSTANCE_");
+                b.append(clsName);
+                b.append("(CODENAME_ONE_THREAD_STATE) {\n    __STATIC_INITIALIZER_");
+                b.append(clsName);
+                b.append("(threadStateData);\n    JAVA_OBJECT o = codenameOneGcMalloc(threadStateData, sizeof(struct obj__");
+                b.append(clsName);
+                b.append("), &class__");
+                b.append(clsName);
+                b.append(");\n");
+                b.append(clsName);
+                b.append("___INIT____(threadStateData, o);\n    return o;\n}\n\n");
+            }
+        }
+                
+        if(arrayTypes.contains("1_" + clsName) || arrayTypes.contains("2_" + clsName) || arrayTypes.contains("3_" + clsName)) {
+            b.append("JAVA_OBJECT __NEW_ARRAY_");
+            b.append(clsName);
+            b.append("(CODENAME_ONE_THREAD_STATE, JAVA_INT size) {\n");
+            b.append("    JAVA_OBJECT o = allocArray(threadStateData, size, &class_array1__");
+            b.append(clsName);
+            b.append(", sizeof(JAVA_OBJECT), 1);\n    (*o).__codenameOneParentClsReference = &class_array1__");
+            b.append(clsName);
+            b.append(";\n    return o;\n}\n\n");
+        }
+
+        /*b.append("JAVA_OBJECT __NEW_MULTI_ARRAY_");
+        b.append(clsName);
+        b.append("(CODENAME_ONE_THREAD_STATE, JAVA_INT dimensions, JAVA_INT* sizes) {\n    JAVA_OBJECT o = JAVA_NULL;\n");
+        b.append("    switch(dimensions) {\n        case 2: o = allocMultiArray(sizes, &class_array2__");
+        b.append(clsName);
+        b.append(", sizeof(JAVA_OBJECT), 2); break;\n");
+        b.append("        case 3: o = allocMultiArray(sizes, &class_array3__");
+        b.append(clsName);
+        b.append(", sizeof(JAVA_OBJECT), 3); break;\n");
+        b.append("        case 4: o = allocMultiArray(sizes, &class_array4__");
+        b.append(clsName);
+        b.append(", sizeof(JAVA_OBJECT), 4); break;\n");
+        b.append("        default: return JAVA_NULL;\n    }\n    (*o).__codenameOneParentClsReference = &class__");
+        b.append(clsName);
+        b.append(";\n    return o;\n}\n\n");*/
+
+        String clInitMethod = null;
+        if(isInterface) {
+            for(BytecodeMethod m : methods) {
+                if(m.getMethodName().equals("__CLINIT__")) {
+                    m.appendMethodC(b);
+                    clInitMethod = clsName + "_" + m.getMethodName() + "__";
+                } else if (m.isAbstract()) {
+                    m.appendInterfaceMethodC(b);
+                } else {
+                    m.appendMethodC(b);
+                }
+            }
+            List<BytecodeMethod> bm = new ArrayList<BytecodeMethod>(methods);
+            appendInheritedInterfaceMethods(b, bm);
+        } else {
+            for(BytecodeMethod m : methods) {
+                m.appendMethodC(b);
+                if(m.getMethodName().indexOf("_CLINIT_") > -1) {
+                    clInitMethod = clsName + "_" + m.getMethodName() + "__";
+                }
+                if(m.isMain()) {
+                    b.append("\nint main(int argc, char *argv[]) {\n");
+                    // Line-buffer stdout/stderr. C streams block-buffer when they are
+                    // not a tty, so everything an app logs into a pipe -- which is
+                    // how CI captures it -- arrives in 4KB chunks. A run that is
+                    // killed mid-flight then shows a log ending thousands of lines
+                    // behind where the process actually was, and every diagnosis
+                    // made from that tail names the wrong place. Three separate
+                    // "the suite hangs in X" readings of the Linux job came from
+                    // exactly this. Costs a flush per line; buys logs that mean
+                    // what they say.
+                    // _IONBF, not _IOLBF: the MSVC CRT rejects a line-buffered
+                    // request with a NULL buffer and size 0 -- it demands a size of
+                    // at least 2 -- and answers the invalid parameter by fail-fasting
+                    // the process (0xC0000409), so every Windows clean-target binary
+                    // died on its first instruction. _IONBF ignores the size argument
+                    // and is valid on every CRT, and unbuffered is what the
+                    // diagnostics actually want.
+                    b.append("    setvbuf(stdout, NULL, _IONBF, 0);\n");
+                    b.append("    setvbuf(stderr, NULL, _IONBF, 0);\n");
+                    b.append("    initConstantPool();\n");
+                    // An exception no handler catches used to be discarded and
+                    // execution continued with the statement after the throw. An
+                    // app target nearly always has something upstream that
+                    // catches (the EDT's own try), so it stayed invisible there;
+                    // a server binary has no such catch, and the symptom is a
+                    // process that keeps serving with a half-built object where a
+                    // connection should be.
+                    //
+                    // GATED, and the gate is the point. This main() is emitted for
+                    // every target that has one -- iOS and macOS included -- so an
+                    // unconditional assignment here would make an uncaught exception
+                    // on any thread terminate a SHIPPED app, which is exactly the
+                    // behaviour change this runtime path is meant not to cause. Only
+                    // the clean target, which has no upstream catch to rely on, opts
+                    // in. (Reported on PR #5658: the comment that used to sit here
+                    // claimed this was already restricted; it was not.)
+                    if (ByteCodeTranslator.output == ByteCodeTranslator.OutputType.OUTPUT_TYPE_CLEAN) {
+                        b.append("    cn1AbortOnUncaughtException = 1;\n");
+                    }
+                    // With the nursery, the main thread allocates and must cooperate with
+                    // the concurrent GC's stop-the-world pause (so the GC never scans its
+                    // nursery while a minor collection runs). Lightweight threads are the
+                    // ones the GC pauses; mark the main thread lightweight too.
+                    // NOT on the macOS target, where this thread goes on to
+                    // become AppKit's event loop rather than the thread that
+                    // runs Java. "Lightweight" is a promise to the collector
+                    // that the thread parks: cn1_globals.m waits for
+                    // threadActive to drop and then migrates
+                    // pendingHeapAllocations WITHOUT taking threadHeapMutex,
+                    // which is the mutex it does take for a native thread. The
+                    // unlocked append in cn1AddPending is safe only under that
+                    // pause -- its own comment says so -- so a thread that
+                    // never parks and still claims to be lightweight lets a
+                    // grow inside cn1AddPending free the array while the
+                    // collector is reading it. The event loop reaches Java only
+                    // through AppKit callbacks and brackets nothing, so it must
+                    // stay native; the flag is set below on the dispatched
+                    // thread that actually runs the application.
+                    if (ByteCodeTranslator.output != ByteCodeTranslator.OutputType.OUTPUT_TYPE_MACOS) {
+                        b.append("#ifdef CN1_NURSERY\n    getThreadLocalData()->lightweightThread = JAVA_TRUE;\n#endif\n");
+                    }
+                    // On the native macOS target the application's main method
+                    // runs on a background thread and AppKit owns the main one.
+                    // That is not a preference: the main thread has to be free to
+                    // run the event loop, and Codename One's own code marshals to
+                    // it synchronously to touch the UI -- so calling the app's
+                    // main directly here deadlocks the first time it does, in
+                    // dispatch_sync waiting for a queue that is waiting for it.
+                    // The generated main becoming the AppKit main is what puts
+                    // each on the right thread.
+                    if (ByteCodeTranslator.output == ByteCodeTranslator.OutputType.OUTPUT_TYPE_MACOS) {
+                        b.append("    [NSApplication sharedApplication];\n");
+                        b.append("    [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];\n");
+                        b.append("    CN1MacInstallMainMenu();\n");
+                        b.append("    CN1MacInstallAppDelegate();\n");
+                        b.append("    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{\n");
+                        // The dispatched block runs on a DIFFERENT thread from
+                        // the one flagged above, with its own thread-local state
+                        // whose flags all default to false, and the application's
+                        // main allocates from the nursery on it. So it is a Java
+                        // thread and has to be registered as one, which means
+                        // BOTH flags and not just the first: the collector reads
+                        // a lightweight thread that is not active as parked, and
+                        // a parked thread is precisely the one it may scan and
+                        // migrate the nursery and pendingHeapAllocations of
+                        // without taking the heap mutex. Setting lightweight
+                        // alone was therefore worse than setting neither -- it
+                        // invited the collector into the arena this thread was
+                        // still filling. threadRunner sets the same pair, and
+                        // retires with markDeadThread, for every thread it
+                        // starts; this block is that sequence written by hand.
+                        b.append("#ifdef CN1_NURSERY\n"
+                                + "        getThreadLocalData()->lightweightThread = JAVA_TRUE;\n"
+                                + "        getThreadLocalData()->threadActive = JAVA_TRUE;\n"
+                                + "#endif\n");
+                        // Hand main() the real command line. This used to pass
+                        // JAVA_NULL, so a translated program could not read its own
+                        // arguments at all and every knob had to come in through the
+                        // environment (see vm/benchmarks). cn1MainArgs skips argv[0] --
+                        // Java's args array excludes the program name.
+                        b.append("        ");
+                        b.append(clsName);
+                        b.append("_main___java_lang_String_1ARRAY(getThreadLocalData(), cn1MainArgs(getThreadLocalData(), argc, argv));\n");
+                        // main returning does not end the process here -- AppKit
+                        // owns the main thread and keeps running -- so leaving
+                        // the worker registered would leave the collector
+                        // waiting at every safepoint for a thread that no longer
+                        // exists. markDeadThread is declared inline because it
+                        // is defined in nativeMethods.m and appears in no
+                        // header; without that it is an implicit declaration.
+                        b.append("#ifdef CN1_NURSERY\n"
+                                + "        {\n"
+                                + "            extern void markDeadThread(struct ThreadLocalData *d);\n"
+                                + "            markDeadThread(getThreadLocalData());\n"
+                                + "        }\n"
+                                + "#endif\n");
+                        b.append("    });\n");
+                        b.append("    [NSApp run];\n}\n\n");
+                    } else {
+                        b.append("    ");
+                        b.append(clsName);
+                        b.append("_main___java_lang_String_1ARRAY(getThreadLocalData(), cn1MainArgs(getThreadLocalData(), argc, argv));\n}\n\n");
+                    }
+                }
+            }
+        }
+        if(!isInterface) {
+            List<BytecodeMethod> bm = new ArrayList<BytecodeMethod>(methods);
+            if(baseClassObject != null) {
+                appendSuperStub(b, bm, baseClassObject);
+            }
+            appendDefaultInterfaceStubs(b, bm);
+        }
+        int offset = 0;
+        if(clsName.equals("java_lang_Class")) {
+            // special case for Class which can't have a vtable since it has no class of its own...
+            appendClassVFunctions(b);
+        } else {
+            if(isInterface) {
+                // special case, object virtual calls on interfaces should act
+                // as if they are regular virtual calls
+                for(BytecodeMethod m : virtualMethodList) {
+                    if(m.getClsName().equals("java_lang_Object")) {
+                        m.appendVirtualMethodC(clsName, b, "" + offset, true);
+                    } else {
+                        // we pretend to have a virtual method here but the optimizer says its not really needed
+                        if(!m.isVirtualOverriden()) {
+                            m.appendVirtualMethodC(clsName, b, "classToInterfaceMap_" + clsName +
+                                    "[CN1_CLASS_OF(__cn1ThisObject)->classId][" + offset + "]", true);
+                        }
+                        offset++;
+                    }
+                }
+            } else {
+                for(BytecodeMethod m : virtualMethodList) {
+                    m.appendVirtualMethodC(clsName, b, offset);
+                    offset++;
+                }
+            }
+        }
+        if(!isInterface) {
+            b.append("void __INIT_VTABLE_");
+            b.append(clsName);
+            b.append("(CODENAME_ONE_THREAD_STATE, void** vtable) {\n    ");
+            if(baseClass != null) {
+                b.append("    __INIT_VTABLE_");
+                b.append(baseClass.replace('/', '_').replace('$', '_'));
+                b.append("(threadStateData, vtable);\n");
+            }
+            for(int iter = 0 ; iter < virtualMethodList.size() ; iter++) {
+
+                BytecodeMethod bm = virtualMethodList.get(iter);
+
+                if(bm.getClsName().equals(clsName) && !bm.isVirtualOverriden()) {
+                    b.append("    vtable[");
+                    b.append(iter);
+                    b.append("] = &");
+                    bm.appendFunctionPointer(b);
+                    b.append(";\n");
+                } else if (isDefaultInterfaceMethod(bm, allClasses)) {
+                    b.append("    vtable[");
+                    b.append(iter);
+                    b.append("] = &");
+                    bm.appendFunctionPointer(b);
+                    b.append(";\n");
+                }
+            }
+            b.append("}\n\n");
+        }
+        
+        if (isEnum) {
+            
+            b.append("JAVA_OBJECT __VALUE_OF_").append(clsName).append("(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT value) {\n    ");
+            if (enumValuesField != null) {
+                b.append("    JAVA_ARRAY values = (JAVA_ARRAY)get_static_").append(clsName).append("_").append(enumValuesField.replace('$', '_')).append("();\n");
+                b.append("    JAVA_ARRAY_OBJECT* data = (JAVA_ARRAY_OBJECT*)values->data;\n");
+                b.append("    int len = values->length;\n");
+                b.append("    for (int i=0; i<len; i++) {\n");
+                b.append("        JAVA_OBJECT name = (*(struct obj__").append(clsName).append("*)data[i]).java_lang_Enum_name;\n");
+                b.append("        if (name != JAVA_NULL && java_lang_String_equals___java_lang_Object_R_boolean(threadStateData, name, value)) { return data[i];}\n");
+                b.append("    }\n");
+                b.append("    return JAVA_NULL;\n");
+            } else {
+                System.err.println("Unable to find enum VALUES static ield for "+clsName+", this may cause unexpected results when using the "+clsName+" enum.");
+                b.append("    return JAVA_NULL;\n");
+            }
+            b.append("}\n\n");
+        }
+        
+        // insert static initializer
+        // NOT static: the inline guards emitted at allocation and static-access
+        // sites live in OTHER translation units and have to test COMPLETION. They
+        // used to test class__X.initialized instead, which is the wrong flag --
+        // that one is the JLS recursion guard and is deliberately set BEFORE
+        // __CLINIT__ runs, so a thread observing it could skip the initialiser
+        // while another thread was still inside the class initialiser, and then
+        // read statics that had not been written yet. Releasing on "started"
+        // cannot publish writes that happen after it.
+        b.append("static int __").append(clsName).append("_LOADED__=0;\n");
+        b.append("void __STATIC_INITIALIZER_");
+        b.append(clsName);
+        // ACQUIRE, not a plain load. This is the fast path of a double-checked
+        // initialisation: the completing store below is a RELEASE, and the two
+        // together are what make the writes this function performed -- the
+        // vtable, and every classToInterfaceMap_<iface>[classId] row -- visible
+        // to a thread that observes the flag set.
+        //
+        // With plain accesses on arm64 a second thread could see LOADED==1 while
+        // those table stores were still invisible, then index a row that read as
+        // NULL. OBSERVED: three identical SIGSEGVs at
+        // classToInterfaceMap_java_util_NavigableMap[classId] + 0x8, reached from
+        // TreeSet.clear -> the interface dispatch for NavigableMap.clear, in a
+        // translator that is single-threaded in its own code but shares the
+        // process with the GC thread, which also runs Java and so also runs
+        // class initialisers.
+        b.append("(CODENAME_ONE_THREAD_STATE) {\n    if(__atomic_load_n(&__")
+         .append(clsName).append("_LOADED__, __ATOMIC_ACQUIRE)) return;\n\n    ");
+
+        
+        // Block-registered enter/exit (the synchronized-method pattern): if the
+        // <clinit> body throws, throwException()'s unwind releases the class
+        // monitor. With a plain monitorEnter the lock leaked on a throwing
+        // clinit and every later thread touching the class deadlocked in
+        // monitorEnter (observed on CI as the EDT wedged initializing
+        // BufferedOutputStream while logging the very exception that leaked it).
+        b.append("monitorEnterBlock(threadStateData, (JAVA_OBJECT)&class__");
+
+        b.append(clsName);
+        b.append(");\n    if(class__");
+        b.append(clsName);
+        b.append(".initialized) {\n        monitorExitBlock(threadStateData, (JAVA_OBJECT)&class__");
+        b.append(clsName);
+        b.append(");\n        return;\n    }\n\n");
+        
+        if(arrayTypes.contains("1_" + clsName) || arrayTypes.contains("2_" + clsName) || arrayTypes.contains("3_" + clsName)) {
+            b.append("class_array1__");
+            b.append(clsName);
+            b.append(".vtable = initVtableForInterface();\n    ");
+        }
+
+        if( arrayTypes.contains("2_" + clsName) || arrayTypes.contains("3_" + clsName)) {
+            b.append("class_array2__");
+            b.append(clsName);
+            b.append(".vtable = initVtableForInterface();\n    ");
+        }
+        if(arrayTypes.contains("3_" + clsName)) {
+            b.append("class_array3__");
+            b.append(clsName);
+            b.append(".vtable = initVtableForInterface();\n    ");
+        }
+        
+        // create the vtable
+        b.append("    class__");
+        b.append(clsName);
+        b.append(".vtable = malloc(sizeof(void*) *");
+        b.append(virtualMethodList.size());
+        b.append(");\n");
+        if(isInterface) {
+            // special case, java_lang_object calls on interfaces should
+            // act like standard virtual method calls
+            b.append("    class__");
+            b.append(clsName);
+            b.append(".vtable = initVtableForInterface();\n");
+            b.append("    classToInterfaceMap_");
+            b.append(clsName);
+            // calloc, not malloc: rows are filled only for classes that implement
+            // this interface, so an id that does not read as a registered row must
+            // read as NULL rather than as whatever the allocator last left there.
+            b.append(" = calloc(cn1_array_start_offset, sizeof(int*));\n");
+            for(ByteCodeClass cls : allClasses) {
+                if(!cls.isInterface) {
+                    if(cls.doesImplement(this)) {
+                        b.append("    classToInterfaceMap_");
+                        b.append(clsName);
+                        b.append("[cn1_class_id_");
+                        b.append(cls.clsName);
+                        b.append("] = malloc(sizeof(int*) * ");
+                        b.append(getMethodCountIncludingBase());
+                        b.append(");\n");
+                        offset = 0;
+                        for(BytecodeMethod m : virtualMethodList) {
+                            if(!m.getClsName().equals("java_lang_Object")) {
+                                b.append("    classToInterfaceMap_");
+                                b.append(clsName);
+                                b.append("[cn1_class_id_");
+                                b.append(cls.clsName);
+                                b.append("][");
+                                b.append(offset);
+                                b.append("] = ");
+                                b.append(cls.virtualMethodList.indexOf(m));
+                                b.append(";\n");
+                                offset++;
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            b.append("    __INIT_VTABLE_");
+            b.append(clsName);
+            b.append("(threadStateData, class__");
+            b.append(clsName);
+            b.append(".vtable);\n");
+
+        }
+        b.append("    __atomic_store_n(&class__");
+        b.append(clsName);
+        // This flag means STARTED, not completed: the JLS requires a class whose
+        // initialiser re-enters itself to proceed rather than deadlock, so it has
+        // to be set before __CLINIT__ runs, and the check above the monitor is
+        // that recursion guard. Nothing outside this function may treat it as
+        // "safe to use the class" in the JLS sense -- a class under initialization
+        // is not finished. The release is what the INLINE GUARDS acquire against:
+        // they test this flag, and it is what publishes the vtable and the
+        // classToInterfaceMap rows written just above. Guarding them on
+        // __X_LOADED__ instead would also be correct about the vtable and would
+        // additionally hold other threads until __CLINIT__ returned -- a strictly
+        // later gate than master opens, which moved layout on four native ports
+        // and is not what the visibility defect required.
+        b.append(".initialized, JAVA_TRUE, __ATOMIC_RELEASE);\n");
+        // init static fields and invoke the static initializer code block
+        if(clInitMethod != null) {
+            b.append("    ");
+            b.append(clInitMethod);
+            b.append("(threadStateData);\n");
+        }
+        b.append("monitorExitBlock(threadStateData, (JAVA_OBJECT)&class__");
+        b.append(clsName);
+        b.append(");\n");
+
+        // RELEASE: pairs with the acquire on the fast path above, so everything
+        // this initialiser wrote happens-before another thread's early return.
+        b.append("__atomic_store_n(&__").append(clsName)
+         .append("_LOADED__, 1, __ATOMIC_RELEASE);\n");
+
+        b.append("}\n\n");
+
+        // On-device-debug: emit the instance-field offset table for this
+        // class. Wrapped in CN1_ON_DEVICE_DEBUG so release builds don't pay
+        // the data or registration cost.
+        if (BytecodeMethod.isOnDeviceDebug()) {
+            appendOnDeviceDebugFieldTable(b);
+            appendOnDeviceDebugInvokeThunks(b);
+        }
+
+        return b.toString();
+    }
+
+    /**
+     * Emits a per-method shim that lets the debugger runtime call any
+     * translated method generically. Each thunk unpacks an argument array
+     * into the typed C parameters that the underlying function expects,
+     * wraps the call in a catch-all try block so an uncaught Throwable
+     * round-trips back as a value instead of unwinding past
+     * suspendCurrent, and packs the return value into a uniform
+     * {@code cn1_invoke_result}. A __attribute__((constructor)) at the
+     * bottom registers each thunk with the global registry keyed by
+     * methodOffset.
+     */
+    private void appendOnDeviceDebugInvokeThunks(StringBuilder b) {
+        // Skip thunk generation for classes whose impl is hand-written
+        // native code that's been allowed to fall out of sync with the
+        // translator's calling convention. Without thunks the linker
+        // dead-strips the C wrapper (since user code typically doesn't
+        // call those wrappers); with thunks the wrapper is forced live
+        // and the link fails on missing native impls.
+        //
+        // The skip list is intentionally narrow — only the packages
+        // where this is known to bite. java.lang / java.util etc. are
+        // fine and worth keeping (jdb leans on Object.toString for
+        // "print" output, and we want lists/strings to round-trip too).
+        if (clsName.startsWith("java_io_") || clsName.startsWith("java_net_")
+                || clsName.startsWith("java_nio_")
+                || clsName.startsWith("com_codename1_impl_")) {
+            return;
+        }
+        // We emit a constructor PER class that registers all of that
+        // class's invoke thunks in one go. The thunks themselves are
+        // file-static so they don't leak symbols.
+        List<BytecodeMethod> eligible = new ArrayList<>();
+        for (BytecodeMethod m : methods) {
+            if (m.isEliminated()) continue;
+            if (m.isConstructor()) continue;
+            String name = m.getMethodName();
+            if ("__CLINIT__".equals(name) || "<clinit>".equals(name)) continue;
+            // Abstract methods have no body to call. Native methods are
+            // fine — their impls live in nativeMethods.m / iOS port
+            // hand-written code, with the same C name our thunk calls.
+            // We rely on the class-prefix filter above to skip whole
+            // packages whose native sidecar isn't linked in this build
+            // (java.io / java.net / java.nio / com.codename1.impl).
+            if (m.isAbstract()) continue;
+            eligible.add(m);
+        }
+        if (eligible.isEmpty()) return;
+
+        b.append("\n#ifdef CN1_ON_DEVICE_DEBUG\n");
+        b.append("#include <setjmp.h>\n");
+        b.append("#include <string.h>\n");
+        for (BytecodeMethod m : eligible) {
+            m.appendOnDeviceDebugInvokeThunk(clsName, b);
+        }
+        b.append("__attribute__((constructor)) static void __cn1_dbg_register_invoke_thunks_")
+                .append(clsName).append("(void) {\n");
+        for (BytecodeMethod m : eligible) {
+            b.append("    cn1_debugger_register_invoke_thunk(")
+              .append(m.getMethodOffset())
+              .append(", &__cn1_dbg_invoke_").append(m.getMethodOffset()).append(");\n");
+        }
+        b.append("}\n");
+        b.append("#endif // CN1_ON_DEVICE_DEBUG\n");
+    }
+
+    private void appendOnDeviceDebugFieldTable(StringBuilder b) {
+        // Inherit-through layout-order list: parents first, this class last.
+        // Matches addFields() so offsetof() lines up with the actual struct.
+        List<ByteCodeField> instance = getAllInstanceFieldsInLayoutOrder();
+        // Drop any field whose declaring class isn't itself in the
+        // translation unit. We can't take offsetof of a field whose struct
+        // we don't have, but this should never happen — translator pulls in
+        // parents transitively.
+        b.append("\n#ifdef CN1_ON_DEVICE_DEBUG\n");
+        b.append("#import \"cn1_debugger.h\"\n");
+        b.append("static const cn1_field_entry __cn1_dbg_fields_").append(clsName).append("[] = {\n");
+        for (ByteCodeField bf : instance) {
+            String declCls = bf.getClsName().replace('/', '_').replace('$', '_');
+            int fid = Parser.getOrAssignFieldId(declCls, bf.getFieldName());
+            char tc = onDeviceDebugTypeCharFor(bf);
+            b.append("    { ").append(fid)
+              .append(", (int)offsetof(struct obj__").append(clsName)
+              .append(", ").append(declCls).append("_").append(bf.getFieldName())
+              .append("), '").append(tc).append("', \"")
+              .append(bf.getFieldName()).append("\" },\n");
+        }
+        b.append("};\n");
+        b.append("__attribute__((constructor)) static void __cn1_dbg_register_").append(clsName).append("(void) {\n");
+        b.append("    cn1_debugger_register_fields(cn1_class_id_").append(clsName).append(",\n");
+        b.append("            __cn1_dbg_fields_").append(clsName).append(",\n");
+        b.append("            (int)(sizeof(__cn1_dbg_fields_").append(clsName).append(") / sizeof(cn1_field_entry)));\n");
+        // Publish the clazz address too, so the runtime can tell a genuine
+        // object header from a stale or fabricated pointer by an exact
+        // identity check rather than a heuristic. Every generated class runs
+        // this constructor, so the registry is complete before main().
+        b.append("    cn1_debugger_register_class(cn1_class_id_").append(clsName)
+          .append(", &class__").append(clsName).append(");\n");
+        b.append("}\n");
+        b.append("#endif // CN1_ON_DEVICE_DEBUG\n");
+    }
+
+    private static char onDeviceDebugTypeCharFor(ByteCodeField bf) {
+        // Object and arrays — both stored as JAVA_OBJECT in the C struct.
+        if (bf.isObjectType()) return 'L';
+        String d = bf.getRuntimeDescriptor();
+        if (d != null && d.length() == 1) return d.charAt(0);
+        return 'L';
+    }
+
+    private boolean doesImplement(ByteCodeClass interfaceObj) {
+        if(baseInterfacesObject != null) {
+            if(baseInterfacesObject.contains(interfaceObj)) {
+                return true;
+            }
+            // check if one of the interfaces we implement derives from this interface
+            for(ByteCodeClass i : baseInterfacesObject) {
+                if(i.getBaseClassObject() == interfaceObj || i.doesImplement(interfaceObj)) {
+                    return true;
+                }
+            }
+        }
+        if(baseClassObject != null) {
+            return baseClassObject.doesImplement(interfaceObj);
+        }
+        return false;
+    }
+
+    private boolean isDefaultInterfaceMethod(BytecodeMethod method, List<ByteCodeClass> allClasses) {
+        ByteCodeClass owner = findClass(method.getClsName(), allClasses);
+        return owner != null && owner.isInterface && !method.isAbstract();
+    }
+    
+    private void appendSuperStub(StringBuilder b, List<BytecodeMethod> bm, ByteCodeClass base) {
+        // append super stub
+        BytecodeMethod.setAcceptStaticOnEquals(true);
+        for(BytecodeMethod m : base.methods) {
+            if(!m.isPrivate() && !bm.contains(m)) {
+                m.appendSuperCall(b, clsName);
+                bm.add(m);
+            }
+        }
+        if(base.baseClassObject != null) {
+            appendSuperStub(b, bm, base.baseClassObject);
+        }
+        BytecodeMethod.setAcceptStaticOnEquals(false);
+    }
+
+    private boolean hasMethodInBaseClass(BytecodeMethod method) {
+        if(baseClassObject == null) {
+            return false;
+        }
+        if(baseClassObject.methods.contains(method)) {
+            return true;
+        }
+        return baseClassObject.hasMethodInBaseClass(method);
+    }
+
+    private void appendDefaultInterfaceStubs(StringBuilder b, List<BytecodeMethod> bm) {
+        if(baseInterfacesObject == null) {
+            return;
+        }
+        BytecodeMethod.setAcceptStaticOnEquals(true);
+        for(ByteCodeClass baseInterface : baseInterfacesObject) {
+            appendDefaultInterfaceStubs(b, bm, baseInterface);
+        }
+        BytecodeMethod.setAcceptStaticOnEquals(false);
+    }
+
+    private void appendDefaultInterfaceStubs(StringBuilder b, List<BytecodeMethod> bm, ByteCodeClass baseInterface) {
+        if(baseInterface == null) {
+            return;
+        }
+        if(baseClassObject != null && baseClassObject.doesImplement(baseInterface)) {
+            return;
+        }
+        for(BytecodeMethod m : baseInterface.methods) {
+            if(m.isAbstract() || m.isStatic() || m.isPrivate()) {
+                continue;
+            }
+            if(!bm.contains(m) && !hasMethodInBaseClass(m)) {
+                m.appendSuperCall(b, clsName);
+                bm.add(m);
+            }
+        }
+        if(baseInterface.baseInterfacesObject != null) {
+            for(ByteCodeClass parentInterface : baseInterface.baseInterfacesObject) {
+                appendDefaultInterfaceStubs(b, bm, parentInterface);
+            }
+        }
+    }
+    
+    private void appendSuperStubHeader(StringBuilder b, List<BytecodeMethod> bm, ByteCodeClass base) {
+        BytecodeMethod.setAcceptStaticOnEquals(true);
+        // append super stub
+        for(BytecodeMethod m : base.methods) {
+            if(!m.isPrivate() && !bm.contains(m)) {
+                m.appendMethodHeader(b, clsName);
+                bm.add(m);
+            }
+        }
+        if(base.baseClassObject != null) {
+            appendSuperStubHeader(b, bm, base.baseClassObject);
+        }
+        BytecodeMethod.setAcceptStaticOnEquals(false);
+    }
+
+    private void appendDefaultInterfaceStubHeaders(StringBuilder b, List<BytecodeMethod> bm) {
+        if(baseInterfacesObject == null) {
+            return;
+        }
+        BytecodeMethod.setAcceptStaticOnEquals(true);
+        for(ByteCodeClass baseInterface : baseInterfacesObject) {
+            appendDefaultInterfaceStubHeaders(b, bm, baseInterface);
+        }
+        BytecodeMethod.setAcceptStaticOnEquals(false);
+    }
+
+    private void appendDefaultInterfaceStubHeaders(StringBuilder b, List<BytecodeMethod> bm, ByteCodeClass baseInterface) {
+        if(baseInterface == null) {
+            return;
+        }
+        if(baseClassObject != null && baseClassObject.doesImplement(baseInterface)) {
+            return;
+        }
+        for(BytecodeMethod m : baseInterface.methods) {
+            if(m.isAbstract() || m.isStatic() || m.isPrivate()) {
+                continue;
+            }
+            if(!bm.contains(m) && !hasMethodInBaseClass(m)) {
+                m.appendMethodHeader(b, clsName);
+                bm.add(m);
+            }
+        }
+        if(baseInterface.baseInterfacesObject != null) {
+            for(ByteCodeClass parentInterface : baseInterface.baseInterfacesObject) {
+                appendDefaultInterfaceStubHeaders(b, bm, parentInterface);
+            }
+        }
+    }
+    
+    private void buildInstanceFieldList(List<ByteCodeField> fieldList) {
+        buildInstanceFieldList(fieldList, true);
+    }
+    
+    private void buildInstanceFieldList(List<ByteCodeField> fieldList, boolean includePrivateFields) {
+        for(ByteCodeField bf : fields) {
+            // We don't include private fields from parent classes.
+            if (!includePrivateFields && bf.isPrivate()) continue;
+            if(!bf.isStaticField() && !fieldList.contains(bf)) {
+                fieldList.add(bf);
+            } 
+        }
+        if(baseClassObject != null) {
+            baseClassObject.buildInstanceFieldList(fieldList, false);
+        }        
+    } 
+
+    private List<ByteCodeField> buildStaticFieldList(List<ByteCodeField> fieldList) {
+        return buildStaticFieldList(fieldList, true);
+    }
+    
+    private List<ByteCodeField> buildStaticFieldList(List<ByteCodeField> fieldList, boolean includePrivateFields) {
+        if (fields != null) {
+            for(ByteCodeField bf : fields) {
+                // We don't include private fields from parent classes.
+                if (!includePrivateFields && bf.isPrivate()) continue;
+                if(bf.isStaticField() && !fieldList.contains(bf)) {
+                    fieldList.add(bf);
+                } 
+            }
+        }
+        if(baseInterfacesObject != null) {
+            for(ByteCodeClass baseInterface : baseInterfacesObject) {
+                baseInterface.buildStaticFieldList(fieldList, false);
+            }
+        }
+        if(baseClassObject != null) {
+            baseClassObject.buildStaticFieldList(fieldList, false);
+        }        
+        return fieldList;
+    } 
+    
+    private void addFields(StringBuilder b) {
+        if(baseClassObject != null) {
+            baseClassObject.addFields(b);
+        }
+        for(ByteCodeField bf : fields) {
+            if(!bf.isStaticField()) {
+                b.append("    ");
+                b.append(bf.getCStorageDefinition());
+                b.append(" ");
+                b.append(clsName);
+                b.append("_");
+                b.append(bf.getFieldName());
+                b.append(";\n");
+            } 
+        }
+    }
+    
+    public String generateCHeader() {
+        StringBuilder b = new StringBuilder();
+        b.append("#ifndef __");
+        b.append(clsName.toUpperCase());
+        b.append("__\n");
+        b.append("#define __");
+        b.append(clsName.toUpperCase());
+        b.append("__\n\n");
+
+        b.append("#include \"cn1_globals.h\"\n");
+        
+        for(String s : exportsClassesInterfaces) {
+            /*
+            if(s.startsWith("java_lang_annotation") || s.startsWith("java_lang_Deprecated") || 
+                    s.startsWith("java_lang_Override") || s.startsWith("java_lang_SuppressWarnings")) {
+                continue;
+            }
+            */
+            //if (isAnnotation) {
+            //    continue;
+            //}
+            b.append("#include \"");
+            b.append(s);
+            b.append(".h\"\n");
+        }
+
+        b.append("extern struct clazz class__");
+        b.append(clsName);
+        b.append(";\n");
+
+        if(arrayTypes.contains("1_" + clsName) || arrayTypes.contains("2_" + clsName) || arrayTypes.contains("3_" + clsName)) {
+            b.append("extern struct clazz class_array1__");
+            b.append(clsName);
+            b.append(";\n");
+        }
+
+        if(arrayTypes.contains("2_" + clsName) || arrayTypes.contains("3_" + clsName)) {
+            b.append("extern struct clazz class_array2__");
+            b.append(clsName);
+            b.append(";\n");
+        }
+
+        if(arrayTypes.contains("3_" + clsName)) {
+            b.append("extern struct clazz class_array3__");
+            b.append(clsName);
+            b.append(";\n");
+        }
+
+        if(!isInterface) {
+            b.append("extern void __INIT_VTABLE_");
+            b.append(clsName);
+            b.append("(CODENAME_ONE_THREAD_STATE, void** vtable);\n");
+        }
+
+        b.append("extern void __STATIC_INITIALIZER_");
+        b.append(clsName);
+        b.append("(CODENAME_ONE_THREAD_STATE);\n");
+        b.append("extern void __FINALIZER_");
+        b.append(clsName);
+        b.append("(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT objToDelete);\n");
+
+        b.append("extern void __GC_MARK_");
+        b.append(clsName);
+        b.append("(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT objToMark, JAVA_BOOLEAN force);\n");
+        
+        if(!isInterface && !isAbstract) {
+            b.append("extern JAVA_OBJECT __NEW_");
+            b.append(clsName);
+            b.append("(CODENAME_ONE_THREAD_STATE);\n");
+
+            if(hasDefaultConstructor()) {
+                b.append("extern JAVA_OBJECT __NEW_INSTANCE_");
+                b.append(clsName);
+                b.append("(CODENAME_ONE_THREAD_STATE);\n");
+            }
+        }
+        
+        if (isEnum) {
+            b.append("extern JAVA_OBJECT __VALUE_OF_").append(clsName).append("(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT value);\n");
+        }
+                
+        if(arrayTypes.contains("1_" + clsName)) {
+            b.append("extern JAVA_OBJECT __NEW_ARRAY_");
+            b.append(clsName);
+            b.append("(CODENAME_ONE_THREAD_STATE, JAVA_INT size);\n");
+        }
+        
+        appendMethodsToHeader(b);
+        if(isInterface) {
+            List<BytecodeMethod> bm = new ArrayList<BytecodeMethod>(methods);
+            appendInheritedInterfaceMethodHeaders(b, bm);
+        }
+        
+        if(!isInterface) {
+            // append super stub
+            List<BytecodeMethod> bm = new ArrayList<BytecodeMethod>(methods);
+            if(baseClassObject != null) {
+                appendSuperStubHeader(b, bm, baseClassObject);
+            }
+            appendDefaultInterfaceStubHeaders(b, bm);
+        }
+        
+        for(BytecodeMethod m : virtualMethodList) {
+            if(m.isVirtualOverriden()) {
+                b.append("#define virtual_");
+                b.append(m.getClsName());
+                b.append("_");
+                b.append(m.getCMethodName());
+                b.append("__");
+                m.appendArgumentTypes(b);
+                b.append(" ");
+                b.append(m.getClsName());
+                b.append("_");
+                b.append(m.getCMethodName());
+                b.append("__");
+                m.appendArgumentTypes(b);
+                b.append("\n");
+            } else {
+                m.appendVirtualMethodHeader(b, clsName);
+            }
+        }
+
+        // static fields for the class
+        for(ByteCodeField bf : staticFieldList) {
+            if(bf.isStaticField()) {
+                if(bf.getClsName().equals(clsName)) {
+                    b.append("extern ");
+                    b.append(bf.getCDefinition());
+                    b.append(" get_static_");
+                    b.append(clsName);
+                    b.append("_");
+                    b.append(bf.getFieldName());
+                    b.append("();\n");
+                    if(!(bf.isFinal() && bf.getValue() != null && !writableFields.contains(bf.getFieldName()))) {
+                        b.append("extern ");
+                        b.append(bf.getCStorageDefinition());
+                        b.append(" STATIC_FIELD_");
+                        b.append(clsName);
+                        b.append("_");
+                        b.append(bf.getFieldName());
+                        b.append(";\n");
+
+                    b.append("extern void");
+                    b.append(" set_static_");
+                    b.append(clsName);
+                    b.append("_");
+                    b.append(bf.getFieldName());
+                    b.append("(");
+                    if (bf.isObjectType()) {
+                        b.append("CODENAME_ONE_THREAD_STATE, ");
+                    }
+                    b.append(bf.getCDefinition());
+                    b.append(" v);\n");
+                    }
+                } else {
+                    b.append("#define get_static_");
+                    b.append(clsName);
+                    b.append("_");
+                    b.append(bf.getFieldName());
+                    b.append("() get_static_");
+                    b.append(bf.getClsName());
+                    b.append("_");
+                    b.append(bf.getFieldName());
+                    b.append("()\n");
+
+                    b.append("#define set_static_");
+                    b.append(clsName);
+                    b.append("_");
+                    b.append(bf.getFieldName());
+                    if (bf.isObjectType()) {
+                        b.append("(threadStateArgument, valueArgument) set_static_");
+                        b.append(bf.getClsName());
+                        b.append("_");
+                        b.append(bf.getFieldName());
+                        b.append("(threadStateArgument, valueArgument)\n");
+                    } else {
+                        b.append("(valueArgument) set_static_");
+                        b.append(bf.getClsName());
+                        b.append("_");
+                        b.append(bf.getFieldName());
+                        b.append("(valueArgument)\n");
+                    }
+                }
+            }
+        }
+
+        for(ByteCodeField fld : fullFieldList) {
+            b.append(fld.getCDefinition());
+            b.append(" get_field_");
+            b.append(clsName);
+            b.append("_");
+            b.append(fld.getFieldName());
+            b.append("(JAVA_OBJECT t);\n");
+
+            b.append("void set_field_");
+            b.append(clsName);
+            b.append("_");
+            b.append(fld.getFieldName());
+            b.append("(");
+            b.append(fld.getCDefinition());
+            b.append(" __cn1Val, JAVA_OBJECT __cn1T);\n");
+        }
+        
+        b.append("\n\n");
+
+        // object struct contains instace field variables
+        b.append("struct obj__");
+        b.append(clsName);
+        b.append(" {\n");
+        // reference to the class, reference counter for the arc portion of the GC
+        // and a mutex for synchronization code
+        b.append("    DEBUG_GC_VARIABLES\n    struct clazz *__codenameOneParentClsReference;\n");
+        b.append("    int __codenameOneGcMark;\n");
+        b.append("    int __heapPosition;\n");
+
+        
+        addFields(b);
+        
+        b.append("};\n\n");
+                     
+        
+        b.append("\n\n#endif //__");
+        b.append(clsName.toUpperCase());
+        b.append("__\n");
+        return b.toString();
+    }
+
+    private void appendMethodsToHeader(StringBuilder b) {        
+        for(BytecodeMethod m : methods) {
+            m.appendMethodHeader(b);
+            
+            /*if(!m.isForceVirtual() && m.isVirtualBlockedDueToFinal() && !m.isVirtualOverriden()) {
+                b.append("#define virtual_");
+                b.append(clsName);
+                b.append("_");
+                b.append(m.getMethodName());
+                b.append("__");
+                m.appendArgumentTypes(b);
+                b.append(" ");
+                b.append(m.getClsName());
+                b.append("_");
+                b.append(m.getMethodName());
+                b.append("__");
+                m.appendArgumentTypes(b);
+                b.append("\n");
+            }*/
+        }
+        
+        /*if(baseClassObject != null) {
+            baseClassObject.appendVirtualBlockedMethodsToHeader(b, clsName);
+        }*/
+    }
+
+    /*private void appendVirtualBlockedMethodsToHeader(StringBuilder b, String clsName) {        
+        for(BytecodeMethod m : methods) {
+            if(m.isVirtualBlockedDueToFinal() && !m.isVirtualOverriden()) {
+                b.append("#define virtual_");
+                b.append(clsName);
+                b.append("_");
+                b.append(m.getMethodName());
+                b.append("__");
+                m.appendArgumentTypes(b);
+                b.append(" ");
+                b.append(m.getClsName());
+                b.append("_");
+                b.append(m.getMethodName());
+                b.append("__");
+                m.appendArgumentTypes(b);
+                b.append("\n");
+            }
+        }
+        if(baseClassObject != null) {
+            baseClassObject.appendVirtualBlockedMethodsToHeader(b, clsName);
+        }
+    }*/
+
+    private void appendInheritedInterfaceMethods(StringBuilder b, List<BytecodeMethod> bm) {
+        if(baseInterfacesObject == null) {
+            return;
+        }
+        for(ByteCodeClass baseInterface : baseInterfacesObject) {
+            appendInheritedInterfaceMethods(b, bm, baseInterface);
+        }
+    }
+
+    private void appendInheritedInterfaceMethods(StringBuilder b, List<BytecodeMethod> bm, ByteCodeClass baseInterface) {
+        if(baseInterface == null) {
+            return;
+        }
+        for(BytecodeMethod m : baseInterface.methods) {
+            if(m.isStatic() || m.isPrivate()) {
+                continue;
+            }
+            if(!bm.contains(m)) {
+                m.appendInterfaceMethodC(b, clsName);
+                bm.add(m);
+            }
+        }
+        if(baseInterface.baseInterfacesObject != null) {
+            for(ByteCodeClass parentInterface : baseInterface.baseInterfacesObject) {
+                appendInheritedInterfaceMethods(b, bm, parentInterface);
+            }
+        }
+    }
+
+    private void appendInheritedInterfaceMethodHeaders(StringBuilder b, List<BytecodeMethod> bm) {
+        if(baseInterfacesObject == null) {
+            return;
+        }
+        for(ByteCodeClass baseInterface : baseInterfacesObject) {
+            appendInheritedInterfaceMethodHeaders(b, bm, baseInterface);
+        }
+    }
+
+    private void appendInheritedInterfaceMethodHeaders(StringBuilder b, List<BytecodeMethod> bm, ByteCodeClass baseInterface) {
+        if(baseInterface == null) {
+            return;
+        }
+        for(BytecodeMethod m : baseInterface.methods) {
+            if(m.isStatic() || m.isPrivate()) {
+                continue;
+            }
+            if(!bm.contains(m)) {
+                m.appendMethodHeader(b, clsName);
+                bm.add(m);
+            }
+        }
+        if(baseInterface.baseInterfacesObject != null) {
+            for(ByteCodeClass parentInterface : baseInterface.baseInterfacesObject) {
+                appendInheritedInterfaceMethodHeaders(b, bm, parentInterface);
+            }
+        }
+    }
+
+    
+    /**
+     * @param baseClass the baseClass to set
+     */
+    public void setBaseClass(String baseClass) {
+        this.baseClass = baseClass;
+        if(baseClass != null) {
+            String b = baseClass.replace('/', '_').replace('$', '_');
+            if(!dependsClassesInterfaces.contains(b)) {
+                dependsClassesInterfaces.add(b);
+            }
+            exportsClassesInterfaces.add(b);
+        }
+    }
+    
+    public void setBaseInterfaces(String[] interfaces) {
+        baseInterfaces = Arrays.asList(interfaces);
+        if(baseInterfaces != null) {
+            for(String s : interfaces) {
+                s = s.replace('/', '_').replace('$', '_');
+                if(!dependsClassesInterfaces.contains(s)) {
+                    dependsClassesInterfaces.add(s);
+                }
+                exportsClassesInterfaces.add(s);
+            }
+        }
+    }
+
+    /**
+     * @return the clsName
+     */
+    public String getClsName() {
+        return clsName;
+    }
+
+    /**
+     * @return the baseClassObject
+     */
+    public ByteCodeClass getBaseClassObject() {
+        return baseClassObject;
+    }
+
+    /**
+     * @param baseClassObject the baseClassObject to set
+     */
+    public void setBaseClassObject(ByteCodeClass baseClassObject) {
+        this.baseClassObject = baseClassObject;
+    }
+
+    /**
+     * @return the baseInterfacesObject
+     */
+    public List<ByteCodeClass> getBaseInterfacesObject() {
+        return baseInterfacesObject;
+    }
+
+    /**
+     * @param baseInterfacesObject the baseInterfacesObject to set
+     */
+    public void setBaseInterfacesObject(List<ByteCodeClass> baseInterfacesObject) {
+        this.baseInterfacesObject = baseInterfacesObject;
+    }
+
+    /**
+     * @return the baseInterfaces
+     */
+    public List<String> getBaseInterfaces() {
+        return baseInterfaces;
+    }
+    
+    public void fillVirtualMethodTable(List<BytecodeMethod> virtualMethods) {
+        fillVirtualMethodTable(virtualMethods, true);
+    }
+    
+    private void fillVirtualMethodTable(List<BytecodeMethod> virtualMethods, boolean replace) {
+        if(baseClassObject != null) {
+            baseClassObject.fillVirtualMethodTable(virtualMethods, true);
+        }
+        if(baseInterfacesObject != null) {
+            for(ByteCodeClass bc : baseInterfacesObject) {
+                bc.fillVirtualMethodTable(virtualMethods, false);
+            }
+        }
+        for(BytecodeMethod bm : methods) {
+            if (bm.isEliminated()) continue;
+            if(bm.canBeVirtual()) {
+                int offset = virtualMethods.indexOf(bm);
+                if(offset < 0) {
+                    virtualMethods.add(bm);
+                    if(isInterface) {
+                        bm.setForceVirtual(true);
+                    }
+                } else {
+                    if(replace || (isInterface && (isInterfaceInHierarchy(virtualMethods.get(offset).getClsName()) ||
+                            "java_lang_Object".equals(virtualMethods.get(offset).getClsName())))) {
+                        virtualMethods.set(offset, bm);
+                        if(isInterface) {
+                            bm.setForceVirtual(true);
+                        }
+                    }
+                }
+            } else {
+                
+            } 
+        }
+    }
+    
+    /*private boolean isMethodIn(ByteCodeClass bc, BytecodeMethod bm) {
+        if(methods.contains(bm)) {
+            return true;
+        }
+        if(baseInterfacesObject != null) {
+            for(ByteCodeClass cc : baseInterfacesObject) {
+                if(isMethodIn(cc, bm)) {
+                    return true;
+                }
+            }
+        }
+        if(baseClassObject != null) {
+            return isMethodIn(baseClassObject, bm);
+        }
+        return false;
+    }*/
+
+    /**
+     * @return the baseClass
+     */
+    public String getBaseClass() {
+        return baseClass;
+    }
+
+    public String getConcreteClass() {
+        return concreteClass;
+    }
+
+    public void setConcreteClass(String concreteClass) {
+        this.concreteClass = concreteClass;
+    }
+
+    public void setSourceFile(String sourceFile) {
+        this.sourceFile = sourceFile;
+    }
+
+    public String getSourceFile() {
+        return sourceFile;
+    }
+
+    /**
+     * @return the classOffset
+     */
+    public int getClassOffset() {
+        return classOffset;
+    }
+
+    /**
+     * @param classOffset the classOffset to set
+     */
+    public void setClassOffset(int classOffset) {
+        this.classOffset = classOffset;
+    }
+    
+    public int updateMethodOffsets(int initial) {
+        for(BytecodeMethod m : methods) {
+            m.setMethodOffset(initial);
+            initial++;
+        }
+        return initial;
+    }
+    
+    public int getMethodCountIncludingBase() {
+        int size = methods.size();
+        if(baseClassObject != null) {
+            size += baseClassObject.getMethodCountIncludingBase();
+        }
+        if(baseInterfacesObject != null) {
+            for(ByteCodeClass bo : baseInterfacesObject) {
+                size += bo.getMethodCountIncludingBase();
+            }
+        }
+        return size;
+    }
+    
+    public List<BytecodeMethod> getMethods() {
+        return methods;
+    }
+
+    public List<ByteCodeField> getFields() {
+        return fields;
+    }
+
+    /**
+     * Walks the inheritance chain and collects every instance field this class
+     * physically stores in its C struct (in declaration order, parents first
+     * to match {@link #addFields}). Used by the on-device-debug sidecar so the
+     * proxy can ask the device for inherited fields by their declaring-class
+     * fieldId without a JDWP-level type walk.
+     */
+    public List<ByteCodeField> getAllInstanceFieldsInLayoutOrder() {
+        List<ByteCodeField> out = new ArrayList<>();
+        collectInstanceFieldsInLayoutOrder(out);
+        return out;
+    }
+
+    private void collectInstanceFieldsInLayoutOrder(List<ByteCodeField> out) {
+        if (baseClassObject != null) {
+            baseClassObject.collectInstanceFieldsInLayoutOrder(out);
+        }
+        for (ByteCodeField bf : fields) {
+            if (!bf.isStaticField()) {
+                out.add(bf);
+            }
+        }
+    }
+
+    /**
+     * @return the isInterface
+     */
+    public boolean isIsInterface() {
+        return isInterface;
+    }
+
+    /**
+     * @param isInterface the isInterface to set
+     */
+    public void setIsInterface(boolean isInterface) {
+        this.isInterface = isInterface;
+    }
+    
+    public void setIsUnitTest(boolean isUnitTest) {
+        this.isUnitTest = isUnitTest;
+    }
+
+    /**
+     * @return the isAbstract
+     */
+    public boolean isIsAbstract() {
+        return isAbstract;
+    }
+
+    /**
+     * @param isAbstract the isAbstract to set
+     */
+    public void setIsAbstract(boolean isAbstract) {
+        this.isAbstract = isAbstract;
+    }
+    
+    private void appendClassVFunctions(StringBuilder b) {
+        // special case, class has no Class object within it so no real virtual functions
+        b.append("JAVA_BOOLEAN virtual_java_lang_Class_equals___java_lang_Object_R_boolean(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1ThisObject, JAVA_OBJECT __cn1Arg1) {\n" +
+            "    return java_lang_Object_equals___java_lang_Object_R_boolean(threadStateData, __cn1ThisObject, __cn1Arg1);\n" +
+            "}\n" +
+            "\n" +
+            "\n" +
+            "JAVA_OBJECT virtual_java_lang_Class_getClass___R_java_lang_Class(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1ThisObject) {\n" +
+            "    return java_lang_Object_getClass___R_java_lang_Class(threadStateData, __cn1ThisObject);\n" +
+            "}\n" +
+            "\n" +
+            "\n" +
+            "JAVA_INT virtual_java_lang_Class_hashCode___R_int(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1ThisObject) {\n" +
+            "    return java_lang_Object_hashCode___R_int(threadStateData, __cn1ThisObject);\n" +
+            "}\n" +
+            "\n" +
+            "\n" +
+            "JAVA_VOID virtual_java_lang_Class_notify__(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1ThisObject) {\n" +
+            "    java_lang_Object_notify__(threadStateData, __cn1ThisObject);\n" +
+            "}\n" +
+            "\n" +
+            "JAVA_VOID virtual_java_lang_Class_notifyAll__(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1ThisObject) {\n" +
+            "    java_lang_Object_notifyAll__(threadStateData, __cn1ThisObject);\n" +
+            "}\n" +
+            "\n" +
+            "\n" +
+            "JAVA_OBJECT virtual_java_lang_Class_toString___R_java_lang_String(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1ThisObject) {\n" +
+            "    return java_lang_Object_toString___R_java_lang_String(threadStateData, __cn1ThisObject);\n" +
+            "}\n" +
+            "\n" +
+            "\n" +
+            "JAVA_VOID virtual_java_lang_Class_wait__(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1ThisObject) {\n" +
+            "    java_lang_Object_wait__(threadStateData, __cn1ThisObject);\n" +
+            "}\n" +
+            "\n" +
+            "\n" +
+            "JAVA_VOID virtual_java_lang_Class_wait___long(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1ThisObject, JAVA_LONG __cn1Arg1) {\n" +
+            "    java_lang_Object_wait___long(threadStateData, __cn1ThisObject, __cn1Arg1);\n" +
+            "}\n" +
+            "\n" +
+            "\n" +
+            "JAVA_VOID virtual_java_lang_Class_wait___long_int(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT __cn1ThisObject, JAVA_LONG __cn1Arg1, JAVA_INT __cn1Arg2) {\n" +
+            "    java_lang_Object_wait___long_int(threadStateData, __cn1ThisObject, __cn1Arg1, __cn1Arg2);\n" +
+            "}\n");
+    }
+
+    /**
+     * @return the finalClass
+     */
+    private boolean stackAllocatable;
+
+    /**
+     * True when the class carries {@code @com.codename1.annotations.StackAllocate}:
+     * its instances are allocated as method-scoped C structs instead of on the GC
+     * heap. The developer guarantees instances never escape their creating frame.
+     */
+    public boolean isStackAllocatable() {
+        return stackAllocatable;
+    }
+
+    public void setStackAllocatable(boolean stackAllocatable) {
+        this.stackAllocatable = stackAllocatable;
+    }
+
+    private boolean fused;
+
+    /**
+     * True when the class carries {@code @com.codename1.annotations.Fused}: its
+     * constructor-created primitive-array fields are encapsulated, so instances
+     * are allocated together with those arrays as ONE heap block (single
+     * allocation, single GC object; the arrays have no independent GC identity
+     * and die with the owner). See {@link
+     * com.codename1.tools.translator.bytecodes.FusedConstructor}.
+     */
+    public boolean isFused() {
+        return fused;
+    }
+
+    public void setFused(boolean fused) {
+        this.fused = fused;
+    }
+
+    public boolean isFinalClass() {
+        return finalClass;
+    }
+
+    /**
+     * @param finalClass the finalClass to set
+     */
+    public void setFinalClass(boolean finalClass) {
+        this.finalClass = finalClass;
+    }
+    
+    public void appendStaticFieldsExtern(StringBuilder b) {
+        for(ByteCodeField bf : fields) {
+            if(bf.isStaticField() && bf.isObjectType() && !bf.shouldRemoveFromHeapCollection()) {
+                b.append("extern ");
+                b.append(bf.getCStorageDefinition());
+                b.append(" STATIC_FIELD_");
+                b.append(clsName);
+                b.append("_");
+                b.append(bf.getFieldName());
+                b.append(";\n");
+            }
+        }
+    }
+
+    private boolean isTrulyFinal(ByteCodeField bf) {
+        if(bf.isFinal()) {
+            if(bf.isObjectType()) {
+                if(bf.getType() != null) {
+                    return bf.getType().endsWith("String");
+                }
+            } else {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    public void appendStaticFieldsMark(StringBuilder b) {
+        for(ByteCodeField bf : fields) {
+            if(bf.isStaticField() && bf.isObjectType() && !bf.shouldRemoveFromHeapCollection()) {
+                b.append("    gcMarkObject(threadStateData, ");
+                if (bf.isVolatile()) {
+                    b.append("atomic_load_explicit(&STATIC_FIELD_");
+                    b.append(clsName);
+                    b.append("_");
+                    b.append(bf.getFieldName());
+                    b.append(", memory_order_acquire)");
+                } else {
+                    b.append("STATIC_FIELD_");
+                    b.append(clsName);
+                    b.append("_");
+                    b.append(bf.getFieldName());
+                }
+                b.append(", JAVA_TRUE);\n");
+            }
+        }
+    }
+
+    /**
+     * 3-state variable to keep track of whether the class is used by native sources.
+     * 3 states, because we need to know if it is unknown.
+     */
+    private UsedByNativeResult usedByNative = UsedByNativeResult.Unknown;
+
+
+    /**
+     * Sets usedByNative flag in this class.
+     * @param usedByNative True if this class is used by native sources.
+     */
+    public void setUsedByNative(boolean usedByNative) {
+        this.usedByNative = usedByNative ? UsedByNativeResult.Used : UsedByNativeResult.Unused;
+    }
+
+    /**
+     * Enum to track possible values of {@link #usedByNative}.
+     */
+    public static enum UsedByNativeResult {
+        /**
+         * The class is used by native sources.
+         */
+        Used,
+        /**
+         * The class is not used by native sources.
+         */
+        Unused,
+        /**
+         * We don't yet know if this class is used by native sources.
+         */
+        Unknown;
+    }
+
+
+    /**
+     * Check whether this class is used by native sources.
+     * @return
+     */
+    public UsedByNativeResult getUsedByNative() {
+       return usedByNative;
+    }
+
+    /**
+     * Calculates whether this class is used in any of the native sources.
+     * @param nativeSources The native sources to check.
+     * @see #getUsedByNative() 
+     * @see #setUsedByNative(boolean)
+     */
+    public void calcUsedByNative(String[] nativeSources) {
+        for (BytecodeMethod m : methods) {
+            if (usedByNative != UsedByNativeResult.Unknown) {
+                return;
+            }
+            m.isMethodUsedByNative(nativeSources, this);
+        }
+    }
+
+    boolean isUnitTest() {
+        return isUnitTest;
+    }
+
+    void setIsEnum(boolean b) {
+        this.isEnum = b;
+    }
+
+    private String getArrayClazz(int dim) {
+        if((arrayTypes.contains(dim + "_" + clsName) )) {
+            return "&class_array"+dim+"__"+clsName;
+        } else {
+            return "0";
+        }
+    }
+
+    
+}

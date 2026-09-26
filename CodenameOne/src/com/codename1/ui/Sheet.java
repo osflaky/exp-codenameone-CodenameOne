@@ -1,0 +1,1818 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.ui;
+
+import com.codename1.ui.ComponentSelector.ComponentClosure;
+import com.codename1.ui.animations.ComponentAnimation;
+import com.codename1.ui.animations.Motion;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.geom.Rectangle;
+import com.codename1.ui.layouts.BorderLayout;
+import com.codename1.ui.layouts.BoxLayout;
+import com.codename1.ui.layouts.FlowLayout;
+import com.codename1.ui.layouts.LayeredLayout;
+import com.codename1.ui.plaf.Border;
+import com.codename1.ui.plaf.RoundRectBorder;
+import com.codename1.ui.plaf.Style;
+import com.codename1.ui.plaf.UIManager;
+import com.codename1.ui.util.EventDispatcher;
+import com.codename1.util.AsyncResource;
+
+import java.util.ArrayList;
+
+import static com.codename1.ui.ComponentSelector.$;
+
+/// A light-weight dialog that slides up from the bottom of the screen on mobile devices.
+/// Sheets include a "title" bar, with a back/close button, a title label, and a "commands container" (`#getCommandsContainer()`)
+/// which allows you to insert your own custom components (usually buttons) in the upper right.
+///
+/// Custom content should be placed inside the content pane which can be retrieved via `#getContentPane()`
+///
+/// Usage
+///
+/// The general usage is to create new Sheet instance (or subclass), then call `#show()`
+/// to make it appear over the current form.  If a different sheet that is currently being displayed, then
+/// calling `#show()` will replace it.
+///
+/// Inter-Sheet Navigation
+///
+/// The `java.lang.String)` constructor can take another
+/// Sheet object as a parameter, which will act as a "parent" sheet (`#getParentSheet()`.  If the parent
+/// sheet is not null, then this sheet will have a "Back" button instead of a "Close" button.  THe
+/// "Back" button will navigate back to the parent sheet.
+///
+/// When navigating between sheets, the sheet will be resized with a smooth slide animation to the preferred
+/// height of the destination sheet.
+///
+/// **Example**
+///
+/// ```java
+/// `public void start() {
+/// if(current != null){
+/// current.show();
+/// return;`
+/// Form hi = new Form("Hi World", new BorderLayout());
+///
+/// Button b = new Button("Open Sheet");
+/// b.addActionListener(e->{
+/// new MySheet(null).show();
+///
+/// });
+/// hi.add(BorderLayout.NORTH, b);
+/// hi.show();
+/// }
+///
+/// private class MySheet extends Sheet {
+/// MySheet(Sheet parent) {
+/// super(parent, "My Sheet");
+/// Container cnt = getContentPane();
+/// cnt.setLayout(BoxLayout.y());
+/// Button gotoSheet2 = new Button("Goto Sheet 2");
+/// gotoSheet2.addActionListener(e->{
+/// new MySheet2(this).show(300);
+/// });
+/// cnt.add(gotoSheet2);
+/// for (String t : new String[]{"Red", "Green", "Blue", "Orange"}) {
+/// cnt.add(new Label(t));
+/// }
+/// }
+/// }
+///
+/// private class MySheet2 extends Sheet {
+/// MySheet2(Sheet parent) {
+/// super(parent, "Sheet 2");
+/// Container cnt = getContentPane();
+/// cnt.setLayout(BoxLayout.y());
+/// cnt.setScrollableY(true);
+/// for (int i=0; iVideo Sample
+///
+/// [Screen cast of the SheetSample demo](https://youtu.be/3okEj_JW3-k)
+///
+/// View source for this sample [here](https://github.com/codenameone/CodenameOne/tree/master/Samples/samples/SheetSample).
+/// This sample can be run directly in the [SampleRunner](https://github.com/codenameone/CodenameOne/tree/master/Samples/).
+///
+/// @author shannah
+///
+public class Sheet extends Container {
+    private static Rectangle[] sheetBoundsList = new Rectangle[0];
+    private static final int N = 0;
+    private static final int S = 1;
+    private static final int E = 2;
+    private static final int W = 3;
+    private static final int C = 4;
+    private static final int DEFAULT_TRANSITION_DURATION = 300;
+    private final Sheet parentSheet;
+    private final Label title = new Label();
+    private Component titleComponent = title;
+    private final EventDispatcher closeListeners = new EventDispatcher();
+    private final EventDispatcher backListeners = new EventDispatcher();
+    /// Pending result resource published by `#showForResult` and completed by
+    /// `#finish`. When the sheet is dismissed without an explicit `finish()` the
+    /// resource is completed with `null` (cancellation analogue).
+    private AsyncResource<Object> pendingResult;
+    private final Button backButton = new Button(FontImage.MATERIAL_CLOSE);
+    private final Container commandsContainer = new Container(BoxLayout.x());
+    private final Container titleComponentContainer = FlowLayout.encloseCenterMiddle(title);
+    private final Container titleBar = BorderLayout.center(LayeredLayout.encloseIn(
+            BorderLayout.center(titleComponentContainer),
+            BorderLayout.centerEastWest(null, commandsContainer, backButton)
+    ));
+    private final Container contentPane = new Container(BoxLayout.y());
+    private final ActionListener formPointerListener = new ActionListener() {
+        @Override
+        public void actionPerformed(ActionEvent evt) {
+            // The top level, not the form: getComponentForm() is null by design inside
+            // a Window, so tapping outside a sheet there did nothing.
+            TopLevelContainer f = getTopLevelContainer();
+            if (f == null) {
+                return;
+            }
+            if (Display.impl.isScrollWheeling()) {
+                return;
+            }
+            Component cmp = f.asContainer().getComponentAt(evt.getX(), evt.getY());
+            if (Sheet.this.contains(cmp) || Sheet.this == cmp || cmp.isOwnedBy(Sheet.this)) { //NOPMD CompareObjectsWithEquals
+                // do nothing.
+            } else {
+                evt.consume();
+                hide(DEFAULT_TRANSITION_DURATION);
+            }
+        }
+
+    };
+    private boolean swipeToDismissEnabled = true;
+    private boolean dragging;
+    private int dragStartPointerX;
+    private int dragStartPointerY;
+    private int dragStartSheetX;
+    private int dragStartSheetY;
+    private long lastDragTime;
+    private int lastDragPointerX;
+    private int lastDragPointerY;
+    private float dragVelocity;
+    private boolean dismissAnimating;
+    private final ActionListener formSwipePressedListener = new ActionListener() {
+        @Override
+        public void actionPerformed(ActionEvent evt) {
+            if (!swipeToDismissEnabled || !allowClose || dismissAnimating) {
+                return;
+            }
+            int x = evt.getX();
+            int y = evt.getY();
+            // Drag to dismiss is initiated only on the title bar (excluding the
+            // back button and commands container, which are interactive controls)
+            // so it does not interfere with content scrolling or button taps.
+            if (!titleBar.contains(x, y)) {
+                return;
+            }
+            if (backButton.isVisible() && backButton.contains(x, y)) {
+                return;
+            }
+            if (commandsContainer.contains(x, y)) {
+                return;
+            }
+            dragging = true;
+            dragStartPointerX = x;
+            dragStartPointerY = y;
+            dragStartSheetX = getX();
+            dragStartSheetY = getY();
+            lastDragPointerX = x;
+            lastDragPointerY = y;
+            lastDragTime = System.currentTimeMillis();
+            dragVelocity = 0f;
+        }
+    };
+    private final ActionListener formSwipeDraggedListener = new ActionListener() {
+        @Override
+        public void actionPerformed(ActionEvent evt) {
+            if (!dragging) {
+                return;
+            }
+            int x = evt.getX();
+            int y = evt.getY();
+            int dx = x - dragStartPointerX;
+            int dy = y - dragStartPointerY;
+            int positionInt = getPositionInt();
+            boolean moved = false;
+            switch (positionInt) {
+                case S:
+                case C:
+                    if (dy > 0) {
+                        setY(dragStartSheetY + dy);
+                        moved = true;
+                    } else {
+                        setY(dragStartSheetY);
+                    }
+                    break;
+                case N:
+                    if (dy < 0) {
+                        setY(dragStartSheetY + dy);
+                        moved = true;
+                    } else {
+                        setY(dragStartSheetY);
+                    }
+                    break;
+                case E:
+                    if (dx > 0) {
+                        setX(dragStartSheetX + dx);
+                        moved = true;
+                    } else {
+                        setX(dragStartSheetX);
+                    }
+                    break;
+                case W:
+                    if (dx < 0) {
+                        setX(dragStartSheetX + dx);
+                        moved = true;
+                    } else {
+                        setX(dragStartSheetX);
+                    }
+                    break;
+                default:
+                    break;
+            }
+            long now = System.currentTimeMillis();
+            // Treat sub-millisecond gaps as 1ms so a fast successive drag
+            // event still produces a finite velocity reading rather than
+            // silently keeping the previous value (which would be zero on
+            // the first sample).
+            long elapsed = Math.max(1, now - lastDragTime);
+            int dragDelta;
+            if (positionInt == E || positionInt == W) {
+                dragDelta = x - lastDragPointerX;
+            } else {
+                dragDelta = y - lastDragPointerY;
+            }
+            dragVelocity = dragDelta * 1000f / elapsed;
+            lastDragPointerX = x;
+            lastDragPointerY = y;
+            lastDragTime = now;
+            if (moved) {
+                evt.consume();
+                Container parent = getParent();
+                if (parent != null) {
+                    parent.repaint();
+                }
+            }
+        }
+    };
+    private final ActionListener formSwipeReleasedListener = new ActionListener() {
+        @Override
+        public void actionPerformed(ActionEvent evt) {
+            if (!dragging) {
+                return;
+            }
+            dragging = false;
+            int positionInt = getPositionInt();
+            int distance;
+            int dimension;
+            float velocity = dragVelocity;
+            switch (positionInt) {
+                case S:
+                case C:
+                    distance = getY() - dragStartSheetY;
+                    dimension = getHeight();
+                    break;
+                case N:
+                    distance = dragStartSheetY - getY();
+                    dimension = getHeight();
+                    velocity = -velocity;
+                    break;
+                case E:
+                    distance = getX() - dragStartSheetX;
+                    dimension = getWidth();
+                    break;
+                case W:
+                    distance = dragStartSheetX - getX();
+                    dimension = getWidth();
+                    velocity = -velocity;
+                    break;
+                default:
+                    distance = 0;
+                    dimension = 1;
+                    break;
+            }
+            // A drag past one third of the sheet, or a sufficiently fast flick
+            // (~50 dips/sec) in the dismiss direction, dismisses the sheet.
+            // Otherwise we snap back to the resting position.
+            boolean horizontal = positionInt == E || positionInt == W;
+            int flickThreshold = Display.getInstance().convertToPixels(50, horizontal);
+            boolean dismiss = distance > dimension / 3 || velocity > flickThreshold;
+            if (dismiss) {
+                evt.consume();
+                animateDismissFromDrag(DEFAULT_TRANSITION_DURATION);
+            } else if (distance > 0) {
+                evt.consume();
+                Container parent = getParent();
+                if (parent != null) {
+                    parent.animateLayout(DEFAULT_TRANSITION_DURATION);
+                }
+            }
+        }
+    };
+    private boolean allowClose = true;
+    /// The position on the screen where the sheet is displayed on phones.
+    /// One of `BorderLayout#CENTER`, `BorderLayout#NORTH`, `BorderLayout#SOUTH`,
+    /// `BorderLayout#WEST`. `Default is {@link BorderLayout#SOUTH`.
+    ///
+    /// #### See also
+    ///
+    /// - #setPosition(java.lang.String)
+    ///
+    /// - #setPosition(java.lang.String, java.lang.String)
+    private String position = BorderLayout.SOUTH;
+    /// The position on the screen where the sheet is displayed on tablets.
+    /// One of `BorderLayout#CENTER`, `BorderLayout#NORTH`, `BorderLayout#SOUTH`,
+    /// `BorderLayout#WEST`. `Default is {@link BorderLayout#SOUTH`.
+    ///
+    /// #### See also
+    ///
+    /// - #setPosition(java.lang.String)
+    ///
+    /// - #setPosition(java.lang.String, java.lang.String)
+    private String tabletPosition = position;
+    /// Original padding values to prevent accumulation when showing the sheet multiple times.
+    /// These are set the first time the sheet is shown and used as the base for safe area calculations.
+    private int[] originalPadding = null;
+    /// The padding a hand written `RoundRectBorder` replaced on the content pane, one entry per
+    /// style it was applied to, null while no inset is applied. Restyling the sheet with a border
+    /// that asks for no inset puts these back rather than leaving the inset of the previous border
+    /// behind.
+    private ArrayList<ContentPaneInset> contentPaneInsets;
+    /// The top level this sheet attached its listeners to, which may be a window.
+    private TopLevelContainer form;
+
+    /// The top level this sheet was shown on, held for the whole showing.
+    ///
+    /// show() and hide() used to resolve the current form independently, so a sheet
+    /// shown on one form and hidden after navigating to another tore down the wrong
+    /// layered pane and left itself on screen.
+    private TopLevelContainer shownHost;
+
+    /// The top level the application named, or null to work it out.
+    private TopLevelContainer hostTopLevel;
+
+    /// The surface the next `#show(int)` must use, good for exactly one show.
+    ///
+    /// Two things set it, for the same reason: a show must not resolve a surface of its
+    /// own when one has already been decided. A child sheet's `back()` names the
+    /// surface its parent belongs on, or the stack unwinds onto two windows; and a show
+    /// deferred behind an animation names the surface it resolved, or focus moving to
+    /// another window before the retry runs would attach the sheet to that one while
+    /// `shownHost` still recorded the first.
+    private TopLevelContainer pinnedShowHost;
+    private final Rectangle sheetBounds = new Rectangle();
+    private boolean trackSheetBounds;
+    private Rectangle sheetEntry;
+
+    public static boolean isSheetVisibleAt(int x, int y) {
+        Rectangle[] boundsSnapshot = sheetBoundsList;
+        for (Rectangle bounds : boundsSnapshot) {
+            if (bounds.contains(x, y)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void addSheetEntry(Rectangle bounds) {
+        Rectangle[] current = sheetBoundsList;
+        Rectangle[] updated = new Rectangle[current.length + 1];
+        System.arraycopy(current, 0, updated, 0, current.length);
+        updated[current.length] = bounds;
+        sheetBoundsList = updated;
+    }
+
+    private static void removeSheetEntry(Rectangle bounds) {
+        Rectangle[] current = sheetBoundsList;
+        int matches = 0;
+        for (Rectangle existing : current) {
+            if (existing == bounds) { // NOPMD CompareObjectsWithEquals
+                matches++;
+            }
+        }
+        if (matches == 0) {
+            return;
+        }
+        Rectangle[] updated = new Rectangle[current.length - matches];
+        int index = 0;
+        for (Rectangle existing : current) {
+            if (existing != bounds) { // NOPMD CompareObjectsWithEquals
+                updated[index++] = existing;
+            }
+        }
+        sheetBoundsList = updated;
+    }
+
+    private void updateTrackedBounds() {
+        if (!trackSheetBounds) {
+            return;
+        }
+        sheetBounds.setBounds(getAbsoluteX(), getAbsoluteY(), getWidth(), getHeight());
+    }
+
+    private void startTrackingBounds() {
+        // Only for a sheet on the main surface. The one reader of this list is the
+        // native peer hit test, which resolves against Display.getCurrent() and knows
+        // nothing of any other top level, so a rectangle from a secondary window would
+        // be compared against main-surface coordinates it has no relation to -- a peer
+        // there would stop receiving input because an unrelated window happens to hold
+        // a sheet over the same numbers. There is no true positive to lose: peers in a
+        // secondary window are never tested against this list at all.
+        if (!(shownHost instanceof Form)) {
+            return;
+        }
+        trackSheetBounds = true;
+        sheetEntry = sheetBounds;
+        addSheetEntry(sheetEntry);
+        updateTrackedBounds();
+    }
+
+    private void stopTrackingBounds() {
+        trackSheetBounds = false;
+        if (sheetEntry != null) {
+            removeSheetEntry(sheetEntry);
+            sheetEntry = null;
+        }
+    }
+
+    /// Creates a new sheet with the specified parent and title.
+    ///
+    /// #### Parameters
+    ///
+    /// - `parent`: Optional parent sheet.  If non-null, then this sheet will have a "back" button instead of a "close" button.  The "back" button will return to the parent sheet.
+    ///
+    /// - `title`: The title to display in the title bar of the sheet.
+    public Sheet(Sheet parent, String title) {
+        this(parent, title, "Sheet");
+    }
+
+    /// Creates a new sheet with the specified parent and title.
+    ///
+    /// #### Parameters
+    ///
+    /// - `parent`: Optional parent sheet.  If non-null, then this sheet will have a "back" button instead of a "close" button.  The "back" button will return to the parent sheet.
+    ///
+    /// - `title`: The title to display in the title bar of the sheet.
+    ///
+    /// - `uiid`: @param uiid   Optional UIID for the sheet.  If non-null, then the Sheet's uiid will be uiid, the title label's UIID will be uiid + "Title",
+    ///               the title bar's UIID will be uiid + "TitleBar", and the back/close button's UIID will be uiid + "BackButton".
+    public Sheet(Sheet parent, String title, String uiid) {
+        if (parent != null) {
+            allowClose = parent.allowClose;
+            position = parent.position;
+            tabletPosition = parent.tabletPosition;
+        }
+        if (uiid == null) {
+            uiid = "Sheet";
+        }
+        $(this).addTags("Sheet");
+        setGrabsPointerEvents(true);
+        setUIIDFinal(uiid);
+        this.title.setUIID(uiid + "Title");
+        titleBar.setUIID(uiid + "TitleBar");
+        backButton.setUIID(uiid + "BackButton");
+
+        this.parentSheet = parent;
+        this.title.setText(title);
+        initUI();
+        updateBorderForPosition();
+
+    }
+
+    /// Sets the top level this sheet appears on, which may be a
+    /// `com.codename1.ui.Window` rather than the current `Form`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `host`: the top level to show on, or null to work it out
+    public void setTopLevelHost(TopLevelContainer host) {
+        this.hostTopLevel = host;
+    }
+
+    /// Returns the top level set with `#setTopLevelHost(TopLevelContainer)`.
+    ///
+    /// #### Returns
+    ///
+    /// the explicit host, or null when none was set
+    public TopLevelContainer getTopLevelHost() {
+        return hostTopLevel;
+    }
+
+    /// The top level to show on: the explicit host, else the one this sheet is already
+    /// attached to, else the focused window, else the current form.
+    ///
+    /// #### Returns
+    ///
+    /// the host top level, or null when there is none
+    private TopLevelContainer resolveHost() {
+        if (pinnedShowHost != null) {
+            if (pinnedShowHost.isTopLevelShowing()) {
+                return pinnedShowHost;
+            }
+            // The surface the deferred show was waiting on has gone. That wait is driven
+            // by the host's own animation manager, so a host hidden or disposed before it
+            // drained never ran the retry that clears this -- and the pin then outlived
+            // the show it belonged to, sending the next one, and every one after it, at a
+            // surface that is not there any more even when the caller had since named
+            // another with setTopLevelHost().
+            pinnedShowHost = null;
+        }
+        if (hostTopLevel != null) {
+            return hostTopLevel;
+        }
+        TopLevelContainer attached = getTopLevelContainer();
+        if (attached != null) {
+            return attached;
+        }
+        return CN.getCurrentTopLevel();
+    }
+
+    /// Gets the current sheet on the current form or null if no sheet is currently being displayed.
+    ///
+    /// #### Returns
+    ///
+    /// The current sheet or null.
+    ///
+    public static Sheet getCurrentSheet() {
+        return getCurrentSheet(CN.getCurrentTopLevel());
+    }
+
+    /// Gets the sheet currently showing on the given top level, or null.
+    ///
+    /// #### Parameters
+    ///
+    /// - `top`: the top level to look on, may be null
+    ///
+    /// #### Returns
+    ///
+    /// The current sheet or null.
+    public static Sheet getCurrentSheet(TopLevelContainer top) {
+        if (top == null) {
+            return null;
+        }
+        Container cnt = TopLevelSupport.formLayeredPaneIfExists(top);
+        if (cnt == null) {
+            return null;
+        }
+        for (Component cmp : $(".Sheet", cnt)) {
+            if (cmp instanceof Sheet) {
+                return (Sheet) cmp;
+            }
+        }
+        return null;
+    }
+
+    /// Finds Sheet containing this component if it is currently part of a Sheet.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: The component to check.
+    ///
+    /// #### Returns
+    ///
+    /// The sheet containing the component, or null if it is not on a sheet.
+    ///
+    public static Sheet findContainingSheet(Component cmp) {
+        Container parent = cmp.getParent();
+        while (parent != null) {
+            if (parent instanceof Sheet) {
+                return (Sheet) parent;
+            }
+            parent = parent.getParent();
+        }
+        return null;
+    }
+
+    /// Checks whether the user is allowed to close this sheet.
+    ///
+    /// #### Returns
+    ///
+    /// True if user can close the sheet.
+    public boolean isAllowClose() {
+        return allowClose;
+    }
+
+    /// Sets whether the user is able to close this sheet.  Default is true.  If you set
+    /// this value to false, then there will be no close button, and pressing outside of the sheet
+    /// will have no effect.
+    ///
+    /// Child sheets will assume the settings of the parent.  The back button will still work,
+    /// but the top level sheet will not include a close button.
+    ///
+    /// #### Parameters
+    ///
+    /// - `allowClose`: True to allow user to close the sheet.  False to prevent it.
+    ///
+    public void setAllowClose(boolean allowClose) {
+        if (allowClose != this.allowClose) {
+            this.allowClose = allowClose;
+            if (!allowClose && isInitialized()) {
+                form.asContainer().removePointerPressedListener(formPointerListener);
+                detachSwipeListeners(form);
+                dragging = false;
+            } else if (allowClose && isInitialized()) {
+                form.asContainer().addPointerPressedListener(formPointerListener);
+                attachSwipeListeners(form);
+            }
+            if (parentSheet == null) {
+                backButton.setVisible(allowClose);
+                backButton.setEnabled(allowClose);
+            }
+        }
+    }
+
+    /// Checks whether this sheet can be dismissed by swiping it toward the
+    /// edge of the screen (e.g. swiping down for a south-positioned sheet).
+    ///
+    /// #### Returns
+    ///
+    /// True if swipe-to-dismiss is enabled.
+    ///
+    public boolean isSwipeToDismissEnabled() {
+        return swipeToDismissEnabled;
+    }
+
+    /// Enables or disables the swipe-to-dismiss gesture. When enabled (the default),
+    /// a downward drag on the sheet's title bar (or the corresponding direction for
+    /// other positions) will close the sheet. The gesture is also subject to
+    /// {@link #isAllowClose()}; if `allowClose` is false the gesture is disabled
+    /// regardless of this flag.
+    ///
+    /// #### Parameters
+    ///
+    /// - `swipeToDismissEnabled`: True to enable the swipe-to-dismiss gesture, false to disable it.
+    ///
+    public void setSwipeToDismissEnabled(boolean swipeToDismissEnabled) {
+        if (this.swipeToDismissEnabled != swipeToDismissEnabled) {
+            this.swipeToDismissEnabled = swipeToDismissEnabled;
+            if (!swipeToDismissEnabled) {
+                dragging = false;
+            }
+        }
+    }
+
+    private void attachSwipeListeners(TopLevelContainer f) {
+        if (f == null) {
+            return;
+        }
+        f.asContainer().addPointerPressedListener(formSwipePressedListener);
+        f.asContainer().addPointerDraggedListener(formSwipeDraggedListener);
+        f.asContainer().addPointerReleasedListener(formSwipeReleasedListener);
+    }
+
+    private void detachSwipeListeners(TopLevelContainer f) {
+        if (f == null) {
+            return;
+        }
+        f.asContainer().removePointerPressedListener(formSwipePressedListener);
+        f.asContainer().removePointerDraggedListener(formSwipeDraggedListener);
+        f.asContainer().removePointerReleasedListener(formSwipeReleasedListener);
+    }
+
+    /// Gets the content pane of the sheet.  All sheet content should be added to the content pane
+    /// and not directly to the sheet.
+    ///
+    /// #### Returns
+    ///
+    /// The content pane.
+    public Container getContentPane() {
+        return contentPane;
+    }
+
+    /// Hides the back button.
+    public void hideBackButton() {
+        backButton.setVisible(false);
+    }
+
+    /// Shows the back button.
+    public void showBackButton() {
+        backButton.setVisible(true);
+    }
+
+    /// Gets the container that is rendered on the top right bar of the sheet.  Use this
+    /// to add buttons and other content you wish to appear in the title bar.  Best not to
+    /// overload this with too many things.
+    public Container getCommandsContainer() {
+        return commandsContainer;
+    }
+
+    /// Gets the title text displayed in the default title label.
+    ///
+    /// #### Returns
+    ///
+    /// The sheet title text.
+    ///
+    public String getTitle() {
+        return title.getText();
+    }
+
+    /// Sets the title text displayed in the default title label.
+    ///
+    /// If a custom title component is currently installed via {@link #setTitleComponent(Component)},
+    /// this method still updates the default title label so that it will be shown if the title
+    /// component is reset back to null.
+    ///
+    /// #### Parameters
+    ///
+    /// - `title`: The title text.
+    ///
+    public void setTitle(String title) {
+        this.title.setText(title);
+    }
+
+    /// Gets the component currently used in the center of the title bar.
+    ///
+    /// #### Returns
+    ///
+    /// The current title component.
+    ///
+    public Component getTitleComponent() {
+        return titleComponent;
+    }
+
+    /// Sets the title component rendered in the center of the title bar.
+    ///
+    /// This allows for custom title layouts such as including an image above the title text.
+    /// If `null` is passed, the default title label is restored.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: The component to use for the title area, or `null` to restore the default title label.
+    ///
+    public void setTitleComponent(Component cmp) {
+        if (cmp == null) {
+            cmp = title;
+        }
+        if (cmp == titleComponent) { //NOPMD CompareObjectsWithEquals
+            return;
+        }
+        if (cmp.getParent() != null) {
+            cmp.remove();
+        }
+        titleComponentContainer.removeAll();
+        titleComponentContainer.add(cmp);
+        titleComponent = cmp;
+        titleComponentContainer.revalidateLater();
+    }
+
+    private void initUI() {
+        setLayout(new BorderLayout());
+        contentPane.setSafeArea(true);
+        titleBar.setSafeArea(true);
+        add(BorderLayout.NORTH, titleBar);
+        if (parentSheet != null) {
+            FontImage.setMaterialIcon(backButton, FontImage.MATERIAL_ARROW_BACK);
+        }
+        add(BorderLayout.CENTER, contentPane);
+        backButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent evt) {
+                back(DEFAULT_TRANSITION_DURATION);
+            }
+        });
+
+    }
+
+    /// Shows the sheet with the default (300ms) transition duration.
+    ///
+    /// #### See also
+    ///
+    /// - #show(int)
+    public void show() {
+        show(DEFAULT_TRANSITION_DURATION);
+    }
+
+    /// Shows the sheet and returns an `AsyncResource` that will be completed when
+    /// the sheet finishes -- either with `#finish(Object)` carrying a chosen value,
+    /// or with `null` when the sheet is dismissed via back/swipe.
+    ///
+    /// Lets sheets be used as inline confirmation dialogs / pickers without
+    /// wiring up `addCloseListener` + state-shared variables:
+    ///
+    /// ```java
+    /// PickerSheet sheet = new PickerSheet();
+    /// sheet.<String>showForResult().ready(new SuccessCallback<String>() {
+    ///     public void onSuccess(String picked) {
+    ///         if (picked != null) handle(picked);
+    ///     }
+    /// });
+    /// ```
+    ///
+    /// The result type is supplied at the call site; use `Sheet#finish(Object)`
+    /// internally to complete it. The cast is unchecked at runtime -- pick a type
+    /// you control inside the sheet.
+    ///
+    /// #### Since 7.0
+    public <T> AsyncResource<T> showForResult() {
+        return showForResult(DEFAULT_TRANSITION_DURATION);
+    }
+
+    /// `#showForResult` with a custom slide duration.
+    ///
+    /// #### Since 7.0
+    @SuppressWarnings("unchecked")
+    public <T> AsyncResource<T> showForResult(int duration) {
+        // Always create a fresh resource per show -- re-showing a Sheet via
+        // showForResult is a new transaction.
+        pendingResult = new AsyncResource<Object>();
+        show(duration);
+        return (AsyncResource<T>) pendingResult;
+    }
+
+    /// Completes the result resource returned by `#showForResult` and dismisses the
+    /// sheet. No-op (besides dismissal) if `showForResult` was not used to open
+    /// this sheet.
+    ///
+    /// #### Parameters
+    /// - `result`: the value to deliver to the resource subscriber. May be null,
+    ///   in which case subscribers see the same outcome as a user-initiated
+    ///   dismissal.
+    ///
+    /// #### Since 7.0
+    public void finish(Object result) {
+        AsyncResource<Object> r = pendingResult;
+        pendingResult = null;
+        if (r != null && !r.isDone()) {
+            try {
+                r.complete(result);
+            } catch (Throwable t) {
+                com.codename1.io.Log.e(t);
+            }
+        }
+        // Dismiss the sheet: walk up parents to the root and hide. Reuse back()
+        // semantics so transitions match.
+        back();
+    }
+
+    /// Shows the sheet over the current form using a slide-up transition with given duration in milliseconds.
+    ///
+    /// If another sheet is currently being shown, then this will replace that sheet, and use an appropriate slide
+    /// animation to adjust the size.
+    ///
+    /// #### Parameters
+    ///
+    /// - `duration`: The duration of the slide transition in milliseconds.
+    ///
+    /// #### See also
+    ///
+    /// - #show()
+    public void show(final int duration) {
+        showOnHost(duration, null);
+    }
+
+    /// Shows this sheet, optionally on a surface that has already been decided.
+    ///
+    /// `captured` is non-null only for the retry queued behind a host's animation. That
+    /// retry has to land on the surface the deferred show resolved, and it cannot ask
+    /// for it again: focus can move to another window while the animation drains, and
+    /// naming it through the shared pin instead made the decision outlive this one show
+    /// -- a second show requested before the queue drained then found the first show's
+    /// surface, attached to it, and cleared the pin, leaving the second to move the
+    /// sheet away and abandon the layered pane and painter it had just built there.
+    ///
+    /// #### Parameters
+    ///
+    /// - `duration`: duration of the slide transition in milliseconds
+    ///
+    /// - `captured`: the surface a deferred show already resolved, or null to resolve
+    private void showOnHost(final int duration, TopLevelContainer captured) {
+
+        // We need to add some margin to the title  to prevent overlap with the
+        // back button and the commaneds.
+        int titleMargin = Math.max(
+                commandsContainer.getPreferredW() + commandsContainer.getStyle().getHorizontalMargins(),
+                backButton.getPreferredW() + backButton.getStyle().getHorizontalMargins()
+        );
+
+        // Set the padding in the content pane to match the corner radius
+        Style s = getStyle();
+        Style titleParentStyle = titleComponentContainer.getStyle();
+        titleParentStyle.setMarginLeft(titleMargin);
+        titleParentStyle.setMarginRight(titleMargin);
+        Border border = s.getBorder();
+        // A hand written RoundRectBorder reserves twice the radius of its own, so insetting the
+        // content pane by the radius keeps the content clear of the rounded corners. A border that
+        // came out of a stylesheet reserves nothing and the padding of the sheet is whatever the
+        // CSS asked for, so an inset here is padding the author never wrote, and on an empty
+        // content pane it becomes a gap under the title, see issue 5488.
+        if (border instanceof RoundRectBorder && !((RoundRectBorder) border).isCssBoxModel()) {
+            // The inset pads the current style of the content pane, which is not always the same
+            // style: it follows the state of the pane, so a sheet shown while the pane is disabled
+            // pads the disabled style. Each style that gets inset is recorded separately
+            Style contentStyle = contentPane.getStyle();
+            ContentPaneInset inset = contentPaneInsetFor(contentStyle);
+            if (inset == null) {
+                inset = recordContentPaneInset(contentStyle);
+            } else {
+                // A side that no longer holds the inset was padded since, so the padding in front
+                // of us now is the one to preserve for that side
+                inset.rememberChangedSides();
+            }
+            $(contentPane).setPaddingMillimeters(((RoundRectBorder) border).getCornerRadius());
+            inset.recordApplied();
+        } else {
+            // Restyling the sheet with a border that wants no inset has to take the inset of the
+            // previous border back off, otherwise the gap survives the restyle
+            restoreContentPanePadding();
+        }
+
+        // Deal with iPhoneX notch.
+        UIManager uim = UIManager.getInstance();
+
+        // Store original padding values on first show to prevent accumulation
+        if (originalPadding == null) {
+            originalPadding = new int[4];
+            originalPadding[0] = s.getPaddingTop();        // top
+            originalPadding[1] = s.getPaddingRightNoRTL(); // right
+            originalPadding[2] = s.getPaddingBottom();     // bottom
+            originalPadding[3] = s.getPaddingLeftNoRTL();  // left
+        } else {
+            // Check if style was reset (current padding much smaller than stored original)
+            // This can happen if the component was removed and re-added with a new style
+            int currentBottom = s.getPaddingBottom();
+            if (currentBottom < originalPadding[2] / 2 && currentBottom >= 0) {
+                // Style appears to have been reset, update our cache
+                originalPadding[0] = s.getPaddingTop();
+                originalPadding[1] = s.getPaddingRightNoRTL();
+                originalPadding[2] = s.getPaddingBottom();
+                originalPadding[3] = s.getPaddingLeftNoRTL();
+            }
+        }
+
+        int positionInt = getPositionInt();
+        // The host's safe area and height, not the display's. A window has no notch to
+        // avoid and its own height is what the sheet has to fit, so measuring the main
+        // display padded a sheet in a window for a cutout that is not in front of it.
+        // The same surface the attachment below uses, resolved once. A deferred retry
+        // carries the surface its show resolved, and asking again here answered with
+        // whatever has focus now -- so a sheet on its way into a window could be laid
+        // out against the main form's chrome and then attached to the window anyway.
+        final TopLevelContainer safeHost = captured != null ? captured : resolveHost();
+        Rectangle displaySafeArea = new Rectangle();
+        if (safeHost != null) {
+            Rectangle hostSafe = safeHost.getSafeArea();
+            displaySafeArea.setBounds(hostSafe.getX(), hostSafe.getY(),
+                    hostSafe.getWidth(), hostSafe.getHeight());
+        } else {
+            Display.getInstance().getDisplaySafeArea(displaySafeArea);
+        }
+        // The top inset from the same place as the bottom one when the host is a
+        // window. StatusBar and TitleArea padding describe a phone's chrome -- a notch
+        // to clear and a status bar to sit under -- and a desktop window has neither:
+        // its title bar is outside the drawable and its safe area is the whole of it.
+        // Themes still give those styles a nonzero top padding, so reading them here
+        // pushed every window sheet down by an inset with nothing behind it.
+        int topPadding;
+        if (safeHost instanceof Window) {
+            topPadding = displaySafeArea.getY();
+        } else {
+            Style statusBarStyle = uim.getComponentStyle("StatusBar");
+            Style titleAreaStyle = uim.getComponentStyle("TitleArea");
+            topPadding = statusBarStyle.getPaddingTop() + statusBarStyle.getPaddingBottom()
+                    + titleAreaStyle.getPaddingTop();
+        }
+        // Use original bottom padding to prevent accumulation
+        int bottomPadding = originalPadding[2];
+        int safeAreaBottomPadding = TopLevelSupport.hostHeight(safeHost)
+                - (displaySafeArea.getY() + displaySafeArea.getHeight());
+        bottomPadding = bottomPadding + safeAreaBottomPadding;
+        if (positionInt == S || positionInt == C) {
+            // For Center and South position we use margin to
+            // prevent overlap with top notch.  This looks better as overlap is only
+            // an edge case that occurs when the sheet is the full screen height.
+            $(this).setMargin(topPadding, 0, 0, 0);
+            $(this).setPadding(originalPadding[0], originalPadding[1], bottomPadding, originalPadding[3]);
+        } else {
+            // For other cases we use padding to prevent overlap with top notch.  This looks
+            // better as it appears that the sheet bleeds all the way to the top edge of the screen,
+            // but the content is not obscured by the notch.
+
+            $(this).setPadding(topPadding, originalPadding[1], bottomPadding, originalPadding[3]);
+        }
+
+        // END Deal with iPhoneX notch
+
+        final TopLevelContainer f = safeHost;
+        if (f == null) {
+            throw new IllegalStateException(
+                    "Sheet.show() has no top level to show on: no window is focused and "
+                    + "no form is current");
+        }
+        shownHost = f;
+        if (f.getAnimationManager().isAnimating()) {
+            // Handed to the retry rather than left in a field. The retry must land on
+            // the surface resolved here -- focus can move to another window while the
+            // animation drains -- but saying so through the shared pin made one show's
+            // decision visible to every other: a second show requested before the queue
+            // drained resolved this one's surface too, and the two then attached to
+            // different surfaces in turn, abandoning a layered pane and its painter on
+            // the one left behind. This says it to exactly one retry.
+            f.getAnimationManager().flushAnimation(new Runnable() {
+                @Override
+                public void run() {
+                    showOnHost(duration, f);
+                }
+            });
+            return;
+        }
+        // A pin belongs to one show. back() sets it so an unwinding stack does not
+        // split across surfaces, and this is where that show consumes it.
+        pinnedShowHost = null;
+        if (getParent() != null) {
+            remove();
+        }
+        Container cnt = f.getFormLayeredPane(Sheet.class, true);
+        if (!(cnt.getLayout() instanceof BorderLayout)) {
+            cnt.setLayout(new BorderLayout(BorderLayout.CENTER_BEHAVIOR_CENTER_ABSOLUTE));
+
+            cnt.getStyle().setBgPainter(new ShowPainter());
+
+            cnt.revalidate();
+
+        }
+        startTrackingBounds();
+        if (cnt.getComponentCount() > 0) {
+            $(".Sheet", cnt).each(new ComponentClosure() {
+                @Override
+                public void call(Component c) {
+                    if (c instanceof Sheet) {
+                        Sheet s = (Sheet) c;
+                        if (s.isAncestorSheetOf(Sheet.this) || s == Sheet.this) { //NOPMD CompareObjectsWithEquals
+                            // If the sheet is an ancestor of
+                            // ours then we don't need to fire a close event
+                            // yet.  We fire it when it is closed
+                            // without possibility of returning
+                            // via a back chain
+                            return;
+                        }
+                        s.fireCloseEvent(false);
+
+                        // Hiding this sheet may eliminate the possibility of
+                        // its parent sheets from being shown again,
+                        // so their close events should also be fired in this case.
+                        Sheet sp = s.getParentSheet();
+                        while (sp != null) {
+                            if (sp == Sheet.this) { //NOPMD CompareObjectsWithEquals
+                                break;
+                            }
+                            if (!sp.isAncestorSheetOf(Sheet.this)) {
+                                sp.fireCloseEvent(false);
+                            }
+                            sp = sp.getParentSheet();
+
+                        }
+                    }
+
+
+                }
+
+            });
+            Component existing = cnt.getComponentAt(0);
+            if (existing instanceof Sheet) {
+                ((Sheet) existing).stopTrackingBounds();
+            }
+            cnt.replace(existing, this, null);
+            cnt.animateLayout(duration);
+        } else {
+            cnt.add(getPosition(), this);
+
+            this.setWidth(getPreferredW(cnt));
+            this.setHeight(getPreferredH(cnt));
+            this.setX(getHiddenX(cnt));
+            this.setY(getHiddenY(cnt));
+            cnt.animateLayout(duration);
+        }
+    }
+
+    /// Puts back the padding the corner radius of a hand written border replaced, in every style it
+    /// was applied to rather than only the style the content pane presents right now, which depends
+    /// on the state of the pane and may well be a different one by the time the sheet is restyled.
+    /// A style whose padding has been changed since is left alone, so a content pane padded by the
+    /// developer stays as they left it.
+    private void restoreContentPanePadding() {
+        if (contentPaneInsets == null) {
+            return;
+        }
+        for (ContentPaneInset inset : contentPaneInsets) {
+            inset.restore();
+        }
+        contentPaneInsets = null;
+    }
+
+    /// The inset recorded for the given style of the content pane, null when that style was never
+    /// inset.
+    private ContentPaneInset contentPaneInsetFor(Style style) {
+        if (contentPaneInsets == null) {
+            return null;
+        }
+        for (ContentPaneInset inset : contentPaneInsets) {
+            if (inset.style == style) { //NOPMD CompareObjectsWithEquals
+                return inset;
+            }
+        }
+        return null;
+    }
+
+    /// Starts recording an inset for the given style of the content pane, dropping the entry
+    /// recorded for that style before along with any entry there is nothing left to restore for.
+    ///
+    /// Entries are not otherwise evicted. Dropping the oldest once a few have accumulated would be
+    /// wrong, because age does not say whether a style is still attached to the content pane, and
+    /// the alternative of asking the pane for its four styles would create the selected, pressed
+    /// and disabled ones on a pane that never had them, which registers elevation and surface
+    /// state. So an entry for a style that has been replaced is simply carried until the next
+    /// restore, where putting padding back into a detached style costs nothing.
+    ///
+    /// One entry is added per style the content pane presents while a hand written border is in
+    /// effect, so the count is bounded by how often something replaces those styles, a theme
+    /// refresh in practice, between one show of this sheet and the show that takes the inset off.
+    /// Holding the styles weakly instead would let the list shrink on its own, but the portable
+    /// weak reference of the platform is allowed to report that it holds nothing, and treating that
+    /// as a style that went away would silently skip a restore that is still owed.
+    private ContentPaneInset recordContentPaneInset(Style style) {
+        if (contentPaneInsets == null) {
+            contentPaneInsets = new ArrayList<ContentPaneInset>();
+        }
+        for (int iter = contentPaneInsets.size() - 1; iter >= 0; iter--) {
+            ContentPaneInset recorded = contentPaneInsets.get(iter);
+            if (recorded.style == style || !recorded.hasIntactSide()) { //NOPMD CompareObjectsWithEquals
+                contentPaneInsets.remove(iter);
+            }
+        }
+        ContentPaneInset inset = new ContentPaneInset(style);
+        contentPaneInsets.add(inset);
+        return inset;
+    }
+
+    /// Gets the position where the Sheet is to be displayed.
+    /// One of `BorderLayout#CENTER`, `BorderLayout#NORTH`, `BorderLayout#SOUTH`,
+    /// `BorderLayout#WEST`, or `BorderLayout#EAST`. Default is `BorderLayout#SOUTH`.
+    ///
+    /// #### See also
+    ///
+    /// - #setPosition(java.lang.String)
+    ///
+    /// - #setPosition(java.lang.String, java.lang.String)
+    public String getPosition() {
+        if (CN.isTablet()) {
+            return tabletPosition;
+        }
+        return position;
+    }
+
+    /// Sets the position where the Sheet is to be displayed.
+    /// One of `BorderLayout#CENTER`, `BorderLayout#NORTH`, `BorderLayout#SOUTH`,
+    /// `BorderLayout#WEST`, or `BorderLayout#EAST`. Default is `BorderLayout#SOUTH`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `position`: One of `BorderLayout#CENTER`, `BorderLayout#NORTH`, `BorderLayout#SOUTH`,
+    ///   `BorderLayout#WEST`, or `BorderLayout#EAST`.
+    ///
+    /// #### See also
+    ///
+    /// - #setPosition(java.lang.String)
+    ///
+    /// - #setPosition(java.lang.String, java.lang.String)
+    public void setPosition(String position) {
+        if (CN.isTablet()) {
+            if (!position.equals(tabletPosition)) {
+                tabletPosition = position;
+                updateBorderForPosition();
+            }
+        } else {
+            if (!position.equals(this.position)) {
+                this.position = position;
+                updateBorderForPosition();
+            }
+        }
+    }
+
+    private void updateBorderForPosition() {
+        Border border = getStyle().getBorder();
+        if (border instanceof RoundRectBorder) {
+            RoundRectBorder b = (RoundRectBorder) border;
+            RoundRectBorder nb = RoundRectBorder.create();
+            nb.bezierCorners(b.isBezierCorners());
+            nb.bottomLeftMode(b.isBottomLeft());
+            nb.bottomRightMode(b.isBottomRight());
+            nb.topRightMode(b.isTopRight());
+            nb.topLeftMode(b.isTopLeft());
+            nb.cornerRadius(b.getCornerRadius());
+            nb.shadowBlur(b.getShadowBlur());
+            nb.shadowColor(b.getShadowColor());
+            nb.shadowOpacity(b.getShadowOpacity());
+            nb.shadowSpread(b.getShadowSpread());
+            nb.shadowX(b.getShadowX());
+            nb.shadowY(b.getShadowY());
+            nb.strokeColor(b.getStrokeColor());
+            nb.strokeOpacity(b.getStrokeOpacity());
+            nb.stroke(b.getStrokeThickness(), b.isStrokeMM());
+            // A border that came out of a stylesheet must keep sizing like a CSS box,
+            // otherwise repositioning the sheet silently inflates it by twice the radius
+            nb.cssBoxModel(b.isCssBoxModel());
+            b = nb;
+            switch (getPositionInt()) {
+                case C:
+                    b.bottomRightMode(true);
+                    b.bottomLeftMode(true);
+                    b.topLeftMode(true);
+                    b.topRightMode(true);
+                    break;
+                case E:
+                    b.bottomLeftMode(true);
+                    b.topLeftMode(true);
+                    b.topRightMode(false);
+                    b.bottomRightMode(false);
+                    break;
+                case W:
+                    b.bottomLeftMode(false);
+                    b.bottomRightMode(true);
+                    b.topLeftMode(false);
+                    b.topRightMode(true);
+                    break;
+                case S:
+                    b.topLeftMode(true);
+                    b.topRightMode(true);
+                    b.bottomLeftMode(false);
+                    b.bottomRightMode(false);
+                    break;
+
+                case N:
+                    b.topLeftMode(false);
+                    b.topRightMode(false);
+                    b.bottomLeftMode(true);
+                    b.bottomRightMode(true);
+                    break;
+                default:
+                    break;
+
+            }
+            getStyle().setBorder(b);
+
+        }
+
+    }
+
+    /// Sets the position where the Sheet is to be displayed.
+    /// One of `BorderLayout#CENTER`, `BorderLayout#NORTH`, `BorderLayout#SOUTH`,
+    /// `BorderLayout#WEST`, or `BorderLayout#EAST`. Default is `BorderLayout#SOUTH`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `phonePosition`: Position to use on a phone (i.e. non-tablet). One of `BorderLayout#CENTER`,
+    ///   `BorderLayout#NORTH`, `BorderLayout#SOUTH`, `BorderLayout#WEST`, or `BorderLayout#EAST`.
+    ///
+    /// - `tabletPosition`: Position to use on a tablet and desktop. One of `BorderLayout#CENTER`,
+    ///   `BorderLayout#NORTH`, `BorderLayout#SOUTH`, `BorderLayout#WEST`, or `BorderLayout#EAST`.
+    ///
+    /// #### See also
+    ///
+    /// - #setPosition(java.lang.String)
+    ///
+    /// - #setPosition(java.lang.String, java.lang.String)
+    public void setPosition(String phonePosition, String tabletPosition) {
+        boolean changed = false;
+        if (CN.isTablet() && !tabletPosition.equals(this.tabletPosition)) {
+            changed = true;
+        } else if (!CN.isTablet() && !phonePosition.equals(position)) {
+            changed = true;
+        }
+        position = phonePosition;
+        this.tabletPosition = tabletPosition;
+        if (changed) {
+            updateBorderForPosition();
+        }
+    }
+
+    /// Gets X-coordinate of the sheet when it is hidden off-screen.  This will be different
+    /// depending on the position of the sheet.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cnt`: The container in the FormLayeredPane where the sheet is to be rendered.
+    private int getHiddenX(Container cnt) {
+        switch (getPositionInt()) {
+            case S:
+            case N:
+                return 0;
+            case C:
+                return (cnt.getWidth() - getPreferredW(cnt)) / 2;
+            case E:
+                return cnt.getWidth();
+            case W:
+                return -getPreferredW(cnt);
+            default:
+                return 0;
+        }
+    }
+
+    /// Gets Y-coordinate of the sheet when it is hidden off-screen.  This will be different
+    /// depending on the position of the sheet.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cnt`: The container in the FormLayeredPane where the sheet is to be rendered.
+    private int getHiddenY(Container cnt) {
+        switch (getPositionInt()) {
+            case S:
+            case C:
+                return cnt.getHeight();
+            case W:
+            case E:
+                return 0;
+            case N:
+                return -getPreferredH(cnt);
+            default:
+                return 0;
+        }
+    }
+
+    /// Gets the preferred width of the sheet.  Will depend on where it is rendered.  If position is CENTER,
+    /// then the preferred width will be the natural preferred width of the sheet.  But NORTH or SOUTH,
+    /// the preferred width will be the full container width.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cnt`: The container in the FormLayeredPane where the sheet is to be rendered.
+    private int getPreferredW(Container cnt) {
+        switch (getPositionInt()) {
+            case N:
+            case S:
+                return cnt.getWidth();
+            case C:
+            case W:
+            case E:
+                return Math.min(getPreferredW() + (backButton.getPreferredW() + backButton.getStyle().getHorizontalMargins()) * 2, cnt.getWidth());
+            default:
+                return getPreferredW();
+        }
+    }
+
+    private int getPositionInt() {
+        String pos = getPosition();
+        if (BorderLayout.NORTH.equals(pos)) {
+            return N;
+        }
+        if (BorderLayout.SOUTH.equals(pos)) {
+            return S;
+        }
+        if (BorderLayout.EAST.equals(pos)) {
+            return E;
+        }
+        if (BorderLayout.WEST.equals(pos)) {
+            return W;
+        }
+        if (BorderLayout.CENTER.equals(pos)) {
+            return C;
+        }
+        return S;
+    }
+
+    /// Gets the preferred height of the sheet.  Will depend on where it is rendered.  If position is CENTER, NORTH, or SOUTH
+    /// then the preferred height will be the natural preferred width of the sheet.  But WEST or EAST,
+    /// the preferred height will be the full container height.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cnt`: The container in the FormLayeredPane where the sheet is to be rendered.
+    private int getPreferredH(Container cnt) {
+        switch (getPositionInt()) {
+            case W:
+            case E:
+                return cnt.getHeight();
+            default:
+                return Math.min(getPreferredH(), cnt.getHeight());
+        }
+    }
+
+    /// Goes back to the parent sheet with a default (300ms) slide animation.  If there
+    /// is no parent sheet, then this will close the sheet.
+    ///
+    /// #### See also
+    ///
+    /// - #back(int)
+    public void back() {
+        back(DEFAULT_TRANSITION_DURATION);
+    }
+
+    /// Goes back to the parent sheet with a slide animation of given duration.  If there
+    /// is no parent sheet, then this will close the sheet.
+    ///
+    /// #### Parameters
+    ///
+    /// - `duration`: Duration of the slide transition in milliseconds.
+    public void back(int duration) {
+        if (this.parentSheet != null) {
+            fireBackEvent();
+            // On the host this sheet was shown on, not whatever is focused now. Left to
+            // resolve for itself the parent could be added to a different window while
+            // this one is still in the first window's layered pane, which duplicates
+            // the stack across surfaces instead of unwinding it.
+            // For this one showing only. Writing it through setTopLevelHost would make
+            // it the parent's permanent configuration -- overwriting a host the
+            // application chose, and pinning the sheet to a window that may be long
+            // gone the next time it is shown on its own.
+            this.parentSheet.pinnedShowHost = shownHost;
+            this.parentSheet.show(duration);
+        } else {
+            hide(duration);
+        }
+    }
+
+    private void hide(int duration) {
+        // The host the sheet was shown on, not whatever is current now: navigating
+        // away between show and hide used to tear down the wrong layered pane.
+        TopLevelContainer host = shownHost != null ? shownHost : resolveHost();
+        if (host == null) {
+            return;
+        }
+        final Container cnt = host.getFormLayeredPane(Sheet.class, true);
+        setX(getHiddenX(cnt));
+        setY(getHiddenY(cnt));
+        cnt.animateUnlayout(duration, 255, new Runnable() {
+            @Override
+            public void run() {
+                Container parent = cnt.getParent();
+
+                // getTopLevelContainer(), not getComponentForm(): the latter
+                // is null for a component hosted in a desktop Window, so a
+                // Sheet shown in one skipped this whole block -- never firing
+                // its close event and never releasing the bounds tracker.
+                // revalidateLater() and repaint() are Container methods that a
+                // Form inherits unchanged, so a Form behaves exactly as before.
+                TopLevelContainer parentTop = parent == null
+                        ? null : parent.getTopLevelContainer();
+                if (parentTop != null) {
+                    cnt.remove();
+                    Container parentForm = parentTop.asContainer();
+                    parentForm.revalidateLater();
+                    // revalidateLater() only schedules work for the next
+                    // paint cycle, but cnt.remove() does not by itself wake
+                    // the EDT, so without an explicit repaint here the
+                    // form's dim overlay remains on screen until the next
+                    // user input. See issue #4899.
+                    parentForm.repaint();
+                    fireCloseEvent(true);
+                    stopTrackingBounds();
+
+
+                }
+
+            }
+        });
+
+    }
+
+    /// Animates the sheet from its current (mid-drag) position to the off-screen
+    /// hidden position and then disposes it. Unlike `#hide(int)` this does not
+    /// snap back to the layout-resting position before sliding out, which would
+    /// produce a visible jump after the user releases their finger.
+    private void animateDismissFromDrag(final int duration) {
+        final Container cnt = getParent();
+        if (cnt == null) {
+            // Nothing to animate; fall through to the standard hide path.
+            hide(duration);
+            return;
+        }
+        TopLevelContainer f = getTopLevelContainer();
+        if (f == null) {
+            hide(duration);
+            return;
+        }
+        dismissAnimating = true;
+        final int fromX = getX();
+        final int fromY = getY();
+        final int toX = getHiddenX(cnt);
+        final int toY = getHiddenY(cnt);
+        final Motion xMotion = Motion.createEaseOutMotion(fromX, toX, duration);
+        final Motion yMotion = Motion.createEaseOutMotion(fromY, toY, duration);
+        xMotion.start();
+        yMotion.start();
+        ComponentAnimation animation = new ComponentAnimation() {
+            @Override
+            public boolean isInProgress() {
+                return !(xMotion.isFinished() && yMotion.isFinished());
+            }
+
+            @Override
+            protected void updateState() {
+                setX(xMotion.getValue());
+                setY(yMotion.getValue());
+                cnt.repaint();
+            }
+        };
+        Runnable onComplete = new Runnable() {
+            @Override
+            public void run() {
+                Container parent = cnt.getParent();
+                // As above: a desktop Window has no Form, and this block owns
+                // the close event and the bounds tracker.
+                TopLevelContainer parentTop = parent == null
+                        ? null : parent.getTopLevelContainer();
+                if (parentTop != null) {
+                    cnt.remove();
+                    Container parentForm = parentTop.asContainer();
+                    parentForm.revalidateLater();
+                    // revalidateLater() only schedules work for the next
+                    // paint cycle, but cnt.remove() does not by itself wake
+                    // the EDT, so without an explicit repaint here the
+                    // form's dim overlay remains on screen until the next
+                    // user input. See issue #4899.
+                    parentForm.repaint();
+                    fireCloseEvent(true);
+                    stopTrackingBounds();
+                }
+                dismissAnimating = false;
+            }
+        };
+        f.getAnimationManager().addAnimation(animation, onComplete);
+    }
+
+    @Override
+    public void setX(int x) {
+        super.setX(x);
+        updateTrackedBounds();
+    }
+
+    @Override
+    public void setY(int y) {
+        super.setY(y);
+        updateTrackedBounds();
+    }
+
+    @Override
+    public void setWidth(int width) {
+        super.setWidth(width);
+        updateTrackedBounds();
+    }
+
+    @Override
+    public void setHeight(int height) {
+        super.setHeight(height);
+        updateTrackedBounds();
+    }
+
+    /// Gets the parent sheet or null if there is none.
+    ///
+    /// #### Returns
+    ///
+    /// The parent sheet or null.
+    public Sheet getParentSheet() {
+        return parentSheet;
+    }
+
+    @Override
+    protected void initComponent() {
+        super.initComponent();
+        form = getTopLevelContainer();
+        if (form != null && allowClose) {
+            form.asContainer().addPointerPressedListener(formPointerListener);
+            attachSwipeListeners(form);
+        }
+    }
+
+    @Override
+    protected void deinitialize() {
+        if (form != null) {
+            form.asContainer().removePointerPressedListener(formPointerListener);
+            detachSwipeListeners(form);
+            form = null;
+        }
+        dragging = false;
+        super.deinitialize();
+    }
+
+    /// Checks if the current sheet is an ancestor sheet of the given sheet.
+    ///
+    /// #### Parameters
+    ///
+    /// - `sheet`: The sheet to check
+    ///
+    /// #### Returns
+    ///
+    /// True if the current sheet is an ancestor of sheet.
+    ///
+    public boolean isAncestorSheetOf(Sheet sheet) {
+        sheet = sheet.getParentSheet();
+        if (sheet == this) { //NOPMD CompareObjectsWithEquals
+            return true;
+        } else if (sheet == null) {
+            return false;
+        } else {
+            return isAncestorSheetOf(sheet);
+        }
+    }
+
+    /// Adds listener notified when the sheet is closed.  This event is only fired
+    /// when the sheet is closed without the possibility of being reopened.  E.g. if a
+    /// child sheet is opened (causing this sheet to be hidden), the close event won't be
+    /// fired until either that child sheet is hidden (without going back),
+    /// or the sheet itself is hidden, or goes back.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`
+    ///
+    public void addCloseListener(ActionListener l) {
+        closeListeners.addListener(l);
+    }
+
+    /// Removes a close listener.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: The close listener
+    public void removeCloseListener(ActionListener l) {
+        closeListeners.removeListener(l);
+    }
+
+    private void fireCloseEvent(boolean parentsToo) {
+        closeListeners.fireActionEvent(new ActionEvent(this));
+        if (parentsToo && parentSheet != null) {
+            parentSheet.fireCloseEvent(true);
+        }
+        // Auto-resolve a pending showForResult() with null when the sheet closes
+        // without finish() having been called (back, swipe-dismiss, or being
+        // replaced by another sheet). This mirrors how Android Activity onResult
+        // semantics treat a cancelled return: subscribers see a null payload.
+        AsyncResource<Object> r = pendingResult;
+        if (r != null && !r.isDone()) {
+            pendingResult = null;
+            try {
+                r.complete(null);
+            } catch (Throwable t) {
+                com.codename1.io.Log.e(t);
+            }
+        }
+    }
+
+    /// Adds listener to be notified when user goes back to the parent.  This is not
+    /// fired if the sheet is simply closed.  Only if the "back" button is pressed,
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: Listener
+    ///
+    public void addBackListener(ActionListener l) {
+        backListeners.addListener(l);
+    }
+
+    /// Removes a back listener.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: The close listener
+    public void removeBackListener(ActionListener l) {
+        backListeners.removeListener(l);
+    }
+
+    private void fireBackEvent() {
+        backListeners.fireActionEvent(new ActionEvent(this));
+
+    }
+
+
+    private static class ShowPainter implements Painter {
+        @Override
+        public void paint(Graphics g, Rectangle rect) {
+            int alph = g.getAlpha();
+            g.setAlpha((int) (alph * 30 / 100.0));
+            g.setColor(0x0);
+            g.fillRect(rect.getX(), rect.getY(), rect.getWidth(), rect.getHeight());
+            g.setAlpha(alph);
+        }
+
+    }
+
+    /// The padding of one style of the content pane as it was before the corner radius of a hand
+    /// written `RoundRectBorder` replaced it, kept alongside that style and the padding the inset
+    /// wrote into it. Each side is tracked on its own: a side is put back only while it still holds
+    /// what the inset wrote there, so padding changed since is not overwritten, and changing one
+    /// side does not strand the inset on the other three.
+    ///
+    /// The inset is applied through the component selector, which pads the style the content pane
+    /// presents at the time rather than all of its styles. Which style that is follows the state of
+    /// the pane, so an inset applied while it was enabled has to be taken off the unselected style
+    /// even if the pane is disabled by the time the sheet is restyled. Hence the style is held
+    /// here, and the sheet keeps one of these per style it inset.
+    private static class ContentPaneInset {
+        /// The sides of a style, in the order `Style#getPaddingUnit` indexes them.
+        private static final int[] SIDES = {Component.TOP, Component.LEFT, Component.BOTTOM, Component.RIGHT};
+        private final Style style;
+        private final float[] padding = new float[SIDES.length];
+        private final byte[] units = new byte[SIDES.length];
+        private float[] appliedPadding;
+        private byte[] appliedUnits;
+
+        ContentPaneInset(Style style) {
+            this.style = style;
+            for (int side : SIDES) {
+                remember(side);
+            }
+        }
+
+        /// Takes the padding of the given side as the one to put back.
+        private void remember(int side) {
+            padding[side] = style.getPaddingFloatValue(false, side);
+            units[side] = unitOf(style, side);
+        }
+
+        /// Takes the padding of every side the inset no longer holds as the one to put back. Called
+        /// before insetting again, so a side padded since the last inset keeps the padding it was
+        /// given rather than the one from before that inset.
+        void rememberChangedSides() {
+            if (appliedPadding == null) {
+                return;
+            }
+            for (int side : SIDES) {
+                if (!isIntact(side)) {
+                    remember(side);
+                }
+            }
+        }
+
+        /// Records what the inset left in the style, which is what `#isIntact` looks for later.
+        void recordApplied() {
+            appliedPadding = new float[SIDES.length];
+            appliedUnits = new byte[SIDES.length];
+            for (int side : SIDES) {
+                appliedPadding[side] = style.getPaddingFloatValue(false, side);
+                appliedUnits[side] = unitOf(style, side);
+            }
+        }
+
+        /// True when the given side of the style still holds the inset that was applied to it.
+        boolean isIntact(int side) {
+            return appliedPadding != null
+                    && style.getPaddingFloatValue(false, side) == appliedPadding[side]
+                    && unitOf(style, side) == appliedUnits[side];
+        }
+
+        /// True when any side still holds its inset, meaning there is something left to restore.
+        boolean hasIntactSide() {
+            for (int side : SIDES) {
+                if (isIntact(side)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// Puts back the padding of every side that still holds its inset, leaving the sides that
+        /// were changed since as they are.
+        void restore() {
+            for (int side : SIDES) {
+                if (isIntact(side)) {
+                    setPaddingUnit(style, side, units[side]);
+                    style.setPadding(side, padding[side]);
+                }
+            }
+        }
+
+        private static byte unitOf(Style s, int side) {
+            byte[] u = s.getPaddingUnit();
+            // A style with no units of its own measures in pixels
+            return u == null ? Style.UNIT_TYPE_PIXELS : u[side];
+        }
+
+        private static void setPaddingUnit(Style s, int side, byte unit) {
+            switch (side) {
+                case Component.TOP:
+                    s.setPaddingUnitTop(unit);
+                    break;
+                case Component.BOTTOM:
+                    s.setPaddingUnitBottom(unit);
+                    break;
+                case Component.LEFT:
+                    s.setPaddingUnitLeft(unit);
+                    break;
+                default:
+                    s.setPaddingUnitRight(unit);
+                    break;
+            }
+        }
+    }
+}

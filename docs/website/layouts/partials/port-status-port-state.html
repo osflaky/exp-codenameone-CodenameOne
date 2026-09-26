@@ -1,0 +1,92 @@
+{{- $port := .port -}}
+{{- $report := .report -}}
+{{- $contract := .contract -}}
+{{- $now := .now -}}
+{{- $state := "unknown" -}}
+{{- $label := "No stored report" -}}
+{{- $awaiting := 0 -}}
+{{- $passed := 0 -}}
+{{- $skipped := 0 -}}
+{{- $failed := 0 -}}
+{{- $notRun := 0 -}}
+{{- if $report -}}
+  {{- /* Counted over the contract, not over the report's own summary. Those are
+         different sets in both directions, and the card was wrong at both ends
+         of the difference. A report predating a newly registered test carries no
+         entry for it, and summing only what the report holds presented that as a
+         complete answer to a contract it has not seen. A report that predates a
+         test's RETIREMENT still carries the test, and a retired failure kept the
+         card red over a test that appears nowhere in the matrix below it. The
+         card is the sum of the cells the table shows, so it is now literally
+         computed that way. */ -}}
+  {{- range $contract.features -}}
+    {{- range .tests -}}
+      {{- /* A test scoped to other ports does not apply here: this port has no
+             windowing system, was never asked for the capability, and will never
+             carry the test in its report. Counting it as awaiting would leave a
+             permanent "waiting for this port's next run" against something that
+             is never coming, which reads as a gap rather than as not applicable. */ -}}
+      {{- $scope := index $contract.test_scopes . -}}
+      {{- if and $scope (not (in $scope $port.id)) -}}
+        {{- continue -}}
+      {{- end -}}
+      {{- $result := index $report.tests . -}}
+      {{- if not $result -}}
+        {{- $awaiting = add $awaiting 1 -}}
+      {{- else if eq $result.status "pass" -}}
+        {{- $passed = add $passed 1 -}}
+      {{- else if eq $result.status "skip" -}}
+        {{- $skipped = add $skipped 1 -}}
+      {{- else if eq $result.status "fail" -}}
+        {{- $failed = add $failed 1 -}}
+      {{- else -}}
+        {{- $notRun = add $notRun 1 -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $bootstrapComplete := and (eq $report.bootstrap_source "successful-master-workflow") (eq $report.workflow_conclusion "success") -}}
+  {{- $complete := or $report.suite_finished $bootstrapComplete -}}
+  {{- $generated := time.AsTime $report.generated_at -}}
+  {{- $staleSeconds := mul (int $contract.stale_after_days) 86400 -}}
+  {{- $stale := gt (sub $now.Unix $generated.Unix) $staleSeconds -}}
+  {{- $state = "pass" -}}
+  {{- $label = cond $bootstrapComplete "Workflow completed" "Suite completed" -}}
+  {{- if gt $failed 0 -}}
+    {{- $state = "fail" -}}
+    {{- $label = printf "%d failing test%s" $failed (cond (eq $failed 1) "" "s") -}}
+  {{- else if gt $notRun 0 -}}
+    {{- /* A test that never reported is not a pass. The strict producer gate
+           fails the workflow on not-run, so a report reaching here with zero
+           failures and a pile of unreported tests came from a RED run -- and
+           looking only at summary.fail rendered it as a green "Suite completed"
+           card while its feature cells sat incomplete. */ -}}
+    {{- $state = "partial" -}}
+    {{- $label = printf "%d test%s did not run" $notRun (cond (eq $notRun 1) "" "s") -}}
+  {{- else if not $complete -}}
+    {{- $state = "partial" -}}
+    {{- $label = "Run incomplete" -}}
+  {{- else if $stale -}}
+    {{- $state = "partial" -}}
+    {{- $label = "Report is stale" -}}
+  {{- else if gt $awaiting 0 -}}
+    {{- /* Last in the chain because it is the mildest of these, but not absent
+           from it: the feature cell for a test this run predates already renders
+           partial, and leaving the card green said "Suite completed" directly
+           above a column that is missing an answer. The suite did complete --
+           against a contract that has since grown. */ -}}
+    {{- $state = "partial" -}}
+    {{- $label = printf "%d test%s awaiting this port's next run" $awaiting (cond (eq $awaiting 1) "" "s") -}}
+  {{- end -}}
+{{- end -}}
+<article class="cn1-port-card is-{{ $state }}" data-port-card="{{ $port.id }}">
+  <div>
+    <h2>{{ $port.name }}</h2>
+    <p>{{ $port.detail }}</p>
+  </div>
+  <p class="cn1-port-card__state">{{ $label }}</p>
+  {{- if $report }}
+  <p class="cn1-port-card__meta">
+    {{ $passed }} passed · {{ $skipped }} skipped · {{ $notRun }} not run{{ if gt $awaiting 0 }} · {{ $awaiting }} awaiting this port's next run{{ end }}
+  </p>
+  {{- end }}
+</article>

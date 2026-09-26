@@ -1,0 +1,176 @@
+/// Copyright (C) 2009 - 2013 SC 4ViewSoft SRL
+///
+/// Licensed under the Apache License, Version 2.0 (the "License");
+/// you may not use this file except in compliance with the License.
+/// You may obtain a copy of the License at
+///
+/// http://www.apache.org/licenses/LICENSE-2.0
+///
+/// Unless required by applicable law or agreed to in writing, software
+/// distributed under the License is distributed on an "AS IS" BASIS,
+/// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+/// See the License for the specific language governing permissions and
+/// limitations under the License.
+package com.codename1.charts.views;
+
+import com.codename1.charts.compat.Canvas;
+import com.codename1.charts.compat.GradientDrawable;
+import com.codename1.charts.compat.GradientDrawable.Orientation;
+import com.codename1.charts.compat.Paint;
+import com.codename1.charts.models.CategorySeries;
+import com.codename1.charts.renderers.DefaultRenderer;
+import com.codename1.charts.renderers.SimpleSeriesRenderer;
+import com.codename1.ui.Component;
+
+/// Base class for charts that render circular data representations such as pie
+/// charts, doughnut charts or gauges.
+///
+/// Subclasses operate on `CategorySeries` data and share common
+/// functionality for drawing the chart title, legend entries and handling
+/// layout. Developers typically work with concrete subclasses such as
+/// `PieChart` or `DoughnutChart` directly.
+public abstract class RoundChart extends AbstractChart {
+    /// The legend shape width.
+    protected static final int SHAPE_WIDTH = 10;
+    /// A no value constant.
+    protected static final int NO_VALUE = Integer.MAX_VALUE;
+    /// The series dataset.
+    protected CategorySeries mDataset;
+    /// The series renderer.
+    protected DefaultRenderer mRenderer;
+    /// The chart center X axis.
+    protected int mCenterX = NO_VALUE;
+    /// The chart center y axis.
+    protected int mCenterY = NO_VALUE;
+    protected boolean autoCalculateCenter = true;
+
+    /// Round chart.
+    ///
+    /// #### Parameters
+    ///
+    /// - `dataset`: the series dataset
+    ///
+    /// - `renderer`: the series renderer
+    public RoundChart(CategorySeries dataset, DefaultRenderer renderer) {
+        mDataset = dataset;
+        mRenderer = renderer;
+    }
+
+    /// The graphical representation of the round chart title.
+    ///
+    /// #### Parameters
+    ///
+    /// - `canvas`: the canvas to paint to
+    ///
+    /// - `x`: the top left x value of the view to draw to
+    ///
+    /// - `y`: the top left y value of the view to draw to
+    ///
+    /// - `width`: the width of the view to draw to
+    ///
+    /// - `paint`: the paint
+    public void drawTitle(Canvas canvas, int x, int y, int width, Paint paint) {
+        if (mRenderer.isShowLabels()) {
+            paint.setColor(mRenderer.getLabelsColor());
+            paint.setTextAlign(Component.CENTER);
+            paint.setTextSize(mRenderer.getChartTitleTextSize());
+            drawString(canvas, mRenderer.getChartTitle(), x + width / 2,
+                    y + mRenderer.getChartTitleTextSize(), paint);
+        }
+    }
+
+    /// Returns the legend shape width.
+    ///
+    /// #### Parameters
+    ///
+    /// - `seriesIndex`: the series index
+    ///
+    /// #### Returns
+    ///
+    /// the legend shape width
+    @Override
+    public int getLegendShapeWidth(int seriesIndex) {
+        return SHAPE_WIDTH;
+    }
+
+    /// The graphical representation of the legend shape.
+    ///
+    /// #### Parameters
+    ///
+    /// - `canvas`: the canvas to paint to
+    ///
+    /// - `renderer`: the series renderer
+    ///
+    /// - `x`: the x value of the point the shape should be drawn at
+    ///
+    /// - `y`: the y value of the point the shape should be drawn at
+    ///
+    /// - `seriesIndex`: the series index
+    ///
+    /// - `paint`: the paint to be used for drawing
+    @Override
+    public void drawLegendShape(Canvas canvas, SimpleSeriesRenderer renderer, float x, float y,
+                                int seriesIndex, Paint paint) {
+        if (renderer.isGradientEnabled() && canvas.isShapeClipSupported()) {
+            GradientDrawable gr = new GradientDrawable(Orientation.TOP_BOTTOM, new int[]{renderer.getGradientStartColor(), renderer.getGradientStopColor()});
+            gr.setBounds((int) x, (int) (y - SHAPE_WIDTH / 2), (int) (x + SHAPE_WIDTH), (int) (y + SHAPE_WIDTH / 2));
+            gr.draw(canvas);
+        } else {
+            canvas.drawRect(x, y - SHAPE_WIDTH / 2, x + SHAPE_WIDTH, y + SHAPE_WIDTH / 2, paint);
+        }
+    }
+
+    /// Returns the renderer.
+    ///
+    /// #### Returns
+    ///
+    /// the renderer
+    public DefaultRenderer getRenderer() {
+        return mRenderer;
+    }
+
+    /// Returns the center on X axis.
+    ///
+    /// #### Returns
+    ///
+    /// the center on X axis
+    public int getCenterX() {
+        return mCenterX;
+    }
+
+    /// Sets a new center on X axis.
+    ///
+    /// #### Parameters
+    ///
+    /// - `centerX`: center on X axis
+    public void setCenterX(int centerX) {
+        mCenterX = centerX;
+    }
+
+    /// Returns the center on Y axis.
+    ///
+    /// #### Returns
+    ///
+    /// the center on Y axis
+    public int getCenterY() {
+        return mCenterY;
+    }
+
+    /// Sets a new center on Y axis.
+    ///
+    /// #### Parameters
+    ///
+    /// - `centerY`: center on Y axis
+    public void setCenterY(int centerY) {
+        mCenterY = centerY;
+    }
+
+    public boolean isAutocalculateCenter() {
+        return autoCalculateCenter;
+    }
+
+    public void setAutocalculateCenter(boolean a) {
+        autoCalculateCenter = a;
+    }
+
+}

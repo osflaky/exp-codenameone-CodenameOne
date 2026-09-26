@@ -1,0 +1,14 @@
+=== Open Designer (`designer`)
+
+Opens the legacy Codename One designer app to edit the project "theme.res" file.
+
+NOTE: If your project is using CSS it may not have a theme.res file, thus this goal will fail in this case.
+
+==== Usage example
+
+[source,bash]
+----
+include::../demos/common/src/main/snippets/developer-guide/appendix-goal-designer.sh[tag=appendix-goal-designer-bash-001,indent=0]
+----
+
+This will open the Codename One designer.

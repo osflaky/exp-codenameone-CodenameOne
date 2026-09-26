@@ -1,0 +1,732 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.tools.translator.bytecodes;
+
+import java.util.ArrayList;
+import java.util.List;
+import org.objectweb.asm.Opcodes;
+
+
+/**
+ *
+ * @author shannah
+ */
+public class ArithmeticExpression extends Instruction implements AssignableExpression{
+
+    public static final int OPCODE=-2;
+    private ArithmeticExpression subExpression;
+    private ArithmeticExpression subExpression2;
+    private Instruction lastInstruction;
+    private ArithmeticExpression() {
+        super(OPCODE);
+        
+    }
+
+    @Override
+    public boolean isConstant() {
+        if (lastInstruction != null && lastInstruction.isConstant()) {
+            return true;
+        }
+        if (subExpression2 == null && subExpression != null && subExpression.isConstant()) {
+            return true;
+        }
+        if (subExpression2 != null && subExpression != null && subExpression.isConstant() && subExpression2.isConstant()) {
+            return true;
+        }
+        return super.isConstant();
+    }
+
+    
+    
+    /**
+     * If this expression is a long three-way compare ({@code LCMP}), returns the
+     * direct comparison {@code (a <op> b)} for the given branch operator, so an
+     * {@code LCMP} feeding an {@code IFxx} branch-on-zero is emitted as a plain
+     * long comparison instead of {@code CN1_CMP_EXPR(a,b) <op> 0} -- the latter
+     * (a three-way ?: chain) defeats clang's loop trip-count analysis and blocks
+     * vectorization. LCMP only: float/double compares ({@code FCMPx}/{@code DCMPx})
+     * keep {@code CN1_CMP_EXPR} because their NaN ordering differs from a direct C
+     * comparison. The folded operands are pure (the reducer only folds loads /
+     * constants / pure expressions), so evaluating them once here is bit-identical
+     * to -- and avoids the double-evaluation of -- the {@code CN1_CMP_EXPR} macro.
+     */
+    public String getLongCompareDirect(String operator) {
+        if (lastInstruction != null && lastInstruction.getOpcode() == Opcodes.LCMP
+                && subExpression != null && subExpression2 != null) {
+            return "(" + subExpression.getExpressionAsString().trim() + " " + operator + " "
+                    + subExpression2.getExpressionAsString().trim() + ")";
+        }
+        return null;
+    }
+
+    /**
+     * Float/double analogue of {@link #getLongCompareDirect(String)}. An
+     * {@code FCMPx}/{@code DCMPx} feeding an {@code IFxx} branch-on-zero is
+     * emitted as a single IEEE C comparison instead of the three-way
+     * {@code CN1_CMP_EXPR(a,b) <op> 0} (which forces clang to materialise a
+     * -1/0/1 result and blocks its FP-loop optimisation).
+     *
+     * <p>NaN correctness is preserved exactly. javac selects the {@code CMPG}
+     * variant (NaN&nbsp;&rarr;&nbsp;+1) for source {@code >}/{@code >=} and the
+     * {@code CMPL} variant (NaN&nbsp;&rarr;&nbsp;-1) for {@code <}/{@code <=},
+     * precisely so the branch-on-zero treats an unordered result as
+     * "condition false". The fused form reproduces that: the cases where an
+     * unordered pair must take the branch map to a <em>negated ordered</em>
+     * comparison (e.g. {@code !(a > b)}), which is true for NaN because every
+     * ordered C comparison is false for NaN; the other cases map to the plain
+     * ordered comparison, which is false for NaN. Operands are only ever the
+     * pure loads/constants the reducer folds, so evaluating them once is safe.</p>
+     */
+    public String getFloatCompareDirect(String operator) {
+        if (lastInstruction == null || subExpression == null || subExpression2 == null) {
+            return null;
+        }
+        boolean nanGreater;
+        switch (lastInstruction.getOpcode()) {
+            case Opcodes.DCMPG:
+            case Opcodes.FCMPG:
+                nanGreater = true;  // NaN -> +1
+                break;
+            case Opcodes.DCMPL:
+            case Opcodes.FCMPL:
+                nanGreater = false; // NaN -> -1
+                break;
+            default:
+                return null;
+        }
+        String a = subExpression.getExpressionAsString().trim();
+        String b = subExpression2.getExpressionAsString().trim();
+        // The branch tests (threeWayResult <operator> 0). Reproduce it directly.
+        String c = null;
+        if (!nanGreater) { // CMPL: NaN -> -1 (unordered counts as "less")
+            if (operator.equals("<"))       c = "!(" + a + " >= " + b + ")"; // a<b || NaN
+            else if (operator.equals("<=")) c = "!(" + a + " > "  + b + ")"; // a<=b || NaN
+            else if (operator.equals(">"))  c =  "(" + a + " > "  + b + ")";
+            else if (operator.equals(">=")) c =  "(" + a + " >= " + b + ")";
+            else if (operator.equals("==")) c =  "(" + a + " == " + b + ")";
+            else if (operator.equals("!=")) c = "!(" + a + " == " + b + ")"; // a!=b || NaN
+        } else { // CMPG: NaN -> +1 (unordered counts as "greater")
+            if (operator.equals("<"))       c =  "(" + a + " < "  + b + ")";
+            else if (operator.equals("<=")) c =  "(" + a + " <= " + b + ")";
+            else if (operator.equals(">"))  c = "!(" + a + " <= " + b + ")"; // a>b || NaN
+            else if (operator.equals(">=")) c = "!(" + a + " < "  + b + ")"; // a>=b || NaN
+            else if (operator.equals("==")) c =  "(" + a + " == " + b + ")";
+            else if (operator.equals("!=")) c = "!(" + a + " == " + b + ")"; // a!=b || NaN
+        }
+        return c;
+    }
+
+    @Override
+    public void addDependencies(List<String> dependencyList) {
+        if (subExpression != null) {
+            subExpression.addDependencies(dependencyList);
+        }
+        if (subExpression2 != null) {
+            subExpression2.addDependencies(dependencyList);
+        }
+        if (lastInstruction != null) {
+            lastInstruction.addDependencies(dependencyList);
+        }
+    }
+
+    
+    
+    @Override
+    public void appendInstruction(StringBuilder b) {
+        if (subExpression != null) {
+            subExpression.appendInstruction(b);
+        }
+        if (subExpression2 != null) {
+            subExpression2.appendInstruction(b);
+        }
+        
+        if (lastInstruction != null) {
+            lastInstruction.appendInstruction(b);
+        }
+    }
+
+    @Override
+    public void appendInstruction(StringBuilder b, List<Instruction> l) {
+        if (subExpression != null) {
+            subExpression.appendInstruction(b, l);
+        }
+        if (subExpression2 != null) {
+            subExpression2.appendInstruction(b, l);
+        }
+        
+        if (lastInstruction != null) {
+            lastInstruction.appendInstruction(b, l);
+        }
+    }
+    
+    
+    
+   
+    
+    
+    public static int tryReduce(List<Instruction> instructions, int index) {
+        Instruction instr = instructions.get(index);
+        if (isArithmeticOp(instr)) {
+            Instruction op = instr;
+            if (isBinaryOp(op)) {
+                if (index < 2) {
+                    return -1;
+                }
+                Instruction arg1 = instructions.get(index-2);
+                Instruction arg2 = instructions.get(index-1);
+                
+                if (!isArg(arg1) || !isArg(arg2)) {
+                    return -1;
+                }
+                
+                ArithmeticExpression expr = new ArithmeticExpression();
+                expr.lastInstruction = instr;
+                if (arg1 instanceof ArithmeticExpression) {
+                    expr.subExpression = (ArithmeticExpression)arg1;
+                } else {
+                    expr.subExpression = new ArithmeticExpression();
+                    expr.subExpression.lastInstruction = arg1;
+                }
+                if (arg2 instanceof ArithmeticExpression) {
+                    expr.subExpression2 = (ArithmeticExpression)arg2;
+                } else {
+                    expr.subExpression2 = new ArithmeticExpression();
+                    expr.subExpression2.lastInstruction = arg2;
+                }
+                
+                instructions.remove(index-2);
+                instructions.remove(index-2);
+                instructions.remove(index-2);
+                instructions.add(index-2, expr);
+                return index-2;
+            } else {
+                if (index < 1) {
+                    return -1;
+                }
+                
+                Instruction arg = instructions.get(index-1);
+                if (!isArg(arg)) {
+                    return -1;
+                }
+                
+                ArithmeticExpression expr = new ArithmeticExpression();
+                expr.lastInstruction = instr;
+                if (arg instanceof ArithmeticExpression) {
+                    expr.subExpression = (ArithmeticExpression)arg;
+                    
+                } else {
+                    expr.subExpression = new ArithmeticExpression();
+                    expr.subExpression.lastInstruction = arg;
+                }
+                
+                instructions.remove(index-1);
+                instructions.remove(index-1);
+                instructions.add(index-1, expr);
+                return index-1;
+                
+            }
+            
+        }
+        return -1;
+    }
+    
+    public static boolean isArg(Instruction instr) {
+        if (instr instanceof ArithmeticExpression) {
+            return true;
+        }
+        if (instr instanceof AssignableExpression) {
+            StringBuilder dummy = new StringBuilder();
+            
+            if (((AssignableExpression)instr).assignTo(null, dummy)) {
+                return true;
+            }
+        }
+        int opcode = instr.getOpcode();
+        switch (opcode) {
+            
+            case Opcodes.FLOAD:
+            case Opcodes.DLOAD:
+            case Opcodes.ILOAD:
+            case Opcodes.LLOAD:
+            case org.objectweb.asm.Opcodes.ICONST_0:
+            case org.objectweb.asm.Opcodes.ICONST_1: 
+            case org.objectweb.asm.Opcodes.ICONST_2:
+            case org.objectweb.asm.Opcodes.ICONST_3: 
+            case org.objectweb.asm.Opcodes.ICONST_4: 
+            case org.objectweb.asm.Opcodes.ICONST_5:
+            case org.objectweb.asm.Opcodes.ICONST_M1:
+            case org.objectweb.asm.Opcodes.LCONST_0:
+            case org.objectweb.asm.Opcodes.LCONST_1: 
+            case Opcodes.DCONST_0:
+            case Opcodes.DCONST_1:
+            case Opcodes.FCONST_0:
+            case Opcodes.FCONST_1:
+            case Opcodes.FCONST_2:
+            case org.objectweb.asm.Opcodes.BIPUSH:
+            case org.objectweb.asm.Opcodes.SIPUSH:
+            case Opcodes.LDC:
+                return true;
+        }
+        return false;
+    }
+
+    public static boolean isBinaryOp(Instruction instr) {
+        switch (instr.getOpcode()) {
+            case Opcodes.ISHL:
+            case Opcodes.ISHR:
+            case Opcodes.LSHL:
+            case Opcodes.LSHR:
+            case Opcodes.IUSHR:
+            case Opcodes.LUSHR:
+            case Opcodes.DCMPG:
+            case Opcodes.DCMPL:
+            case Opcodes.FCMPG:
+            case Opcodes.FCMPL:
+            case Opcodes.LCMP:
+            case Opcodes.IOR:
+            case Opcodes.LOR:
+            case Opcodes.IXOR:
+            case Opcodes.LXOR:
+            case Opcodes.IAND:
+            case Opcodes.LAND:
+            case Opcodes.FADD:
+            case Opcodes.DADD:
+            case Opcodes.IADD:
+            case Opcodes.LADD:
+            case Opcodes.FSUB:
+            case Opcodes.DSUB:
+            case Opcodes.ISUB:
+            case Opcodes.LSUB:
+            case Opcodes.FDIV:
+            case Opcodes.DDIV:
+            case Opcodes.LDIV:
+            case Opcodes.IDIV:
+            case Opcodes.IREM:
+            case Opcodes.FREM:
+            case Opcodes.DREM:
+            case Opcodes.LREM:
+            case Opcodes.FMUL:
+            case Opcodes.DMUL:
+            case Opcodes.IMUL:
+            case Opcodes.LMUL:
+                return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean isOptimized() {
+        return true;
+    }
+
+    
+    public static boolean isArithmeticOp(Instruction instr) {
+        
+        switch (instr.getOpcode()) {
+            case Opcodes.ISHL:
+            case Opcodes.ISHR:
+            case Opcodes.LSHL:
+            case Opcodes.LSHR:
+            case Opcodes.IUSHR:
+            case Opcodes.LUSHR:
+            
+            case Opcodes.DCMPG:
+            case Opcodes.DCMPL:
+            case Opcodes.FCMPG:
+            case Opcodes.FCMPL:
+            case Opcodes.LCMP:
+            case Opcodes.FNEG:
+            case Opcodes.DNEG:
+            case Opcodes.INEG:
+            case Opcodes.D2F:
+            case Opcodes.D2I:
+            case Opcodes.D2L:
+            case Opcodes.F2D:
+            case Opcodes.F2I:
+            case Opcodes.F2L:
+            case Opcodes.L2D:
+            case Opcodes.L2F:
+            case Opcodes.L2I:
+            case Opcodes.I2L:
+            case Opcodes.I2B:
+            case Opcodes.I2C:
+            case Opcodes.I2D:
+            case Opcodes.I2F:
+            case Opcodes.I2S:
+            case Opcodes.IOR:
+            case Opcodes.LOR:
+            case Opcodes.IXOR:
+            case Opcodes.LXOR:
+            case Opcodes.IAND:
+            case Opcodes.LAND:
+            case Opcodes.FADD:
+            case Opcodes.DADD:
+            case Opcodes.IADD:
+            case Opcodes.LADD:
+            case Opcodes.FSUB:
+            case Opcodes.DSUB:
+            case Opcodes.ISUB:
+            case Opcodes.LSUB:
+            case Opcodes.FDIV:
+            case Opcodes.DDIV:
+            case Opcodes.LDIV:
+            case Opcodes.IDIV:
+            case Opcodes.IREM:
+            case Opcodes.FREM:
+            case Opcodes.DREM:
+            case Opcodes.LREM:
+            case Opcodes.FMUL:
+            case Opcodes.DMUL:
+            case Opcodes.IMUL:
+            case Opcodes.LMUL:
+                return true;
+        }
+        return false;
+    }
+    
+    
+    
+    
+    public String getExpressionAsString() {
+        
+        Instruction instr = lastInstruction;
+        int opcode = lastInstruction.getOpcode();
+        if (subExpression == null) {
+            // This is the root of it... probably an FLOAD
+            if (lastInstruction instanceof AssignableExpression && !(lastInstruction instanceof ArithmeticExpression)) {
+                StringBuilder out = new StringBuilder();
+                if (((AssignableExpression)lastInstruction).assignTo(null, out)) {
+                    String strOut = out.toString();
+                    if (strOut.trim().isEmpty()) {
+                        throw new RuntimeException("Instruction produces blank string output: "+lastInstruction);
+                    }
+                    if (strOut == null || "null".equals(strOut)) {
+                        throw new RuntimeException("ArithmeticExpression produced null value.  This shouldn't happen: "+lastInstruction);
+                    }
+                    return strOut;
+                }
+            }
+            
+            if (lastInstruction instanceof VarOp) {
+                VarOp var = (VarOp)lastInstruction;
+                switch (opcode) {
+                    case Opcodes.FLOAD: {
+                        return "flocals_"+var.getIndex()+"_";
+                        
+                    }
+                    case Opcodes.DLOAD: {
+                        return "dlocals_"+var.getIndex()+"_";
+                    }
+                    
+                    case Opcodes.ILOAD: {
+                        return "ilocals_"+var.getIndex()+"_";
+                    }
+                    
+                    case Opcodes.LLOAD: {
+                        return "llocals_"+var.getIndex()+"_";
+                    }
+                 
+                    case org.objectweb.asm.Opcodes.ICONST_0: {
+                        return "0";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.ICONST_1: {
+                        return "1";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.ICONST_2: {
+                        return "2";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.ICONST_3: {
+                        return "3";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.ICONST_4: {
+                        return "4";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.ICONST_5: {
+                        return "5";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.ICONST_M1: {
+                        return "(-1)";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.LCONST_0: {
+                        return "((JAVA_LONG)0)";
+                        
+                    }
+                    case Opcodes.DCONST_0: {
+                        return "((JAVA_DOUBLE)0)";
+                    }
+                    case Opcodes.DCONST_1: {
+                        return "((JAVA_DOUBLE)1)";
+                    }
+                    case Opcodes.FCONST_0: {
+                        return "((JAVA_FLOAT)0)";
+                    }
+                    case Opcodes.FCONST_1: {
+                        return "((JAVA_FLOAT)1)";
+                    }
+                    case Opcodes.FCONST_2: {
+                        return "((JAVA_FLOAT)2";
+                    }
+                    
+                    case org.objectweb.asm.Opcodes.LCONST_1: {
+                        return "((JAVA_LONG)1)";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.BIPUSH:
+                    case org.objectweb.asm.Opcodes.SIPUSH: {
+                        return String.valueOf(var.getIndex());
+                    }
+                    default: {
+                        throw new RuntimeException("Unsupported Opcode in ArithmeticExpression: "+opcode+" "+var);
+                    }
+                }
+            } else {
+                switch (instr.getOpcode()) {
+
+                   
+
+                    case org.objectweb.asm.Opcodes.ICONST_0: {
+                        return "0";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.ICONST_1: {
+                        return "1";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.ICONST_2: {
+                        return "2";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.ICONST_3: {
+                        return "3";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.ICONST_4: {
+                        return "4";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.ICONST_5: {
+                        return "5";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.ICONST_M1: {
+                        return "(-1)";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.LCONST_0: {
+                        return "((JAVA_LONG)0)";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.LCONST_1: {
+                        return "(JAVA_LONG)1";
+                        
+                    }
+                    case org.objectweb.asm.Opcodes.BIPUSH: {
+                        if (instr instanceof BasicInstruction) {
+                            return String.valueOf(((BasicInstruction) instr).getValue());
+                        }
+                        break;
+                    }
+                    case org.objectweb.asm.Opcodes.LDC: {
+                        if (instr instanceof Ldc) {
+                            Ldc ldc = (Ldc) instr;
+                            return ldc.getValueAsString();
+
+                        }
+                        break;
+                    }
+                    default: {
+                        throw new RuntimeException("Unsupported Opcode in ArithmeticExpression: "+opcode+" "+instr);
+                    }
+
+                }
+            }
+
+        } else {
+
+            switch (opcode) {
+                
+                case Opcodes.ISHL: {
+                    return "BC_ISHL_EXPR("+subExpression.getExpressionAsString().trim() + ", "+subExpression2.getExpressionAsString().trim()+")";
+                }
+                case Opcodes.ISHR: {
+                    return "BC_ISHR_EXPR("+subExpression.getExpressionAsString().trim() + ", "+subExpression2.getExpressionAsString().trim()+")";
+                }
+                case Opcodes.LSHL: {
+                    return "BC_LSHL_EXPR("+subExpression.getExpressionAsString().trim() + ", "+subExpression2.getExpressionAsString().trim()+")";
+                }
+                case Opcodes.LSHR: {
+                    return "BC_LSHR_EXPR("+subExpression.getExpressionAsString().trim() + ", "+subExpression2.getExpressionAsString().trim()+")";
+                }
+                case Opcodes.IUSHR: {
+                    return "BC_IUSHR_EXPR("+subExpression.getExpressionAsString().trim() + ", "+subExpression2.getExpressionAsString().trim()+")";
+                }
+                case Opcodes.LUSHR: {
+                    return "BC_LUSHR_EXPR("+subExpression.getExpressionAsString().trim() + ", "+subExpression2.getExpressionAsString().trim()+")";
+                }
+
+                
+                case Opcodes.DCMPG:
+                case Opcodes.DCMPL:
+                case Opcodes.FCMPG:
+                case Opcodes.FCMPL:
+                case Opcodes.LCMP: {
+                    return "CN1_CMP_EXPR("+subExpression.getExpressionAsString().trim() + ", " + subExpression2.getExpressionAsString().trim()+")";
+                }
+                // Widening conversions are a plain C cast, and the opcodes that share an
+                // emission now share a clause. They used to be written out one per opcode,
+                // which SpotBugs reports as DB_DUPLICATE_SWITCH_CLAUSES -- it stayed quiet
+                // only while the narrowing cases below happened to match them too.
+                case Opcodes.D2F:
+                case Opcodes.I2F:
+                case Opcodes.L2F: {
+                    return "((JAVA_FLOAT)" + subExpression.getExpressionAsString().trim() + ")";
+                }
+                case Opcodes.I2D:
+                case Opcodes.L2D: {
+                    return "((JAVA_DOUBLE)" + subExpression.getExpressionAsString().trim() + ")";
+                }
+                case Opcodes.F2D: {
+                    return subExpression.getExpressionAsString().trim();
+                }
+                // JLS 5.1.3 narrowing is SATURATING, and a C cast is undefined out of range --
+                // arm64 saturates and x86-64 returns 0x80000000, so a raw cast here silently
+                // disagreed with itself across the architectures we ship. The helpers live in
+                // cn1_globals.h; BC_{F2I,F2L,D2I,D2L} and BasicInstruction use the same ones.
+                // L2I below is NOT one of these: long-to-int is defined truncation.
+                case Opcodes.F2I: {
+                    return "cn1SaturateToInt((JAVA_DOUBLE)" + subExpression.getExpressionAsString().trim() + ")";
+                }
+                case Opcodes.F2L: {
+                    return "cn1SaturateToLong((JAVA_DOUBLE)" + subExpression.getExpressionAsString().trim() + ")";
+                }
+                case Opcodes.D2I: {
+                    return "cn1SaturateToInt(" + subExpression.getExpressionAsString().trim() + ")";
+                }
+                case Opcodes.D2L: {
+                    return "cn1SaturateToLong(" + subExpression.getExpressionAsString().trim() + ")";
+                }
+                case Opcodes.I2B: {
+                    return "(("+subExpression.getExpressionAsString()+" << 24) >> 24)";
+                }
+                case Opcodes.I2C: {
+                    return "("+subExpression.getExpressionAsString().trim()+" & 0xffff)";
+                }
+                case Opcodes.I2L: {
+                    return "((JAVA_LONG)"+subExpression.getExpressionAsString().trim()+")";
+                }
+                case Opcodes.I2S: {
+                    return "(("+subExpression.getExpressionAsString().trim()+" << 16) >> 16)";
+                }
+                case Opcodes.L2I: {
+                    return "((JAVA_INT)"+subExpression.getExpressionAsString().trim()+")";
+                }
+                case Opcodes.IAND:
+                case Opcodes.LAND: {
+                    return "(" + subExpression.getExpressionAsString().trim() + " & " + subExpression2.getExpressionAsString().trim() + ")";
+                    
+                }
+                case Opcodes.IOR:
+                case Opcodes.LOR: {
+                    return "(" + subExpression.getExpressionAsString().trim() + " | " + subExpression2.getExpressionAsString().trim() + ")";
+                }
+                case Opcodes.IXOR:
+                case Opcodes.LXOR: {
+                    return "(" + subExpression.getExpressionAsString().trim() + " ^ " + subExpression2.getExpressionAsString().trim() + ")";
+
+                }
+                case Opcodes.DADD:
+                case Opcodes.IADD:
+                case Opcodes.LADD:
+                case Opcodes.FADD: {
+                    return "(" + subExpression.getExpressionAsString().trim() + " + " + subExpression2.getExpressionAsString().trim() + ")";
+                }
+
+                case Opcodes.DSUB:
+                case Opcodes.ISUB:
+                case Opcodes.LSUB:
+                case Opcodes.FSUB: {
+                    return "(" + subExpression.getExpressionAsString().trim() + " - " + subExpression2.getExpressionAsString().trim() + ")";
+                }
+
+                case Opcodes.DMUL:
+                case Opcodes.IMUL:
+                case Opcodes.LMUL:
+                case Opcodes.FMUL: {
+                    return "("+subExpression.getExpressionAsString().trim() + " * " + subExpression2.getExpressionAsString().trim()+")";
+                }
+
+                case Opcodes.DDIV:
+                case Opcodes.IDIV:
+                case Opcodes.LDIV:
+                case Opcodes.FDIV: {
+                    return "("+subExpression.getExpressionAsString().trim() + " / " + subExpression2.getExpressionAsString().trim()+")";
+                }
+
+                case Opcodes.FREM:
+                case Opcodes.DREM: {
+                    return "fmod("+subExpression.getExpressionAsString().trim() + ", "+subExpression2.getExpressionAsString().trim()+")";
+                }
+
+                case Opcodes.LREM:
+                case Opcodes.IREM: {
+                    if (subExpression2.getExpressionAsString() == null || "null".equals(subExpression2.getExpressionAsString())) {
+                        throw new RuntimeException("2nd param of REM is null.  Should never happen.  Expression is "+subExpression2+" with last instruction "+subExpression2.lastInstruction);
+                    }
+                    return "("+subExpression.getExpressionAsString().trim() + " % "+subExpression2.getExpressionAsString().trim()+")";
+                }
+
+                case Opcodes.FNEG:
+                case Opcodes.INEG:
+                case Opcodes.LNEG:
+                case Opcodes.DNEG:
+                    return "(-("+subExpression.getExpressionAsString().trim()+"))";
+                    
+                default: {
+                    throw new RuntimeException("Unsupported Opcode in ArithmeticExpression: "+opcode+" "+instr);
+                }
+
+            }
+        }
+        throw new RuntimeException("Did not return a value in getExpressionAsString() with lastInstruction "+lastInstruction+" subExpression "+subExpression+" and subExpression2 "+subExpression2);
+    }
+
+    @Override
+    public boolean assignTo(String varName, StringBuilder sb) {
+        if (varName != null) {
+            sb.append(varName).append("=");
+        }
+        sb.append(getExpressionAsString());
+        if (varName != null) {
+            sb.append(";\n");
+        }
+        return true;
+    }
+    
+}

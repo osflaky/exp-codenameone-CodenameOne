@@ -1,0 +1,223 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *  
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ * 
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ * 
+ * Please contact Codename One through http://www.codenameone.com/ if you 
+ * need additional information or have any questions.
+ */
+
+package com.codename1.tools.translator;
+
+import java.util.ArrayList;
+import java.util.List;
+import org.objectweb.asm.Opcodes;
+
+/**
+ *
+ * @author Shai Almog
+ */
+public class ByteCodeField {
+    private final String clsName;
+    private boolean staticField;
+    private String fieldName;
+
+    private List<String> dependentClasses = new ArrayList<String>();
+    //private List<String> exportedClasses = new ArrayList<String>();
+    
+    private int arrayDimensions;
+    private String type;
+    private PrimitiveType primitiveType;
+    private boolean finalField;
+    private Object value;
+    private boolean privateField;
+    private final boolean volatileField;
+    
+    public ByteCodeField(String clsName, int access, String name, String desc, String signature, Object value) {
+        this.clsName = clsName;
+        this.value = value;
+        privateField = (access & Opcodes.ACC_PRIVATE) == Opcodes.ACC_PRIVATE;
+        if(value != null && value instanceof String) {
+            Parser.addToConstantPool((String)value);
+        }
+        staticField = (access & Opcodes.ACC_STATIC) == Opcodes.ACC_STATIC;
+        finalField = (access & Opcodes.ACC_FINAL) == Opcodes.ACC_FINAL;
+        volatileField = (access & Opcodes.ACC_VOLATILE) == Opcodes.ACC_VOLATILE;
+        fieldName = name.replace('$', '_');
+
+        arrayDimensions = 0;
+        while(desc.startsWith("[")) {
+            desc = desc.substring(1);
+            arrayDimensions++;
+        }
+        char currentType = desc.charAt(0);
+        switch(currentType) {
+            case 'L':
+                // Object skip until ;
+                int idx = desc.indexOf(';');
+                String objectType = desc.substring(1, idx);
+                objectType = objectType.replace('/', '_').replace('$', '_');
+                if(!dependentClasses.contains(objectType)) {
+                    dependentClasses.add(objectType);
+                }
+                //if (!privateField && !exportedClasses.contains(objectType)) {
+                //    exportedClasses.add(objectType);
+                //}
+                
+                type = objectType;
+                break;
+            case 'I':
+                primitiveType = PrimitiveType.INT;
+                break;
+            case 'J':
+                primitiveType = PrimitiveType.LONG;
+                break;
+            case 'B':
+                primitiveType = PrimitiveType.BYTE;
+                break;
+            case 'S':
+                primitiveType = PrimitiveType.SHORT;
+                break;
+            case 'F':
+                primitiveType = PrimitiveType.FLOAT;
+                break;
+            case 'D':
+                primitiveType = PrimitiveType.DOUBLE;
+                break;
+            case 'Z':
+                primitiveType = PrimitiveType.BOOLEAN;
+                break;
+            case 'C':
+                primitiveType = PrimitiveType.CHAR;
+                break;
+        }
+    }
+
+    public String getFieldName() {
+        return fieldName;
+    }
+    
+    public String getCDefinition() {
+        if(type != null || arrayDimensions > 0) {
+            return "JAVA_OBJECT";
+        }
+        return Util.getCType(primitiveType);
+    }
+
+    public String getCStorageDefinition() {
+        if (volatileField) {
+            return "_Atomic " + getCDefinition();
+        }
+        return getCDefinition();
+    }
+    
+    public List<String> getDependentClasses() {
+        return dependentClasses;
+    }
+    
+    //public List<String> getExportedClasses() {
+    //    return exportedClasses;
+    //}
+    /**
+     * @return the staticField
+     */
+    public boolean isStaticField() {
+        return staticField;
+    }
+    
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof ByteCodeField)) {
+            return false;
+        }
+        return fieldName.equals(((ByteCodeField) o).fieldName);
+    }
+    
+    @Override
+    public int hashCode() {
+        return fieldName.hashCode();
+    }
+
+    /**
+     * @return the clsName
+     */
+    public String getClsName() {
+        return clsName;
+    }
+    
+    public boolean isObjectType() {
+        return arrayDimensions > 0 || primitiveType == null;
+    }
+
+    public boolean isVolatile() {
+        return volatileField;
+    }
+    
+    public boolean isFinal() {
+        return finalField;
+    }
+    
+    public boolean shouldRemoveFromHeapCollection() {
+        if(finalField && isObjectType()) {
+            // 2d arrays can be modified in runtime resulting in broken arrays
+            if(arrayDimensions < 2) {
+                // arrays of non-primitive types are mutable despite being marked as final
+                if(type != null && arrayDimensions > 0) {
+                    return false;
+                }
+                if(type == null || type.startsWith("java_lang_") && !type.endsWith("Builder") && !type.endsWith("Buffer")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    public Object getValue() {
+        return value;
+    }
+    
+    public String getType() {
+        return type;
+    }
+
+    public String getRuntimeDescriptor() {
+        if (arrayDimensions > 0) {
+            StringBuilder out = new StringBuilder();
+            if (type != null) {
+                out.append(type);
+            } else if (primitiveType != null) {
+                out.append(Util.getCType(primitiveType));
+            }
+            for (int i = 0; i < arrayDimensions; i++) {
+                out.append("[]");
+            }
+            return out.toString();
+        }
+        if (primitiveType == null) {
+            return type;
+        }
+        // A field is never void, so PrimitiveType.VOID's "V" is unreachable here;
+        // the chain this replaces returned null for it, which no caller handled
+        // either.
+        return primitiveType.getDescriptor();
+    }
+    
+    public boolean isPrivate() {
+        return privateField;
+    }
+}

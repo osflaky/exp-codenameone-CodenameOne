@@ -1,0 +1,467 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.builders;
+
+import org.apache.tools.ant.BuildException;
+
+import java.io.File;
+import java.io.FilenameFilter;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+
+/**
+ * Helper extracted from {@link IPhoneBuilder} that owns the Apple TV (tvOS)
+ * native build path. Activated by the build hint {@code tvNative.enabled=true}
+ * (or implicitly when {@code codename1.tvMain} is declared).
+ *
+ * <p>Unlike the Apple Watch port (which has no UIKit / Metal and therefore ships
+ * a dedicated Core Graphics backend), tvOS is much closer to iOS: it has UIKit,
+ * UIView, {@code UIApplicationMain} and Metal. tvOS is therefore handled exactly
+ * like the Mac Catalyst slice ({@link MacNativeBuilder}): the build runs with
+ * {@code CN1_USE_METAL} and the frameworks tvOS lacks are weak-linked. The
+ * shared {@code UIApplicationMain} entry, the Metal view controller and the
+ * UIKit peers are reused as-is.
+ *
+ * <p>Because tvOS uses a different SDK ({@code appletvos}) it cannot be a
+ * variant of the {@code iphoneos} app target the way Mac Catalyst is; so -- like
+ * the watch builder -- this delegate <b>adds a second Xcode target</b> that
+ * compiles the same ParparVM-generated sources for
+ * tvOS. Every change is additive: with the hint off the iOS build is
+ * byte-for-byte unchanged.
+ */
+class TvNativeBuilder {
+    private final IPhoneBuilder owner;
+
+    // Parsed hints.
+    private boolean enabled;
+    private String bundleId;
+    private String minDeploymentTarget; // TVOS_DEPLOYMENT_TARGET
+    private String teamId;
+    private String displayName;
+    // Fully-qualified tvOS lifecycle entry class (codename1.tvMain). Optional;
+    // the tvOS app reuses the shared UIApplicationMain entry (the phone main
+    // class) so a distinct value is only a tree-shaking root / auto-enable
+    // trigger. Empty when neither tvMain nor tvNative.mainClass is set.
+    private String tvMain;
+
+    // Source files with no tvOS substitute. The two iOS XIBs are excluded for
+    // the same reason they are on Mac (IBAgent UIKit errors / the runtime never
+    // loads them by name on the non-iPhone slice).
+    private static final String EXCLUDED_TV_SOURCES =
+            "CodenameOne_GLViewController.xib "
+            + "CodenameOne_METALViewController.xib "
+            // App Intents and the snippet renderer are staged into <Main>-src for the iOS
+            // app target, and this builder copies that directory wholesale -- so declaring
+            // an intent made the tvOS slice compile App Intents types that need tvOS 16
+            // against a target whose floor is 13, 48 errors' worth. Excluded rather than
+            // availability-widened because the feature is already compiled out here:
+            // CodenameOne_GLViewController.h undefines CN1_USE_INTENTS for TARGET_OS_TV, so
+            // the natives behind these declarations are unsupported stubs on this slice and
+            // shipping the declarations anyway would advertise actions that cannot run.
+            //
+            // The surfaces renderer travels with them because a snippet reuses it; it is
+            // iOS/widget code (GraphicsContext needs tvOS 15) and the tvOS slice built fine
+            // without it before intents started staging it.
+            + "CN1AppIntents.swift CN1AppEntities.swift "
+            + "CN1IntentBridge.swift CN1IntentSnippetView.swift "
+            + "CN1SurfaceRenderer.swift CN1SurfaceModel.swift CN1SurfaceConfig.swift";
+
+    // Frameworks the iOS port links that are unavailable on tvOS; ParparVM
+    // weak-links these (see -Doptional.frameworks) so the iOS slice is unchanged
+    // while the tvOS slice tolerates the absent symbols. The tvOS SDK actually
+    // ships the MessageUI headers (deprecated), so only the genuinely-absent
+    // frameworks need weak-linking. WebKit has no tvOS equivalent.
+    private static final String TV_OPTIONAL_FRAMEWORKS =
+            "WebKit.framework;"
+            // CarPlay.framework is iOS-only (absent on tvOS); it is linked on the iOS slice when the
+            // app references com.codename1.car, so weak-link it for the tvOS slice.
+            + "CarPlay.framework;"
+            // ARKit is iOS-only; it is linked on the iOS slice when the app references
+            // com.codename1.ar, so weak-link it for the tvOS slice.
+            + "ARKit.framework;"
+            // Neither Contacts nor ContactsUI exists on tvOS -- measured against AppleTVOS26.2,
+            // where neither .framework directory is present -- and the iOS slice links both when
+            // the app references com.codename1.contacts.ContactPicker. IOSNative.m compiles the
+            // picker out for the TV slice (CN1_USE_CONTACT_PICKER is only honoured under
+            // TARGET_OS_IOS), so nothing there calls into either one.
+            + "Contacts.framework;ContactsUI.framework;"
+            // HealthKit does not exist on tvOS at all. The iOS slice links it when the app
+            // references com.codename1.health, so weak-link it here or the tvOS slice fails
+            // to link. CN1Health.m additionally compiles itself out via TARGET_OS_TV.
+            + "HealthKit.framework;"
+            // NearbyInteraction and AccessorySetupKit are absent from the
+            // tvOS SDK; the iOS slice links them when the app references
+            // com.codename1.nearby.ranging or .companion, so weak-link them
+            // here or the tvOS slice fails while resolving the framework.
+            // CN1Nearby.m already compiles both halves out via the
+            // TARGET_OS_TV undefs in CodenameOne_GLViewController.h, so
+            // nothing on the tvOS slice calls into them.
+            //
+            // MultipeerConnectivity is deliberately NOT here, and that was
+            // measured rather than assumed: the tvOS SDK ships it, so the
+            // transport links normally and weak-linking would only obscure
+            // that. Same distinction the CoreSpotlight note below draws.
+            + "NearbyInteraction.framework;AccessorySetupKit.framework;"
+            // CallKit and PushKit are absent from the tvOS SDK -- measured
+            // against AppleTVOS26.2, where neither .framework directory
+            // exists -- and the iOS slice links both when the app references
+            // com.codename1.call.session or .voip. Weak-linked here or the
+            // tvOS slice fails while resolving the framework. CN1Call.m
+            // compiles itself out through the TARGET_OS_TV undefs in
+            // CodenameOne_GLViewController.h, so nothing on that slice calls
+            // into either one.
+            //
+            // NetworkExtension is deliberately NOT here, and that was
+            // measured the same way: the tvOS SDK ships it, so the VPN
+            // package's framework links normally and weak-linking would only
+            // obscure that. Same distinction the MultipeerConnectivity note
+            // above draws.
+            + "CallKit.framework;PushKit.framework";
+    // CoreSpotlight is deliberately NOT in this list, although the watch list carries it.
+    //
+    // The two platforms differ, and it was measured rather than reasoned about. On the
+    // Xcode 26.3 SDKs, CoreSpotlight.framework is absent from watchOS entirely -- which is why
+    // WatchNativeBuilder must weak-link it -- and present on tvOS, shipping a CoreSpotlight.tbd
+    // that links normally: an arm64-apple-tvos13.0 binary built with -framework CoreSpotlight
+    // links and carries the load command.
+    //
+    // What tvOS does not have is the API. Every CSSearchable* type is marked explicitly
+    // unavailable there, so using one is a compile error rather than a link error. That never
+    // arises: CodenameOne_GLViewController.h undoes CN1_USE_INTENTS for TARGET_OS_TV as well as
+    // TARGET_OS_WATCH, so the intent natives compile to their unsupported stubs on the tvOS
+    // slice and nothing references the framework at all.
+    //
+    // Weak-linking it here would therefore be a change with no effect, made against a failure
+    // that does not occur.
+
+    TvNativeBuilder(IPhoneBuilder owner) {
+        this.owner = owner;
+    }
+
+    boolean isEnabled() {
+        return enabled;
+    }
+
+    /**
+     * Parse the {@code tvNative.*} hint family. The tvOS slice auto-enables when
+     * the project declares a {@code codename1.tvMain} entry, so the dual app is
+     * produced as part of the regular iPhone build; {@code tvNative.enabled=true}
+     * forces it on even without a distinct tvMain.
+     */
+    void parseHints(BuildRequest request) {
+        tvMain = request.getArg("tvMain",
+                request.getArg("tvNative.mainClass", "")).trim();
+        enabled = "true".equals(request.getArg("tvNative.enabled", "false"))
+                || tvMain.length() > 0;
+        if (!enabled) {
+            return;
+        }
+        if (tvMain.length() == 0) {
+            tvMain = request.getMainClass();
+        }
+        bundleId = request.getArg("tvNative.bundleId",
+                request.getPackageName() + ".tvos");
+        // tvOS 13 is a safe modern floor: Metal is fully supported and the focus
+        // engine / UIKit surface the port relies on are all present.
+        minDeploymentTarget = request.getArg("tvNative.minDeploymentTarget", "13.0");
+        // Xcode 27's tvOS SDK accepts nothing below 15.0, so both the default above and an
+        // explicit lower pin fail the build outright rather than warning. Raise to whatever
+        // the selected SDK will actually take; see AppleSdkFloor.
+        String tvSdkFloor = owner.sdkMinimumDeploymentTarget("appletvos");
+        String raisedTv = AppleSdkFloor.raiseTo(minDeploymentTarget, tvSdkFloor);
+        if (!raisedTv.equals(minDeploymentTarget)) {
+            owner.log("tvNative.minDeploymentTarget is " + minDeploymentTarget
+                    + ", but this Xcode's tvOS SDK accepts nothing below " + tvSdkFloor
+                    + "; building against " + raisedTv + " instead.");
+            minDeploymentTarget = raisedTv;
+        }
+        teamId = request.getArg("tvNative.teamId",
+                request.getArg("ios.release.teamId",
+                        request.getArg("ios.teamId",
+                                request.getArg("ios.debug.teamId", ""))));
+        displayName = request.getArg("tvNative.displayName",
+                request.getDisplayName() != null ? request.getDisplayName() : request.getMainClass());
+    }
+
+    String getMinDeploymentTarget() {
+        return minDeploymentTarget;
+    }
+
+    /** Fully-qualified tvOS lifecycle entry class (or the phone main class). */
+    String getTvMain() {
+        return tvMain;
+    }
+
+    /**
+     * Frameworks the ParparVM translator should weak-link so the iOS slice still
+     * links normally while the tvOS slice tolerates absent symbols.
+     */
+    String parparvmOptionalFrameworksArg() {
+        return "-Doptional.frameworks=" + TV_OPTIONAL_FRAMEWORKS;
+    }
+
+    /**
+     * Write the tvOS app's Info.plist into {@code appSrcDir}. tvOS needs only the
+     * standard CFBundle keys plus the arm64 device capability; the app icon is
+     * left unset (ASSETCATALOG_COMPILER_APPICON_NAME empty) so the build does not
+     * require a tvOS Brand Assets set, mirroring how the watch target ships its
+     * own minimal plist.
+     */
+    void writeTvInfoPlist(BuildRequest request, File appSrcDir, File resDir) throws IOException {
+        appSrcDir.mkdirs();
+        StringBuilder sb = new StringBuilder();
+        sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        sb.append("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+                + "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n");
+        sb.append("<plist version=\"1.0\">\n<dict>\n");
+        plistString(sb, "CFBundleDisplayName", displayName);
+        plistString(sb, "CFBundleExecutable", "$(EXECUTABLE_NAME)");
+        plistString(sb, "CFBundleIdentifier", "$(PRODUCT_BUNDLE_IDENTIFIER)");
+        plistString(sb, "CFBundleName", "$(PRODUCT_NAME)");
+        plistString(sb, "CFBundlePackageType", "$(PRODUCT_BUNDLE_PACKAGE_TYPE)");
+        plistString(sb, "CFBundleShortVersionString",
+                request.getVersion() == null ? "1.0" : request.getVersion());
+        plistString(sb, "CFBundleVersion", "1");
+        sb.append("    <key>UIRequiredDeviceCapabilities</key>\n    <array>\n")
+                .append("        <string>arm64</string>\n    </array>\n");
+        // Register the bundled TrueType fonts (material-design-font.ttf for the
+        // FontImage glyphs the UI relies on -- tab icons, FAB, toolbar -- plus any
+        // app-supplied fonts) under UIAppFonts. The iOS createTruetypeFont native
+        // loads fonts by name via [UIFont fontWithName:], which only resolves once
+        // the font is registered through UIAppFonts; the .ttf files are already
+        // mirrored into the tvOS target's bundle resources by applyXcodeSettings.
+        // Without this the Material font fails to load on tvOS and the icon glyphs
+        // render blank (e.g. the Tabs demo shows labels but no icons).
+        File[] fontFiles = resDir == null ? null : resDir.listFiles(new FilenameFilter() {
+            @Override
+            public boolean accept(File dir, String name) {
+                // Core Text handles OpenType as readily as TrueType, so both
+                // belong in UIAppFonts.
+                return endsWithIgnoreCase(name, ".ttf") || endsWithIgnoreCase(name, ".otf");
+            }
+        });
+        if (fontFiles != null && fontFiles.length > 0) {
+            sb.append("    <key>UIAppFonts</key>\n    <array>\n");
+            for (File f : fontFiles) {
+                // Escaped for the same reason as the iOS plist: an XML
+                // metacharacter in a font's file name would otherwise produce a
+                // malformed Info.plist.
+                sb.append("        <string>").append(IPhoneBuilder.plistEscape(f.getName())).append("</string>\n");
+            }
+            sb.append("    </array>\n");
+        }
+        // The local-network keys the nearby transport needs, copied from what
+        // the iOS slice resolved.
+        //
+        // MultipeerConnectivity ships on tvOS and is deliberately linked for
+        // this slice, but tvOS 14 gates local-network discovery on the same
+        // two declarations iOS does -- and this plist is generated
+        // separately, carrying only bundle metadata, capabilities and fonts.
+        // So the framework was there, the native transport was compiled in,
+        // and the target could neither advertise nor browse.
+        //
+        // Keyed off the Bonjour services because that array is written only
+        // for a build that uses the transport; an app that declares none is
+        // not one, and gets neither key.
+        java.util.List<String> bonjour = tvBonjourServices(request);
+        if (!bonjour.isEmpty()) {
+            // The EFFECTIVE value, the same one IPhoneBuilder validates:
+            // ios.plistInject wins over the hint, so an app that declared a
+            // perfectly good disclosure there left the hint blank and the
+            // tvOS plist -- reading the hint -- omitted the key entirely.
+            String why = IPhoneBuilder.effectivePurposeString(request,
+                    "ios.NSLocalNetworkUsageDescription");
+            if (why != null && why.trim().length() > 0) {
+                plistString(sb, "NSLocalNetworkUsageDescription",
+                        IPhoneBuilder.plistEscape(why));
+            }
+            sb.append("    <key>NSBonjourServices</key>\n    <array>\n");
+            for (String service : bonjour) {
+                sb.append("        <string>")
+                        .append(IPhoneBuilder.plistEscape(service))
+                        .append("</string>\n");
+            }
+            sb.append("    </array>\n");
+        }
+        sb.append("</dict>\n</plist>\n");
+        File plist = new File(appSrcDir, request.getMainClass() + "-TV-Info.plist");
+        owner.createFile(plist, sb.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    /// The Bonjour service types the iOS slice ended up declaring.
+    ///
+    /// TWO sources, because the build writes to whichever the app left it.
+    /// An app that declares the array itself puts it in ios.plistInject and
+    /// the merge leaves it alone; every other build -- the ordinary
+    /// generated one -- gets a comma-separated hint in ios.NSBonjourServices
+    /// instead. Reading only the first found nothing in the normal case, so
+    /// the tvOS plist was written without either local-network key and the
+    /// slice still could not discover anything.
+    private static java.util.List<String> tvBonjourServices(
+            BuildRequest request) {
+        java.util.List<String> declared = WatchNativeBuilder
+                .injectedPlistStringArray(request, "NSBonjourServices");
+        if (!declared.isEmpty()) {
+            return declared;
+        }
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        String hint = request.getArg("ios.NSBonjourServices", "");
+        if (hint == null) {
+            return out;
+        }
+        // Both separators, because mergeNearbyBonjourServices splits on both
+        // when it reads the hint back.
+        for (String entry : hint.split("[,;]")) {
+            String service = entry.trim();
+            if (service.length() > 0) {
+                out.add(service);
+            }
+        }
+        return out;
+    }
+
+    private static void plistString(StringBuilder sb, String key, String value) {
+        sb.append("    <key>").append(key).append("</key>\n    <string>")
+                .append(value == null ? "" : value).append("</string>\n");
+    }
+
+    /**
+     * Add and configure the tvOS app target in the generated Xcode project via
+     * the Ruby {@code xcodeproj} gem. Creates the target, compiles the shared
+     * sources (minus {@link #EXCLUDED_TV_SOURCES}) for {@code appletvos} with the
+     * Metal backend, points it at the tvOS Info.plist + GL stub headers, mirrors
+     * the iOS bundle resources, and weak-links / drops the absent GL frameworks.
+     * The tvOS app reuses the shared {@code UIApplicationMain} entry, so unlike
+     * the watch target there is no SwiftUI shell or duplicate-{@code main} rename.
+     */
+    void applyXcodeSettings(BuildRequest request, File tmpFile, String buildVersion)
+            throws BuildException {
+        File hooksDir = new File(tmpFile, "hooks");
+        hooksDir.mkdir();
+        File scriptFile = new File(hooksDir, "apply_tv_native_settings.rb");
+        String mainClass = request.getMainClass();
+        String tvTargetName = mainClass + "TV";
+        String projectFile = new File(tmpFile, "dist/" + mainClass + ".xcodeproj").getAbsolutePath();
+        String infoPlistPath = mainClass + "-src/" + mainClass + "-TV-Info.plist";
+        String resolvedTeamId = owner.sanitizeTeamId(teamId, "tvNative.teamId");
+
+        StringBuilder s = new StringBuilder();
+        s.append("#!/usr/bin/env ruby\n")
+                .append("require 'xcodeproj'\n")
+                .append("project_file = '").append(IPhoneBuilder.escapeRubyStr(projectFile)).append("'\n")
+                .append("xcproj = Xcodeproj::Project.open(project_file)\n")
+                .append("app_target = xcproj.targets.find { |t| t.name == '")
+                .append(IPhoneBuilder.escapeRubyStr(mainClass)).append("' }\n")
+                .append("abort('Unable to find app target ").append(IPhoneBuilder.escapeRubyStr(mainClass))
+                .append("') unless app_target\n")
+                .append("tv_name = '").append(IPhoneBuilder.escapeRubyStr(tvTargetName)).append("'\n")
+                .append("tv_target = xcproj.targets.find { |t| t.name == tv_name }\n")
+                .append("if tv_target.nil?\n")
+                .append("  tv_target = xcproj.new_target(:application, tv_name, :tvos, '")
+                .append(IPhoneBuilder.escapeRubyStr(minDeploymentTarget)).append("')\n")
+                .append("end\n")
+                // Compile the shared ParparVM sources for tvOS. Reuse the app
+                // target's compile sources so we track exactly what was
+                // generated (incl. the translated Stub + main()).
+                .append("excluded = %w[").append(EXCLUDED_TV_SOURCES).append("]\n")
+                .append("app_target.source_build_phase.files.to_a.each do |bf|\n")
+                .append("  ref = bf.file_ref\n")
+                .append("  next unless ref && ref.path\n")
+                .append("  base = File.basename(ref.path)\n")
+                .append("  next if excluded.include?(base)\n")
+                .append("  unless tv_target.source_build_phase.files_references.include?(ref)\n")
+                .append("    tv_target.source_build_phase.add_file_reference(ref)\n")
+                .append("  end\n")
+                .append("end\n")
+                // Build settings for the tvOS slice.
+                .append("tv_target.build_configurations.each do |config|\n")
+                .append("  bs = config.build_settings\n")
+                .append("  bs['SDKROOT'] = 'appletvos'\n")
+                .append("  bs['TVOS_DEPLOYMENT_TARGET'] = '")
+                .append(IPhoneBuilder.escapeRubyStr(minDeploymentTarget)).append("'\n")
+                .append("  bs['TARGETED_DEVICE_FAMILY'] = '3'\n")
+                .append("  bs['PRODUCT_BUNDLE_IDENTIFIER'] = '")
+                .append(IPhoneBuilder.escapeRubyStr(bundleId)).append("'\n")
+                .append("  bs['PRODUCT_NAME'] = '$(TARGET_NAME)'\n")
+                .append("  bs['INFOPLIST_FILE'] = '")
+                .append(IPhoneBuilder.escapeRubyStr(infoPlistPath)).append("'\n")
+                .append("  bs['MARKETING_VERSION'] = '")
+                .append(IPhoneBuilder.escapeRubyStr(request.getVersion() == null ? "1.0" : request.getVersion())).append("'\n")
+                .append("  bs['CURRENT_PROJECT_VERSION'] = '")
+                .append(IPhoneBuilder.escapeRubyStr(buildVersion == null ? "1" : buildVersion)).append("'\n")
+                .append("  bs['GCC_PREFIX_HEADER'] = '")
+                .append(IPhoneBuilder.escapeRubyStr(mainClass + "-src/" + mainClass + "-Prefix.pch")).append("'\n")
+                .append("  bs['EXCLUDED_SOURCE_FILE_NAMES'] = '").append(EXCLUDED_TV_SOURCES).append("'\n")
+                // The CN1 sources compile without ARC, matching the iOS port.
+                .append("  bs['CLANG_ENABLE_OBJC_ARC'] = 'NO'\n")
+                // No tvOS Brand Assets set is generated; leave the app-icon unset
+                // so actool does not fail the build (dev/screenshot builds only).
+                .append("  bs['ASSETCATALOG_COMPILER_APPICON_NAME'] = ''\n")
+                .append("  bs['SKIP_INSTALL'] = 'YES'\n");
+        if (resolvedTeamId != null && !resolvedTeamId.isEmpty()) {
+            s.append("  bs['DEVELOPMENT_TEAM'] = '").append(resolvedTeamId).append("'\n");
+        }
+        s.append("end\n");
+
+        // Add the generated tvOS Info.plist file reference to the project group so
+        // INFOPLIST_FILE resolves.
+        s.append("tv_src = '").append(IPhoneBuilder.escapeRubyStr(mainClass)).append("-src'\n");
+
+        // Mirror the iOS app's bundle resources into the tvOS target so the CN1
+        // runtime finds its theme + assets at runtime (the native theme .res, the
+        // app theme/CN1Resource.res, material-design-font.ttf, bundled images).
+        // Skip the iOS UI / icon assets: the asset catalog has no tvOS-applicable
+        // content and storyboards/xibs are the iOS UI.
+        s.append("res_skip = %w[.xcassets .storyboard .xib]\n")
+                .append("app_target.resources_build_phase.files.to_a.each do |bf|\n")
+                .append("  ref = bf.file_ref\n")
+                .append("  next unless ref && ref.path\n")
+                .append("  next if res_skip.any? { |ext| ref.path.to_s.end_with?(ext) }\n")
+                .append("  unless tv_target.resources_build_phase.files_references.include?(ref)\n")
+                .append("    tv_target.resources_build_phase.add_file_reference(ref)\n")
+                .append("  end\n")
+                .append("end\n");
+
+        s.append("xcproj.save\n");
+
+        try {
+            owner.createFile(scriptFile, s.toString().getBytes(StandardCharsets.UTF_8));
+            owner.exec(hooksDir, "chmod", "0755", scriptFile.getAbsolutePath());
+            if (!owner.exec(hooksDir, scriptFile.getAbsolutePath())) {
+                throw new BuildException("Failed to apply tvNative Xcode settings via xcodeproj");
+            }
+            owner.log("[tvNative] Added tvOS target " + tvTargetName
+                    + " (standalone, tvOS " + minDeploymentTarget + ", Metal)");
+        } catch (BuildException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BuildException("Failed to apply tvNative Xcode settings", ex);
+        }
+    }
+
+    /** Locale-independent case-insensitive suffix test. */
+    static boolean endsWithIgnoreCase(String value, String suffix) {
+        return value != null && value.length() >= suffix.length()
+                && value.regionMatches(true, value.length() - suffix.length(), suffix, 0, suffix.length());
+    }
+}

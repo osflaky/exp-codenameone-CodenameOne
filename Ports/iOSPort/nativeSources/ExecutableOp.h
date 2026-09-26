@@ -1,0 +1,82 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *  
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ * 
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ * 
+ * Please contact Codename One through http://www.codenameone.com/ if you 
+ * need additional information or have any questions.
+ */
+#import <Foundation/Foundation.h>
+// CN1RenderBackend.h defines CN1_USE_METAL on every slice that has Metal. The
+// ExecutableOp.target ivar and accessors below are conditional on it, so .h
+// and .m must both see the definition. Importing here ensures that.
+#import "CN1RenderBackend.h"
+
+extern int nextPowerOf2(int val);
+
+// NSColor is the AppKit spelling; the component initializer is otherwise the
+// same call with the same arguments. Kept as one macro per platform rather than
+// aliasing the class, because the two disagree about colour spaces in general
+// even where they agree here -- calibrated versus device RGB -- and hiding that
+// behind a typedef would make the next colour question harder rather than
+// easier to answer.
+#if TARGET_OS_OSX
+#define UIColorFromRGB(rgbValue,alphaColor) [NSColor colorWithSRGBRed:((float)((rgbValue >> 16) & 0xFF))/255.0 \
+green:((float)((rgbValue >> 8) & 0xff))/255.0 blue:((float)(rgbValue & 0xff))/255.0 alpha:alphaColor/255.0]
+#else
+#define UIColorFromRGB(rgbValue,alphaColor) [UIColor colorWithRed:((float)((rgbValue >> 16) & 0xFF))/255.0 \
+green:((float)((rgbValue >> 8) & 0xff))/255.0 blue:((float)(rgbValue & 0xff))/255.0 alpha:alphaColor/255.0]
+#endif
+
+#define CGColorFromRGB(context,rgbValue,alphaColor) CGContextSetRGBStrokeColor(context, ((float)((rgbValue >> 16) & 0xFF))/255.0, ((float)((rgbValue >> 8) & 0xff))/255.0, ((float)(rgbValue & 0xff))/255.0, alphaColor/255.0);
+
+#if TARGET_OS_OSX
+#define UIColorFromARGB(rgbValue) [NSColor colorWithSRGBRed:((float)((rgbValue >> 16) & 0xFF))/255.0 \
+green:((float)((rgbValue >> 8) & 0xff))/255.0 blue:((float)(rgbValue & 0xff))/255.0 alpha:(((rgbValue >> 24) & 0xff) /255.0)]
+#else
+#define UIColorFromARGB(rgbValue) [UIColor colorWithRed:((float)((rgbValue >> 16) & 0xFF))/255.0 \
+green:((float)((rgbValue >> 8) & 0xff))/255.0 blue:((float)(rgbValue & 0xff))/255.0 alpha:(((rgbValue >> 24) & 0xff) /255.0)]
+#endif
+
+
+@class GLUIImage;
+
+@interface ExecutableOp : NSObject {
+#ifdef CN1_USE_METAL
+    // Phase 3: render target for this op. nil = screen drawable (default,
+    // existing GL/Metal screen pipeline). non-nil = a mutable image whose
+    // backing MTLTexture should receive this op. drawFrame walks the queue
+    // and switches encoders when target changes between ops. Retained by
+    // setTarget (released in dealloc) -- the main-thread drain runs after
+    // the EDT enqueued the op, so an unretained target could be deallocated
+    // in between. Plain ivar = __strong under ARC, manual retain otherwise,
+    // matching the ops' image ivars (e.g. DrawImage.img).
+    GLUIImage *target;
+#endif
+}
+
++(natural_t) get_free_memory;
+-(void)clipBlock:(BOOL)b;
+-(void)executeWithClipping;
+-(void)execute;
+-(void)executeWithLog;
+-(NSString*)getName;
+#ifdef CN1_USE_METAL
+-(GLUIImage*)target;
+-(void)setTarget:(GLUIImage*)t;
+#endif
+@end

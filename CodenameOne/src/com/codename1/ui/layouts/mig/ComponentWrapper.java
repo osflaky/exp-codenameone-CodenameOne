@@ -1,0 +1,390 @@
+package com.codename1.ui.layouts.mig;
+/*
+ * License (BSD):
+ * ==============
+ *
+ * Copyright (c) 2004, Mikael Grev, MiG InfoCom AB. (miglayout (at) miginfocom (dot) com)
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ * Redistributions of source code must retain the above copyright notice, this list
+ * of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice, this
+ * list of conditions and the following disclaimer in the documentation and/or other
+ * materials provided with the distribution.
+ * Neither the name of the MiG InfoCom AB nor the names of its contributors may be
+ * used to endorse or promote products derived from this software without specific
+ * prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
+ * OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
+ * OF SUCH DAMAGE.
+ *
+ * @version 1.0
+ * @author Mikael Grev, MiG InfoCom AB
+ *         Date: 2006-sep-08
+ */
+
+/// A class that wraps the important parts of a Component.
+///
+/// **NOTE!**.equals() and .hashcode() should be forwarded to the wrapped component. E.g.
+///
+/// ```java
+///     public int hashCode()
+/// {
+/// return getComponent().hashCode();
+/// }
+///
+/// public final boolean equals(Object o)
+/// {
+/// if (o instanceof ComponentWrapper == false)
+/// return false;
+///
+/// return getComponent().equals(((ComponentWrapper) o).getComponent());
+/// }
+/// ```
+public interface ComponentWrapper {
+    int TYPE_UNSET = -1;
+    int TYPE_UNKNOWN = 0;
+    int TYPE_CONTAINER = 1;
+    int TYPE_LABEL = 2;
+    int TYPE_TEXT_FIELD = 3;
+    int TYPE_TEXT_AREA = 4;
+    int TYPE_BUTTON = 5;
+    int TYPE_LIST = 6;
+    int TYPE_TABLE = 7;
+    int TYPE_SCROLL_PANE = 8;
+    int TYPE_IMAGE = 9;
+    int TYPE_PANEL = 10;
+    int TYPE_COMBO_BOX = 11;
+    int TYPE_SLIDER = 12;
+    int TYPE_SPINNER = 13;
+    int TYPE_PROGRESS_BAR = 14;
+    int TYPE_TREE = 15;
+    int TYPE_CHECK_BOX = 16;
+    int TYPE_SCROLL_BAR = 17;
+    int TYPE_SEPARATOR = 18;
+    int TYPE_TABBED_PANE = 19;
+
+    /// Returns the actual object that this wrapper is aggregating. This might be needed for getting
+    /// information about the object that the wrapper interface does not provide.
+    ///
+    /// If this is a container the container should be returned instead.
+    ///
+    /// #### Returns
+    ///
+    /// The actual object that this wrapper is aggregating. Not `null`.
+    Object getComponent();
+
+    /// Returns the current x coordinate for this component.
+    ///
+    /// #### Returns
+    ///
+    /// The current x coordinate for this component.
+    int getX();
+
+    /// Returns the current y coordinate for this component.
+    ///
+    /// #### Returns
+    ///
+    /// The current y coordinate for this component.
+    int getY();
+
+    /// Returns the current width for this component.
+    ///
+    /// #### Returns
+    ///
+    /// The current width for this component.
+    int getWidth();
+
+    /// Returns the current height for this component.
+    ///
+    /// #### Returns
+    ///
+    /// The current height for this component.
+    int getHeight();
+
+    /// Returns the screen x-coordinate for the upper left coordinate of the component layout-able bounds.
+    ///
+    /// #### Returns
+    ///
+    /// The screen x-coordinate for the upper left coordinate of the component layout-able bounds.
+    int getScreenLocationX();
+
+    /// Returns the screen y-coordinate for the upper left coordinate of the component layout-able bounds.
+    ///
+    /// #### Returns
+    ///
+    /// The screen y-coordinate for the upper left coordinate of the component layout-able bounds.
+    int getScreenLocationY();
+
+    /// Returns the minimum width of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `hHint`: @param hHint The Size hint for the other dimension. An implementation can use this value or the
+    /// current size for the widget in this dimension, or a combination of both, to calculate the correct size.
+    ///
+    /// Use -1 to denote that there is no hint. This corresponds with SWT.DEFAULT.
+    ///
+    /// #### Returns
+    ///
+    /// The minimum width of the component.
+    ///
+    int getMinimumWidth(int hHint);
+
+    /// Returns the minimum height of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `wHint`: @param wHint The Size hint for the other dimension. An implementation can use this value or the
+    /// current size for the widget in this dimension, or a combination of both, to calculate the correct size.
+    ///
+    /// Use -1 to denote that there is no hint. This corresponds with SWT.DEFAULT.
+    ///
+    /// #### Returns
+    ///
+    /// The minimum height of the component.
+    ///
+    int getMinimumHeight(int wHint);
+
+    /// Returns the preferred width of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `hHint`: @param hHint The Size hint for the other dimension. An implementation can use this value or the
+    /// current size for the widget in this dimension, or a combination of both, to calculate the correct size.
+    ///
+    /// Use -1 to denote that there is no hint. This corresponds with SWT.DEFAULT.
+    ///
+    /// #### Returns
+    ///
+    /// The preferred width of the component.
+    ///
+    int getPreferredWidth(int hHint);
+
+    /// Returns the preferred height of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `wHint`: @param wHint The Size hint for the other dimension. An implementation can use this value or the
+    /// current size for the widget in this dimension, or a combination of both, to calculate the correct size.
+    ///
+    /// Use -1 to denote that there is no hint. This corresponds with SWT.DEFAULT.
+    ///
+    /// #### Returns
+    ///
+    /// The preferred height of the component.
+    ///
+    int getPreferredHeight(int wHint);
+
+    /// Returns the maximum width of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `hHint`: @param hHint The Size hint for the other dimension. An implementation can use this value or the
+    /// current size for the widget in this dimension, or a combination of both, to calculate the correct size.
+    ///
+    /// Use -1 to denote that there is no hint. This corresponds with SWT.DEFAULT.
+    ///
+    /// #### Returns
+    ///
+    /// The maximum width of the component.
+    ///
+    int getMaximumWidth(int hHint);
+
+    /// Returns the maximum height of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `wHint`: @param wHint The Size hint for the other dimension. An implementation can use this value or the
+    /// current size for the widget in this dimension, or a combination of both, to calculate the correct size.
+    ///
+    /// Use -1 to denote that there is no hint. This corresponds with SWT.DEFAULT.
+    ///
+    /// #### Returns
+    ///
+    /// The maximum height of the component.
+    ///
+    int getMaximumHeight(int wHint);
+
+    /// Sets the component's bounds.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: The x coordinate.
+    ///
+    /// - `y`: The y coordinate.
+    ///
+    /// - `width`: The width.
+    ///
+    /// - `height`: The height.
+    void setBounds(int x, int y, int width, int height);
+
+    /// Returns if the component's visibility is set to `true`. This should not return if the component is
+    /// actually visible, but if the visibility is set to true or not.
+    ///
+    /// #### Returns
+    ///
+    /// `true` means visible.
+    boolean isVisible();
+
+    /// Returns the baseline for the component given the suggested height.
+    ///
+    /// #### Parameters
+    ///
+    /// - `width`: The width to calculate for if other than the current. If `-1` the current size should be used.
+    ///
+    /// - `height`: The height to calculate for if other than the current. If `-1` the current size should be used.
+    ///
+    /// #### Returns
+    ///
+    /// The baseline from the top or -1 if not applicable.
+    int getBaseline(int width, int height);
+
+    /// Returns if the component has a baseline and if it can be retrieved. Should for instance return
+    /// `false` for Swing before mustang.
+    ///
+    /// #### Returns
+    ///
+    /// If the component has a baseline and if it can be retrieved.
+    boolean hasBaseline();
+
+    /// Returns the container for this component.
+    ///
+    /// #### Returns
+    ///
+    /// The container for this component. Will return `null` if the component has no parent.
+    ContainerWrapper getParent();
+
+    /// Returns the pixel unit factor for the horizontal or vertical dimension.
+    ///
+    /// The factor is 1 for both dimensions on the normal font in a JPanel on Windows. The factor should increase with a bigger "X".
+    ///
+    /// This is the Swing version:
+    ///
+    /// ```java
+    /// Rectangle2D r = fm.getStringBounds("X", parent.getGraphics());
+    /// wFactor = r.getWidth() / 6;
+    /// hFactor = r.getHeight() / 13.27734375f;
+    /// ```
+    ///
+    /// #### Parameters
+    ///
+    /// - `isHor`: If it is the horizontal factor that should be returned.
+    ///
+    /// #### Returns
+    ///
+    /// The factor.
+    float getPixelUnitFactor(boolean isHor);
+
+    /// Returns the DPI (Dots Per Inch) of the screen the component is currently in or for the default
+    /// screen if the component is not visible.
+    ///
+    /// If headless mode `net.miginfocom.layout.PlatformDefaults#getDefaultDPI` will be returned.
+    ///
+    /// #### Returns
+    ///
+    /// The DPI.
+    int getHorizontalScreenDPI();
+
+    /// Returns the DPI (Dots Per Inch) of the screen the component is currently in or for the default
+    /// screen if the component is not visible.
+    ///
+    /// If headless mode `net.miginfocom.layout.PlatformDefaults#getDefaultDPI` will be returned.
+    ///
+    /// #### Returns
+    ///
+    /// The DPI.
+    int getVerticalScreenDPI();
+
+    /// Returns the pixel size of the screen that the component is currently in or for the default
+    /// screen if the component is not visible or `null`.
+    ///
+    /// If in headless mode `1024` is returned.
+    ///
+    /// #### Returns
+    ///
+    /// The screen size. E.g. `1280`.
+    int getScreenWidth();
+
+    /// Returns the pixel size of the screen that the component is currently in or for the default
+    /// screen if the component is not visible or `null`.
+    ///
+    /// If in headless mode `768` is returned.
+    ///
+    /// #### Returns
+    ///
+    /// The screen size. E.g. `1024`.
+    int getScreenHeight();
+
+    /// Returns a String id that can be used to reference the component in link constraints. This value should
+    /// return the default id for the component. The id can be set for a component in the constraints and if
+    /// so the value returned by this method will never be used. If there are no sensible id for the component
+    /// `null` should be returned.
+    ///
+    /// For instance the Swing implementation returns the string returned from `Component.getName()`.
+    ///
+    /// #### Returns
+    ///
+    /// The string link id or `null`.
+    String getLinkId();
+
+    /// Returns a hash code that should be reasonably different for anything that might change the layout. This value is used to
+    /// know if the component layout needs to clear any caches.
+    ///
+    /// #### Returns
+    ///
+    /// @return A hash code that should be reasonably different for anything that might change the layout. Returns -1 if the widget is
+    /// disposed.
+    int getLayoutHashCode();
+
+    /// Returns the padding on a component by component basis. This method can be overridden to return padding to compensate for example for
+    /// borders that have shadows or where the outer most pixel is not the visual "edge" to align to.
+    ///
+    /// Default implementation returns `null` for all components except for Windows XP's JTabbedPane which will return new Insets(0, 0, 2, 2).
+    ///
+    /// **NOTE!** To reduce generated garbage the returned padding should never be changed so that the same insets can be returned many times.
+    ///
+    /// #### Returns
+    ///
+    /// @return `null` if no padding. **NOTE!** To reduce generated garbage the returned padding should never be changed so that
+    /// the same insets can be returned many times. [top, left, bottom, right]
+    int[] getVisualPadding();
+
+    /// Paints component outline to indicate where it is.
+    ///
+    /// #### Parameters
+    ///
+    /// - `showVisualPadding`: If the visual padding should be shown in the debug drawing.
+    void paintDebugOutline(boolean showVisualPadding);
+
+    /// Returns the type of component that this wrapper is wrapping.
+    ///
+    /// This method can be invoked often so the result should be cached.
+    ///
+    /// #### Parameters
+    ///
+    /// - `disregardScrollPane`: @param disregardScrollPane Is `true` any wrapping scroll pane should be disregarded and the type
+    /// of the scrolled component should be returned.
+    ///
+    /// #### Returns
+    ///
+    /// The type of component that this wrapper is wrapping. E.g. `#TYPE_LABEL`.
+    int getComponentType(boolean disregardScrollPane);
+
+    /// Returns in what way the min/pref/max sizes relates to it's height or width for the current settings of the component (like wrapText).
+    /// If the min/pref/max height depends on it's width return `net.miginfocom.layout.LayoutUtil#HORIZONTAL`
+    /// If the min/pref/max width depends on it's height (not common) return `net.miginfocom.layout.LayoutUtil#VERTICAL`
+    /// If there is no connection between the preferred min/pref/max and the size of the component return -1.
+    ///
+    int getContentBias();
+}

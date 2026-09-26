@@ -1,0 +1,981 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.components;
+
+import com.codename1.junit.FormTest;
+import com.codename1.junit.UITestBase;
+import com.codename1.ui.Button;
+import com.codename1.ui.Command;
+import com.codename1.ui.Container;
+import com.codename1.ui.DisplayTest;
+import com.codename1.ui.Form;
+import com.codename1.ui.Label;
+import com.codename1.ui.Window;
+import com.codename1.ui.animations.Animation;
+import com.codename1.ui.geom.Rectangle;
+import com.codename1.ui.layouts.BorderLayout;
+import com.codename1.ui.layouts.GridLayout;
+import com.codename1.ui.layouts.Layout;
+import com.codename1.ui.plaf.Style;
+import com.codename1.ui.plaf.UIManager;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Field;
+import java.util.Hashtable;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class InteractionDialogTest extends UITestBase {
+
+    @BeforeEach
+    void stubOrientation() {
+        implementation.setPortrait(true);
+    }
+
+    @Test
+    void constructorInitializesTitleAndContentPane() {
+        InteractionDialog dialog = new InteractionDialog("Hello");
+        assertEquals("Hello", dialog.getTitle());
+        assertEquals("Dialog", dialog.getUIID());
+        assertEquals("DialogTitle", dialog.getTitleComponent().getUIID());
+        assertEquals("DialogContentPane", dialog.getContentPane().getUIID());
+    }
+
+    @Test
+    void centeredTitleSupportsThemeDefaultAndRuntimeToggle() {
+        Hashtable<String, Object> theme = new Hashtable<String, Object>();
+        theme.put("@dialogTitleCenterBool", "true");
+        theme.put("@dlgCenteredTitleUIID", "DialogCenteredTitle");
+        UIManager.getInstance().setThemeProps(theme);
+
+        InteractionDialog dialog = new InteractionDialog("Centered", new BorderLayout());
+        Container titleArea = dialog.getTitleComponent().getParent();
+        Container dialogBody = titleArea.getParent();
+        BorderLayout titleLayout = (BorderLayout) titleArea.getLayout();
+        BorderLayout bodyLayout = (BorderLayout) dialogBody.getLayout();
+
+        assertTrue(dialog.isTitleCentered());
+        assertEquals("DialogCenteredTitle", titleArea.getUIID());
+        assertSame(dialog, dialogBody.getParent());
+        assertSame(dialogBody, dialog.getContentPane().getParent());
+        assertEquals(BorderLayout.CENTER, bodyLayout.getComponentConstraint(titleArea));
+        assertEquals(BorderLayout.SOUTH, bodyLayout.getComponentConstraint(dialog.getContentPane()));
+        assertEquals(BorderLayout.CENTER_BEHAVIOR_CENTER_ABSOLUTE, titleLayout.getCenterBehavior());
+
+        dialog.setTitleCentered(false);
+
+        assertFalse(dialog.isTitleCentered());
+        assertEquals("Container", titleArea.getUIID());
+        assertSame(dialog, dialogBody.getParent());
+        assertSame(dialogBody, dialog.getContentPane().getParent());
+        assertEquals(BorderLayout.NORTH, bodyLayout.getComponentConstraint(titleArea));
+        assertEquals(BorderLayout.CENTER, bodyLayout.getComponentConstraint(dialog.getContentPane()));
+        assertEquals(BorderLayout.CENTER_BEHAVIOR_SCALE, titleLayout.getCenterBehavior());
+    }
+
+    @Test
+    void commandButtonsHonorNativeDialogThemeConstants() {
+        Hashtable<String, Object> theme = new Hashtable<String, Object>();
+        theme.put("@dlgCommandGridBool", "true");
+        theme.put("@dlgButtonCommandUIID", "DialogButton");
+        theme.put("@dlgInvisibleButtons", "c6c6c8");
+        theme.put("@dlgCommandButtonSizeInt", "80");
+        theme.put("Dialog.padding", "5,5,5,5");
+        theme.put("Dialog.padUnit", new byte[]{
+                Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS,
+                Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS});
+        theme.put("DialogCommandArea.padding", "5,5,5,5");
+        theme.put("DialogCommandArea.padUnit", new byte[]{
+                Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS,
+                Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS});
+        UIManager.getInstance().setThemeProps(theme);
+
+        InteractionDialog dialog = new InteractionDialog("Commands", new BorderLayout());
+        dialog.configureCommands(new Command[]{
+                new Command("Cancel"),
+                new Command("Continue")
+        }, true);
+
+        Container commandArea = null;
+        for (int iter = 0; iter < dialog.getComponentCount(); iter++) {
+            if ("DialogCommandArea".equals(dialog.getComponentAt(iter).getUIID())) {
+                commandArea = (Container) dialog.getComponentAt(iter);
+                break;
+            }
+        }
+        assertNotNull(commandArea);
+        assertSame(dialog, commandArea.getParent(),
+                "dialog commands must stay outside the padded content pane");
+        assertEquals(0, dialog.getStyle().getHorizontalPadding(),
+                "native command grids must reach the dialog card edges");
+        assertEquals(0, commandArea.getStyle().getHorizontalPadding());
+        assertEquals(0, commandArea.getStyle().getPaddingBottom());
+        assertInstanceOf(GridLayout.class, commandArea.getLayout());
+        assertEquals("DialogCommandArea", commandArea.getUIID());
+        assertEquals(2, commandArea.getComponentCount());
+
+        Button cancel = (Button) commandArea.getComponentAt(0);
+        Button proceed = (Button) commandArea.getComponentAt(1);
+        assertEquals("DialogButton", cancel.getUIID());
+        assertEquals("DialogButton", proceed.getUIID());
+        assertEquals(cancel.getPreferredW(), proceed.getPreferredW());
+        assertTrue(cancel.getPreferredW() >= 80);
+        assertNotNull(cancel.getUnselectedStyle().getBorder());
+        assertSame(cancel.getUnselectedStyle().getBorder(), cancel.getSelectedStyle().getBorder());
+        assertSame(cancel.getUnselectedStyle().getBorder(), cancel.getPressedStyle().getBorder());
+        assertNotNull(proceed.getUnselectedStyle().getBorder());
+    }
+
+    @Test
+    void addComponentDelegatesToContentPane() {
+        InteractionDialog dialog = new InteractionDialog();
+        Label content = new Label("Body");
+        dialog.addComponent(content);
+        assertEquals(1, dialog.getContentPane().getComponentCount());
+        assertSame(content, dialog.getContentPane().getComponentAt(0));
+    }
+
+    @Test
+    void showPlacesDialogOnLayeredPane() {
+        Form form = new Form(new BorderLayout());
+        implementation.setCurrentForm(form);
+        InteractionDialog dialog = new InteractionDialog("Title");
+        dialog.setAnimateShow(false);
+        dialog.show(10, 20, 30, 40);
+        assertTrue(dialog.isShowing());
+        Container layered = form.getLayeredPane(InteractionDialog.class, true);
+        assertTrue(layered.contains(dialog));
+        dialog.dispose();
+        assertFalse(dialog.isShowing());
+    }
+
+    @Test
+    void showPopupDialogUpdatesUiidsAndUsesLayeredPane() throws Exception {
+        Form form = new Form(new BorderLayout());
+        implementation.setCurrentForm(form);
+        InteractionDialog dialog = new InteractionDialog();
+        dialog.setAnimateShow(false);
+        Rectangle rect = new Rectangle(20, 30, 80, 60);
+        dialog.showPopupDialog(rect);
+        assertEquals("PopupDialog", dialog.getUIID());
+        assertEquals("PopupDialogTitle", dialog.getTitleComponent().getUIID());
+        assertEquals("PopupContentPane", dialog.getContentPane().getUIID());
+        Container layered = form.getLayeredPane(InteractionDialog.class, true);
+        assertTrue(layered.contains(dialog));
+        dialog.dispose();
+    }
+
+    /// The listeners go in from `initComponent()`, so the form has to be shown: naming it to
+    /// the implementation as the current one is not enough, because a form that was never
+    /// shown is not initialized and nothing added to it is either. That used to pass on a
+    /// bare `setCurrentForm` only because reaching for the layered pane initialized the
+    /// wrapper it splices in whether or not the form was live, which is the fault behind
+    /// issue #2710.
+    @FormTest
+    void pointerOutOfBoundsListenersInstalledWhenEnabled() throws Exception {
+        Form form = new Form(new BorderLayout());
+        form.show();
+        InteractionDialog dialog = new InteractionDialog();
+        dialog.setDisposeWhenPointerOutOfBounds(true);
+        dialog.setAnimateShow(false);
+        dialog.show(0, 0, 0, 0);
+        assertNotNull(getPrivateField(dialog, "pressedListener", Object.class));
+        assertNotNull(getPrivateField(dialog, "releasedListener", Object.class));
+        dialog.dispose();
+    }
+
+    @FormTest
+    void formModeUsesFormLayeredPane() {
+        Form form = new Form(new BorderLayout());
+        implementation.setCurrentForm(form);
+        InteractionDialog dialog = new InteractionDialog();
+        dialog.setAnimateShow(false);
+        dialog.setFormMode(true);
+        Rectangle rect = new Rectangle(0, 0, 50, 50);
+        dialog.showPopupDialog(rect);
+        Container formLayer = form.getFormLayeredPane(InteractionDialog.class, true);
+        assertTrue(formLayer.contains(dialog));
+        dialog.dispose();
+    }
+
+    @FormTest
+    void disposeWithoutAnimationSchedulesFormRepaint() {
+        // Regression for #5067: with setAnimateShow(false) +
+        // setFormMode(true), dispose() removed the dialog from the form
+        // tree but never asked the form to repaint, so the previously
+        // painted dialog pixels stayed on screen until something else
+        // (scrolling, hover) forced a redraw. dispose() -> remove()
+        // triggers the recursive deinitialize() path, which runs
+        // cleanupLayer() and detaches the layered pane wrapper before
+        // the outer dispose gets to call pp.revalidate(). By then pp
+        // has no Form in its parent chain, so the revalidate never
+        // bubbles up to a Form.repaint(). dispose() must trigger a
+        // form-level revalidate after cleanupLayer so the next paint
+        // cycle clears the old dialog pixels. NB: this test requires a
+        // shown form so the recursive deinitialize path actually fires
+        // -- with just setCurrentForm the dialog isn't initialized and
+        // dispose hits a different (working) code path that masks the
+        // bug.
+        RepaintCountingForm form = new RepaintCountingForm();
+        form.show();
+        InteractionDialog dialog = new InteractionDialog();
+        dialog.setAnimateShow(false);
+        dialog.setFormMode(true);
+        dialog.setDisposeWhenPointerOutOfBounds(false);
+        Rectangle rect = new Rectangle(0, 0, 50, 50);
+        dialog.showPopupDialog(rect);
+        assertTrue(dialog.isShowing(), "dialog should be on the layered pane before dispose");
+
+        // Reset the counter so we only observe repaint() calls triggered
+        // by dispose itself, not the ones from show.
+        form.repaintCount = 0;
+
+        dialog.dispose();
+
+        assertFalse(dialog.isShowing(), "dispose must detach the dialog from the form tree");
+        assertTrue(form.repaintCount > 0,
+                "#5067: dispose() must trigger a form repaint so the old dialog pixels "
+                        + "are cleared without needing scroll/hover to force a redraw; "
+                        + "observed " + form.repaintCount + " calls");
+    }
+
+    private static class RepaintCountingForm extends Form {
+        int repaintCount;
+
+        RepaintCountingForm() {
+            super(new BorderLayout());
+        }
+
+        @Override
+        public void repaint() {
+            repaintCount++;
+            super.repaint();
+        }
+    }
+
+    @Test
+    void showPopupDialogStraddlingMidlineDoesNotOverlapTarget() {
+        // Regression for #5028: when the anchor rect straddles the
+        // vertical midline, the legacy placement logic fell through to a
+        // "popup over aligned with top of rect" branch that drew the
+        // popup ON TOP of the target (covering the Close button in the
+        // reporter's screenshot). The fix prefers above / below based on
+        // available space; the popup must end up entirely outside the
+        // target rect.
+        implementation.setDisplaySize(1080, 1920);
+        implementation.setPortrait(true);
+        Form form = new Form(new BorderLayout());
+        implementation.setCurrentForm(form);
+        InteractionDialog dialog = new InteractionDialog();
+        dialog.setAnimateShow(false);
+        dialog.addComponent(new Label("Popup body content"));
+
+        // 60px target straddling the midline at y=960.
+        int targetHeight = 60;
+        int targetY = 1920 / 2 - targetHeight / 2;
+        Rectangle anchor = new Rectangle(490, targetY, 100, targetHeight);
+        dialog.showPopupDialog(anchor);
+
+        int dlgTop = dialog.getAbsoluteY();
+        int dlgBottom = dlgTop + dialog.getHeight();
+        int targetBottom = targetY + targetHeight;
+        assertTrue(dialog.getHeight() > 0, "popup must have non-zero height");
+        boolean overlaps = dlgTop < targetBottom && dlgBottom > targetY;
+        assertFalse(overlaps,
+                "#5028: popup [" + dlgTop + ".." + dlgBottom
+                        + ") overlaps anchor [" + targetY + ".." + targetBottom
+                        + ") -- expected the popup to land entirely above or below the rect");
+
+        dialog.dispose();
+    }
+
+    @Test
+    void showPopupDialogArrowDirectionConsistentWithPlacement() {
+        // Regression for #5029: with the popup ending up overlapping the
+        // target (the #5028 bug), CSSBorder.Arrow could not pick a
+        // consistent direction (cabsY straddles trackY..trackY+h) so the
+        // arrow tip rendered on the wrong edge. The arrow logic needs the
+        // popup to be either fully above or fully below the target; this
+        // test mirrors the reporter's geometry (target halfway down a
+        // tall column) and pins that invariant.
+        implementation.setDisplaySize(1080, 1920);
+        implementation.setPortrait(true);
+        Form form = new Form(new BorderLayout());
+        implementation.setCurrentForm(form);
+        InteractionDialog dialog = new InteractionDialog();
+        dialog.setAnimateShow(false);
+        dialog.addComponent(new Label("Popup body content"));
+
+        // Target lives at y = available/2 - 1 (rect.getY() < availableHeight/2,
+        // rect.bottom > availableHeight/2). This is the exact case that
+        // used to hit the buggy "popup over aligned with top of rect"
+        // branch before the fix.
+        Rectangle anchor = new Rectangle(490, 1920 / 2 - 1, 100, 80);
+        dialog.showPopupDialog(anchor);
+
+        int dlgTop = dialog.getAbsoluteY();
+        int dlgBottom = dlgTop + dialog.getHeight();
+        int targetTop = anchor.getY();
+        int targetBottom = targetTop + anchor.getHeight();
+
+        boolean popupBelowTarget = dlgTop >= targetBottom;
+        boolean popupAboveTarget = dlgBottom <= targetTop;
+        assertTrue(popupBelowTarget || popupAboveTarget,
+                "#5029: popup at [" + dlgTop + ".." + dlgBottom
+                        + ") is neither fully above nor fully below target ["
+                        + targetTop + ".." + targetBottom
+                        + ") -- CSSBorder.Arrow has no consistent direction"
+                        + " to point at the target");
+
+        dialog.dispose();
+    }
+
+    @Test
+    void showPopupDialogLandscapeFullWidthRectGetsVisibleSize() {
+        // Regression for #4991: in landscape, when the anchor rect spans the
+        // full available width (Picker in a Y-axis BoxLayout row), the legacy
+        // "popup left" fallback computed width = max(0, rect.getX()) = 0 and
+        // the dialog rendered zero-width. JS port desktop builds reproduced
+        // this because their viewport satisfies isTablet() (sw>=600) AND
+        // isPortrait()==false, sending Picker into the showPopupDialog branch.
+        implementation.setDisplaySize(1440, 900);
+        implementation.setPortrait(false);
+        try {
+            Form form = new Form(new BorderLayout());
+            implementation.setCurrentForm(form);
+            InteractionDialog dialog = new InteractionDialog();
+            dialog.setAnimateShow(false);
+            Label body = new Label("Body content with enough width to matter");
+            dialog.addComponent(body);
+            Rectangle fullWidthRect = new Rectangle(0, 80, 1440, 60);
+            dialog.showPopupDialog(fullWidthRect);
+            assertTrue(dialog.isShowing(), "dialog should be on the layered pane");
+            assertTrue(dialog.getWidth() > 0,
+                    "dialog must have non-zero width after a full-width anchor in landscape; got "
+                            + dialog.getWidth());
+            dialog.dispose();
+        } finally {
+            implementation.setDisplaySize(1080, 1920);
+            implementation.setPortrait(true);
+        }
+    }
+
+    @Test
+    void animationSpeedDefaultsToThemeConstant() {
+        InteractionDialog dialog = new InteractionDialog();
+        assertEquals(-1, dialog.getAnimationSpeed(),
+                "default should be -1 meaning 'use theme constant interactionDialogSpeedInt'");
+    }
+
+    @Test
+    void animationSpeedSetterStoresValue() {
+        InteractionDialog dialog = new InteractionDialog();
+        dialog.setAnimationSpeed(1500);
+        assertEquals(1500, dialog.getAnimationSpeed());
+        dialog.setAnimationSpeed(-1);
+        assertEquals(-1, dialog.getAnimationSpeed(),
+                "setting -1 reverts to the theme constant");
+    }
+
+    @Test
+    void showAnimationSetupRunsInsteadOfDefaultRepositionAnimation() {
+        // #5072: users need to customize show animations. The
+        // setShowAnimationSetup callback replaces the built-in
+        // "grow from 1x1 at center" behavior. Verify it runs and
+        // that the parent bounds we set inside it are preserved
+        // when the animation kicks off.
+        Form form = new Form(new BorderLayout());
+        implementation.setCurrentForm(form);
+        InteractionDialog dialog = new InteractionDialog();
+        final int[] callCount = {0};
+        dialog.setShowAnimationSetup(new Runnable() {
+            @Override
+            public void run() {
+                callCount[0]++;
+                // Slide-from-bottom setup: full size, translated off-screen
+                Container parent = dialog.getParent();
+                parent.setY(1000);
+            }
+        });
+        dialog.show(0, 0, 0, 0);
+        assertEquals(1, callCount[0], "showAnimationSetup must run once on show()");
+        assertSame(dialog.getShowAnimationSetup(), dialog.getShowAnimationSetup(),
+                "getter returns the stored callback");
+        dialog.setShowAnimationSetup(null);
+        assertNull(dialog.getShowAnimationSetup(), "setShowAnimationSetup(null) clears the override");
+        dialog.dispose();
+    }
+
+    @Test
+    void disposeAnimationSetupRunsInsteadOfDefaultRepositionAnimation() {
+        // #5072: dispose animation should be customizable too.
+        Form form = new Form(new BorderLayout());
+        implementation.setCurrentForm(form);
+        InteractionDialog dialog = new InteractionDialog();
+        dialog.setAnimateShow(false);
+        dialog.show(0, 0, 0, 0);
+
+        final int[] callCount = {0};
+        dialog.setDisposeAnimationSetup(new Runnable() {
+            @Override
+            public void run() {
+                callCount[0]++;
+            }
+        });
+        // Re-enable animation so dispose runs the animation path
+        // (and thus the dispose setup callback).
+        dialog.setAnimateShow(true);
+        dialog.dispose();
+        assertEquals(1, callCount[0], "disposeAnimationSetup must run once on dispose()");
+        dialog.setDisposeAnimationSetup(null);
+        assertNull(dialog.getDisposeAnimationSetup(), "setDisposeAnimationSetup(null) clears the override");
+    }
+
+    @FormTest
+    void stackableModeKeepsSiblingFormModeDialogOnDispose() {
+        // #5193: all InteractionDialogs share the InteractionDialog.class
+        // layer. In the default behavior, disposing one formMode dialog runs
+        // cleanupLayer() -> c.removeAll()/c.remove(), which also wipes any
+        // sibling dialog still showing in that layer ("sometimes nothing is
+        // shown"). With stackable mode on, dispose must remove only the
+        // disposed dialog.
+        boolean prev = InteractionDialog.isStackable();
+        InteractionDialog.setStackable(true);
+        try {
+            Form form = new Form(new BorderLayout());
+            form.show();
+
+            InteractionDialog first = new InteractionDialog("First");
+            first.setAnimateShow(false);
+            first.setFormMode(true);
+            first.show(0, 0, 0, 0);
+
+            InteractionDialog second = new InteractionDialog("Second");
+            second.setAnimateShow(false);
+            second.setFormMode(true);
+            second.show(0, 0, 0, 0);
+
+            Container formLayer = form.getFormLayeredPane(InteractionDialog.class, true);
+            assertTrue(first.isShowing(), "first dialog should be showing");
+            assertTrue(second.isShowing(), "second dialog should be showing");
+
+            first.dispose();
+
+            assertFalse(first.isShowing(), "disposed dialog must be removed");
+            assertTrue(second.isShowing(),
+                    "#5193: disposing one dialog must not remove its sibling sharing the layer");
+            assertTrue(formLayer.contains(second),
+                    "#5193: the sibling dialog must remain in the shared layer");
+
+            second.dispose();
+            assertFalse(second.isShowing(), "the last dialog should dispose normally");
+        } finally {
+            InteractionDialog.setStackable(prev);
+        }
+    }
+
+    @FormTest
+    void stackableModeKeepsSiblingDialogOnDisposeToTheLeft() {
+        // #5193: disposeTo*() additionally calls pp.removeAll() on the shared
+        // layered pane, which also discards siblings (independent of formMode).
+        // Stackable mode must guard that too.
+        boolean prev = InteractionDialog.isStackable();
+        InteractionDialog.setStackable(true);
+        try {
+            Form form = new Form(new BorderLayout());
+            form.show();
+
+            InteractionDialog first = new InteractionDialog("First");
+            first.setAnimateShow(false);
+            first.show(0, 0, 0, 0);
+
+            InteractionDialog second = new InteractionDialog("Second");
+            second.setAnimateShow(false);
+            second.show(0, 0, 0, 0);
+
+            Container layer = form.getLayeredPane(InteractionDialog.class, true);
+
+            first.disposeToTheLeft();
+
+            assertFalse(first.isShowing(), "disposed dialog must be removed");
+            assertTrue(second.isShowing(),
+                    "#5193: disposeTo* must not remove the sibling dialog");
+            assertTrue(layer.contains(second),
+                    "#5193: the sibling dialog must remain in the shared layer");
+
+            second.dispose();
+        } finally {
+            InteractionDialog.setStackable(prev);
+        }
+    }
+
+    @FormTest
+    void stackableModeLayersDialogsByShowOrder() {
+        // #5193: dialogs should stack by show() order -- a dialog shown later
+        // renders on top of one shown earlier (higher child index in the
+        // shared layered pane).
+        boolean prev = InteractionDialog.isStackable();
+        InteractionDialog.setStackable(true);
+        try {
+            Form form = new Form(new BorderLayout());
+            form.show();
+
+            InteractionDialog first = new InteractionDialog("First");
+            first.setAnimateShow(false);
+            first.show(0, 0, 0, 0);
+
+            InteractionDialog second = new InteractionDialog("Second");
+            second.setAnimateShow(false);
+            second.show(0, 0, 0, 0);
+
+            Container layer = form.getLayeredPane(InteractionDialog.class, true);
+            int firstIndex = layer.getComponentIndex(first.getParent());
+            int secondIndex = layer.getComponentIndex(second.getParent());
+            assertTrue(secondIndex > firstIndex,
+                    "#5193: the later-shown dialog must layer on top of the earlier one");
+
+            first.dispose();
+            second.dispose();
+        } finally {
+            InteractionDialog.setStackable(prev);
+        }
+    }
+
+    @FormTest
+    void stackableModeRemovesSharedLayerOnceEmpty() {
+        // #5193: layers must not accumulate -- once the last dialog leaves the
+        // shared layer it should be torn down rather than lingering empty.
+        boolean prev = InteractionDialog.isStackable();
+        InteractionDialog.setStackable(true);
+        try {
+            Form form = new Form(new BorderLayout());
+            form.show();
+
+            InteractionDialog dialog = new InteractionDialog("Only");
+            dialog.setAnimateShow(false);
+            dialog.show(0, 0, 0, 0);
+
+            Container layer = form.getLayeredPane(InteractionDialog.class, true);
+            assertNotNull(layer.getParent(), "layer should be attached while a dialog is showing");
+
+            dialog.dispose();
+
+            assertNull(layer.getParent(),
+                    "#5193: the shared layer must be removed once the last dialog disposes");
+        } finally {
+            InteractionDialog.setStackable(prev);
+        }
+    }
+
+    @FormTest
+    void defaultModeClearsFormLayerOnDispose() {
+        // Backward-compat: with stackable mode off (the default), disposing a
+        // formMode dialog still clears and removes the shared form layer as it
+        // historically did.
+        assertFalse(InteractionDialog.isStackable(), "stackable must default to false");
+        Form form = new Form(new BorderLayout());
+        form.show();
+
+        InteractionDialog dialog = new InteractionDialog("Only");
+        dialog.setAnimateShow(false);
+        dialog.setFormMode(true);
+        dialog.show(0, 0, 0, 0);
+
+        Container formLayer = form.getFormLayeredPane(InteractionDialog.class, true);
+        assertTrue(formLayer.contains(dialog), "dialog should be in the form layer before dispose");
+
+        dialog.dispose();
+
+        assertFalse(dialog.isShowing(), "dispose must remove the dialog");
+        assertNull(formLayer.getParent(),
+                "default behavior should remove the shared form layer on dispose");
+    }
+
+    private <T> T getPrivateField(Object target, String name, Class<T> type) throws Exception {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return type.cast(field.get(target));
+    }
+
+    /// Builds a shown window holding a single laid-out anchor button.
+    private Window windowWithAnchor(String title, Button anchor) {
+        Window w = new Window(title, new BorderLayout());
+        w.setWindowSize(400, 300);
+        w.add(BorderLayout.CENTER, anchor);
+        w.show();
+        w.asContainer().revalidate();
+        return w;
+    }
+
+    @FormTest
+    void popupHostInferredFromItsAnchorDoesNotOutliveThePopup() {
+        implementation.setMultiWindowSupported(true);
+        Form main = new Form("main", new BorderLayout());
+        implementation.setCurrentForm(main);
+
+        Button anchor = new Button("anchor");
+        Window w = windowWithAnchor("secondary", anchor);
+
+        InteractionDialog dialog = new InteractionDialog("popup");
+        dialog.add(new Label("body"));
+        dialog.showPopupDialog(anchor);
+        assertSame(w, dialog.getTopLevelHost(),
+                "the popup is anchored inside the window, so the window is what it shows on");
+
+        dialog.dispose();
+        assertNull(dialog.getTopLevelHost(),
+                "a host worked out from the anchor must not outlive the popup -- showing this "
+                        + "dialog again would target a window the application may have disposed");
+        // A window left registered outlives the manager the next test resets, and
+        // paintOpenWindows then runs every tick against a window with no manager.
+        w.dispose();
+    }
+
+    @FormTest
+    void popupDoesNotDiscardAHostTheApplicationSetItself() {
+        implementation.setMultiWindowSupported(true);
+        Form main = new Form("main", new BorderLayout());
+        implementation.setCurrentForm(main);
+
+        Button anchor = new Button("anchor");
+        Window anchorWindow = windowWithAnchor("anchor window", anchor);
+        Window chosen = new Window("chosen", new BorderLayout());
+        chosen.setWindowSize(300, 200);
+        chosen.show();
+
+        InteractionDialog dialog = new InteractionDialog("popup");
+        dialog.add(new Label("body"));
+        dialog.setTopLevelHost(chosen);
+        dialog.showPopupDialog(anchor);
+        assertSame(anchorWindow, dialog.getTopLevelHost(),
+                "while the popup is up the anchor's own top level wins, since the rectangle is "
+                        + "in that coordinate space");
+
+        dialog.dispose();
+        assertSame(chosen, dialog.getTopLevelHost(),
+                "the host the application set explicitly comes back once the popup is gone");
+        anchorWindow.dispose();
+        chosen.dispose();
+    }
+
+    @FormTest
+    void aTimeoutSetBeforeShowingBindsToTheHostItIsShownOn() {
+        implementation.setMultiWindowSupported(true);
+        Form main = new Form("main", new BorderLayout());
+        implementation.setCurrentForm(main);
+
+        Button anchor = new Button("anchor");
+        Window w = windowWithAnchor("secondary", anchor);
+
+        InteractionDialog dialog = new InteractionDialog("popup");
+        dialog.add(new Label("body"));
+        // Set before showing: at this point the dialog has no host, so binding the timer
+        // now picks the current form -- the wrong one for a popup that resolves to a
+        // window, and null in an application that has no form at all.
+        dialog.setTimeout(5000);
+        dialog.showPopupDialog(anchor);
+
+        assertSame(w, dialog.getTopLevelHost(),
+                "the popup resolved to the window it was anchored in");
+        assertEquals(0, pendingTimeoutOf(dialog),
+                "and the timeout was bound once that host was known, not before");
+
+        dialog.dispose();
+        w.dispose();
+    }
+
+    /// The timeout still waiting for a host, via reflection.
+    private static long pendingTimeoutOf(InteractionDialog d) {
+        try {
+            java.lang.reflect.Field f =
+                    InteractionDialog.class.getDeclaredField("pendingTimeout");
+            f.setAccessible(true);
+            return f.getLong(d);
+        } catch (Exception err) {
+            throw new IllegalStateException(err);
+        }
+    }
+
+    @FormTest
+    void aTimeoutSetWithNoFormAtAllDoesNotThrow() {
+        implementation.setMultiWindowSupported(true);
+        implementation.setCurrentForm(null);
+        InteractionDialog dialog = new InteractionDialog("popup");
+        // Used to throw inside UITimer.schedule() because resolveHost() answered null.
+        dialog.setTimeout(5000);
+        assertEquals(5000L, pendingTimeoutOf(dialog),
+                "it is held until there is somewhere to bind it");
+    }
+    /// A surface that counts what gets registered on its animation loop.
+    ///
+    /// Named rather than anonymous: an anonymous subclass here trips
+    /// SIC_INNER_SHOULD_BE_STATIC_ANON under the zero-findings SpotBugs gate.
+    private static final class CountingForm extends Form {
+        private int registrations;
+
+        CountingForm(String title, Layout layout) {
+            super(title, layout);
+        }
+
+        @Override
+        protected void onRegisterAnimated(Animation cmp) {
+            registrations++;
+        }
+    }
+
+    /// Shows a dialog on a counting host and reports what the show registered.
+    private static int registrationsForShow(boolean withTimeout) {
+        CountingForm f = new CountingForm("host", new BorderLayout());
+        f.show();
+        DisplayTest.flushEdt();
+
+        InteractionDialog dialog = new InteractionDialog("timed");
+        dialog.add(new Label("body"));
+        if (withTimeout) {
+            // Long enough that it cannot fire during the test -- this is about how the
+            // timeout is driven, not about it arriving.
+            dialog.setTimeout(600000);
+        }
+        int before = f.registrations;
+        dialog.show(10, 10, 10, 10);
+        int after = f.registrations;
+        dialog.dispose();
+        DisplayTest.flushEdt();
+        return after - before;
+    }
+
+    /// The timeout must not be driven by the surface's animation loop.
+    ///
+    /// A UITimer runs by registering itself as an animation on the top level it is bound
+    /// to, so it only ticks while that surface is being painted -- a minimized or hidden
+    /// window stops the clock, and a modal showDialog() whose timeout is what releases
+    /// the caller then blocks for as long as the window stays down. Asserted structurally
+    /// rather than by waiting: arming a timeout must add nothing to the host's animation
+    /// list, which is exactly what stops the surface from being able to stall it.
+    @FormTest
+    void armingATimeoutRegistersNothingOnTheSurface() {
+        int withoutTimeout = registrationsForShow(false);
+        int withTimeout = registrationsForShow(true);
+
+        assertEquals(withoutTimeout, withTimeout,
+                "arming a timeout registered " + (withTimeout - withoutTimeout)
+                        + " extra animation(s) on the host, so the surface drives the"
+                        + " clock and can stall it by not painting");
+    }
+
+    /// The armed timeout's generation, via reflection.
+    private static int timeoutGenerationOf(InteractionDialog d) {
+        try {
+            java.lang.reflect.Field f =
+                    InteractionDialog.class.getDeclaredField("timeoutGeneration");
+            f.setAccessible(true);
+            return f.getInt(d);
+        } catch (Exception err) {
+            throw new IllegalStateException(err);
+        }
+    }
+
+    /// A showing that ends without dispose() still has to retire its timeout.
+    ///
+    /// The clock is deliberately independent of the surface, so it outlives the window
+    /// it was armed under -- which dispose() handles, and which the native window being
+    /// torn down from outside (an owner cascade, getNativeWindow().dispose(), a modal
+    /// window hidden) reaches through finishNativeShowing() instead. Left armed there,
+    /// it still matches when the same dialog is shown again and closes that showing.
+    @FormTest
+    void aNativeShowingEndedFromOutsideRetiresItsTimeout() {
+        implementation.setMultiWindowSupported(true);
+        Form f = new Form("host", new BorderLayout());
+        f.show();
+        DisplayTest.flushEdt();
+
+        InteractionDialog dialog = new InteractionDialog("timed");
+        dialog.add(new Label("body"));
+        dialog.setNativeWindowMode(true);
+        dialog.setTimeout(600000);
+        dialog.show(10, 10, 10, 10);
+        DisplayTest.flushEdt();
+
+        int armed = timeoutGenerationOf(dialog);
+        assertEquals(0L, pendingTimeoutOf(dialog),
+                "precondition: the timeout was armed rather than left pending");
+
+        // Not dispose() -- the window going away underneath the dialog.
+        dialog.finishNativeShowing();
+        DisplayTest.flushEdt();
+
+        assertNotEquals(armed, timeoutGenerationOf(dialog),
+                "ending the showing from outside has to retire the armed timeout, or it"
+                        + " still matches and closes whatever is shown next");
+        dialog.dispose();
+    }
+
+    /// The armed clock itself, via reflection.
+    private static Object timeoutClockOf(InteractionDialog d) {
+        try {
+            java.lang.reflect.Field f =
+                    InteractionDialog.class.getDeclaredField("timeoutClock");
+            f.setAccessible(true);
+            return f.get(d);
+        } catch (Exception err) {
+            throw new IllegalStateException(err);
+        }
+    }
+
+    /// An armed timeout has to be stopped, not merely ignored.
+    ///
+    /// The generation token settles what a callback already in flight does. It does not
+    /// settle whether one is still coming: Timer runs a non-daemon thread and the
+    /// scheduled task holds the dialog, so a token-only retirement kept both alive until
+    /// a deadline nobody was waiting for -- once per early dispose, and once more for
+    /// every replacement timeout armed over a pending one.
+    @FormTest
+    void endingAShowingStopsItsTimeoutClock() {
+        Form f = new Form("host", new BorderLayout());
+        f.show();
+        DisplayTest.flushEdt();
+
+        InteractionDialog dialog = new InteractionDialog("timed");
+        dialog.add(new Label("body"));
+        dialog.setTimeout(600000);
+        dialog.show(10, 10, 10, 10);
+        Object armed = timeoutClockOf(dialog);
+        assertNotNull(armed, "precondition: showing armed a clock");
+
+        // A replacement armed over the pending one must not strand it.
+        dialog.setTimeout(600000);
+        assertNotSame(armed, timeoutClockOf(dialog),
+                "precondition: the replacement is a different clock");
+
+        dialog.dispose();
+        assertNull(timeoutClockOf(dialog),
+                "ending the showing has to stop the clock, not just ignore what it does");
+    }
+
+    /// A directional dispose ends the showing too, so it retires the clock.
+    ///
+    /// disposeToTheLeft and its siblings do not go through dispose(), and the clock is
+    /// deliberately not tied to the surface -- so leaving it armed there held a timer
+    /// thread and this hierarchy until a deadline nobody was waiting for, and closed the
+    /// next showing if one arrived before it.
+    @FormTest
+    void aDirectionalDisposeStopsTheTimeoutClock() {
+        Form f = new Form("host", new BorderLayout());
+        f.show();
+        DisplayTest.flushEdt();
+
+        InteractionDialog dialog = new InteractionDialog("timed");
+        dialog.add(new Label("body"));
+        dialog.setTimeout(600000);
+        dialog.show(10, 10, 10, 10);
+        assertNotNull(timeoutClockOf(dialog), "precondition: showing armed a clock");
+
+        dialog.disposeToTheLeft();
+        DisplayTest.flushEdt();
+
+        assertNull(timeoutClockOf(dialog),
+                "a directional dispose ends the showing, so it has to stop the clock");
+    }
+
+    /// resize() describes margins against a host, which a platform window does not have.
+    ///
+    /// In native window mode the dialog's parent is the window's own content pane, so
+    /// the lightweight body rewrote that pane's geometry and animated a layer built on
+    /// the owner surface -- disturbing the window's root layout while resizing nothing
+    /// the caller asked about. It is inert here, like the margin arguments to show().
+    @FormTest
+    void resizeDoesNotTouchTheOwnerSurfaceInNativeWindowMode() {
+        implementation.setMultiWindowSupported(true);
+        Form f = new Form("host", new BorderLayout());
+        f.show();
+        DisplayTest.flushEdt();
+
+        InteractionDialog dialog = new InteractionDialog("native");
+        dialog.add(new Label("body"));
+        dialog.setNativeWindowMode(true);
+        dialog.show(10, 10, 10, 10);
+        DisplayTest.flushEdt();
+        assertNotNull(dialog.getNativeWindow(), "precondition: it really is in a window");
+
+        Container parentBefore = dialog.getParent();
+        Style style = dialog.getUnselectedStyle();
+        int marginTop = (int) style.getMarginTop();
+        int marginLeft = (int) style.getMarginLeftNoRTL();
+
+        dialog.resize(37, 37, 37, 37);
+        DisplayTest.flushEdt();
+
+        assertSame(parentBefore, dialog.getParent(),
+                "resize must not reparent a dialog the platform owns");
+        // The margins are the operation: the lightweight body writes all four and then
+        // rewrites the parent's geometry from them. Untouched here means it did not run.
+        assertEquals(marginTop, (int) style.getMarginTop(),
+                "resize must not write host margins onto a dialog the platform places");
+        assertEquals(marginLeft, (int) style.getMarginLeftNoRTL(),
+                "resize must not write host margins onto a dialog the platform places");
+        dialog.dispose();
+        DisplayTest.flushEdt();
+    }
+
+    /// Hiding the backing window ends the showing.
+    ///
+    /// The window exists for this showing, so one that is not on screen means nothing
+    /// is being shown -- and the framework already reads it that way, releasing a
+    /// parked modal caller as soon as the window stops being visible. Ignored, it left
+    /// the dialog parented to an invisible window with isShowing() answering true and
+    /// getNativeWindow() contradicting its own "only while showing" contract.
+    @FormTest
+    void hidingTheBackingWindowEndsTheShowing() {
+        implementation.setMultiWindowSupported(true);
+        Form f = new Form("host", new BorderLayout());
+        f.show();
+        DisplayTest.flushEdt();
+
+        InteractionDialog dialog = new InteractionDialog("native");
+        dialog.add(new Label("body"));
+        dialog.setNativeWindowMode(true);
+        dialog.show(10, 10, 10, 10);
+        DisplayTest.flushEdt();
+        Window w = dialog.getNativeWindow();
+        assertNotNull(w, "precondition: it really is in a window");
+        assertTrue(dialog.isShowing(), "precondition: and it is showing");
+
+        // Hidden, not disposed -- the public Window API an application can reach.
+        w.hide();
+        DisplayTest.flushEdt();
+
+        assertFalse(dialog.isShowing(),
+                "a dialog in a window that is not on screen is not showing");
+        assertNull(dialog.getNativeWindow(),
+                "and getNativeWindow() is documented as non-null only while showing");
+        // hide() keeps the peer and the desktop registration so a window can be shown
+        // again; this one never will be, so ending the showing has to release it or it
+        // is an allocated window nothing can reach, one per hide.
+        assertTrue(w.isWindowDisposed(),
+                "the window belonged to that showing, so it goes with it");
+    }
+
+
+}

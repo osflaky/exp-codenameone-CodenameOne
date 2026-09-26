@@ -1,0 +1,587 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+package com.codename1.tools.translator;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.TreeMap;
+import java.util.stream.Stream;
+
+/**
+ * Helper class to manage external JDK compilers.
+ */
+public class CompilerHelper {
+    private static String lastErrorLog;
+
+    private static final Map<String, Path> availableJdks = new TreeMap<>();
+
+    static {
+        // Detect JDKs from environment variables set by CI or local setup
+        checkAndAddJdk("8", System.getenv("JDK_8_HOME"));
+        checkAndAddJdk("11", System.getenv("JDK_11_HOME"));
+        checkAndAddJdk("17", System.getenv("JDK_17_HOME"));
+        checkAndAddJdk("21", System.getenv("JDK_21_HOME"));
+        checkAndAddJdk("25", System.getenv("JDK_25_HOME"));
+        checkAndAddDetectedJdk(System.getenv("JAVA_HOME"));
+
+        discoverLocalJdks();
+
+        // Fallback: If no env vars, assume current JVM is JDK 8 (or whatever is running)
+        // This ensures tests pass locally or in environments not fully configured with all JDKs
+        if (availableJdks.isEmpty()) {
+            String currentJavaHome = System.getProperty("java.home");
+            // If it's a JRE, try to find JDK
+            if (currentJavaHome.endsWith("jre")) {
+                currentJavaHome = currentJavaHome.substring(0, currentJavaHome.length() - 4);
+            }
+            availableJdks.put(System.getProperty("java.specification.version"), Paths.get(currentJavaHome));
+        }
+    }
+
+    private static void checkAndAddJdk(String version, String path) {
+        if (path != null && !path.isEmpty() && new File(path).exists()) {
+            availableJdks.put(version, Paths.get(path));
+        }
+    }
+
+    private static void checkAndAddDetectedJdk(String path) {
+        if (path == null || path.isEmpty()) {
+            return;
+        }
+        Path jdkHome = normalizeJdkHome(Paths.get(path));
+        String version = detectJdkVersion(jdkHome);
+        if (version != null) {
+            availableJdks.put(version, jdkHome);
+        }
+    }
+
+    private static void discoverLocalJdks() {
+        Path userJdks = Paths.get(System.getProperty("user.home"), "Library", "Java", "JavaVirtualMachines");
+        Path systemJdks = Paths.get("/Library", "Java", "JavaVirtualMachines");
+        scanJdkDirectory(userJdks);
+        scanJdkDirectory(systemJdks);
+    }
+
+    private static void scanJdkDirectory(Path root) {
+        if (!Files.isDirectory(root)) {
+            return;
+        }
+        try (Stream<Path> paths = Files.list(root)) {
+            paths.forEach(candidate -> {
+                String version = detectJdkVersion(candidate);
+                if (version != null) {
+                    availableJdks.put(version, normalizeJdkHome(candidate));
+                }
+            });
+        } catch (IOException ignored) {
+        }
+    }
+
+    private static Path normalizeJdkHome(Path path) {
+        if (path == null) {
+            return null;
+        }
+        Path contentsHome = path.resolve("Contents").resolve("Home");
+        if (Files.exists(contentsHome.resolve("bin").resolve(executableName("javac")))) {
+            return contentsHome;
+        }
+        return path;
+    }
+
+    private static String detectJdkVersion(Path path) {
+        Path jdkHome = normalizeJdkHome(path);
+        if (jdkHome == null || !Files.exists(jdkHome.resolve("bin").resolve(executableName("javac")))) {
+            return null;
+        }
+
+        Path releaseFile = jdkHome.resolve("release");
+        if (Files.isRegularFile(releaseFile)) {
+            Properties props = new Properties();
+            try (InputStream in = Files.newInputStream(releaseFile)) {
+                props.load(in);
+                String version = props.getProperty("JAVA_VERSION");
+                if (version != null) {
+                    version = version.replace("\"", "").trim();
+                    int major = parseJavaMajor(version);
+                    if (major > 0) {
+                        return Integer.toString(major);
+                    }
+                }
+            } catch (IOException ignored) {
+            }
+        }
+
+        int major = parseJavaMajor(jdkHome.getFileName().toString());
+        if (major > 0) {
+            return Integer.toString(major);
+        }
+        Path parent = jdkHome.getParent();
+        if (parent != null) {
+            major = parseJavaMajor(parent.getFileName().toString());
+            if (major > 0) {
+                return Integer.toString(major);
+            }
+        }
+        return null;
+    }
+
+    public static boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("win");
+    }
+
+    public static boolean isLinux() {
+        return System.getProperty("os.name").toLowerCase().contains("linux");
+    }
+
+    public static String executableName(String base) {
+        if (isWindows()) {
+            return base + ".exe";
+        }
+        return base;
+    }
+
+    /**
+     * CMake configure flags selecting the C/C++ toolchain for the clean target.
+     * On Windows we drive LLVM via the MSVC ABI (clang-cl) through the Ninja
+     * generator, since the default Visual Studio generator would otherwise pick
+     * MSVC's cl.exe and place binaries under a Release/ subdirectory. A C++
+     * compiler is always selected too: the "windows" app type emits a
+     * {@code LANGUAGES C CXX} project (its COM layer is C++), so cmake needs a
+     * CXX compiler even when the particular app contributes no .cpp itself.
+     */
+    /**
+     * Extra C flags for the generated project, from {@code CN1_TEST_EXTRA_CFLAGS}.
+     *
+     * Padded on BOTH sides. CMAKE_C_FLAGS is a command-line fragment whose options
+     * must be space separated, and a caller appending its own flag to this would
+     * otherwise produce {@code -DCN1_GC_MARK_THREADS=4-DCN1_GC_NO_FORCE_STOP} --
+     * one undeclared macro instead of two, which clang accepts and which silently
+     * builds the wrong thing.
+     *
+     * Empty unless the variable is set, so every build is byte-identical to before
+     * by default.
+     */
+    public static String extraCFlags() {
+        String v = System.getenv("CN1_TEST_EXTRA_CFLAGS");
+        if (v == null || v.trim().isEmpty()) {
+            return "";
+        }
+        return " " + v.trim() + " ";
+    }
+
+    /** {@code -DCMAKE_C_FLAGS=} with the test's own flags and the injected ones merged. */
+    public static String cFlagsArg(String own) {
+        return "-DCMAKE_C_FLAGS=" + (own == null ? "" : own) + extraCFlags();
+    }
+
+    /** {@code -DCMAKE_OBJC_FLAGS=} with the test's own flags and the injected ones merged. */
+    public static String objcFlagsArg(String own) {
+        return "-DCMAKE_OBJC_FLAGS=" + (own == null ? "" : own) + extraCFlags();
+    }
+
+    /**
+     * The injected flags as cmake arguments, empty when nothing is injected.
+     *
+     * Several GC tests build their cmake command inline with hardcoded compilers
+     * rather than going through cmakeToolchainArgs, so the hook has to be
+     * available in list form for them too. Only two of the six tests in the
+     * parallel-mark matrix call cmakeToolchainArgs; adding it there alone left
+     * three still compiling the default collector, which an invalid-flag probe
+     * caught (the build should have failed and did not).
+     */
+    public static List<String> extraCFlagArgs() {
+        if (extraCFlags().isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        return Arrays.asList(cFlagsArg(""), objcFlagsArg(""));
+    }
+
+    /**
+     * Toolchain arguments every integration test passes.
+     *
+     * The injected flags are added HERE rather than per test, because most GC tests
+     * pass no CMAKE_C_FLAGS of their own: hooking only the ones that do left four of
+     * the six tests in the parallel-mark matrix compiling the default single-marker
+     * collector, so a green matrix would not have validated what it claimed.
+     * A test that passes its own flags must use cFlagsArg/objcFlagsArg, since a
+     * later -DCMAKE_C_FLAGS on the command line overrides this one.
+     */
+    public static List<String> cmakeToolchainArgs() {
+        List<String> args = new ArrayList<>();
+        if (isWindows()) {
+            args.addAll(Arrays.asList("-G", "Ninja",
+                    "-DCMAKE_C_COMPILER=clang-cl", "-DCMAKE_CXX_COMPILER=clang-cl"));
+        } else {
+            args.addAll(Arrays.asList("-DCMAKE_C_COMPILER=clang", "-DCMAKE_CXX_COMPILER=clang++",
+                    "-DCMAKE_OBJC_COMPILER=clang"));
+        }
+        if (!extraCFlags().isEmpty()) {
+            args.add(cFlagsArg(""));
+            args.add(objcFlagsArg(""));
+        }
+        return args;
+    }
+
+    public static List<CompilerConfig> getAvailableCompilers(String targetVersion) {
+        List<CompilerConfig> compilers = new ArrayList<>();
+
+        for (Map.Entry<String, Path> entry : availableJdks.entrySet()) {
+            String jdkVersion = entry.getKey();
+            Path jdkHome = entry.getValue();
+
+            if (canCompile(jdkVersion, targetVersion)) {
+                compilers.add(new CompilerConfig(jdkVersion, jdkHome, targetVersion));
+            }
+        }
+
+        // If we are running in a constrained environment (e.g. local dev without env vars),
+        // we might not have found the specific JDK requested.
+        // If the list is empty, and target is 1.5 or 1.8, and we have *some* JDK, try to use it
+        // if it supports the target.
+        if (compilers.isEmpty() && !availableJdks.isEmpty()) {
+             Map.Entry<String, Path> defaultJdk = availableJdks.entrySet().iterator().next();
+             if (canCompile(defaultJdk.getKey(), targetVersion)) {
+                 compilers.add(new CompilerConfig(defaultJdk.getKey(), defaultJdk.getValue(), targetVersion));
+             }
+        }
+
+        return compilers;
+    }
+
+    // Diagonal compiler set: each supported bytecode target compiled only by the
+    // JDK whose major version matches that target (8->8, 11->11, 17->17, 21->21,
+    // 25->25). The translator consumes bytecode, which is governed by the target
+    // level, so the full (compiler x target) cross-product mostly re-tests the
+    // same bytecode shapes. Restricting to the diagonal keeps every target level
+    // exercised while cutting the per-method parameter count from up to 15 to 5.
+    // A target whose matching JDK is not installed locally is simply skipped
+    // (CI installs all five). Pairs use {target, jdkMajor}; "1.8" maps to JDK 8.
+    public static List<CompilerConfig> getDiagonalCompilers() {
+        String[][] pairs = { {"1.8", "8"}, {"11", "11"}, {"17", "17"}, {"21", "21"}, {"25", "25"} };
+        List<CompilerConfig> out = new ArrayList<>();
+        for (String[] pair : pairs) {
+            int wantMajor = parseJavaMajor(pair[1]);
+            for (CompilerConfig config : getAvailableCompilers(pair[0])) {
+                if (getJdkMajor(config) == wantMajor) {
+                    out.add(config);
+                    break;
+                }
+            }
+        }
+        return out;
+    }
+
+    private static boolean canCompile(String compilerVersion, String targetVersion) {
+        int compilerMajor = parseJavaMajor(compilerVersion);
+        int targetMajor = parseJavaMajor(targetVersion);
+
+        if (compilerMajor == 0 || targetMajor == 0) {
+            return true;
+        }
+        if (compilerMajor >= 9 && targetMajor < 9) {
+            return false;
+        }
+        // Java 9+ (version 9, 11, etc) dropped support for 1.5
+        if (targetMajor == 5) {
+            return compilerMajor < 9;
+        }
+        // Generally newer JDKs support 1.8+
+        return compilerMajor >= targetMajor || (compilerMajor >= 8 && targetMajor <= 8);
+    }
+
+    public static int parseJavaMajor(String version) {
+        if (version == null || version.isEmpty()) {
+            return 0;
+        }
+        String normalized = version.trim();
+        if (normalized.startsWith("1.")) {
+            normalized = normalized.substring(2);
+        }
+        StringBuilder digits = new StringBuilder();
+        for (int i = 0; i < normalized.length(); i++) {
+            char ch = normalized.charAt(i);
+            if (Character.isDigit(ch)) {
+                digits.append(ch);
+            } else {
+                break;
+            }
+        }
+        if (digits.length() == 0) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(digits.toString());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    public static int getJdkMajor(CompilerConfig config) {
+        return parseJavaMajor(config.jdkVersion);
+    }
+
+    public static int getTargetMajor(CompilerConfig config) {
+        return parseJavaMajor(config.targetVersion);
+    }
+
+    /**
+     * JavaAPI includes java.lang sources; on JDK 9+ they must be compiled with --patch-module.
+     * JDK 9+ rejects --patch-module when targeting < 9 bytecode, so those permutations are skipped.
+     */
+    public static boolean isJavaApiCompatible(CompilerConfig config) {
+        int jdkMajor = getJdkMajor(config);
+        int targetMajor = getTargetMajor(config);
+        return jdkMajor < 9 || targetMajor >= 9;
+    }
+
+    public static boolean useClasspath(CompilerConfig config) {
+        return getJdkMajor(config) >= 9;
+    }
+
+    public static int compile(Path jdkHome, List<String> args) throws IOException, InterruptedException {
+        String javac = jdkHome.resolve("bin").resolve("javac").toString();
+        // On Windows it might be javac.exe
+        if (System.getProperty("os.name").toLowerCase().contains("win")) {
+            javac += ".exe";
+        }
+
+        List<String> command = new ArrayList<>();
+        command.add(javac);
+
+        // Sources are UTF-8; without this javac falls back to the platform
+        // charset, and in a C/POSIX-locale environment (bare containers) that
+        // is US-ASCII, failing on any non-ASCII character in a comment.
+        if (!args.contains("-encoding")) {
+            command.add("-encoding");
+            command.add("UTF-8");
+        }
+
+        command.addAll(args);
+
+        ProcessBuilder pb = new ProcessBuilder(command);
+        // Inherit IO so we see errors in the log
+        pb.redirectErrorStream(true);
+        Process p = pb.start();
+        lastErrorLog = "";
+        try (InputStream is = p.getInputStream();
+             ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
+
+            byte[] data = new byte[8192]; // 8 KB buffer
+            int n;
+            while ((n = is.read(data)) != -1) {
+                buffer.write(data, 0, n);
+            }
+
+            lastErrorLog = buffer.toString("UTF-8");
+        }
+        return p.waitFor();
+    }
+
+    public static String getLastErrorLog() {
+        return lastErrorLog;
+    }
+
+    public static class CompilerConfig {
+        public final String jdkVersion;
+        public final Path jdkHome;
+        public final String targetVersion;
+
+        public CompilerConfig(String jdkVersion, Path jdkHome, String targetVersion) {
+            this.jdkVersion = jdkVersion;
+            this.jdkHome = jdkHome;
+            this.targetVersion = targetVersion;
+        }
+
+        @Override
+        public String toString() {
+            return "JDK " + jdkVersion + " (Target " + targetVersion + ")";
+        }
+    }
+
+    public static boolean compileAndRun(String code, String expectedOutput) throws Exception {
+        // Find a suitable compiler (e.g. JDK 8 targeting 1.8)
+        List<CompilerConfig> compilers = getAvailableCompilers("1.8");
+        if (compilers.isEmpty()) {
+             throw new RuntimeException("No suitable compiler found");
+        }
+        CompilerConfig config = compilers.get(0);
+
+        java.nio.file.Path sourceDir = java.nio.file.Files.createTempDirectory("executor-test-src");
+        java.nio.file.Path classesDir = java.nio.file.Files.createTempDirectory("executor-test-classes");
+        java.nio.file.Path outputDir = java.nio.file.Files.createTempDirectory("executor-test-output");
+
+        try {
+            java.nio.file.Files.write(sourceDir.resolve("Main.java"), code.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+            java.nio.file.Path javaApiDir = java.nio.file.Files.createTempDirectory("java-api-classes");
+            if (!isJavaApiCompatible(config)) {
+                throw new IllegalStateException("JDK " + config.jdkVersion + " must target matching bytecode level for JavaAPI");
+            }
+            compileJavaAPI(javaApiDir, config);
+
+            List<String> compileArgs = new ArrayList<>();
+            compileArgs.add("-source");
+            compileArgs.add(config.targetVersion);
+            compileArgs.add("-target");
+            compileArgs.add(config.targetVersion);
+            if (useClasspath(config)) {
+                compileArgs.add("-classpath");
+                compileArgs.add(javaApiDir.toString());
+            } else {
+                compileArgs.add("-bootclasspath");
+                compileArgs.add(javaApiDir.toString());
+            }
+            compileArgs.add("-d");
+            compileArgs.add(classesDir.toString());
+            compileArgs.add(sourceDir.resolve("Main.java").toString());
+
+            if (compile(config.jdkHome, compileArgs) != 0) {
+                return false;
+            }
+
+            // Merge javaApiDir into classesDir so translator finds dependencies
+            copyDirectory(javaApiDir, classesDir);
+
+            CleanTargetIntegrationTest.runTranslator(classesDir, outputDir, "ExecutorApp");
+
+            java.nio.file.Path distDir = outputDir.resolve("dist");
+
+            CleanTargetIntegrationTest.replaceLibraryWithExecutableTarget(outputDir.resolve("dist").resolve("CMakeLists.txt"), "ExecutorApp-src");
+
+            java.nio.file.Path buildDir = distDir.resolve("build");
+            java.nio.file.Files.createDirectories(buildDir);
+
+            List<String> configure = new ArrayList<>(Arrays.asList(
+                    "cmake",
+                    "-S", distDir.toString(),
+                    "-B", buildDir.toString()));
+            configure.addAll(cmakeToolchainArgs());
+            CleanTargetIntegrationTest.runCommand(configure, distDir);
+
+            CleanTargetIntegrationTest.runCommand(Arrays.asList("cmake", "--build", buildDir.toString()), distDir);
+
+            java.nio.file.Path executable = buildDir.resolve(executableName("ExecutorApp"));
+            String output = CleanTargetIntegrationTest.runCommand(Arrays.asList(executable.toString()), buildDir);
+            return output.contains(expectedOutput);
+
+        } finally {
+            // cleanup?
+        }
+    }
+
+    // The compiled JavaAPI is identical for a given (jdkVersion, targetVersion),
+    // yet it was previously re-compiled (a ~259-source javac run) on every
+    // parameterized test invocation -- hundreds of times across the suite. Cache
+    // the compiled output per combo and copy it into each caller's outputDir
+    // instead. This removes the dominant repeated cost with zero change to what
+    // is tested. Within a surefire fork tests run sequentially, so the only
+    // contention is the compile-once guard below.
+    private static final java.util.Map<String, Path> JAVA_API_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    public static void compileJavaAPI(Path outputDir, CompilerConfig config) throws IOException, InterruptedException {
+        Files.createDirectories(outputDir);
+        copyDirectory(getCachedJavaApi(config), outputDir);
+    }
+
+    private static synchronized Path getCachedJavaApi(CompilerConfig config) throws IOException, InterruptedException {
+        String key = config.jdkVersion + "->" + config.targetVersion;
+        Path cached = JAVA_API_CACHE.get(key);
+        if (cached != null && Files.isDirectory(cached)) {
+            return cached;
+        }
+        Path cacheDir = Files.createTempDirectory(
+                "java-api-cache-" + config.jdkVersion + "-" + config.targetVersion.replaceAll("[^A-Za-z0-9]", "_") + "-");
+        compileJavaApiInto(cacheDir, config);
+        JAVA_API_CACHE.put(key, cacheDir);
+        return cacheDir;
+    }
+
+    private static void compileJavaApiInto(Path outputDir, CompilerConfig config) throws IOException, InterruptedException {
+        Files.createDirectories(outputDir);
+        Path javaApiRoot = Paths.get("..", "JavaAPI", "src").normalize().toAbsolutePath();
+        List<String> sources = new ArrayList<>();
+        try (Stream<Path> paths = Files.walk(javaApiRoot)) {
+            paths.filter(p -> p.toString().endsWith(".java"))
+                    .forEach(p -> sources.add(p.toString()));
+        }
+
+        List<String> args = new ArrayList<>();
+
+        int jdkMajor = getJdkMajor(config);
+        int targetMajor = getTargetMajor(config);
+
+        if (jdkMajor >= 9) {
+            if (targetMajor < 9) {
+                throw new IllegalArgumentException("Cannot compile JavaAPI with --patch-module for target " + config.targetVersion);
+            }
+            args.add("--patch-module");
+            args.add("java.base=" + javaApiRoot.toString());
+        }
+
+        args.add("-source");
+        args.add(config.targetVersion);
+        args.add("-target");
+        args.add(config.targetVersion);
+
+        args.add("-d");
+        args.add(outputDir.toString());
+        args.addAll(sources);
+
+        int result = compile(config.jdkHome, args);
+        if (result != 0) {
+            throw new IOException("JavaAPI compilation failed with exit code " + result);
+        }
+    }
+
+    public static void copyDirectory(Path sourceDir, Path targetDir) throws IOException {
+        try (Stream<Path> paths = Files.walk(sourceDir)) {
+            paths.forEach(source -> {
+                try {
+                    Path destination = targetDir.resolve(sourceDir.relativize(source));
+                    if (Files.isDirectory(source)) {
+                        Files.createDirectories(destination);
+                    } else {
+                        Files.createDirectories(destination.getParent());
+                        Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+        }
+    }
+}

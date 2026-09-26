@@ -1,0 +1,1328 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *  
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ * 
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ * 
+ * Please contact Codename One through http://www.codenameone.com/ if you 
+ * need additional information or have any questions.
+ */
+#include "TargetConditionals.h"
+#if !TARGET_OS_WATCH
+
+#import "CodenameOne_GLAppDelegate.h"
+#import "CodenameOne_GLSceneDelegate.h"
+#import "CN1JailbreakDetector.h"
+#include "xmlvm.h"
+#import <objc/message.h>
+#import "METALView.h"
+#import "CodenameOne_GLViewController.h"
+#ifdef CN1_INCLUDE_CALL
+#import "CN1Call.h"
+#endif
+#ifdef CN1_USE_INTENTS
+// Core Spotlight is Objective-C and needs no Swift; it carries the indexing half of
+// com.codename1.intents. Imported under the define so an app that never references the
+// package links no additional framework.
+#import <CoreSpotlight/CoreSpotlight.h>
+#endif
+#import "CN1TapGestureRecognizer.h"
+#ifdef CN1_USE_METAL
+#import "CN1Metalcompat.h"
+#endif
+#include "com_codename1_impl_ios_IOSImplementation.h"
+#include "com_codename1_impl_ios_IOSNative.h"
+#include "com_codename1_push_PushContent.h"
+#include "com_codename1_ui_Display.h"
+#ifdef CN1_USE_WIDGETS
+// CodenameOne_GLViewController.h (imported above) carries the CN1_USE_WIDGETS define flipped
+// by the builder for apps that reference com.codename1.surfaces.
+#include "com_codename1_impl_ios_IOSSurfaceCallbacks.h"
+#endif
+#ifdef NEW_CODENAME_ONE_VM
+#include "java_lang_System.h"
+int mallocWhileSuspended = 0;
+#endif
+
+extern BOOL isIOS10();
+extern void repaintUI();
+int pendingRemoteNotificationRegistrations = 0;
+
+BOOL isAppSuspended = NO;
+static BOOL cn1GestureRecognizerInstalled = NO;
+static BOOL cn1IsHiddenInBackground = NO;
+//GL_APP_DELEGATE_IMPORT
+//GL_APP_DELEGATE_INCLUDE
+
+extern CN1View *editingComponent;
+
+#define INCLUDE_CN1_PUSH
+
+#ifdef INCLUDE_CN1_PUSH
+#include "com_codename1_push_PushContent.h"
+#endif
+
+#ifdef INCLUDE_GOOGLE_CONNECT
+#ifndef GOOGLE_SIGNIN
+#ifdef GOOGLE_CONNECT_PODS
+#import <GooglePlus/GooglePlus.h>
+#else
+#import "GooglePlus.h"
+#endif
+#else
+#import <GoogleSignIn/GoogleSignIn.h>
+#endif
+
+#endif
+
+#ifdef INCLUDE_FACEBOOK_CONNECT
+#ifdef USE_FACEBOOK_CONNECT_PODS
+#import <FBSDKCoreKit/FBSDKCoreKit.h>
+#else
+#import "FBSDKCoreKit.h"
+#endif
+#endif
+
+#import "java_lang_NullPointerException.h"
+#import "java_lang_RuntimeException.h"
+#ifdef CN1_USE_INTENTS
+// The translated entry points the intents branches below call. Without this they are
+// implicit declarations: the iOS slice let that through as a warning and the Mac Catalyst
+// slice rejects it outright -- "call to undeclared function
+// 'com_codename1_impl_ios_IOSIntentCallbacks_nativeSpotlightItemSelected___java_lang_String'"
+// -- so the same source compiled on one platform and not the other. Inside the guard
+// because CodenameOne_GLViewController.h undefines CN1_USE_INTENTS for watchOS and tvOS,
+// where this class is not translated and the header does not exist.
+#import "com_codename1_impl_ios_IOSIntentCallbacks.h"
+#endif
+#ifdef CN1_USE_CONTINUITY
+// Same reasoning as the intents header above, and the same guard: the continuity branch below
+// calls a translated entry point, and an implicit declaration is a hard error on some slices and
+// a wrong-registers call on the rest. CodenameOne_GLViewController.h undefines
+// CN1_USE_CONTINUITY for watchOS and tvOS, where this class is not translated.
+#import "com_codename1_impl_ios_IOSContinuityCallbacks.h"
+#endif
+
+// A signal handler to handle bad accesses.  This will throw NPEs that we can catch
+// rather than crashing the app.
+// See http://www.cocoawithlove.com/2010/05/handling-unhandled-exceptions-and.html
+//
+// NOTE: This handler WILL NOT WORK while using the debugger
+static void SignalHandler(int sig)
+{
+    if (sig == 11) {
+        // We received an EXEC_BAD_ACCESS.  This generally happens if we try to use an object
+        // that is null, so let's convert it into a null pointer exception.
+        throwException(getThreadLocalData(),  __NEW_INSTANCE_java_lang_NullPointerException(getThreadLocalData()));
+    } else {
+        // We received one of the other kinds of signals.  So let's raise it as a RuntimeException
+        throwException(getThreadLocalData(), __NEW_INSTANCE_java_lang_RuntimeException(getThreadLocalData()));
+    }
+    // Log something just in case the exception handling is foobar'd
+    NSLog(@"We had a signal %d", sig);
+    //signal(sig, SIG_DFL);
+}
+
+static void installSignalHandlers() {
+    signal(SIGABRT, SignalHandler);
+    signal(SIGILL, SignalHandler);
+    signal(SIGSEGV, SignalHandler);
+    signal(SIGFPE, SignalHandler);
+    signal(SIGBUS, SignalHandler);
+    signal(SIGPIPE, SignalHandler);
+
+}
+
+
+@implementation CodenameOne_GLAppDelegate
+
+
+@synthesize window=_window;
+
+@synthesize viewController=_viewController;
+
+- (CodenameOne_GLViewController *)cn1EnsureViewController
+{
+    if (self.viewController == nil) {
+        // The iOS XIB-based instantiation breaks under Mac Catalyst on
+        // Xcode 26: IBAgent-macOS-UIKit crashes compiling the GL/Metal
+        // view-controller XIBs, so the file is excluded from the Mac
+        // slice via EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]. Pass nil as
+        // the NIB name on Mac so UIViewController synthesises a plain
+        // CN1View; the Metal layer is attached programmatically further
+        // down the init chain, so the XIB's IBOutlet wiring isn't needed.
+        // tvOS excludes the iOS XIBs from its bundle too (TvNativeBuilder's
+        // EXCLUDED_SOURCE_FILE_NAMES), so loading 'CodenameOne_GLViewController'
+        // as a NIB crashes at launch ("Could not load NIB in bundle"). Pass nil
+        // there as well -- the Metal layer is attached programmatically, so the
+        // XIB's IBOutlet wiring isn't needed.
+#if TARGET_OS_MACCATALYST || TARGET_OS_TV
+        NSString *cn1NibName = nil;
+#else
+        NSString *cn1NibName = @"CodenameOne_GLViewController";
+#endif
+#ifdef CN1_USE_ARC
+        self.viewController = [[CodenameOne_GLViewController alloc] initWithNibName:cn1NibName bundle:nil];
+#else
+        CodenameOne_GLViewController *viewController = [[CodenameOne_GLViewController alloc] initWithNibName:cn1NibName bundle:nil];
+        self.viewController = viewController;
+        [viewController release];
+#endif
+        // A VC instantiated via initWithNibName:bundle: is File's Owner of its own NIB and
+        // does NOT receive awakeFromNib. In the legacy MainWindow.xib path the VC was a
+        // NIB-archived object so awakeFromNib fired before viewDidLoad, setting scaleValue
+        // to [UIScreen mainScreen].scale; viewDidLoad's updateDisplayMetricsFromView then
+        // used the correct scaleValue. Fire awakeFromNib manually, but do NOT force
+        // [self.viewController view] first — awakeFromNib reaches self.view through
+        // [self renderingView] internally, which triggers loadView/viewDidLoad after scaleValue
+        // has already been set. Forcing the view load separately reverses that order and
+        // caches wrong density/ppi (scaleValue=1 × NIB 320×460 bounds = DENSITY_MEDIUM).
+        [self.viewController awakeFromNib];
+
+        // awakeFromNib's embedded viewDidLoad leaves displayWidth/displayHeight at the
+        // NIB's 320×460 bounds × scale. In legacy AppDelegate mode that doesn't matter
+        // because viewDidAppear → updateCanvas rewrites them to the window bounds before
+        // CN1's Java main reaches getDeviceDensity(). UIScene inserts scene:willConnectTo
+        // Session between didFinishLaunching and viewDidAppear, widening that window,
+        // and Java main can cache the NIB-sized values first — pinning density to
+        // DENSITY_MEDIUM/VERY_HIGH instead of the iPhone 16 DENSITY_560 baseline. Seed
+        // the globals with the actual screen size now so the first density/ppi read
+        // resolves to the same DPI-class legacy sees post-viewDidAppear.
+        CGSize screenSize = [UIScreen mainScreen].bounds.size;
+        extern int displayWidth;
+        extern int displayHeight;
+        extern float scaleValue;
+        displayWidth = (int)(screenSize.width * scaleValue);
+        displayHeight = (int)(screenSize.height * scaleValue);
+    }
+    return self.viewController;
+}
+
+- (void)cn1InstallTapGestureRecognizerIfNeeded
+{
+    CodenameOne_GLViewController *viewController = [self cn1EnsureViewController];
+    if (cn1GestureRecognizerInstalled || viewController.view.window == nil) {
+        return;
+    }
+    CN1TapGestureRecognizer* recognizer = [[CN1TapGestureRecognizer alloc] initWithTarget:nil action:nil];
+    [recognizer install:viewController];
+    [recognizer release];
+    cn1GestureRecognizerInstalled = YES;
+}
+
+- (void)cn1InstallRootViewControllerIntoWindow:(UIWindow *)window
+{
+    self.window = window;
+    self.window.rootViewController = [self cn1EnsureViewController];
+    [self.window makeKeyAndVisible];
+    // The GL/Metal surface is still empty at the window's first Core
+    // Animation commit -- the EDT paints the first form much later -- so the
+    // system launch screen would be replaced by a black frame (issue #5210).
+    // Cover the window with a placeholder (light/dark system background +
+    // launch icon) that drawFrame fades out on the first content frame.
+    CN1ShowLaunchPlaceholder(self.window);
+    [self cn1InstallTapGestureRecognizerIfNeeded];
+}
+
+- (void)cn1StoreAppArgForURL:(NSURL *)url
+{
+    if(url != nil) {
+        JAVA_OBJECT o = com_codename1_ui_Display_getInstance__(CN1_THREAD_GET_STATE_PASS_SINGLE_ARG);
+        JAVA_OBJECT key = fromNSString(CN1_THREAD_GET_STATE_PASS_ARG @"AppArg");
+        JAVA_OBJECT value;
+        if([url isFileURL]) {
+            value = fromNSString(CN1_THREAD_GET_STATE_PASS_ARG url.path);
+        } else {
+            value = fromNSString(CN1_THREAD_GET_STATE_PASS_ARG [url absoluteString]);
+        }
+        com_codename1_ui_Display_setProperty___java_lang_String_java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG o, key, value);
+    }
+}
+
+/// An activity that cold-launched the app, held until the VM callback has run the
+/// application's init/start. Nil at every other moment.
+static NSUserActivity *cn1PendingLaunchActivity = nil;
+
+/// Delivers the held launch activity, if there is one. Safe to call when there is not.
+- (void)cn1DeliverPendingLaunchActivity
+{
+    NSUserActivity *pending = cn1PendingLaunchActivity;
+    if (pending == nil) {
+        return;
+    }
+    // Cleared before delivery so a second call cannot deliver it twice, and released after,
+    // since this holds the only reference in the app target's manual-reference-counted build.
+    cn1PendingLaunchActivity = nil;
+    [self cn1ContinueUserActivity:pending];
+    [pending release];
+}
+
+- (BOOL)cn1ContinueUserActivity:(NSUserActivity *)userActivity
+{
+    if (userActivity != nil && [NSUserActivityTypeBrowsingWeb isEqualToString:userActivity.activityType] && userActivity.webpageURL != nil) {
+#ifdef CN1_HANDLE_UNIVERSAL_LINKS
+        JAVA_OBJECT url = fromNSString(CN1_THREAD_GET_STATE_PASS_ARG [userActivity.webpageURL absoluteString]);
+        com_codename1_impl_ios_IOSImplementation_applicationReceivedUniversalLink___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG url);
+#else
+        JAVA_OBJECT launchUrlStr = fromNSString(CN1_THREAD_GET_STATE_PASS_ARG [userActivity.webpageURL absoluteString]);
+        JAVA_OBJECT appArgKey = fromNSString(CN1_THREAD_GET_STATE_PASS_ARG @"AppArg");
+        JAVA_OBJECT displayInstObj = com_codename1_ui_Display_getInstance__(CN1_THREAD_GET_STATE_PASS_SINGLE_ARG);
+        com_codename1_ui_Display_setProperty___java_lang_String_java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG displayInstObj, appArgKey, launchUrlStr);
+#endif
+        return YES;
+    }
+#ifdef CN1_USE_CONTINUITY
+    // Continuity is matched BEFORE intents, and the order is load-bearing. The intents block
+    // below ends in a general branch that hands any remaining activity type to Java and returns
+    // Java's answer -- and Intents.dispatchUserActivity correctly answers NO for a type it never
+    // declared. An app using both would therefore have its own continuation asked about by the
+    // wrong framework, told no, and dropped. Matching here first keeps each framework answering
+    // only for the types it published.
+    //
+    // Placed after the browsing-web branch rather than before it for the reason that branch is
+    // first: Universal Link behaviour must be bit-identical whether or not continuity is in play.
+    //
+    // Matched EXACTLY, against the type the BUILD resolved. A suffix test claimed any activity
+    // whose type merely ended in ".continuity" -- a donated App Intent with such an id, say --
+    // and on a cold launch that arrival was parked and reported handled before anything could
+    // tell it apart, so it never reached the intents dispatcher below and nothing rerouted it
+    // once initialization revealed the mismatch.
+    //
+    // Read from the plist rather than derived from [[NSBundle mainBundle] bundleIdentifier].
+    // Deriving it looks equivalent and is wrong on the Mac slice:
+    // DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER makes the Catalyst bundle id
+    // "<package>.maccatalyst", so the derived type would be "<package>.maccatalyst.continuity"
+    // while the type declared in NSUserActivityTypes and published by every device is
+    // "<package>.continuity" -- Handoff silently dead on Catalyst, which is the Mac-to-iPhone
+    // case this feature is for. IPhoneBuilder writes CN1ContinuityActivityType beside that
+    // declaration from the one value it resolved, and the Mac plist is generated from the
+    // finished iOS one, so both slices read the same string.
+    //
+    // Absent means no builder that knows this feature generated the project, so the activity is
+    // left to the branch below rather than guessed at.
+    NSString *cn1ContinuityExpected = [[NSBundle mainBundle]
+            objectForInfoDictionaryKey:@"CN1ContinuityActivityType"];
+    if (![cn1ContinuityExpected isKindOfClass:[NSString class]]
+            || [cn1ContinuityExpected length] == 0) {
+        cn1ContinuityExpected = nil;
+    }
+    if (userActivity != nil && cn1ContinuityExpected != nil
+            && [userActivity.activityType isEqualToString:cn1ContinuityExpected]) {
+        NSString *payload = nil;
+        if (userActivity.userInfo != nil
+                && [NSJSONSerialization isValidJSONObject:userActivity.userInfo]) {
+            NSData *data = [NSJSONSerialization dataWithJSONObject:userActivity.userInfo
+                                                           options:0 error:nil];
+            if (data != nil) {
+                // Autoreleased: the app target is manual-reference-counted and this method
+                // returns without a release, so every continuation would otherwise retain its
+                // serialized payload for the life of the process.
+                payload = [[[NSString alloc] initWithData:data
+                                                 encoding:NSUTF8StringEncoding] autorelease];
+            }
+        }
+        JAVA_OBJECT jtype = fromNSString(CN1_THREAD_GET_STATE_PASS_ARG userActivity.activityType);
+        JAVA_OBJECT jpayload = payload == nil ? JAVA_NULL
+                : fromNSString(CN1_THREAD_GET_STATE_PASS_ARG payload);
+#ifdef NEW_CODENAME_ONE_VM
+        JAVA_BOOLEAN claimed = com_codename1_impl_ios_IOSContinuityCallbacks_nativeContinuation___java_lang_String_java_lang_String_R_boolean(CN1_THREAD_GET_STATE_PASS_ARG jtype, jpayload);
+#else
+        JAVA_BOOLEAN claimed = com_codename1_impl_ios_IOSContinuityCallbacks_nativeContinuation___java_lang_String_java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG jtype, jpayload);
+#endif
+        if (claimed == JAVA_TRUE) {
+            return YES;
+        }
+        // Not claimed: the suffix matched but the framework did not recognize the type as its
+        // own, which is what a third-party activity whose type happens to end the same way looks
+        // like. Falls through rather than returning NO, so the intents branch below still gets
+        // its chance at it.
+    }
+#endif
+#ifdef CN1_USE_INTENTS
+    // Everything below is compiled only for an app that references
+    // com.codename1.intents, so a build without it produces exactly the function above.
+    // The browsing-web branch deliberately stays first and untouched: Universal Link
+    // behaviour must be bit-identical whether or not intents are in play.
+    if (userActivity != nil) {
+        if ([CSSearchableItemActionType isEqualToString:userActivity.activityType]) {
+            NSString *identifier = [userActivity.userInfo objectForKey:CSSearchableItemActivityIdentifier];
+            // Declared rather than redefined: the prefix has one definition, in IOSNative.m
+            // beside the indexing that writes it, so the two cannot drift apart.
+            extern NSString *cn1IntentUidFromItemId(NSString *identifier);
+            NSString *uid = cn1IntentUidFromItemId(identifier);
+            if (uid != nil) {
+                JAVA_OBJECT juid = fromNSString(CN1_THREAD_GET_STATE_PASS_ARG uid);
+                com_codename1_impl_ios_IOSIntentCallbacks_nativeSpotlightItemSelected___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG juid);
+                return YES;
+            }
+            // Not one of ours. A Spotlight item the application indexed itself reaches here
+            // too, and handing its identifier to the framework would send it looking for an
+            // entity that does not exist -- so the activity falls through to the general
+            // branch below, where the app decides what to do with it.
+        }
+        // Any other activity type: hand it to Java and return Java's answer. Claiming
+        // everything would swallow handoff and third-party activities this app never
+        // declared, so the app decides rather than the delegate guessing.
+        NSString *payload = nil;
+        if (userActivity.userInfo != nil
+                && [NSJSONSerialization isValidJSONObject:userActivity.userInfo]) {
+            NSData *data = [NSJSONSerialization dataWithJSONObject:userActivity.userInfo
+                                                           options:0 error:nil];
+            if (data != nil) {
+                // Autoreleased: the app target is manual-reference-counted and this method
+                // returns without a release, so every continued donated activity would retain
+                // its serialized payload for the life of the process.
+                payload = [[[NSString alloc] initWithData:data
+                                                 encoding:NSUTF8StringEncoding] autorelease];
+            }
+        }
+        JAVA_OBJECT jtype = fromNSString(CN1_THREAD_GET_STATE_PASS_ARG userActivity.activityType);
+        JAVA_OBJECT jpayload = payload == nil ? JAVA_NULL
+                : fromNSString(CN1_THREAD_GET_STATE_PASS_ARG payload);
+#ifdef NEW_CODENAME_ONE_VM
+        JAVA_BOOLEAN handled = com_codename1_impl_ios_IOSIntentCallbacks_nativeUserActivity___java_lang_String_java_lang_String_R_boolean(CN1_THREAD_GET_STATE_PASS_ARG jtype, jpayload);
+#else
+        JAVA_BOOLEAN handled = com_codename1_impl_ios_IOSIntentCallbacks_nativeUserActivity___java_lang_String_java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG jtype, jpayload);
+#endif
+        return handled == JAVA_TRUE ? YES : NO;
+    }
+#endif
+    return NO;
+}
+
+- (void)cn1ApplicationWillResignActive
+{
+#ifdef CN1_USE_METAL
+    // Back up the pixels of every mutable image into CPU memory while the app
+    // is still active (GPU use is legal here, unlike didEnterBackground). The
+    // private-storage textures backing them can otherwise be discarded during
+    // suspension and sampled as garbage on resume -- the FloatingActionButton
+    // "violet background" artifact (issue #5153). The textures are rebuilt
+    // lazily from the backup the next time each image is painted.
+    CN1MetalBackupMutableImagesForSuspend();
+#endif
+    com_codename1_impl_ios_IOSImplementation_applicationWillResignActive__(CN1_THREAD_GET_STATE_PASS_SINGLE_ARG);
+}
+
+- (void)cn1ApplicationDidEnterBackground
+{
+ #ifdef CN1_BLOCK_SCREENSHOTS_ON_ENTER_BACKGROUND
+    // Hide the view controller's root view rather than just the Metal
+    // surface. Once a peer component is added with paintPeersBehindEnabled,
+    // the controller's view is a newRoot containing both renderingView and the
+    // peerComponentsLayer (BrowserComponent's WKWebView lives in the latter)
+    // -- hiding only renderingView leaves peers visible in the app-switcher snapshot.
+    [CodenameOne_GLViewController instance].view.hidden = YES;
+    cn1IsHiddenInBackground = YES;
+#endif
+    if(editingComponent != nil) {
+        [editingComponent resignFirstResponder];
+        [editingComponent removeFromSuperview];
+#ifndef CN1_USE_ARC
+        [editingComponent release];
+#endif
+        editingComponent = nil;
+    }
+    com_codename1_impl_ios_IOSImplementation_applicationDidEnterBackground__(CN1_THREAD_GET_STATE_PASS_SINGLE_ARG);
+    //----application_will_resign_active
+    isAppSuspended = YES;
+#ifdef NEW_CODENAME_ONE_VM
+    java_lang_System_stopGC__(CN1_THREAD_GET_STATE_PASS_SINGLE_ARG);
+    mallocWhileSuspended = 0;
+#endif
+}
+
+- (void)cn1ApplicationWillEnterForeground
+{
+#ifdef CN1_DETECT_JAILBREAK
+    // Again, on every return from the background. A launch-time-only gate is
+    // trivially stepped around: background the app, attach the instrumentation
+    // to the running process, bring it back. This hook is not called on the
+    // initial launch -- iOS goes straight to didBecomeActive: there -- so the
+    // gate still runs exactly once per foreground, and the probes are a
+    // sub-millisecond handful of syscalls.
+    cn1DetectJailbreakBypassesAndExit();
+#endif
+    if (cn1IsHiddenInBackground) {
+        [CodenameOne_GLViewController instance].view.hidden = NO;
+    }
+    // Clear before updateCanvas: viewWillTransitionToSize: and
+    // didRotateFromInterfaceOrientation: use this to skip propagation during
+    // iOS's snapshot-phase orientation flip on iPad between stop and start.
+    isAppSuspended = NO;
+    com_codename1_impl_ios_IOSImplementation_applicationWillEnterForeground__(CN1_THREAD_GET_STATE_PASS_SINGLE_ARG);
+    CodenameOne_GLViewController* vc = [CodenameOne_GLViewController instance];
+    if (vc != nil) {
+#ifdef CN1_USE_METAL
+        id renderingView = [vc renderingView];
+        if ([renderingView respondsToSelector:@selector(invalidateRetainedFramebuffer)]) {
+            [renderingView invalidateRetainedFramebuffer];
+        }
+        // issue #5349: iOS may have discarded the contents of our private-storage
+        // image/glyph textures while suspended. Bump the texture-validate
+        // generation so every cached read-only image texture re-decodes from its
+        // retained CN1Image on next sample instead of rendering the discarded
+        // garbage (a violet/magenta fill) on surfaces the diff-painter does not
+        // fully repaint this frame. Pairs with the screenTexture clear above.
+        extern void CN1MetalBumpTextureValidateGeneration(void);
+        CN1MetalBumpTextureValidateGeneration();
+#endif
+        // Defer to the next runloop so UIKit can settle the view bounds
+        // after the snapshot rotation. updateCanvas itself also
+        // orientation-validates the bounds for an extra safety net under
+        // UIScene on iPad (issue #4767).
+        dispatch_async(dispatch_get_main_queue(), ^{
+            CodenameOne_GLViewController* deferredVc = [CodenameOne_GLViewController instance];
+            if (deferredVc != nil) {
+                [deferredVc updateCanvas:YES];
+            }
+        });
+    }
+}
+
+- (void)cn1ApplicationDidBecomeActive
+{
+#ifdef INCLUDE_CN1_PUSH
+     [UIApplication sharedApplication].applicationIconBadgeNumber = 0;
+#endif
+    com_codename1_impl_ios_IOSImplementation_applicationDidBecomeActive__(CN1_THREAD_GET_STATE_PASS_SINGLE_ARG);
+    //DELEGATE_applicationDidBecomeActive
+}
+
+- (BOOL)cn1OpenURL:(UIApplication *)application url:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation
+{
+    JAVA_OBJECT str1 = fromNSString(CN1_THREAD_GET_STATE_PASS_ARG [url absoluteString]);
+    JAVA_OBJECT str2 = fromNSString(CN1_THREAD_GET_STATE_PASS_ARG sourceApplication);
+    
+#ifdef INCLUDE_GOOGLE_CONNECT
+#ifndef GOOGLE_SIGNIN
+    BOOL res = [GPPURLHandler handleURL:url
+           sourceApplication:sourceApplication
+                  annotation:annotation];
+    if (res) {
+        return res;
+    }
+#else
+    BOOL res = [[GIDSignIn sharedInstance] handleURL:url];
+    if (res) {
+        return res;
+    }
+#endif
+#endif
+#ifdef INCLUDE_FACEBOOK_CONNECT
+    BOOL fbRes = [[FBSDKApplicationDelegate sharedInstance] application:application
+                                                          openURL:url
+                                                sourceApplication:sourceApplication
+                                                       annotation:annotation];
+    if (fbRes) {
+        return fbRes;
+    }
+#endif
+
+#ifdef CN1_USE_WIDGETS
+    // Surface action deep link (cn1surface://a?src=..&id=..&p=<url-encoded JSON>) from a widget,
+    // live activity or complication tap. Handed straight to the Java framework;
+    // Surfaces.dispatchAction queues internally until the app registers its action handler, so
+    // cold-start taps are safe (every openURL path -- delegate, legacy handleOpenURL and the
+    // scene delegate's connection/openURLContexts callbacks -- funnels through cn1OpenURL after
+    // the VM is up, exactly like the shouldApplicationHandleURL call below). These URLs are
+    // consumed here: do NOT store them in AppArg and report them handled so no other machinery
+    // sees them.
+    // Decoded by cn1HandleSurfaceURL in IOSNative.m rather than here, because the watch reaches
+    // the same deep link with no UIApplicationDelegate to route it through -- a complication tap
+    // launches the app and delivers the URL to the SwiftUI scene instead. One decoder, so the two
+    // platforms cannot drift on what a surface action means.
+    if (cn1HandleSurfaceURL(url)) {
+        return YES;
+    }
+#endif // CN1_USE_WIDGETS
+
+    //openURLMarkerEntry
+
+#ifdef NEW_CODENAME_ONE_VM
+    JAVA_BOOLEAN b = com_codename1_impl_ios_IOSImplementation_shouldApplicationHandleURL___java_lang_String_java_lang_String_R_boolean(CN1_THREAD_GET_STATE_PASS_ARG str1, str2);
+#else
+    JAVA_BOOLEAN b = com_codename1_impl_ios_IOSImplementation_shouldApplicationHandleURL___java_lang_String_java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG str1, str2);
+#endif
+
+    return b;
+}
+
+
+
+- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
+{
+#ifdef CN1_DETECT_JAILBREAK
+    cn1DetectJailbreakBypassesAndExit();
+#endif
+    //beforeDidFinishLaunchingWithOptionsMarkerEntry
+    
+    // Override point for customization after application launch.
+    
+    // Install signal handlers so that rather than the app crashing upon a BAD_ACCESS, the
+    // app will throw an NPE.
+    installSignalHandlers();
+#ifdef CN1_ON_DEVICE_DEBUG
+    // Spawn the on-device-debug listener thread. Non-blocking: if
+    // CN1ProxyWaitForAttach=YES the function also installs a translucent
+    // overlay UIWindow so the user sees a "Waiting for debugger..." message
+    // instead of the launch splash while the wait is in progress.
+    extern void cn1_debugger_start(void);
+    cn1_debugger_start();
+#endif
+    [self cn1EnsureViewController];
+    // The root view controller is installed by CodenameOne_GLSceneDelegate, not here: under
+    // the scene lifecycle self.window is nil at this point, because UIKit has not connected
+    // a scene yet.
+    NSURL *url = (NSURL *)[launchOptions valueForKey:UIApplicationLaunchOptionsURLKey];
+    [self cn1StoreAppArgForURL:url];
+    if (@available(iOS 8, *)) {
+        // App Links from associated domains
+        NSDictionary *activityDictionary = [launchOptions objectForKey:UIApplicationLaunchOptionsUserActivityDictionaryKey];
+        if (activityDictionary) {
+            NSUserActivity *userActivity = [activityDictionary valueForKey:@"UIApplicationLaunchOptionsUserActivityKey"];
+            if (userActivity != nil) {
+#if defined(CN1_USE_INTENTS) || defined(CN1_USE_CONTINUITY)
+                // A donated activity or a continuation cold-launching the app arrives here,
+                // before the VM callback below has run the application's init/start -- so the
+                // framework's dispatcher exists (the generated bootstrap installed it from main)
+                // while Display does not, and the handler would run inline with no event thread
+                // and no window. Held until initialization instead; browsing-web keeps its
+                // existing path, which only stores AppArg and is safe this early.
+                //
+                // Continuity needs the hold for a second reason of its own: its Java callback is
+                // installed by Continuity.enable(), which the application calls from init(). An
+                // activity delivered before that finds no callback at all and is dropped -- so an
+                // app that used continuity WITHOUT intents used to lose exactly the cold launch
+                // the feature exists for.
+                //
+                // This dictionary is the LEGACY lifecycle's cold-launch path only. On the default
+                // UIScene build the activity arrives through UISceneConnectionOptions instead,
+                // and CodenameOne_GLSceneDelegate's willConnectToSession already forwards
+                // connectionOptions.userActivities to cn1ContinueUserActivity: at the end of the
+                // same method that installs the root view controller. A review read that method
+                // as not forwarding them and asked for this block to cover the scene path; it
+                // does not need to. The scene path's own ordering problem -- willConnectToSession
+                // runs before init() -- is solved on the Java side, where
+                // IOSContinuityCallbacks holds an activity that arrives before setCallback and
+                // delivers it when Continuity.enable() installs one.
+                if (![NSUserActivityTypeBrowsingWeb isEqualToString:userActivity.activityType]) {
+                    cn1PendingLaunchActivity = [userActivity retain];
+                } else {
+                    [self cn1ContinueUserActivity:userActivity];
+                }
+#else
+                [self cn1ContinueUserActivity:userActivity];
+#endif
+            }
+        }
+    }
+#ifdef CN1_ON_DEVICE_DEBUG
+    // Defer the VM callback until the on-device-debug proxy reports an IDE
+    // has attached (if CN1ProxyWaitForAttach=YES). Otherwise this fires
+    // synchronously and behaves identically to the non-debug build.
+    extern void cn1_debugger_run_when_ready(void (^onReady)(void));
+    id locationValueDeferred = [launchOptions objectForKey:UIApplicationLaunchOptionsLocationKey];
+    cn1_debugger_run_when_ready(^{
+        com_codename1_impl_ios_IOSImplementation_callback__(CN1_THREAD_GET_STATE_PASS_SINGLE_ARG);
+        if (locationValueDeferred) {
+            com_codename1_impl_ios_IOSImplementation_appDidLaunchWithLocation__(CN1_THREAD_GET_STATE_PASS_SINGLE_ARG);
+        }
+        [self cn1DeliverPendingLaunchActivity];
+    });
+#else
+    com_codename1_impl_ios_IOSImplementation_callback__(CN1_THREAD_GET_STATE_PASS_SINGLE_ARG);
+
+    id locationValue = [launchOptions objectForKey:UIApplicationLaunchOptionsLocationKey];
+    if (locationValue) {
+        com_codename1_impl_ios_IOSImplementation_appDidLaunchWithLocation__(CN1_THREAD_GET_STATE_PASS_SINGLE_ARG);
+    }
+    [self cn1DeliverPendingLaunchActivity];
+#endif
+    
+#ifdef INCLUDE_CN1_BACKGROUND_FETCH
+    [application setMinimumBackgroundFetchInterval:UIApplicationBackgroundFetchIntervalMinimum];
+#endif
+
+#ifdef CN1_INCLUDE_NOTIFICATIONS
+    if (@available(iOS 10, *)) {
+        if (isIOS10()) {
+            // Set the notification center delegate at launch so delivery callbacks route
+            // correctly. The auth prompt is deferred to registerPush / sendLocalNotification
+            // so the developer can show their own rationale first (matches Android, see
+            // issue #4876). Set the ios.notificationPermissionAtLaunch=true build hint to
+            // restore the legacy launch-time prompt for backward compatibility.
+            UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+            center.delegate = self;
+#ifdef CN1_NOTIFICATION_PERMISSION_AT_LAUNCH
+#if !TARGET_OS_SIMULATOR
+            [center requestAuthorizationWithOptions:(UNAuthorizationOptionSound | UNAuthorizationOptionAlert | UNAuthorizationOptionBadge) completionHandler:^(BOOL granted, NSError * _Nullable error){
+                if( !error ) {}
+            }];
+#endif
+#endif
+        }
+    }
+#endif
+    
+#ifdef INCLUDE_CN1_PUSH
+    if (@available(iOS 10, *)) {
+        if (isIOS10()) {
+            com_codename1_impl_ios_IOSImplementation_initPushActionCategories__(CN1_THREAD_GET_STATE_PASS_SINGLE_ARG);
+        } 
+    }
+    
+    //[[UIApplication sharedApplication] cancelAllLocalNotifications]; // <-- WHY IS THIS HERE? -- removing it for now
+    [UIApplication sharedApplication].applicationIconBadgeNumber = 0;
+    if(launchOptions == nil) {
+        //afterDidFinishLaunchingWithOptionsMarkerEntry
+        return YES;
+    }
+    // On iOS 10+, push messages received while in the background are handled
+    // by userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:
+    // If we additionally handle it here, then the push callback will be called twice,
+    // so make sure that we skip this for iOS 10+
+    BOOL handlePushHere = YES;
+    if (@available(iOS 10, *)) {
+        if (isIOS10()) {
+            handlePushHere = NO;
+        }
+    }
+    if (handlePushHere) {
+        NSDictionary* userInfo = [launchOptions valueForKey:@"UIApplicationLaunchOptionsRemoteNotificationKey"];
+        [self cn1RoutePush:userInfo];
+    }
+    
+    
+#endif
+
+    //afterDidFinishLaunchingWithOptionsMarkerEntry
+
+    // Register BGTaskScheduler processing identifiers declared in the Info.plist
+    // BGTaskSchedulerPermittedIdentifiers array. This must run before this method returns.
+    if (@available(iOS 13.0, *)) {
+        NSArray *permitted = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"BGTaskSchedulerPermittedIdentifiers"];
+        if ([permitted isKindOfClass:[NSArray class]]) {
+            for (id idObj in permitted) {
+                if ([idObj isKindOfClass:[NSString class]]) {
+                    com_codename1_impl_ios_IOSNative_registerBackgroundProcessingTask___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG JAVA_NULL, fromNSString(CN1_THREAD_GET_STATE_PASS_ARG (NSString*)idObj));
+                }
+            }
+        }
+    }
+
+#ifdef INCLUDE_FACEBOOK_CONNECT
+    return [[FBSDKApplicationDelegate sharedInstance] application:application
+                                    didFinishLaunchingWithOptions:launchOptions];
+#else
+    return YES;
+#endif
+}
+
+// implemented this way so this will compile on older versions of xcode
+- (void)application:(UIApplication *)application didRegisterUserNotificationSettings:(id)notificationSettings {
+    if (pendingRemoteNotificationRegistrations > 0) {
+        pendingRemoteNotificationRegistrations--;
+        Class uiApp = NSClassFromString(@"UIApplication");
+        UIApplication* uiAppInstance = [UIApplication sharedApplication];
+        SEL sel = NSSelectorFromString(@"registerForRemoteNotifications");
+        //[[UIApplication sharedApplication] registerForRemoteNotifications];
+        NSMethodSignature *signature = [uiAppInstance methodSignatureForSelector:sel];
+        NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
+        invocation.selector = sel;
+        invocation.target = uiApp;
+        [invocation invokeWithTarget:uiAppInstance];
+    }
+}
+
+// required for URL opening
+- (BOOL)application:(UIApplication *)application willFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    isAppSuspended = NO;
+    if(launchOptions != nil) {
+        NSURL *url = (NSURL *)[launchOptions valueForKey:UIApplicationLaunchOptionsURLKey];
+        [self cn1StoreAppArgForURL:url];
+    }
+#ifdef CN1_INCLUDE_CALL
+    // HERE and not in didFinishLaunching: a VoIP push can be delivered during
+    // launch, and a PKPushRegistry that does not exist yet loses it -- which
+    // is the case iOS terminates the process for. A no-op in builds without
+    // CN1_CALL_VOIP.
+    cn1CallInstallPushRegistry();
+#endif
+    return YES;
+}
+
+- (UISceneConfiguration *)application:(UIApplication *)application configurationForConnectingSceneSession:(UISceneSession *)connectingSceneSession options:(UISceneConnectionOptions *)options API_AVAILABLE(ios(13.0))
+{
+    UISceneConfiguration *sceneConfiguration = [UISceneConfiguration configurationWithName:@"Default Configuration" sessionRole:connectingSceneSession.role];
+    sceneConfiguration.delegateClass = [CodenameOne_GLSceneDelegate class];
+    return sceneConfiguration;
+}
+
+// Compiled for universal links OR intents OR continuity. The scene delegate is what routes this
+// on a live app, so this app-level callback is the path UIKit takes when it hands the activity
+// to the application rather than to a scene -- a Spotlight tap or a handoff from the user's
+// other device. Intents and continuity are in the condition because the branch each needs inside
+// cn1ContinueUserActivity: has to be compiled for that call to do anything.
+#if defined(CN1_HANDLE_UNIVERSAL_LINKS) || defined(CN1_USE_INTENTS) \
+        || defined(CN1_USE_CONTINUITY)
+// https://developer.apple.com/documentation/uikit/core_app/allowing_apps_and_websites_to_link_to_your_content?language=objc
+// https://github.com/codenameone/CodenameOne/issues/2677
+- (BOOL)application:(UIApplication *)application
+        continueUserActivity:(NSUserActivity *)userActivity
+        restorationHandler:(void (^)(NSArray *))restorationHandler {
+    return [self cn1ContinueUserActivity:userActivity];
+}
+#endif
+
+- (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation {
+    return [self cn1OpenURL:application url:url sourceApplication:sourceApplication annotation:annotation];
+}
+
+- (BOOL)application:(UIApplication *)application handleOpenURL:(NSURL *)url
+{
+#if TARGET_OS_TV
+  // The legacy openURL:sourceApplication:annotation: delegate is unavailable on tvOS.
+  return NO;
+#else
+  return [self application:application openURL:url sourceApplication:nil annotation:nil];
+#endif
+}
+
+- (void)applicationWillResignActive:(UIApplication *)application
+{
+    /*
+     Sent when the application is about to move from active to inactive state. This can occur for certain types of temporary interruptions (such as an incoming phone call or SMS message) or when the user quits the application and it begins the transition to the background state.
+     Use this method to pause ongoing tasks, disable timers, and throttle down rendering frame rates. Games should use this method to pause the game.
+     */
+    [self cn1ApplicationWillResignActive];
+    //[self.viewController stopAnimation];
+}
+- (void)applicationDidEnterBackground:(UIApplication *)application
+{
+    /*
+     Use this method to release shared resources, save user data, invalidate timers, and store enough application state information to restore your application to its current state in case it is terminated later.
+     If your application supports background execution, this method is called instead of applicationWillTerminate: when the user quits.
+     */
+    [self cn1ApplicationDidEnterBackground];
+}
+
+- (void)applicationWillEnterForeground:(UIApplication *)application
+{
+    /*
+     Called as part of the transition from the background to the inactive state; here you can undo many of the changes made on entering the background.
+     */
+    [self cn1ApplicationWillEnterForeground];
+}
+
+- (void)applicationDidBecomeActive:(UIApplication *)application
+{
+    /*
+     Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+     */
+    //[self.viewController startAnimation];
+    [self cn1ApplicationDidBecomeActive];
+
+    // Deliver any content shared into the app via the share extension. The shared App
+    // Group name is written into the Info.plist by the build (CN1ShareAppGroup).
+    NSString *shareGroup = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CN1ShareAppGroup"];
+    if ([shareGroup isKindOfClass:[NSString class]] && [shareGroup length] > 0) {
+        JAVA_OBJECT json = com_codename1_impl_ios_IOSNative_getPendingSharedContent___java_lang_String_R_java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG JAVA_NULL, fromNSString(CN1_THREAD_GET_STATE_PASS_ARG shareGroup));
+        if (json != JAVA_NULL) {
+            com_codename1_impl_ios_IOSImplementation_fireSharedContentFromNative___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG json);
+        }
+    }
+}
+
+- (void)applicationWillTerminate:(UIApplication *)application
+{
+    com_codename1_impl_ios_IOSImplementation_applicationWillTerminate__(CN1_THREAD_GET_STATE_PASS_SINGLE_ARG);
+}
+
+#ifdef INCLUDE_CN1_BACKGROUND_FETCH
+typedef void (^CN1BackgroundFetchBlockType)(UIBackgroundFetchResult);
+CN1BackgroundFetchBlockType cn1UIBackgroundFetchResultCompletionHandler = 0;
+-(void)application:(UIApplication *)application performFetchWithCompletionHandler:(void (^)(UIBackgroundFetchResult))completionHandler{
+    cn1UIBackgroundFetchResultCompletionHandler = Block_copy(completionHandler);
+    com_codename1_impl_ios_IOSImplementation_performBackgroundFetch__(CN1_THREAD_GET_STATE_PASS_SINGLE_ARG);
+}
+#endif
+
+
+#ifdef CN1_INCLUDE_NOTIFICATIONS
+// UNNotificationContent.userInfo is unavailable on tvOS, so the foreground
+// presentation handler (which reads userInfo to route local/push payloads) is
+// omitted there -- it is an optional UNUserNotificationCenterDelegate method.
+#if !TARGET_OS_TV
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center willPresentNotification:(UNNotification *)notification withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler __API_AVAILABLE(macos(10.14), ios(10.0), watchos(3.0), tvos(10.0))
+{
+    if (@available(iOS 10, *)) {
+        if( [notification.request.content.userInfo valueForKey:@"__ios_id__"] != NULL)
+        {
+            CN1Log(@"Received local notification while running: %@", notification);
+
+            NSString* alertValue = [notification.request.content.userInfo valueForKey:@"__ios_id__"];
+            com_codename1_impl_ios_IOSImplementation_localNotificationReceived___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG alertValue));
+            if (completionHandler != nil) {
+                if ([notification.request.content.userInfo valueForKey:@"foreground"] != NULL) {
+                    completionHandler(UNNotificationPresentationOptionAlert);
+                } else {
+                    completionHandler(UNNotificationPresentationOptionNone);
+                }
+            }
+            return;
+        }
+    }
+#ifdef INCLUDE_CN1_PUSH
+    NSLog( @"Handle push from foreground" );
+    // custom code to handle push while app is in the foreground
+    NSLog(@"%@", notification.request.content.userInfo);
+    NSDictionary *userInfo = notification.request.content.userInfo;
+    [self cn1RoutePush:userInfo];
+#endif
+
+
+}
+#endif // !TARGET_OS_TV (willPresentNotification)
+
+
+// UNNotificationResponse (notification action responses) is unavailable on tvOS.
+#if !TARGET_OS_TV
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center didReceiveNotificationResponse:(UNNotificationResponse *)response withCompletionHandler:(void (^)(void))completionHandler {
+    if (@available(iOS 10, *)) {
+        if( [response.notification.request.content.userInfo valueForKey:@"__ios_id__"] != NULL)
+        {
+            CN1Log(@"Received local notification while in background: %@", response.notification);
+            NSString* alertValue = [response.notification.request.content.userInfo valueForKey:@"__ios_id__"];
+            com_codename1_impl_ios_IOSImplementation_localNotificationReceived___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG alertValue));
+            completionHandler();
+
+            return;
+        }
+    }
+#ifdef INCLUDE_CN1_PUSH
+    NSLog( @"Handle push from background or closed" );
+    // if you set a member variable in didReceiveRemoteNotification, you  will know if this is from closed or background
+    NSLog(@"%@", response.notification.request.content.userInfo);
+    currentNotificationResponse = response;
+    [self cn1RoutePush:response.notification.request.content.userInfo withAction:response.actionIdentifier withCompletionHandler:completionHandler];
+    
+    // TODO:  Need to pass the completion handler somehow to the push callback to be called after that
+    // For now this hack to buy the EDT some time to run the push callback.
+    
+    //[NSTimer scheduledTimerWithTimeInterval:1000 repeats:NO block:^(NSTimer *timer) {
+    //    completionHandler();
+    //}];
+#endif
+
+}
+#endif // !TARGET_OS_TV (didReceiveNotificationResponse)
+
+
+#endif
+
+#ifdef INCLUDE_CN1_PUSH
+// UNNotificationResponse type is unavailable on tvOS; hold it as id so the push
+// content plumbing compiles (the tvOS-specific text-response branch is guarded).
+id currentNotificationResponse = nil;
+- (void)application:(UIApplication*)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData*)deviceToken {
+    const unsigned *tokenBytes = [deviceToken bytes];
+    NSString *tokenAsString = [NSString stringWithFormat:@"%08x%08x%08x%08x%08x%08x%08x%08x",
+
+    ntohl(tokenBytes[0]), ntohl(tokenBytes[1]), ntohl(tokenBytes[2]),
+
+    ntohl(tokenBytes[3]), ntohl(tokenBytes[4]), ntohl(tokenBytes[5]),
+
+    ntohl(tokenBytes[6]), ntohl(tokenBytes[7])];
+    
+    JAVA_OBJECT str = fromNSString(CN1_THREAD_GET_STATE_PASS_ARG tokenAsString);
+    com_codename1_impl_ios_IOSImplementation_pushRegistered___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG str);
+}
+ 
+- (void)application:(UIApplication*)application didFailToRegisterForRemoteNotificationsWithError:(NSError*)error {
+	CN1Log(@"Failed to get token, error: %@", error);
+    JAVA_OBJECT str = fromNSString(CN1_THREAD_GET_STATE_PASS_ARG [error localizedDescription]);
+    com_codename1_impl_ios_IOSImplementation_pushRegistrationError___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG str);
+}
+
+- (void)application:(UIApplication*)application didReceiveRemoteNotification:(NSDictionary*)userInfo {
+    CN1Log(@"Received notification while running: %@", userInfo);
+    [self cn1RoutePush:userInfo];
+}
+-(void)cn1RoutePush:(NSDictionary*)userInfo {
+    [self cn1RoutePush:userInfo withAction:nil withCompletionHandler:nil];
+}
+-(void)cn1RoutePush:(NSDictionary*)userInfo withAction:(NSString*)actionId {
+    [self cn1RoutePush:userInfo withAction:actionId withCompletionHandler:nil];
+}
+typedef void (^CN1PushCompletionHandlerType)(void);
+// The completion grant is tracked per notification, in IOSNative.m, because a
+// single global cannot describe two notifications at once -- see the comment
+// there. Routing registers the block once, counts the messages it emits, and
+// carries the id into Java with each of them.
+extern long long CN1PushCompletionBegin(CN1PushCompletionHandlerType handler);
+extern void CN1PushCompletionRetain(long long cid);
+extern void CN1PushCompletionFinishRouting(long long cid);
+-(void)cn1RoutePush:(NSDictionary*)userInfo withAction:(NSString*)actionId withCompletionHandler:(void (^)())completionHandler{
+    // Registered once for the whole notification, before anything is emitted.
+    // It used to be Block_copy'd at each emit site, which overwrote the global
+    // even WITHIN one notification: a type 3 payload emits twice and leaked the
+    // first copy every time.
+    long long cn1PushCid = CN1PushCompletionBegin(completionHandler);
+    NSDictionary *apsInfo = [userInfo objectForKey:@"aps"];
+    if(apsInfo == nil) {
+        //afterDidFinishLaunchingWithOptionsMarkerEntry
+        CN1PushCompletionFinishRouting(cn1PushCid);
+        return;
+    }
+    // Managed push carries the canonical typed envelope as a JSON object. Route it
+    // intact before the historical aps/message-type decoder can split or rewrite it.
+    id cn1Envelope = [userInfo objectForKey:@"cn1"];
+    if ([cn1Envelope isKindOfClass:[NSDictionary class]]) {
+        NSError *jsonError = nil;
+        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:cn1Envelope options:0 error:&jsonError];
+        if (jsonData != nil && jsonError == nil) {
+            NSString *jsonString = [[[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding] autorelease];
+            CN1PushCompletionRetain(cn1PushCid);
+            com_codename1_impl_ios_IOSImplementation_pushReceived___java_lang_String_java_lang_String_long(
+                    CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG jsonString), JAVA_NULL,
+                    (JAVA_LONG)cn1PushCid);
+            return;
+        }
+    }
+    com_codename1_push_PushContent_reset__(CN1_THREAD_GET_STATE_PASS_SINGLE_ARG);
+    
+    BOOL pushIncludedBody = NO;
+    if ([userInfo valueForKey:@"media-url"] != NULL) {
+        com_codename1_push_PushContent_setImageUrl___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG [userInfo valueForKey:@"media-url"]));
+    }
+    if ([userInfo valueForKey:@"meta"] != NULL) {
+        com_codename1_push_PushContent_setMetaData___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG [userInfo valueForKey:@"meta"]));
+    }
+    if ([apsInfo valueForKey:@"category"] != NULL) {
+        com_codename1_push_PushContent_setCategory___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG [apsInfo valueForKey:@"category"]));
+    }
+    if (actionId != nil) {
+        com_codename1_push_PushContent_setActionId___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG actionId));
+#if !TARGET_OS_TV
+        // UNTextInputNotificationResponse (text-input notification actions) is unavailable on tvOS.
+        if (currentNotificationResponse != nil && [currentNotificationResponse isKindOfClass:[UNTextInputNotificationResponse class]]) {
+            UNTextInputNotificationResponse* textResponse = (UNTextInputNotificationResponse*)currentNotificationResponse;
+            if (textResponse.userText != nil) {
+                com_codename1_push_PushContent_setTextResponse___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG textResponse.userText));
+            }
+        }
+#endif
+    }
+    if( [apsInfo valueForKey:@"alert"] != NULL)
+    {
+        pushIncludedBody = YES;
+        id alertValue0 = [[userInfo valueForKey:@"aps"] valueForKey:@"alert"];
+        NSString *alertValue = nil;
+        
+        if ([alertValue0 isKindOfClass:[NSDictionary class]]) {
+            NSDictionary *alertValueD = (NSDictionary*)alertValue0;
+            if ([alertValueD valueForKey:@"title"] != NULL && [alertValueD valueForKey:@"body"] != NULL) {
+                com_codename1_push_PushContent_setTitle___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG [alertValueD valueForKey:@"title"]));
+                com_codename1_push_PushContent_setBody___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG [alertValueD valueForKey:@"body"]));
+                alertValue = [NSString stringWithFormat:@"%@;%@", [alertValueD valueForKey:@"title"], [alertValueD valueForKey:@"body"]];
+                CN1PushCompletionRetain(cn1PushCid);
+                com_codename1_impl_ios_IOSImplementation_pushReceived___java_lang_String_java_lang_String_long(CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG alertValue), fromNSString(CN1_THREAD_GET_STATE_PASS_ARG @"4"), (JAVA_LONG)cn1PushCid);
+            } else {
+                CN1Log(@"Received push type 4 but missing either title or body");
+            }
+            
+        } else {
+            alertValue = (NSString*)alertValue0;
+            // Find out the push type
+            NSString *pushType = @"1";
+            com_codename1_push_PushContent_setBody___java_lang_String(CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG alertValue));
+            if ([userInfo valueForKey:@"meta"] != NULL) {
+                // If there was a meta argument, then this is a type 3 push
+                CN1PushCompletionRetain(cn1PushCid);
+                com_codename1_impl_ios_IOSImplementation_pushReceived___java_lang_String_java_lang_String_long(CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG alertValue), fromNSString(CN1_THREAD_GET_STATE_PASS_ARG @"3"), (JAVA_LONG)cn1PushCid);
+            } else {
+                // If there was no meta argument, then this is a type 1
+                CN1PushCompletionRetain(cn1PushCid);
+                com_codename1_impl_ios_IOSImplementation_pushReceived___java_lang_String_java_lang_String_long(CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG alertValue), fromNSString(CN1_THREAD_GET_STATE_PASS_ARG @"1"), (JAVA_LONG)cn1PushCid);
+            }
+        }
+    }
+    if( [userInfo valueForKey:@"meta"] != NULL)
+    {
+        NSString* alertValue = [userInfo valueForKey:@"meta"];
+        if (pushIncludedBody) {
+            CN1PushCompletionRetain(cn1PushCid);
+            // If the push included a body, then this is a type 3 push (we don't need to set type here because it was set when the body was sent to the push callback)
+            com_codename1_impl_ios_IOSImplementation_pushReceived___java_lang_String_java_lang_String_long(CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG alertValue), nil, (JAVA_LONG)cn1PushCid);
+        } else {
+            // If the push did not include a body, then it is a type 2 push
+            CN1PushCompletionRetain(cn1PushCid);
+            com_codename1_impl_ios_IOSImplementation_pushReceived___java_lang_String_java_lang_String_long(CN1_THREAD_GET_STATE_PASS_ARG fromNSString(CN1_THREAD_GET_STATE_PASS_ARG alertValue), fromNSString(CN1_THREAD_GET_STATE_PASS_ARG @"2"), (JAVA_LONG)cn1PushCid);
+        }
+    }
+    // A notification that produced no message for the application still holds a
+    // grant, and nothing downstream will ever release it.
+    CN1PushCompletionFinishRouting(cn1PushCid);
+}
+
+
+
+
+
+
+#endif
+
+extern void repaintUI();
+
+-(void)application:(UIApplication*)application didChangeStatusBarFrame:(CGRect)oldStatusBarFrame {
+    repaintUI();
+}
+
+#ifndef CN1_USE_ARC
+- (void)dealloc
+{
+    [_window release];
+    [_viewController release];
+    [super dealloc];
+}
+#endif
+
+//GL_APP_DELEGATE_BODY
+
+#if TARGET_OS_MACCATALYST
+// Mac Catalyst native window-chrome bridge. The current form title and command labels are stored
+// here and applied to the host NSWindow title / the application menu bar. Both are first set very
+// early (before the window scene and menu system exist), so they are re-applied whenever a scene
+// activates. Selecting a menu item dispatches back into Java (IOSImplementation.fireMacMenuCommand)
+// which runs the command on the Codename One EDT.
+static NSArray<NSString *> *cn1MacMenuLabels = nil;
+static NSString *cn1MacPendingTitle = nil;
+static BOOL cn1MacObserverRegistered = NO;
+static BOOL cn1MacUndecorated = NO;
+static BOOL cn1MacUndecoratedSet = NO;
+
+// Applies the "custom" desktop title-bar mode to the host NSWindow: hide the AppKit title bar so the
+// CN1 Toolbar (drawn at the top of the content) becomes the window's title bar, while keeping the
+// window resizable and draggable. Passing the un-decorated flag back to NO restores a titled window.
+// All AppKit access goes through the Obj-C runtime so the Catalyst build needs no AppKit link.
+static void cn1ApplyMacWindowChrome(void) API_AVAILABLE(ios(13.0)) {
+    if (!cn1MacUndecoratedSet) { return; }
+    // NSWindowStyleMaskFullSizeContentView == 1 << 15; NSWindowTitleHidden == 1, NSWindowTitleVisible == 0.
+    const NSUInteger CN1_FULL_SIZE_CONTENT = (1UL << 15);
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if (![scene isKindOfClass:[UIWindowScene class]]) { continue; }
+        UIWindowScene *ws = (UIWindowScene *)scene;
+        for (UIWindow *w in ws.windows) {
+            id nsWindow = nil;
+            @try { nsWindow = [w valueForKey:@"_nsWindow"]; } @catch (id e) { nsWindow = nil; }
+            if (nsWindow == nil) { @try { nsWindow = [w valueForKey:@"nsWindow"]; } @catch (id e) { nsWindow = nil; } }
+            if (nsWindow == nil) { @try { nsWindow = [w valueForKey:@"hostNSWindow"]; } @catch (id e) { nsWindow = nil; } }
+            if (nsWindow == nil) { continue; }
+            if ([nsWindow respondsToSelector:@selector(styleMask)] && [nsWindow respondsToSelector:@selector(setStyleMask:)]) {
+                NSUInteger mask = ((NSUInteger (*)(id, SEL))objc_msgSend)(nsWindow, @selector(styleMask));
+                if (cn1MacUndecorated) { mask |= CN1_FULL_SIZE_CONTENT; } else { mask &= ~CN1_FULL_SIZE_CONTENT; }
+                ((void (*)(id, SEL, NSUInteger))objc_msgSend)(nsWindow, @selector(setStyleMask:), mask);
+            }
+            if ([nsWindow respondsToSelector:@selector(setTitlebarAppearsTransparent:)]) {
+                ((void (*)(id, SEL, BOOL))objc_msgSend)(nsWindow, @selector(setTitlebarAppearsTransparent:), cn1MacUndecorated ? YES : NO);
+            }
+            if ([nsWindow respondsToSelector:@selector(setTitleVisibility:)]) {
+                ((void (*)(id, SEL, NSInteger))objc_msgSend)(nsWindow, @selector(setTitleVisibility:), cn1MacUndecorated ? (NSInteger)1 : (NSInteger)0);
+            }
+            if ([nsWindow respondsToSelector:@selector(setMovableByWindowBackground:)]) {
+                ((void (*)(id, SEL, BOOL))objc_msgSend)(nsWindow, @selector(setMovableByWindowBackground:), cn1MacUndecorated ? YES : NO);
+            }
+        }
+    }
+}
+
+static void cn1ApplyMacWindowTitle(void) API_AVAILABLE(ios(13.0)) {
+    if (cn1MacPendingTitle == nil) { return; }
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if (![scene isKindOfClass:[UIWindowScene class]]) { continue; }
+        UIWindowScene *ws = (UIWindowScene *)scene;
+        // UIWindowScene.title alone does not always replace the AppKit window title (which Catalyst
+        // seeds from the bundle name); reach the host NSWindow and set its title directly too.
+        ws.title = cn1MacPendingTitle;
+        for (UIWindow *w in ws.windows) {
+            id nsWindow = nil;
+            @try { nsWindow = [w valueForKey:@"_nsWindow"]; } @catch (id e) { nsWindow = nil; }
+            if (nsWindow == nil) { @try { nsWindow = [w valueForKey:@"nsWindow"]; } @catch (id e) { nsWindow = nil; } }
+            if (nsWindow == nil) { @try { nsWindow = [w valueForKey:@"hostNSWindow"]; } @catch (id e) { nsWindow = nil; } }
+            if (nsWindow != nil && [nsWindow respondsToSelector:@selector(setTitle:)]) {
+                ((void (*)(id, SEL, id))objc_msgSend)(nsWindow, @selector(setTitle:), cn1MacPendingTitle);
+            }
+        }
+    }
+}
+
+static void cn1RegisterMacObserver(void) API_AVAILABLE(ios(13.0)) {
+    if (cn1MacObserverRegistered) { return; }
+    cn1MacObserverRegistered = YES;
+    [[NSNotificationCenter defaultCenter] addObserverForName:UISceneDidActivateNotification
+                                                      object:nil
+                                                       queue:[NSOperationQueue mainQueue]
+                                                  usingBlock:^(NSNotification *note) {
+        cn1ApplyMacWindowTitle();
+        cn1ApplyMacWindowChrome();
+        [[UIMenuSystem mainSystem] setNeedsRebuild];
+    }];
+}
+
+void CN1SetMacWindowTitle(NSString *title) {
+    if (@available(iOS 13.0, *)) {
+        cn1MacPendingTitle = [title copy];
+        cn1RegisterMacObserver();
+        dispatch_async(dispatch_get_main_queue(), ^{ cn1ApplyMacWindowTitle(); });
+    }
+}
+
+void CN1SetMacWindowUndecorated(BOOL undecorated) {
+    if (@available(iOS 13.0, *)) {
+        cn1MacUndecorated = undecorated;
+        cn1MacUndecoratedSet = YES;
+        cn1RegisterMacObserver();
+        dispatch_async(dispatch_get_main_queue(), ^{ cn1ApplyMacWindowChrome(); });
+    }
+}
+
+void CN1SetMacMenuLabels(NSArray *labels) {
+    cn1MacMenuLabels = labels;
+    if (@available(iOS 13.0, *)) {
+        cn1RegisterMacObserver();
+        dispatch_async(dispatch_get_main_queue(), ^{ [[UIMenuSystem mainSystem] setNeedsRebuild]; });
+    }
+}
+
+// Maps a Codename One desktop-menu hint (case-insensitive) to a standard UIKit menu identifier.
+// Returns nil for an empty/custom hint (the caller then makes a top-level menu titled by the hint
+// or a default "Commands" menu). placeAtStart is set for the application-menu slots.
+static NSString *cn1MenuIdentifierForHint(NSString *hint, BOOL *placeAtStart) API_AVAILABLE(ios(13.0)) {
+    *placeAtStart = NO;
+    NSString *h = [hint lowercaseString];
+    if ([h isEqualToString:@"app"] || [h isEqualToString:@"about"]
+            || [h isEqualToString:@"preferences"] || [h isEqualToString:@"quit"]) {
+        *placeAtStart = YES;
+        return UIMenuApplication;
+    }
+    if ([h isEqualToString:@"file"]) { return UIMenuFile; }
+    if ([h isEqualToString:@"edit"]) { return UIMenuEdit; }
+    if ([h isEqualToString:@"view"]) { return UIMenuView; }
+    if ([h isEqualToString:@"window"]) { return UIMenuWindow; }
+    if ([h isEqualToString:@"help"]) { return UIMenuHelp; }
+    return nil;
+}
+
+- (void)buildMenuWithBuilder:(id<UIMenuBuilder>)builder API_AVAILABLE(ios(13.0)) {
+    [super buildMenuWithBuilder:builder];
+    if (cn1MacMenuLabels == nil || cn1MacMenuLabels.count == 0) {
+        return;
+    }
+    // Group the "<hint>\t<label>\t<shortcutKeyChar>\t<shortcutModifiers>\t<commandId>" rows by hint,
+    // preserving first-seen order. Column 4 is what gets passed back to Java: an id naming one
+    // command, rather than a row number, because Java publishes its map before this menu is rebuilt
+    // and a row number outlives the list that gave it meaning. See IOSImplementation.
+    NSMutableArray<NSString *> *groupOrder = [NSMutableArray array];
+    NSMutableDictionary<NSString *, NSMutableArray<UICommand *> *> *groups = [NSMutableDictionary dictionary];
+    for (NSUInteger i = 0; i < cn1MacMenuLabels.count; i++) {
+        NSString *row = cn1MacMenuLabels[i];
+        NSArray<NSString *> *cols = [row componentsSeparatedByString:@"\t"];
+        NSString *hint = (cols.count > 0) ? cols[0] : @"";
+        NSString *label = (cols.count > 1) ? cols[1] : row;
+        int shortcutKeyChar = (cols.count > 2) ? [cols[2] intValue] : 0;
+        int shortcutModifiers = (cols.count > 3) ? [cols[3] intValue] : 0;
+        NSNumber *commandId = (cols.count > 4) ? @([cols[4] intValue]) : @(i);
+        UICommand *cmd;
+        if (shortcutKeyChar != 0) {
+            // Java Command modifier flags: PRIMARY=1 (Command on mac), SHIFT=2, ALT=4
+            UIKeyModifierFlags flags = 0;
+            if (shortcutModifiers & 1) { flags |= UIKeyModifierCommand; }
+            if (shortcutModifiers & 2) { flags |= UIKeyModifierShift; }
+            if (shortcutModifiers & 4) { flags |= UIKeyModifierAlternate; }
+            // %C and unichar: the column carries a Java char, so narrowing it to
+            // a byte rewrites any accelerator outside Latin-1 into an unrelated
+            // control character. See cn1MakeCommandItem in CN1MacChrome.m.
+            NSString *input = [[NSString stringWithFormat:@"%C", (unichar)shortcutKeyChar] lowercaseString];
+            cmd = [UIKeyCommand commandWithTitle:label
+                                           image:nil
+                                          action:@selector(cn1MenuAction:)
+                                           input:input
+                                   modifierFlags:flags
+                                    propertyList:commandId];
+        } else {
+            cmd = [UICommand commandWithTitle:label
+                                        image:nil
+                                       action:@selector(cn1MenuAction:)
+                                 propertyList:commandId];
+        }
+        NSMutableArray<UICommand *> *bucket = groups[hint];
+        if (bucket == nil) {
+            bucket = [NSMutableArray array];
+            groups[hint] = bucket;
+            [groupOrder addObject:hint];
+        }
+        [bucket addObject:cmd];
+    }
+    NSUInteger customMenuCounter = 0;
+    for (NSString *hint in groupOrder) {
+        NSArray<UICommand *> *bucket = groups[hint];
+        BOOL placeAtStart = NO;
+        NSString *targetIdentifier = cn1MenuIdentifierForHint(hint, &placeAtStart);
+        if (targetIdentifier != nil) {
+            // insert the commands as an inline (anonymous) group into the standard menu
+            UIMenu *inlineMenu = [UIMenu menuWithTitle:@""
+                                                 image:nil
+                                            identifier:nil
+                                               options:UIMenuOptionsDisplayInline
+                                              children:bucket];
+            if (placeAtStart) {
+                [builder insertChildMenu:inlineMenu atStartOfMenuForIdentifier:targetIdentifier];
+            } else {
+                [builder insertChildMenu:inlineMenu atEndOfMenuForIdentifier:targetIdentifier];
+            }
+        } else {
+            // empty hint -> default "Commands" menu; custom hint -> a top-level menu by that title
+            NSString *title = (hint.length == 0) ? @"Commands" : hint;
+            NSString *identifier = [NSString stringWithFormat:@"com.codename1.menu.%lu", (unsigned long)customMenuCounter++];
+            UIMenu *menu = [UIMenu menuWithTitle:title
+                                           image:nil
+                                      identifier:identifier
+                                         options:0
+                                        children:bucket];
+            [builder insertSiblingMenu:menu afterMenuForIdentifier:UIMenuView];
+        }
+    }
+}
+
+- (void)cn1MenuAction:(UICommand *)sender API_AVAILABLE(ios(13.0)) {
+    NSNumber *idx = (NSNumber *)sender.propertyList;
+    if (idx == nil) {
+        return;
+    }
+    struct ThreadLocalData* threadStateData = getThreadLocalData();
+    com_codename1_impl_ios_IOSImplementation_fireMacMenuCommand___int(threadStateData, (JAVA_INT)[idx intValue]);
+}
+#endif
+
+@end
+
+#else
+// Compiled out on watchOS: this file is Metal / UIKit-only and the watch
+// slice renders through the Core Graphics backend instead. The typedef keeps the
+// translation unit non-empty, which ISO C requires.
+typedef int cn1_codenameone_glappdelegate_unused_on_watch;
+#endif // !TARGET_OS_WATCH

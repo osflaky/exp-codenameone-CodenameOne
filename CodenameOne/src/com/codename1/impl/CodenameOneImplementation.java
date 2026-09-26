@@ -1,0 +1,13365 @@
+/*
+ * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores
+ * CA 94065 USA or visit www.oracle.com if you need additional information or
+ * have any questions.
+ */
+package com.codename1.impl;
+
+import com.codename1.ui.Desktop;
+import com.codename1.annotations.Concrete;
+import com.codename1.capture.VideoCaptureConstraints;
+import com.codename1.codescan.CodeScanner;
+import com.codename1.components.AudioRecorderComponent;
+import com.codename1.components.FileTree;
+import com.codename1.components.FileTreeModel;
+import com.codename1.contacts.Contact;
+import com.codename1.db.Cursor;
+import com.codename1.db.Database;
+import com.codename1.db.DatabaseConfig;
+import com.codename1.db.DatabaseEncryptionException;
+import com.codename1.io.ConnectionRequest;
+import com.codename1.io.Cookie;
+import com.codename1.io.FileSystemStorage;
+import com.codename1.io.Log;
+import com.codename1.io.NetworkManager;
+import com.codename1.io.NetworkTypePlatform;
+import com.codename1.io.Preferences;
+import com.codename1.io.Storage;
+import com.codename1.io.Util;
+import com.codename1.io.bonjour.BonjourPlatform;
+import com.codename1.io.usb.UsbPlatform;
+import com.codename1.io.wifi.WifiDirectPlatform;
+import com.codename1.io.wifi.WifiPlatform;
+import com.codename1.io.tar.TarEntry;
+import com.codename1.io.tar.TarInputStream;
+import com.codename1.l10n.L10NManager;
+import com.codename1.location.LocationManager;
+import com.codename1.media.Media;
+import com.codename1.media.MediaRecorderBuilder;
+import com.codename1.media.VideoIO;
+import com.codename1.messaging.Message;
+import com.codename1.notifications.LocalNotification;
+import com.codename1.notifications.NotificationChannelBuilder;
+import com.codename1.notifications.NotificationPermissionCallback;
+import com.codename1.notifications.NotificationPermissionRequest;
+import com.codename1.notifications.NotificationPermissionResult;
+import com.codename1.background.ForegroundService;
+import com.codename1.background.WorkRequest;
+import com.codename1.printing.PrintResult;
+import com.codename1.printing.PrintResultListener;
+import com.codename1.share.SharedContent;
+import com.codename1.share.ShareResult;
+import com.codename1.share.ShareResultListener;
+import com.codename1.payment.Purchase;
+import com.codename1.payment.PurchaseCallback;
+import com.codename1.push.PushCallback;
+import com.codename1.security.Biometrics;
+import com.codename1.security.SecureStorage;
+import com.codename1.security.TapjackingPolicy;
+import com.codename1.ui.BrowserComponent;
+import com.codename1.ui.BrowserWindow;
+import com.codename1.ui.Button;
+import com.codename1.ui.CN;
+import com.codename1.ui.Command;
+import com.codename1.ui.ClipboardContent;
+import com.codename1.ui.NativeDragOperation;
+import com.codename1.ui.Component;
+import com.codename1.ui.Container;
+import com.codename1.ui.Dialog;
+import com.codename1.ui.Display;
+import com.codename1.ui.Window;
+import com.codename1.ui.EncodedImage;
+import com.codename1.ui.Font;
+import com.codename1.ui.Form;
+import com.codename1.ui.Graphics;
+import com.codename1.ui.Image;
+import com.codename1.ui.Label;
+import com.codename1.ui.PeerComponent;
+import com.codename1.ui.Sheet;
+import com.codename1.ui.Stroke;
+import com.codename1.ui.TextArea;
+import com.codename1.ui.TextSelection;
+import com.codename1.ui.Transform;
+import com.codename1.ui.accessibility.AccessibilityManager;
+import com.codename1.ui.accessibility.AccessibilityTreeSnapshot;
+import com.codename1.ui.animations.Animation;
+import com.codename1.ui.animations.Transition;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.events.MessageEvent;
+import com.codename1.ui.geom.Dimension;
+import com.codename1.ui.geom.Rectangle;
+import com.codename1.ui.geom.Shape;
+import com.codename1.ui.layouts.BorderLayout;
+import com.codename1.ui.Gradient;
+import com.codename1.ui.plaf.Style;
+import com.codename1.ui.util.ImageIO;
+import com.codename1.util.AsyncResource;
+import com.codename1.util.FailureCallback;
+import com.codename1.util.Simd;
+import com.codename1.util.StringUtil;
+import com.codename1.util.SuccessCallback;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.Reader;
+import java.io.Writer;
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.Hashtable;
+import java.util.Map;
+import java.util.Vector;
+
+/// Represents a vendor extension mechanizm for Codename One, **WARNING: this class is for internal
+/// use only and is subject to change in future API revisions**. To replace the way in which
+/// Codename One performs its task this class can be extended and its functionality replaced or
+/// enhanced.
+///
+/// It is the responsibility of the implementation class to grab and fire all events to the
+/// Display specifically for key, pointer events and screen resolution.
+///
+/// @author Shai Almog
+@Concrete(name = "com.codename1.impl.ios.IOSImplementation", win = "com.codename1.impl.windows.WindowsImplementation", linux = "com.codename1.impl.linux.LinuxImplementation", mac = "com.codename1.impl.mac.MacImplementation")
+public abstract class CodenameOneImplementation {
+    /// Indicates the range of "hard" RTL bidi characters in unicode
+    private static final int RTL_RANGE_BEGIN = 0x590;
+    private static final int RTL_RANGE_END = 0x7BF;
+    private static PushCallback callback;
+    private static PurchaseCallback purchaseCallback;
+    private static Runnable onCurrentFormChange;
+    private static Runnable onExit;
+    /// Useful since the content of a single element touch event is often recycled
+    /// and always arrives on 1 thread. Even on multi-tocuh devices a single coordinate
+    /// touch event should be very efficient
+    private final int[] xPointerEvent = new int[1];
+    /// Useful since the content of a single element touch event is often recycled
+    /// and always arrives on 1 thread. Even on multi-tocuh devices a single coordinate
+    /// touch event should be very efficient
+    private final int[] yPointerEvent = new int[1];
+    private final Hashtable builtinSounds = new Hashtable();
+    /// For use inside paintDirty() so that we don't have to instantiate
+    /// a rectangle each time it is called.
+    Object displayLock;
+    private boolean bidi;
+    private Object lightweightClipboard;
+    private Hashtable linearGradientCache;
+    private Hashtable radialGradientCache;
+    private boolean builtinSoundEnabled = true;
+    private boolean dragStarted = false;
+    private int dragActivationCounter = 0;
+    /// How many windows may have a drag gesture in flight at once. A touchscreen can
+    /// have a contact down in two windows at the same time, and the framework already
+    /// keys press targets and drag histories per window rather than globally.
+    /// Drops any drag-activation state held for a window.
+    ///
+    /// A window can be disposed or lose the native pointer while a press is still
+    /// down, and then no release ever arrives to end the gesture. The next press in a
+    /// window reset for reuse would otherwise continue the old one, which reads as a
+    /// drag already in progress. The framework calls this from its own window input
+    /// cancellation, which until now cleared only its own records.
+    ///
+    /// #### Parameters
+    ///
+    /// - `windowId`: the window's id; zero -- the main surface -- keeps its state in
+    /// fields on this class and is not affected
+    public void releaseWindowInputState(int windowId) {
+        if (windowId > 0) {
+            PointerDragActivation act = Desktop.getInstance().windowDragActivation(windowId);
+            if (act != null) {
+                act.reset();
+            }
+        }
+    }
+
+    private int dragActivationX = 0;
+    private int dragActivationY = 0;
+    private int dragStartPercentage = 3;
+    private Form currentForm;
+    private final PaintSurface mainSurface = new PaintSurface(this, null);
+    private ArrayList<PaintSurface> windowSurfaces;
+    private String packageName;
+    private Component editingText;
+    private String appArg;
+    private int pointerPressedX;
+    private int pointerPressedY;
+    private Object storageData;
+    private Hashtable cookies;
+    private ActionListener logger;
+    private int commandBehavior = Display.COMMAND_BEHAVIOR_DEFAULT;
+    private boolean useNativeCookieStore = true;
+    private boolean initiailized = false;
+    private BrowserComponent sharedJavascriptContext;
+    private Dimension initialWindowSizeHintPercent;
+
+    /// Set a task to be executed every time the current form changes (e.g. on
+    /// navigation). Used by the advertising layer to show interstitials on
+    /// transitions; see [com.codename1.ads.AdManager#bindInterstitialOnTransition].
+    public static void setOnCurrentFormChange(Runnable on) {
+        onCurrentFormChange = on;
+    }
+
+    /// Set a task to be executed once the implementation is being destroyed
+    public static void setOnExit(Runnable on) {
+        onExit = on;
+    }
+
+    private static Object currentApplicationInstance;
+
+    /// Stores the running application's main class instance so the implementation can
+    /// dispatch lifecycle style callbacks (such as shared content delivery) to it. Set by
+    /// the platform port when it bootstraps the application.
+    ///
+    /// #### Parameters
+    ///
+    /// - `app`: the application main class instance
+    public static void setCurrentApplicationInstance(Object app) {
+        currentApplicationInstance = app;
+    }
+
+    /// Returns the running application's main class instance, or null if it has not been
+    /// captured.
+    ///
+    /// #### Returns
+    ///
+    /// the application main class instance, or null
+    public static Object getCurrentApplicationInstance() {
+        return currentApplicationInstance;
+    }
+
+    /// Allows the system to register to receive push callbacks
+    ///
+    /// #### Parameters
+    ///
+    /// - `push`: the callback object
+    public static void setPushCallback(PushCallback push) {
+        callback = push;
+    }
+
+    /// Returns the callback explicitly installed by `PushClient`, or the legacy main-class
+    /// callback installed by a port. Native bootstrap code uses this instead of assuming the
+    /// application main class implements `PushCallback`.
+    public static PushCallback getPushCallback() {
+        return callback;
+    }
+
+    /// Returns the purchase callback instance
+    public static PurchaseCallback getPurchaseCallback() {
+        return purchaseCallback;
+    }
+
+    /// Allows the system to register the purchase callback instance
+    ///
+    /// #### Parameters
+    ///
+    /// - `pc`: the pc callback
+    public static void setPurchaseCallback(PurchaseCallback pc) {
+        purchaseCallback = pc;
+    }
+
+    private static int round(double d) {
+        double f = Math.floor(d);
+        double c = Math.ceil(d);
+        if (c - d < d - f) {
+            return (int) c;
+        }
+        return (int) f;
+    }
+
+    /// This is a temporary workaround for an XMLVM Bug!
+    public static Class getStringArrayClass() {
+        return String[].class;
+    }
+
+    /// This is a temporary workaround for an XMLVM Bug!
+    public static Class getStringArray2DClass() {
+        return String[][].class;
+    }
+
+    /// This is a temporary workaround for an XMLVM Bug!
+    public static Class getImageArrayClass() {
+        return Image[].class;
+    }
+
+    /// This is a temporary workaround for an XMLVM Bug!
+    public static Class getObjectArrayClass() {
+        return Object[].class;
+    }
+
+    /// Stops the polling push loop
+    protected static void stopPolling() {
+    }
+
+    /// Returns the key for the application comprised of the builders email coupled with the
+    /// package name. It should uniquely identify the application across different builds
+    /// which allows interaction with the cloud.
+    ///
+    /// #### Returns
+    ///
+    /// a unique string with the format builders_email/packagename
+    protected static String getApplicationKey() {
+        Display d = Display.getInstance();
+        return d.getProperty("built_by_user", "Unknown Build Key") + '/' +
+                d.getProperty("package_name", "Unknown Build Key");
+    }
+
+    /// Sends a server request to register push support. This is a method for use
+    /// by implementations.
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: the platform specific push ID
+    ///
+    /// - `applicationKey`: the unique id of the application
+    ///
+    /// - `pushType`: for server side type
+    ///
+    /// - `packageName`: the application package name used by the push service
+    ///
+    /// #### Returns
+    ///
+    /// true for success, false otherwise
+    public static boolean registerServerPush(String id, String applicationKey, byte pushType, String udid,
+                                             String packageName) {
+        //Log.p("registerPushOnServer invoked for id: " + id + " app key: " + applicationKey + " push type: " + pushType);
+        Preferences.set("push_key", id);
+        /*if(Preferences.get("push_id", (long)-1) == -1) {
+            Preferences.set("push_key", id);
+            ConnectionRequest r = new ConnectionRequest() {
+                protected void readResponse(InputStream input) throws IOException  {
+                    DataInputStream d = new DataInputStream(input);
+                    long pid = d.readLong();
+                    Preferences.set("push_id", pid);
+                    Log.p("registerPushOnServer push id received from server: " + pid);
+                }
+            };
+            r.setPost(false);
+            r.setFailSilently(true);
+            r.setReadResponseForErrors(false);
+            r.setUrl(Display.getInstance().getProperty("cloudServerURL", "https://codename-one.appspot.com/") + "registerPush");
+            long val = Preferences.get("push_id", (long)-1);
+            if(val > -1) {
+                r.addArgument("i", "" + val);
+            }
+            r.addArgument("p", id);
+            r.addArgument("k", applicationKey);
+            r.addArgument("os", Display.getInstance().getPlatformName());
+            r.addArgument("t", "" + pushType);
+            r.addArgument("ud", udid);
+            r.addArgument("r", packageName);
+            NetworkManager.getInstance().addToQueueAndWait(r);
+            return r.getResponseCode() == 200;
+        }*/
+        return true;
+    }
+
+    /// Sends a server request to register push support. This is a method for use
+    /// by implementations.
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: the platform specific push ID
+    ///
+    /// - `applicationKey`: the unique id of the application
+    ///
+    /// - `pushType`: for server side type
+    ///
+    /// - `packageName`: the application package name used by the push service
+    public static void registerPushOnServer(String id, String applicationKey, byte pushType, String udid,
+                                            String packageName) {
+        registerServerPush(id, applicationKey, pushType, udid, packageName);
+    }
+
+    /// For use by implementations, stop receiving push notifications from the server
+    public static void deregisterPushFromServer() {
+        /*long i = Preferences.get("push_id", (long)-1);
+        if(i > -1) {
+            ConnectionRequest r = new ConnectionRequest();
+            r.setPost(false);
+            r.setUrl(Display.getInstance().getProperty("cloudServerURL", "https://codename-one.appspot.com/") + "deregisterPush");
+            r.addArgument("p", "" + i);
+            r.addArgument("a", getApplicationKey());
+            NetworkManager.getInstance().addToQueue(r);
+            Preferences.delete("push_id");
+            Preferences.delete("push_key");
+        }*/
+    }
+
+    /// Registers a polling thread to simulate push notification
+    ///
+    /// #### Deprecated
+    ///
+    /// this functionality is no longer supported
+    protected static void registerPollingFallback() {
+    }
+
+    /// Invoked by the display init method allowing the implementation to "bind"
+    ///
+    /// #### Parameters
+    ///
+    /// - `m`: the object passed to the Display init method
+    public final void initImpl(Object m) {
+        init(m);
+        if (m != null) {
+            String clsName = m.getClass().getName();
+            packageName = clsName.substring(0, clsName.lastIndexOf('.'));
+        }
+        initiailized = true;
+    }
+
+    /// Returns true if the implementation is initialized.
+    public boolean isInitialized() {
+        return initiailized;
+    }
+
+    /// Allows implementations to send an error to the push callback
+    ///
+    /// #### Parameters
+    ///
+    /// - `message`: the error message
+    ///
+    /// - `errorCode`: the error code
+    protected void sendPushRegistrationError(String message, int errorCode) {
+        if (callback != null) {
+            callback.pushRegistrationError(message, errorCode);
+        }
+    }
+
+    /// Invoked by the display init method allowing the implementation to "bind"
+    ///
+    /// #### Parameters
+    ///
+    /// - `m`: the object passed to the Display init method
+    public abstract void init(Object m);
+
+    /// Some implementations might need to perform initializations of the EDT thread
+    public void initEDT() {
+    }
+
+    /// Allows subclasses to cleanup if necessary
+    public void deinitialize() {
+        initiailized = false;
+    }
+
+    /// Invoked when a dialog is shown, this method allows a dialog to play a sound
+    ///
+    /// #### Parameters
+    ///
+    /// - `type`: the type of the dialog matching the dialog classes defined types
+    public void playDialogSound(final int type) {
+    }
+
+    /// Vibrates the device for the given length of time
+    ///
+    /// #### Parameters
+    ///
+    /// - `duration`: length of time to vibrate
+    public void vibrate(int duration) {
+    }
+
+    /// Flash the backlight of the device for the given length of time
+    ///
+    /// #### Parameters
+    ///
+    /// - `duration`: length of time to flash the backlight
+    public void flashBacklight(int duration) {
+    }
+
+    /// Returns the width dimension of the display controlled by this implementation
+    ///
+    /// #### Returns
+    ///
+    /// the width
+    public abstract int getDisplayWidth();
+
+    /// Returns the height dimension of the display controlled by this implementation
+    ///
+    /// #### Returns
+    ///
+    /// the height
+    public abstract int getDisplayHeight();
+
+    /// Returns the display height ignoring manipulations performed by the VKB
+    ///
+    /// #### Returns
+    ///
+    /// the height
+    public int getActualDisplayHeight() {
+        return getDisplayHeight();
+    }
+
+    /// Returns the size of the desktop area hosting the application window when running on a desktop
+    /// platform. Implementations that do not support windows may return `null`.
+    ///
+    /// #### Returns
+    ///
+    /// the desktop size or `null`
+    public Dimension getDesktopSize() {
+        return null;
+    }
+
+    /// Returns the bounds of the application window when running on a desktop platform.
+    ///
+    /// #### Returns
+    ///
+    /// the window bounds, defaults to the current display size
+    public Rectangle getWindowBounds() {
+        return new Rectangle(0, 0, getDisplayWidth(), getDisplayHeight());
+    }
+
+    /// Requests a resize of the application window when supported by the platform.
+    ///
+    /// #### Parameters
+    ///
+    /// - `width`: the desired window width in pixels
+    ///
+    /// - `height`: the desired window height in pixels
+    public void setWindowSize(int width, int height) {
+    }
+
+    /// Returns the optional desktop window size hint provided by the first form.
+    ///
+    /// #### Returns
+    ///
+    /// the stored hint or `null`
+    public Dimension getInitialWindowSizeHintPercent() {
+        return initialWindowSizeHintPercent;
+    }
+
+    /// Stores an optional window size hint (in percent values) for desktop environments. Implementations
+    /// that do not support windows may ignore this value.
+    ///
+    /// #### Parameters
+    ///
+    /// - `hint`: @param hint a `Dimension` whose width/height represent percentages of the desktop to use for
+    /// the initial window size, or `null` to clear a previously stored hint
+    public void setInitialWindowSizeHintPercent(Dimension hint) {
+        initialWindowSizeHintPercent = hint;
+    }
+
+    /// Invoked when an exception occurs on the EDT, allows the implementation to
+    /// take control of the device to produce testing information.
+    ///
+    /// #### Parameters
+    ///
+    /// - `err`: the exception that was caught in the EDT loop
+    ///
+    /// #### Returns
+    ///
+    /// @return false by default, true if the exception shouldn't be handled further
+    /// by the EDT
+    public boolean handleEDTException(Throwable err) {
+        return false;
+    }
+
+    /// Encapsulates the editing code which is specific to the platform, some platforms
+    /// allow "in place editing" and some do not.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: the `TextArea` component
+    ///
+    /// - `maxSize`: the maximum size from the text area
+    ///
+    /// - `constraint`: the constraints of the text area
+    ///
+    /// - `text`: the string to edit
+    ///
+    /// - `initiatingKeycode`: the keycode used to initiate the edit.
+    public final void editStringImpl(Component cmp, int maxSize, int constraint, String text, int initiatingKeycode) {
+        if (cmp instanceof TextArea) {
+            ((TextArea) cmp).registerAsInputDevice();
+        }
+        editingText = cmp;
+        editString(cmp, maxSize, constraint, text, initiatingKeycode);
+        if (!isAsyncEditMode()) {
+            editingText = null;
+        }
+    }
+
+    /// Sets current editingText value and sets it focused.
+    /// NB! it not call editString, that is it should be called only internally and
+    /// actually the methdo should not be added :)
+    public void setFocusedEditingText(Component cmp) {
+        editingText = cmp;
+        if (cmp != null) {
+            // The top level rather than the form: getComponentForm() is null by design
+            // inside a Window, so focus was silently never moved to the component being
+            // edited there.
+            com.codename1.ui.TopLevelContainer top = cmp.getTopLevelContainer();
+            if (top != null) {
+                top.setFocused(cmp);
+            }
+        }
+    }
+
+    /// Invoked for special cases to stop text editing and clear native editing state
+    public void stopTextEditing() {
+    }
+
+    /// Invoked for special cases to stop text editing and clear native editing state
+    public void stopTextEditing(Runnable onFinish) {
+        stopTextEditing();
+        if (onFinish != null) {
+            onFinish.run();
+        }
+    }
+
+    /// Using invokeAndBlock inside EditString creates peculiar behaviour that needs
+    /// to be worked around.  Ideally no port should use invokeAndBlock for this
+    /// but currently JavaSE and UWP both do.  Need to be able to detect this
+    /// for workarounds.
+    public boolean usesInvokeAndBlockForEditString() {
+        return false;
+    }
+
+    /// Encapsulates the editing code which is specific to the platform, some platforms
+    /// allow "in place editing" and some do not.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: the `TextArea` component
+    ///
+    /// - `maxSize`: the maximum size from the text area
+    ///
+    /// - `constraint`: the constraints of the text area
+    ///
+    /// - `text`: the string to edit
+    ///
+    /// - `initiatingKeycode`: the keycode used to initiate the edit.
+    public abstract void editString(Component cmp, int maxSize, int constraint, String text, int initiatingKeycode);
+
+    public boolean nativeEditorPaintsHint() {
+        return true;
+    }
+
+    /// Returns true if we are currently editing a component
+    ///
+    /// #### Returns
+    ///
+    /// whether a component is being edited
+    public boolean isEditingText() {
+        return editingText != null;
+    }
+
+    /// Checks to see if this is a platform that uses the `TextField#setInputMode(java.lang.String)`.
+    public boolean platformUsesInputMode() {
+        Display d = Display.getInstance();
+        String platform = d.getPlatformName();
+        return "me".equals(platform) || "rim".equals(platform);
+    }
+
+    /// Checks whether the native text editor is currently visible over top of the
+    /// given component (usually a `TextArea`
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: The textarea/component we are checking
+    ///
+    /// #### Returns
+    ///
+    /// True if the native editor is visible.
+    public boolean isNativeEditorVisible(Component c) {
+        return this.isNativeInputSupported() && this.isEditingText(c);
+    }
+
+    /// Called when TextArea text is changed.  Can be used by the native
+    /// implementation to trigger an update to the native editor if in async edit
+    /// mode.
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: The TextArea that is being edited.
+    ///
+    /// - `text`
+    public void updateNativeEditorText(Component c, String text) {
+
+    }
+
+    /// In case of scrolling we can hide the text editor unless the user starts typing again,
+    /// this is only relevant for the async mode...
+    public void hideTextEditor() {
+        Component c = editingText;
+        editingText = null;
+
+        // this might happen when the component is no longer a part of the form e.g. in the case of table editing.
+        if (c != null) {
+            c.repaint();
+        }
+    }
+
+    public String getAppArg() {
+        return appArg;
+    }
+
+    public void setAppArg(String arg) {
+        appArg = arg;
+    }
+
+    /// Allows the implementation to refresh the text field
+    protected final void repaintTextEditor(final boolean focus) {
+        Display.getInstance().callSerially(new Runnable() {
+            @Override
+            public void run() {
+                if (editingText != null) {
+                    editingText.repaint();
+                    if (focus) {
+                        editingText.requestFocus();
+                    }
+                }
+            }
+        });
+    }
+
+    /// Returns true if we are currently editing this component
+    ///
+    /// #### Returns
+    ///
+    /// whether a component is being edited
+    public boolean isEditingText(Component c) {
+        return editingText == c; //NOPMD CompareObjectsWithEquals
+    }
+
+    /// Gets the component that is currently editing text
+    public Component getEditingText() {
+        return editingText;
+    }
+
+    /// Returns true if edit string will return immediately and broadcast editing events directly to the text field
+    ///
+    /// #### Returns
+    ///
+    /// false by default
+    public boolean isAsyncEditMode() {
+        return false;
+    }
+
+    /// Returns the height of the VKB when it is open for an implementation that requires
+    /// us to allow scrolling further
+    ///
+    /// #### Returns
+    ///
+    /// height in pixels
+    public int getInvisibleAreaUnderVKB() {
+        return 0;
+    }
+
+    /// Invoked if Codename One needs to dispose the native text editing but would like the editor
+    /// to store its state.
+    public void saveTextEditingState() {
+    }
+
+    /// Returns true if the implementation still has elements to paint.
+    ///
+    /// #### Returns
+    ///
+    /// false by default
+    public boolean hasPendingPaints() {
+        if (mainSurface.hasPendingPaints()) {
+            return true;
+        }
+        if (windowSurfaces != null) {
+            int len = windowSurfaces.size();
+            for (int iter = 0; iter < len; iter++) {
+                if (windowSurfaces.get(iter).hasPendingPaints()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// Creates the paint surface backing a native window and registers it, so that
+    /// the sweeps over every surface -- pending paints, cancelled repaints -- see it.
+    ///
+    /// This is the whole of the window painting API on this class: everything else a
+    /// surface can do is a method on the surface itself.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeWindow`: the window peer the surface draws into
+    ///
+    /// #### Returns
+    ///
+    /// the new surface
+    public final PaintSurface createPaintSurface(Object nativeWindow) {
+        PaintSurface surface = new PaintSurface(this, nativeWindow);
+        synchronized (displayLock) {
+            if (windowSurfaces == null) {
+                windowSurfaces = new ArrayList<PaintSurface>();
+            }
+            windowSurfaces.add(surface);
+        }
+        return surface;
+    }
+
+    /// Unregisters a surface being disposed. Called by `PaintSurface#dispose()`
+    /// under the display lock, which is why it does not take it again.
+    ///
+    /// #### Parameters
+    ///
+    /// - `surface`: the surface to forget
+    void forgetWindowSurface(PaintSurface surface) {
+        if (windowSurfaces != null) {
+            windowSurfaces.remove(surface);
+        }
+    }
+
+    /// Return the number of alpha levels supported by the implementation.
+    ///
+    /// #### Returns
+    ///
+    /// the number of alpha levels supported by the implementation
+    ///
+    /// #### Deprecated
+    ///
+    /// this method isn't implemented in most modern devices
+    public int numAlphaLevels() {
+        return 255;
+    }
+
+    /// Returns the number of colors applicable on the device, note that the API
+    /// does not support gray scale devices.
+    ///
+    /// #### Returns
+    ///
+    /// the number of colors applicable on the device
+    ///
+    /// #### Deprecated
+    ///
+    /// this method isn't implemented in most modern devices
+    public int numColors() {
+        return 65536;
+    }
+
+    /// This method allows customizing/creating a graphics context per component which is useful for
+    /// some elaborate implementations of Codename One. This method is only relevant for elborate components
+    /// such as container which render their own components rather than invoke repaint()
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: component being rendered
+    ///
+    /// - `currentContext`: the current graphics context
+    ///
+    /// #### Returns
+    ///
+    /// a graphics object thats appropriate for the given component.
+    public Graphics getComponentScreenGraphics(Component cmp, Graphics currentContext) {
+        return currentContext;
+    }
+
+    /// Allows for painting an overlay on top of the implementation for notices during
+    /// testing etc.
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: graphics context on which to draw the overlay
+    protected void paintOverlay(Graphics g) {
+    }
+
+    /// Calculates the paintable bounds of a component.  The paintable bounds is
+    /// the bounds (in screen coordinates) that will be vislble on the screen.  This
+    /// accounts for possible clipping by parent components.
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: The component whose paintable bounds we are interested in.
+    ///
+    /// - `out`: A rectangle to return the bounds in.
+    void getPaintableBounds(Component c, Rectangle out) {
+        int x = c.getAbsoluteX() + c.getScrollX();
+        int y = c.getAbsoluteY() + c.getScrollY();
+        int x2 = x + c.getWidth();
+        int y2 = y + c.getHeight();
+
+        Container parent = c.getParent();
+        if (parent != null) {
+            getPaintableBounds(parent, out);
+            x = Math.max(out.getX(), x);
+            y = Math.max(out.getY(), y);
+            x2 = Math.min(out.getX() + out.getWidth(), x2);
+            y2 = Math.min(out.getY() + out.getHeight(), y2);
+
+
+        }
+        out.setBounds(x, y, x2 - x, y2 - y);
+
+    }
+
+    /// Invoked by the EDT to paint the dirty regions of the application's main
+    /// surface.
+    public void paintDirty() {
+        mainSurface.paintDirty(getDisplayWidth(), getDisplayHeight());
+    }
+
+    /// Reports the clip region that bounds the current component's flush as
+    /// {@link #paintDirty()} is about to paint it -- its dirty region, or the
+    /// full screen for a full repaint. Immediate-mode native ports that draw
+    /// screen ops straight into a persistent surface (the Linux Cairo port)
+    /// override this to confine a clip set during that component's paint to the
+    /// flushed region, so an oversized clip cannot escape and corrupt pixels
+    /// outside it (issue #5273). Retained-mode ports (iOS) clamp at flush time
+    /// against their own flush rect instead, so the default here is a no-op and
+    /// every other port is unaffected.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: left edge of the flush region in screen coordinates
+    /// - `y`: top edge of the flush region in screen coordinates
+    /// - `width`: width of the flush region
+    /// - `height`: height of the flush region
+    protected void setPaintDirtyRegionClip(int x, int y, int width, int height) {
+    }
+
+    /// This method is a callback from the edt before the edt enters to an idle
+    /// state
+    ///
+    /// #### Parameters
+    ///
+    /// - `enter`: @param enter true before the edt sleeps and false when exits from the
+    /// idle state
+    public void edtIdle(boolean enter) {
+    }
+
+    /// Flush the currently painted drawing onto the screen if using a double buffer
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: position of the dirty region
+    ///
+    /// - `y`: position of the dirty region
+    ///
+    /// - `width`: width of the dirty region
+    ///
+    /// - `height`: height of the dirty region
+    public abstract void flushGraphics(int x, int y, int width, int height);
+
+    /// Flush the currently painted drawing onto the screen if using a double buffer
+    public abstract void flushGraphics();
+
+    /// Returns a graphics object for use by the painting
+    ///
+    /// #### Returns
+    ///
+    /// @return a graphics object, either recycled or new, this object will be
+    /// used on the EDT
+    protected Graphics getCodenameOneGraphics() {
+        return mainSurface.getGraphics();
+    }
+
+    /// Installs the Codename One graphics object into the implementation
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: graphics object for use by the implementation
+    public void setCodenameOneGraphics(Graphics g) {
+        mainSurface.setGraphics(g);
+    }
+
+    /// A flag that can be overridden by a platform to indicate that native
+    /// peers are rendered behind the main codename one graphics layer.  The main
+    /// effect of this is that Graphics will call clearRect() any time a native
+    /// component is "painted" to poke a hole through the CN1 layer.
+    public boolean paintNativePeersBehind() {
+        return false;
+    }
+
+    /// Installs the display lock allowing implementors to synchronize against the
+    /// Display mutex, this method is invoked internally and should not be used.
+    ///
+    /// #### Parameters
+    ///
+    /// - `lock`: the mutex from display
+    public void setDisplayLock(Object lock) {
+        displayLock = lock;
+    }
+
+    /// Removes an entry from the paint queue if it exists, this is important for cases
+    /// in which a component was repainted and immediately removed from its parent container
+    /// afterwards. This happens sometimes in cases where a replace() operation changes
+    /// a component to a new component that has an animation() the animation might have triggered
+    /// a repaint before the removeComponent method was invoked
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: the component to
+    public void cancelRepaint(Animation cmp) {
+        synchronized (displayLock) {
+            if (mainSurface.cancelRepaint(cmp)) {
+                return;
+            }
+            if (windowSurfaces != null) {
+                int len = windowSurfaces.size();
+                for (int iter = 0; iter < len; iter++) {
+                    if (windowSurfaces.get(iter).cancelRepaint(cmp)) {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Invoked to add an element to the paintQueue
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: component or animation to push into the paint queue
+    public void repaint(Animation cmp) {
+        mainSurface.repaint(cmp);
+    }
+
+    /// Extracts RGB data from the given native image and places it in the given array
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeImage`: native platform image object
+    ///
+    /// - `arr`: int array to store RGB data
+    ///
+    /// - `offset`: position within the array to start
+    ///
+    /// - `x`: x position within the image
+    ///
+    /// - `y`: y position within the image
+    ///
+    /// - `width`: width to extract
+    ///
+    /// - `height`: height to extract
+    public abstract void getRGB(Object nativeImage, int[] arr, int offset, int x, int y, int width, int height);
+
+    /// Create a platform native image object from the given RGB data
+    ///
+    /// #### Parameters
+    ///
+    /// - `rgb`: ARGB data from which to create a platform image
+    ///
+    /// - `width`: width for the resulting image
+    ///
+    /// - `height`: height for the resulting image
+    ///
+    /// #### Returns
+    ///
+    /// platform image object
+    public abstract Object createImage(int[] rgb, int width, int height);
+
+    /// Creates a native image from a file in the system jar or file system storage.
+    ///
+    /// #### Parameters
+    ///
+    /// - `path`: If path begins with file: this will load a file from FileSystemStorage.  Otherwise it will load from jar.
+    ///
+    /// #### Returns
+    ///
+    /// native system image
+    ///
+    /// #### Throws
+    ///
+    /// - `java.io.IOException`: if thrown by loading
+    public abstract Object createImage(String path) throws IOException;
+
+    /// Creates a native image from a given input stream
+    ///
+    /// #### Parameters
+    ///
+    /// - `i`: input stream from which to load the image
+    ///
+    /// #### Returns
+    ///
+    /// native system image
+    ///
+    /// #### Throws
+    ///
+    /// - `java.io.IOException`: if thrown by loading
+    public abstract Object createImage(InputStream i) throws IOException;
+
+    /// Creates a modifable native image that can return a graphics object
+    ///
+    /// #### Parameters
+    ///
+    /// - `width`: the width of the mutable image
+    ///
+    /// - `height`: the height of the mutable image
+    ///
+    /// - `fillColor`: @param fillColor the ARGB fill color, alpha may be ignored based on the value of
+    /// isAlphaMutableImageSupported
+    ///
+    /// #### Returns
+    ///
+    /// the native image
+    public abstract Object createMutableImage(int width, int height, int fillColor);
+
+    /// Indicates whether mutable images respect alpha values when constructed
+    ///
+    /// #### Returns
+    ///
+    /// true if mutable images can have an alpha value when initially created
+    public boolean isAlphaMutableImageSupported() {
+        return false;
+    }
+
+    /// Create a nativate image from its compressed byte data
+    ///
+    /// #### Parameters
+    ///
+    /// - `bytes`: the byte array representing the image data
+    ///
+    /// - `offset`: offset within the byte array
+    ///
+    /// - `len`: the length for the image within the byte array
+    ///
+    /// #### Returns
+    ///
+    /// a native image
+    public abstract Object createImage(byte[] bytes, int offset, int len);
+
+
+    /// Whether this port can round a picture's corners as it draws it.
+    ///
+    /// The alternative -- and what callers have to do when this is false -- is
+    /// to build a rounded COPY of the bitmap: read the pixels back, clear the
+    /// alpha outside the corner arcs, and upload the result as a second image.
+    /// That is a full pixel round trip and a second texture per picture, and the
+    /// corners are a property of how the picture is DRAWN, not of the picture.
+    ///
+    /// #### Returns
+    ///
+    /// true if `drawImageRounded` rounds; false if it will simply draw the image
+    /// square
+    public boolean isRoundedImageDrawSupported() {
+        return false;
+    }
+
+    /// Draws an image with its corners rounded to the given radius, if the port
+    /// supports it; otherwise draws it square.
+    ///
+    /// Check `isRoundedImageDrawSupported()` first -- a caller that needs the
+    /// corners must keep its own fallback for ports that cannot.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `img`: the image
+    ///
+    /// - `x`: destination x
+    ///
+    /// - `y`: destination y
+    ///
+    /// - `w`: destination width
+    ///
+    /// - `h`: destination height
+    ///
+    /// - `cornerRadius`: radius in destination pixels, clamped by the port to
+    /// half the smaller side
+    public void drawImageRounded(Object graphics, Object img, int x, int y, int w, int h, float cornerRadius) {
+        drawImage(graphics, img, x, y, w, h);
+    }
+
+    /// Returns the width of a native image
+    ///
+    /// #### Parameters
+    ///
+    /// - `i`: the native image
+    ///
+    /// #### Returns
+    ///
+    /// the width of the native image
+    public abstract int getImageWidth(Object i);
+
+    /// Returns the height of a native image
+    ///
+    /// #### Parameters
+    ///
+    /// - `i`: the native image
+    ///
+    /// #### Returns
+    ///
+    /// the height of the native image
+    public abstract int getImageHeight(Object i);
+
+    /// Scales a native image and returns the scaled version
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeImage`: image to scale
+    ///
+    /// - `width`: width of the resulting image
+    ///
+    /// - `height`: height of the resulting image
+    ///
+    /// #### Returns
+    ///
+    /// scaled image instance
+    public abstract Object scale(Object nativeImage, int width, int height);
+
+    /// Returns an instance of this image rotated by the given number of degrees. By default 90 degree
+    /// angle divisions are supported, anything else is implementation dependent. This method assumes
+    /// a square image. Notice that it is inefficient in the current implementation to rotate to
+    /// non-square angles,
+    ///
+    /// E.g. rotating an image to 45, 90 and 135 degrees is inefficient. Use rotatate to 45, 90
+    /// and then rotate the 45 to another 90 degrees to achieve the same effect with less memory.
+    ///
+    /// #### Parameters
+    ///
+    /// - `degrees`: A degree in right angle must be larger than 0 and up to 359 degrees
+    ///
+    /// #### Returns
+    ///
+    /// new image instance with the closest possible rotation
+    public Object rotate(Object image, int degrees) {
+        int width = getImageWidth(image);
+        int height = getImageHeight(image);
+        int[] arr = new int[width * height];
+        int[] dest = new int[arr.length];
+        getRGB(image, arr, 0, 0, 0, width, height);
+        int centerX = width / 2;
+        int centerY = height / 2;
+
+        double radians = Math.toRadians(-degrees);
+        double cosDeg = Math.cos(radians);
+        double sinDeg = Math.sin(radians);
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                int x2 = round(cosDeg * (x - centerX) - sinDeg * (y - centerY) + centerX);
+                int y2 = round(sinDeg * (x - centerX) + cosDeg * (y - centerY) + centerY);
+                if (!(x2 < 0 || y2 < 0 || x2 >= width || y2 >= height)) {
+                    int destOffset = x2 + y2 * width;
+                    if (destOffset >= 0 && destOffset < dest.length) {
+                        dest[x + y * width] = arr[destOffset];
+                    }
+                }
+            }
+        }
+        return createImage(dest, width, height);
+    }
+
+    /// Rotates the given image by 90 degrees while changing the ratio of the picture
+    ///
+    /// #### Parameters
+    ///
+    /// - `image`: the image
+    ///
+    /// - `maintainOpacity`: whether the opacity in the image should be maintained
+    ///
+    /// #### Returns
+    ///
+    /// a new image rotated by 90 degrees
+    public Image rotate90Degrees(Image image, boolean maintainOpacity) {
+        int[] rgb = image.getRGB();
+        int[] newRGB = new int[rgb.length];
+        int width = image.getWidth();
+        int height = image.getHeight();
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int destX = height - y - 1;
+                newRGB[destX + x * height] = rgb[x + y * width];
+            }
+        }
+
+        // we reverse width/height
+        return EncodedImage.createFromRGB(newRGB, height, width, !maintainOpacity);
+    }
+
+    /// Rotates the given image by 180 degrees
+    ///
+    /// #### Parameters
+    ///
+    /// - `image`: the image
+    ///
+    /// - `maintainOpacity`: whether the opacity in the image should be maintained
+    ///
+    /// #### Returns
+    ///
+    /// a new image rotated by 180 degrees
+    public Image rotate180Degrees(Image image, boolean maintainOpacity) {
+        int[] rgb = image.getRGB();
+        int[] newRGB = new int[rgb.length];
+        int width = image.getWidth();
+        int height = image.getHeight();
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int destX = width - x - 1;
+                newRGB[destX + (height - y - 1) * width] = rgb[x + y * width];
+            }
+        }
+
+        return EncodedImage.createFromRGB(newRGB, width, height, !maintainOpacity);
+    }
+
+    /// Rotates the given image by 270 degrees while changing the ratio of the picture
+    ///
+    /// #### Parameters
+    ///
+    /// - `image`: the image
+    ///
+    /// - `maintainOpacity`: whether the opacity in the image should be maintained
+    ///
+    /// #### Returns
+    ///
+    /// a new image rotated by 270 degrees
+    public Image rotate270Degrees(Image image, boolean maintainOpacity) {
+        int[] rgb = image.getRGB();
+        int[] newRGB = new int[rgb.length];
+        int width = image.getWidth();
+        int height = image.getHeight();
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                newRGB[y + (width - x - 1) * height] = rgb[x + y * width];
+            }
+        }
+
+        // we reverse width/height
+        return EncodedImage.createFromRGB(newRGB, height, width, !maintainOpacity);
+    }
+
+    /// Flips the given image on the horizontal axis
+    ///
+    /// #### Parameters
+    ///
+    /// - `image`: the image
+    ///
+    /// - `maintainOpacity`: whether the opacity in the image should be maintained
+    ///
+    /// #### Returns
+    ///
+    /// a new image flipped
+    public Image flipImageHorizontally(Image image, boolean maintainOpacity) {
+        int[] rgb = image.getRGB();
+        int[] newRGB = new int[rgb.length];
+        int width = image.getWidth();
+        int height = image.getHeight();
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                newRGB[(width - x - 1) + y * width] = rgb[x + y * width];
+            }
+        }
+
+        return EncodedImage.createFromRGB(newRGB, width, height, !maintainOpacity);
+    }
+
+    /// Flips the given image on the vertical axis
+    ///
+    /// #### Parameters
+    ///
+    /// - `image`: the image
+    ///
+    /// - `maintainOpacity`: whether the opacity in the image should be maintained
+    ///
+    /// #### Returns
+    ///
+    /// a new image flipped
+    public Image flipImageVertically(Image image, boolean maintainOpacity) {
+        int[] rgb = image.getRGB();
+        int[] newRGB = new int[rgb.length];
+        int width = image.getWidth();
+        int height = image.getHeight();
+
+        for (int y = 0; y < height; y++) {
+            if (width >= 0) {
+                System.arraycopy(rgb, 0 + y * width, newRGB, 0 + (height - y - 1) * width, width);
+            }
+        }
+
+        return EncodedImage.createFromRGB(newRGB, width, height, !maintainOpacity);
+    }
+
+    /// Tries to grab an OS native screenshot which would include peer components etc.
+    /// On fallback draws the current Form object.
+    ///
+    /// #### Parameters
+    ///
+    /// - `callback`: invoked with the screenshot
+    public void screenshot(SuccessCallback<Image> callback) {
+        Form current = getCurrentForm();
+        Image img = Image.createImage(current.getWidth(), current.getHeight());
+        current.paintComponent(img.getGraphics(), true);
+        callback.onSucess(img);
+    }
+
+    /// Notifies the platform that push notification processing is complete.
+    public void notifyPushCompletion() {
+    }
+
+    /// Returns true if the platform supports a native image cache.  The native image cache
+    /// is different than just `FileSystemStorage#hasCachesDir()`.  A native image cache
+    /// is an image cache that the platform provides that is full transparent to Codename One
+    /// with respect to how images are stored, and whether they are cached.  Currently only
+    /// the Javascript port supprts a native image cache.
+    ///
+    /// This is used by `java.lang.String, com.codename1.ui.Image, int)`
+    /// to determine if it should use a cached image, or to defer to its storage and filesystem methods.
+    ///
+    /// #### Returns
+    ///
+    /// True on platforms that support a native image cache.  Currently only Javascript.
+    ///
+    /// #### See also
+    ///
+    /// - Display#supportsNativeImageCache()
+    public boolean supportsNativeImageCache() {
+        return false;
+    }
+
+    /// Downloads an image from a URL to the cache. Platforms
+    /// that support a native image cache `#supportsNativeImageCache()` (e.g. Javascript) override this method to defer to the
+    /// platform's handling of cached images.  Platforms that have a caches directory (`FileSystemStorage#hasCachesDir()`
+    /// will use that directory to cache the image.  Other platforms will just download to storage.
+    ///
+    /// #### Parameters
+    ///
+    /// - `url`: The URL of the image to download.
+    ///
+    /// - `onSuccess`: Callback on success.
+    ///
+    /// - `onFail`: Callback on fail.
+    ///
+    /// #### See also
+    ///
+    /// - URLImage#createToCache(com.codename1.ui.EncodedImage, java.lang.String, com.codename1.ui.URLImage.ImageAdapter)
+    public void downloadImageToCache(String url, SuccessCallback<Image> onSuccess, final FailureCallback<Image> onFail) {
+        FileSystemStorage fs = FileSystemStorage.getInstance();
+        if (fs.hasCachesDir()) {
+            String name = "cn1_image_cache[" + url + "]";
+            name = StringUtil.replaceAll(name, "/", "_");
+            name = StringUtil.replaceAll(name, "\\", "_");
+            name = StringUtil.replaceAll(name, "%", "_");
+            name = StringUtil.replaceAll(name, "?", "_");
+            name = StringUtil.replaceAll(name, "*", "_");
+            name = StringUtil.replaceAll(name, ":", "_");
+            name = StringUtil.replaceAll(name, "=", "_");
+
+            String filePath = fs.getCachesDir() + fs.getFileSystemSeparator() + name;
+
+            // We use Util.downloadImageToFileSystem rather than CodenameOneImplementation.downloadImageToFileSystem
+            // because we want it to try to load from file system first.
+            Util.downloadImageToFileSystem(url, filePath, onSuccess, onFail);
+        } else {
+            // We use Util.downloadImageToStorage rather than CodenameOneImplementation.downloadImageToStorage
+            // because we want it to try to load from storage first.
+            Util.downloadImageToStorage(url, "cn1_image_cache[" + url + "]", onSuccess, onFail);
+        }
+    }
+
+    /// Downloads an image to storage. This will *not* first check to see if the image is located in storage
+    /// already.  It will download and overwrite any existing image at the provided location.
+    ///
+    /// Some platforms may override this method to use platform-level caching.  E.g. Javascript will use
+    /// the browser cache for downloading the image.
+    ///
+    /// #### Parameters
+    ///
+    /// - `url`: The URL of the image to download.
+    ///
+    /// - `fileName`: The storage key to be used to store the image.
+    ///
+    /// - `onSuccess`: Callback on success.  Will be executed on EDT.
+    ///
+    /// - `onFail`: Callback on failure.  Will be executed on EDT.
+    public void downloadImageToStorage(String url, String fileName, SuccessCallback<Image> onSuccess, FailureCallback<Image> onFail) {
+        ConnectionRequest cr = new ConnectionRequest();
+        cr.setPost(false);
+        cr.setFailSilently(true);
+        cr.setReadResponseForErrors(false);
+        cr.setDuplicateSupported(true);
+        cr.setUrl(url);
+        cr.downloadImageToStorage(fileName, onSuccess, onFail);
+    }
+
+    /// Downloads an image to file system. This will *not* first check to see if the file exists already.
+    /// It will download and overwrite any existing image at the provided location.
+    ///
+    /// Some platforms may override this method to use platform-level caching.  E.g. Javascript will use
+    /// the browser cache for downloading the image.
+    ///
+    /// #### Parameters
+    ///
+    /// - `url`: The URL of the image to download.
+    ///
+    /// - `fileName`: The storage key to be used to store the image.
+    ///
+    /// - `onSuccess`: Callback on success.  Will be executed on EDT.
+    ///
+    /// - `onFail`: Callback on failure.  Will be executed on EDT.
+    public void downloadImageToFileSystem(String url, String fileName, SuccessCallback<Image> onSuccess, FailureCallback<Image> onFail) {
+        ConnectionRequest cr = new ConnectionRequest();
+        cr.setPost(false);
+        cr.setFailSilently(true);
+        cr.setReadResponseForErrors(false);
+        cr.setDuplicateSupported(true);
+        cr.setUrl(url);
+        cr.downloadImageToFileSystem(fileName, onSuccess, onFail);
+    }
+
+    /// Returns the number of softkeys on the device
+    ///
+    /// #### Returns
+    ///
+    /// the number of softkey buttons on the device
+    public abstract int getSoftkeyCount();
+
+    /// Returns the softkey keycode for the given softkey index
+    ///
+    /// #### Parameters
+    ///
+    /// - `index`: the index of the softkey
+    ///
+    /// #### Returns
+    ///
+    /// @return the set of keycodes which can indicate the softkey, multiple keycodes
+    /// might apply to the same functionality
+    public abstract int[] getSoftkeyCode(int index);
+
+    /// Returns the keycode for the clear key
+    ///
+    /// #### Returns
+    ///
+    /// the system key code for this device
+    public abstract int getClearKeyCode();
+
+    /// Returns the keycode for the backspace key
+    ///
+    /// #### Returns
+    ///
+    /// the system key code for this device
+    public abstract int getBackspaceKeyCode();
+
+    /// Returns the keycode for the back key
+    ///
+    /// #### Returns
+    ///
+    /// the system key code for this device
+    public abstract int getBackKeyCode();
+
+    /// Returns the display game action for the given keyCode if applicable to match
+    /// the contrct of Codename One for the game action behavior
+    ///
+    /// #### Parameters
+    ///
+    /// - `keyCode`: the device keycode
+    ///
+    /// #### Returns
+    ///
+    /// a game action or 0
+    public abstract int getGameAction(int keyCode);
+
+    /// Returns a keycode which can be sent to getGameAction
+    ///
+    /// #### Parameters
+    ///
+    /// - `gameAction`: the game action
+    ///
+    /// #### Returns
+    ///
+    /// key code matching the given game action
+    public abstract int getKeyCode(int gameAction);
+
+    /// Returns true if the device will send touch events
+    ///
+    /// #### Returns
+    ///
+    /// true if the device will send touch events
+    public abstract boolean isTouchDevice();
+
+    /// Callback before showing a specific form
+    ///
+    /// #### Parameters
+    ///
+    /// - `f`: the form shown
+    public void onShow(Form f) {
+        if (onCurrentFormChange != null) {
+            onCurrentFormChange.run();
+        }
+    }
+
+    /// Callback method allowing the implementation to confirm that it controls the
+    /// view just before a new form is installed.
+    public void confirmControlView() {
+    }
+
+    /// Returns the current form, this method is for internal use only and does not
+    /// take transitions/menus into consideration
+    ///
+    /// #### Returns
+    ///
+    /// The internal current form
+    public Form getCurrentForm() {
+        return currentForm;
+    }
+
+    /// This method is used internally to determine the actual current form
+    /// it doesn't perform the logic of transitions etc. and shouldn't be invoked
+    /// by developers
+    ///
+    /// #### Parameters
+    ///
+    /// - `f`: the current form
+    public void setCurrentForm(Form f) {
+        currentForm = f;
+    }
+
+    /// Codename One can translate all coordinates and never requires a call to translate
+    /// this works well for some devices which have hairy issues with translate.
+    /// However for some platforms where translate can be leveraged with affine transforms
+    /// this can be a problem. These platforms can choose to translate on their own
+    ///
+    /// #### Returns
+    ///
+    /// @return true if the implementation is interested in receiving translate calls
+    /// and handling them.
+    public boolean isTranslationSupported() {
+        return false;
+    }
+
+    // -----------------------------------------------------------------
+    // Speech recognition + Text-to-speech hooks
+    //
+    // Default to no-op so existing platform ports compile unchanged.
+    // iOS / Android / JavaSE override these in their own impl classes.
+    // -----------------------------------------------------------------
+
+    public boolean speechRecognitionIsSupported() {
+        return false;
+    }
+
+    public void startSpeechRecognition(com.codename1.media.RecognitionOptions options,
+                                       com.codename1.media.RecognitionCallback callback) {
+        if (callback != null) {
+            Display.getInstance().callSerially(
+                    new UnsupportedSpeechFallback(callback));
+        }
+    }
+
+    /// Static helper that fires the no-op fallback error on the EDT.
+    /// Named so SpotBugs' SIC_INNER_SHOULD_BE_STATIC_ANON doesn't
+    /// flag the equivalent anonymous Runnable.
+    private static final class UnsupportedSpeechFallback implements Runnable {
+        private final com.codename1.media.RecognitionCallback callback;
+
+        UnsupportedSpeechFallback(com.codename1.media.RecognitionCallback callback) {
+            this.callback = callback;
+        }
+
+        @Override
+        public void run() {
+            callback.onError(new UnsupportedOperationException(
+                    "Speech recognition is not supported on this platform"));
+        }
+    }
+
+    public void stopSpeechRecognition() {
+        // No-op: platforms with no recognizer have nothing to stop.
+    }
+
+    public boolean textToSpeechIsSupported() {
+        return false;
+    }
+
+    public void textToSpeechSpeak(String text, com.codename1.media.TtsOptions options) {
+        // No-op fallback: apps can probe textToSpeechIsSupported()
+        // first; calling speak() on an unsupported platform is silent
+        // by design so simulator/test code paths keep flowing.
+    }
+
+    public void textToSpeechStop() {
+    }
+
+    public String[] textToSpeechAvailableVoices() {
+        return new String[0];
+    }
+
+/// Translates the X/Y location for drawing on the underlying surface. Translation
+    /// is incremental so the new value will be added to the current translation and
+    /// in order to reset translation we have to invoke
+    /// `translate(-getTranslateX(), -getTranslateY())`
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `x`: the x coordinate
+    ///
+    /// - `y`: the y coordinate
+    public void translate(Object graphics, int x, int y) {
+    }
+
+    /// Returns the current x translate value
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// #### Returns
+    ///
+    /// the current x translate value
+    public int getTranslateX(Object graphics) {
+        return 0;
+    }
+
+    /// Returns the current y translate value
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// #### Returns
+    ///
+    /// the current y translate value
+    public int getTranslateY(Object graphics) {
+        return 0;
+    }
+
+    /// Returns the current color
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// #### Returns
+    ///
+    /// the RGB graphics color
+    public abstract int getColor(Object graphics);
+
+    /// Sets the current rgb color while ignoring any potential alpha component within
+    /// said color value.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `rgb`: the RGB value for the color.
+    public abstract void setColor(Object graphics, int rgb);
+
+    /// Alpha value from 0-255 can be ignored for some operations
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `alpha`: the alpha channel
+    public abstract void setAlpha(Object graphics, int alpha);
+
+    /// Concatenates alpha value to current alpha.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: The graphics context
+    ///
+    /// - `alpha`: The alpha to concatenate.
+    ///
+    /// #### Returns
+    ///
+    /// The previous alpha value.
+    public final int concatenateAlpha(Object graphics, int alpha) {
+        if (alpha == 255) {
+            return getAlpha(graphics);
+        }
+        int oldAlpha = getAlpha(graphics);
+        setAlpha(graphics, (int) (oldAlpha * (alpha / 255f)));
+        return oldAlpha;
+    }
+
+    /// Alpha value from 0-255 can be ignored for some operations
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// #### Returns
+    ///
+    /// the alpha channel
+    public abstract int getAlpha(Object graphics);
+
+    /// Returns true if alpha can be applied for all elements globally and efficiently
+    /// otherwise alpha should be ignored.
+    /// Notice that fillRect MUST always support alpha regardless of the value of this
+    /// variable!
+    ///
+    /// #### Returns
+    ///
+    /// true if alpha support is natively implemented
+    public boolean isAlphaGlobal() {
+        return false;
+    }
+
+    /// Indicates whether the underlying implementation allows for anti-aliasing in regular
+    /// drawing operations
+    ///
+    /// #### Returns
+    ///
+    /// false by default
+    public boolean isAntiAliasingSupported() {
+        return false;
+    }
+
+    public boolean isAntiAliasingSupported(Object graphics) {
+        return isAntiAliasingSupported();
+    }
+
+    /// Indicates whether the underlying implementation allows for anti-aliased fonts
+    ///
+    /// #### Returns
+    ///
+    /// false by default
+    public boolean isAntiAliasedTextSupported() {
+        return false;
+    }
+
+    public boolean isAntiAliasedTextSupported(Object graphics) {
+        return isAntiAliasedTextSupported();
+    }
+    
+    /*
+    public void setClipShape(Object graphics, Shape shape){
+        if ( shape.isRectangle() ){
+            setClipRect(graphics, (Rectangle)shape);
+        } else {
+            throw new RuntimeException("Only rectangle clips supported in this port");
+        }
+    }
+    
+    public Shape getClipShape(Object graphics){
+        return this.getClipRect(graphics);
+    }
+    */
+
+    /// Toggles anti-aliasing mode for regular rendering operations
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `a`: true to activate Anti-aliasing, false to disable it
+    public void setAntiAliased(Object graphics, boolean a) {
+    }
+
+    /// Returns anti-aliasing mode for regular rendering operations
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// #### Returns
+    ///
+    /// true if Anti-aliasing is active, false otherwise
+    public boolean isAntiAliased(Object graphics) {
+        return false;
+    }
+
+    /// Toggles anti-aliasing mode for font rendering operations
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `a`: true to activate Anti-aliasing, false to disable it
+    public void setAntiAliasedText(Object graphics, boolean a) {
+    }
+
+    /// Returns anti-aliasing mode for font rendering operations
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// #### Returns
+    ///
+    /// true if Anti-aliasing is active, false otherwise
+    public boolean isAntiAliasedText(Object graphics) {
+        return false;
+    }
+
+    // ----- BEGIN CLIP STACK METHODS ---  ADDED TO HELP SUPPORT TRANSFORMATIONS
+    // in the clip.
+
+    /// Installs a native font object
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `font`: the native font object
+    public abstract void setNativeFont(Object graphics, Object font);
+
+    /// Returns the internal clipping rectangle. This method must create a new
+    /// rectangle object to prevent corruption by modification.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// #### Returns
+    ///
+    /// the clipping rectangle.
+    public Rectangle getClipRect(Object graphics) {
+        return new Rectangle(getClipX(graphics), getClipY(graphics), new Dimension(getClipWidth(graphics), getClipHeight(graphics)));
+    }
+
+    /// Returns the clipping coordinate
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// #### Returns
+    ///
+    /// the clipping coordinate
+    public abstract int getClipX(Object graphics);
+
+
+    // ----- END CLIP STACK METHODS
+
+    /// Returns the clipping coordinate
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// #### Returns
+    ///
+    /// the clipping coordinate
+    public abstract int getClipY(Object graphics);
+
+    /// Returns the clipping coordinate
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// #### Returns
+    ///
+    /// the clipping coordinate
+    public abstract int getClipWidth(Object graphics);
+
+    /// Returns the clipping coordinate
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// #### Returns
+    ///
+    /// the clipping coordinate
+    public abstract int getClipHeight(Object graphics);
+
+    /// Installs a new clipping rectangle
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `rect`: rectangle representing the new clipping area
+    public void setClipRect(Object graphics, Rectangle rect) {
+        Dimension d = rect.getSize();
+        setClip(graphics, rect.getX(), rect.getY(), d.getWidth(), d.getHeight());
+    }
+
+    /// Installs a new clipping rectangle
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `x`: coordinate
+    ///
+    /// - `y`: coordinate
+    ///
+    /// - `width`: size
+    ///
+    /// - `height`: size
+    ///
+    /// - `rect`: rectangle representing the new clipping area
+    public abstract void setClip(Object graphics, int x, int y, int width, int height);
+
+    /// Clips the Graphics context to the Shape.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `shape`: The shape to clip.
+    public void setClip(Object graphics, Shape shape) {
+        System.out.println("Shape clip is not supported");
+    }
+
+    /// Changes the current clipping rectangle to subset the current clipping with
+    /// the given clipping.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `rect`: rectangle representing the new clipping area
+    public void clipRect(Object graphics, Rectangle rect) {
+        Dimension d = rect.getSize();
+        clipRect(graphics, rect.getX(), rect.getY(), d.getWidth(), d.getHeight());
+    }
+
+    /// Changes the current clipping rectangle to subset the current clipping with
+    /// the given clipping.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `x`: coordinate
+    ///
+    /// - `y`: coordinate
+    ///
+    /// - `width`: size
+    ///
+    /// - `height`: size
+    ///
+    /// - `rect`: rectangle representing the new clipping area
+    public abstract void clipRect(Object graphics, int x, int y, int width, int height);
+
+    /// Pushes the current clip onto the clip stack so that it can be retrieved later
+    /// by `#popClip`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: The native graphics context.
+    public void pushClip(Object graphics) {
+
+    }
+
+    /// Cleans up resources used by graphics object
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`
+    public void disposeGraphics(Object graphics) {
+
+    }
+
+    /// Pops the clip from the top of the clip stack and sets it as the current clip.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: The native graphics context.
+    ///
+    /// #### Returns
+    ///
+    /// The clip that was popped off the top of the clip stack.
+    public void popClip(Object graphics) {
+        // NOt implemented yet... need to implement.
+
+
+    }
+
+    /// Draws a line between the 2 X/Y coordinates
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `x1`: first x position
+    ///
+    /// - `y1`: first y position
+    ///
+    /// - `x2`: second x position
+    ///
+    /// - `y2`: second y position
+    public abstract void drawLine(Object graphics, int x1, int y1, int x2, int y2);
+
+
+    // METHODS FOR DEALING WITH 2-D Paths
+
+    /// Fills the rectangle from the given position according to the width/height
+    /// minus 1 pixel according to the convention in Java.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `x`: the x coordinate of the rectangle to be filled.
+    ///
+    /// - `y`: the y coordinate of the rectangle to be filled.
+    ///
+    /// - `width`: the width of the rectangle to be filled.
+    ///
+    /// - `height`: the height of the rectangle to be filled.
+    public abstract void fillRect(Object graphics, int x, int y, int width, int height);
+
+    public void clearRect(Object graphics, int x, int y, int width, int height) {
+        System.out.println("clearRect() not implemented on this platform");
+    }
+
+    /// Draws a rectangle in the given coordinates
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `x`: the x coordinate of the rectangle to be drawn.
+    ///
+    /// - `y`: the y coordinate of the rectangle to be drawn.
+    ///
+    /// - `width`: the width of the rectangle to be drawn.
+    ///
+    /// - `height`: the height of the rectangle to be drawn.
+    public abstract void drawRect(Object graphics, int x, int y, int width, int height);
+
+    /// Draws a rectangle in the given coordinates
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `x`: the x coordinate of the rectangle to be drawn.
+    ///
+    /// - `y`: the y coordinate of the rectangle to be drawn.
+    ///
+    /// - `width`: the width of the rectangle to be drawn.
+    ///
+    /// - `height`: the height of the rectangle to be drawn.
+    ///
+    /// - `thickness`: the thickness in pixels
+    public void drawRect(Object graphics, int x, int y, int width, int height, int thickness) {
+        width--;
+        height--;
+        for (int iter = 0; iter < thickness; iter++) {
+            drawRect(graphics, x + iter, y + iter, width, height);
+            width -= 2;
+            height -= 2;
+        }
+    }
+
+    /// Draws a rounded corner rectangle in the given coordinates with the arcWidth/height
+    /// matching the last two arguments respectively.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `x`: the x coordinate of the rectangle to be drawn.
+    ///
+    /// - `y`: the y coordinate of the rectangle to be drawn.
+    ///
+    /// - `width`: the width of the rectangle to be drawn.
+    ///
+    /// - `height`: the height of the rectangle to be drawn.
+    ///
+    /// - `arcWidth`: the horizontal diameter of the arc at the four corners.
+    ///
+    /// - `arcHeight`: the vertical diameter of the arc at the four corners.
+    public abstract void drawRoundRect(Object graphics, int x, int y, int width, int height, int arcWidth, int arcHeight);
+
+    /// Fills a rounded rectangle in the same way as drawRoundRect
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `x`: the x coordinate of the rectangle to be filled.
+    ///
+    /// - `y`: the y coordinate of the rectangle to be filled.
+    ///
+    /// - `width`: the width of the rectangle to be filled.
+    ///
+    /// - `height`: the height of the rectangle to be filled.
+    ///
+    /// - `arcWidth`: the horizontal diameter of the arc at the four corners.
+    ///
+    /// - `arcHeight`: the vertical diameter of the arc at the four corners.
+    ///
+    /// #### See also
+    ///
+    /// - #drawRoundRect
+    public abstract void fillRoundRect(Object graphics, int x, int y, int width, int height, int arcWidth, int arcHeight);
+
+    /// Fills a circular or elliptical arc based on the given angles and bounding
+    /// box. The resulting arc begins at startAngle and extends for arcAngle
+    /// degrees.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `x`: the x coordinate of the upper-left corner of the arc to be filled.
+    ///
+    /// - `y`: the y coordinate of the upper-left corner of the arc to be filled.
+    ///
+    /// - `width`: the width of the arc to be filled.
+    ///
+    /// - `height`: the height of the arc to be filled.
+    ///
+    /// - `startAngle`: the beginning angle.
+    ///
+    /// - `arcAngle`: the angular extent of the arc, relative to the start angle.
+    public abstract void fillArc(Object graphics, int x, int y, int width, int height, int startAngle, int arcAngle);
+
+    /// Draws a circular or elliptical arc based on the given angles and bounding
+    /// box
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `x`: the x coordinate of the upper-left corner of the arc to be drawn.
+    ///
+    /// - `y`: the y coordinate of the upper-left corner of the arc to be drawn.
+    ///
+    /// - `width`: the width of the arc to be drawn.
+    ///
+    /// - `height`: the height of the arc to be drawn.
+    ///
+    /// - `startAngle`: the beginning angle.
+    ///
+    /// - `arcAngle`: the angular extent of the arc, relative to the start angle.
+    public abstract void drawArc(Object graphics, int x, int y, int width, int height, int startAngle, int arcAngle);
+
+    /// Draw a string using the current font and color in the x,y coordinates. The font is drawn
+    /// from the top position and not the baseline.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `str`: the string to be drawn.
+    ///
+    /// - `x`: the x coordinate.
+    ///
+    /// - `y`: the y coordinate.
+    public abstract void drawString(Object graphics, String str, int x, int y);
+
+    /// Draws the image so its top left coordinate corresponds to x/y
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `img`: the specified native image to be drawn
+    ///
+    /// - `x`: the x coordinate.
+    ///
+    /// - `y`: the y coordinate.
+    public abstract void drawImage(Object graphics, Object img, int x, int y);
+
+    /// Draws the image so its top left coordinate corresponds to x/y
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `img`: the specified native image to be drawn
+    ///
+    /// - `x`: the x coordinate.
+    ///
+    /// - `y`: the y coordinate.
+    ///
+    /// - `w`: the width
+    ///
+    /// - `h`: the height
+    public void drawImage(Object graphics, Object img, int x, int y, int w, int h) {
+    }
+
+    public Image createImage(Shape shape, Stroke stroke, int color) {
+
+        return null;
+    }
+
+
+    // END METHODS FOR DEALING WITH 2-D Paths
+
+    /// Draws outline of shape on the given graphics context.
+    ///
+    /// The last 4 parameters specify a bounding box for drawing the Shape.  The shape's bounds will
+    /// be made to fit this box exactly for drawing.  This allows for resizing the shape on the GPU
+    /// if graphics acceleration is supported.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `shape`: the shape to draw.
+    ///
+    /// - `stroke`: The stroke to use for drawing the contour.
+    ///
+    /// #### See also
+    ///
+    /// - #isShapeSupported(java.lang.Object) to determine of the graphics context supports drawing
+    /// shapes.
+    public void drawShape(Object graphics, Shape shape, Stroke stroke) {
+    }
+
+    /// Fills the given shape in the specified graphics context using the graphics context's
+    /// currently selected color and alpha.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`
+    ///
+    /// - `shape`
+    ///
+    /// #### See also
+    ///
+    /// - drawShape To learn what x, y, w, and h do.
+    public void fillShape(Object graphics, Shape shape) {
+    }
+
+    /// Fills a shape and casts a blurred drop shadow behind it on the GPU where supported (no retained
+    /// bitmap). The default is a no-op; ports that can render a shape shadow cheaply override this
+    /// together with `#isShapeShadowSupported(Object)`.
+    public void fillShapeShadow(Object graphics, Shape shape, int fillColor, int fillAlpha,
+            int shadowColor, float shadowOpacity, int blurRadius, int offsetX, int offsetY) {
+    }
+
+    /// Whether `#fillShapeShadow` renders a GPU shape shadow on this platform. Defaults to false so
+    /// callers fall back to their own shadow rendering.
+    public boolean isShapeShadowSupported(Object graphics) {
+        return false;
+    }
+
+    /// Draws a drop shadow for an image onto the given graphics context.
+    ///
+    /// This is used for the elevation feature.
+    ///
+    /// Note: This operation is expensive on most platforms as it is not hardware accelerated.  Codename One's elevation functionality
+    /// uses this method to generate shadow images which it reuses as much as possible for maximum performance.
+    ///
+    /// Note: Currently this is not supported on all platforms.  Use `#isDrawShadowSupported()` to check for platform support at
+    /// runtime.  Use `#isDrawShadowFast()` to check for hardware acceleration.
+    ///
+    /// Note: On iOS, this is only supported for drawing to mutable images - not the global graphics context.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: The graphics context.
+    ///
+    /// - `image`: @param image        The image whose raster should be used to generate the shadow.  The alpha channel of this image is used as the
+    /// bases for the shadow projection.
+    ///
+    /// - `x`: x-coordinate of the graphics context where shadow should be painted.
+    ///
+    /// - `y`: y-coordinate of the graphics context where shadow should be painted.
+    ///
+    /// - `offsetX`: The shadow offset X in pixels.
+    ///
+    /// - `offsetY`: The shadow offset Y in pixels.
+    ///
+    /// - `blurRadius`: The blur radius in pixels.
+    ///
+    /// - `spreadRadius`: The shadow spread in pixels.
+    ///
+    /// - `color`: The shadow color.
+    ///
+    /// - `opacity`: The shadow opacity.
+    ///
+    /// #### See also
+    ///
+    /// - Component#paintShadows(Graphics, int, int)
+    ///
+    /// - Container#paintSurfaceShadows(Graphics)
+    ///
+    /// - #isDrawShadowSupported()
+    ///
+    /// - #isDrawShadowFast()
+    public void drawShadow(Object graphics, Object image, int x, int y, int offsetX, int offsetY, int blurRadius, int spreadRadius, int color, float opacity) {
+
+    }
+
+    /// Checks to see if drawing shadows is supported on this platform.
+    ///
+    /// #### Returns
+    ///
+    /// True if the platform supports drawing shadows.
+    ///
+    /// #### See also
+    ///
+    /// - #drawShadow(Object, Object, int, int, int, int, int, int, int, float)
+    public boolean isDrawShadowSupported() {
+        return false;
+    }
+
+    /// Checks to see if drawing shadows on this platform is hardware accelerated.
+    ///
+    /// #### Returns
+    ///
+    /// True if drawing shadows is hardware accelerated.
+    ///
+    public boolean isDrawShadowFast() {
+        return false;
+    }
+
+    /// Sets the transformation matrix to be applied to all drawing operations. If
+    /// originX, originY are non-zero, then the the transformation will first be translated
+    /// to the origin, then applied, and then translated back.
+    ///
+    /// If isTransformSupported() returns false, then this method won't do anything.
+    ///
+    /// If isPerspectiveTransformSupported() returns false, then this method will only
+    /// deal with 2D transformation matrices (i.e. the upper left 3x3 matrix of the provided
+    /// transformation matrix.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`
+    ///
+    /// - `m`: The transformation matrix.  Can be 3x3 or 4x4.
+    ///
+    /// #### See also
+    ///
+    /// - isTransformSupported() To check if this graphics context supports transformations.
+    ///
+    /// - @see isPerspectiveTransformSupported() To check if this graphics context
+    /// supports perspective/3D transformations.
+    public void setTransform(Object graphics, Transform transform) {
+
+    }
+
+    /// Gets the current transformation matrix.  This will populate the provided
+    /// matrix with the data of the current transformation.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`
+    ///
+    /// #### Deprecated
+    ///
+    /// Use `com.codename1.ui.Transform)` instead.
+    ///
+    /// #### See also
+    ///
+    /// - isTransformSupported()
+    ///
+    /// - isPerspectiveTransformSupported()
+    public Transform getTransform(Object graphics) {
+        return Transform.makeIdentity();
+    }
+
+    /// Checks if matrix transformations are supported in the provided graphics context.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`
+    ///
+    /// #### Returns
+    ///
+    /// True if matrix transformations are supported by this graphics context.
+    ///
+    /// #### See also
+    ///
+    /// - setTransform()
+    ///
+    /// - getTransform()
+    ///
+    /// - isPerspectiveTransformSupported()
+    public boolean isTransformSupported(Object graphics) {
+        return false;
+    }
+
+    /// Checks if 3d/perspective transformations are supported in the provided graphics context.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`
+    ///
+    /// #### See also
+    ///
+    /// - setTransform()
+    ///
+    /// - getTransform()
+    ///
+    /// - isTransformSupported()
+    public boolean isPerspectiveTransformSupported(Object graphics) {
+        return false;
+    }
+
+    /// Checks if drawing shapes is supported by the provided graphics context.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`
+    public boolean isShapeSupported(Object graphics) {
+        return false;
+    }
+
+    /// Checks if clipping shapes is supported by the provided graphics context.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`
+    public boolean isShapeClipSupported(Object graphics) {
+        return false;
+    }
+
+    /// Allows an implementation to optimize image tiling rendering logic
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics object
+    ///
+    /// - `img`: the image
+    ///
+    /// - `x`: coordinate to tile the image along
+    ///
+    /// - `y`: coordinate to tile the image along
+    ///
+    /// - `w`: coordinate to tile the image along
+    ///
+    /// - `h`: coordinate to tile the image along
+    public void tileImage(Object graphics, Object img, int x, int y, int w, int h) {
+        int iW = getImageWidth(img);
+        int iH = getImageHeight(img);
+        int clipX = getClipX(graphics);
+        int clipW = getClipWidth(graphics);
+        int clipY = getClipY(graphics);
+        int clipH = getClipHeight(graphics);
+        clipRect(graphics, x, y, w, h);
+        for (int xPos = 0; xPos <= w; xPos += iW) {
+            for (int yPos = 0; yPos < h; yPos += iH) {
+                int actualX = xPos + x;
+                int actualY = yPos + y;
+                if (actualX > clipX + clipW) {
+                    continue;
+                }
+                if (actualX + iW < clipX) {
+                    continue;
+                }
+                if (actualY > clipY + clipH) {
+                    continue;
+                }
+                if (actualY + iH < clipY) {
+                    continue;
+                }
+                drawImage(graphics, img, actualX, actualY);
+            }
+        }
+        setClip(graphics, clipX, clipY, clipW, clipH);
+    }
+
+    /// Indicates if the native video player includes its own play/pause etc. controls so the movie player
+    /// component doesn't need to include them
+    ///
+    /// #### Returns
+    ///
+    /// true if the movie player component doesn't need to include such controls
+    public boolean isNativeVideoPlayerControlsIncluded() {
+        return false;
+    }
+
+    /// Indicates if image scaling on the fly is supported by the platform, if not Codename One will just scale the images on its own before drawing
+    public boolean isScaledImageDrawingSupported() {
+        return false;
+    }
+
+    /// Draws a portion of the image
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeGraphics`: the graphics context
+    ///
+    /// - `img`: the specified native image to be drawn
+    ///
+    /// - `x`: the x coordinate.
+    ///
+    /// - `y`: the y coordinate.
+    ///
+    /// - `imageX`: location within the image to draw
+    ///
+    /// - `imageY`: location within the image to draw
+    ///
+    /// - `imageWidth`: size of the location within the image to draw
+    ///
+    /// - `imageHeight`: size of the location within the image to draw
+    public void drawImageArea(Object nativeGraphics, Object img, int x, int y, int imageX, int imageY, int imageWidth, int imageHeight) {
+        int clipX = getClipX(nativeGraphics);
+        int clipY = getClipY(nativeGraphics);
+        int clipWidth = getClipWidth(nativeGraphics);
+        int clipHeight = getClipHeight(nativeGraphics);
+        //pushClip(nativeGraphics);
+        clipRect(nativeGraphics, x, y, imageWidth, imageHeight);
+        if (getClipWidth(nativeGraphics) > 0 && getClipHeight(nativeGraphics) > 0) {
+            drawImage(nativeGraphics, img, x - imageX, y - imageY);
+        }
+        //popClip(nativeGraphics);
+        setClip(nativeGraphics, clipX, clipY, clipWidth, clipHeight);
+    }
+
+    /// Draws the image so its top left coordinate corresponds to x/y with a fast
+    /// native rotation in a square angle which must be one of 0, 90, 180 or 270
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `img`: the specified native image to be drawn
+    ///
+    /// - `x`: the x coordinate.
+    ///
+    /// - `y`: the y coordinate.
+    ///
+    /// - `degrees`: either 0, 90, 180 or 270 degree rotation for the image drawing
+    public void drawImageRotated(Object graphics, Object img, int x, int y, int degrees) {
+    }
+
+    /// Indicates whether drawImageRotated is supported by the platform for FAST drawing,
+    /// if not then its not worth calling the method which will be unimplemented!
+    ///
+    /// #### Returns
+    ///
+    /// true if drawImageRotated will draw an image
+    public boolean isRotationDrawingSupported() {
+        return false;
+    }
+
+    /// Draws a filled triangle with the given coordinates
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `x1`: the x coordinate of the first vertex of the triangle
+    ///
+    /// - `y1`: the y coordinate of the first vertex of the triangle
+    ///
+    /// - `x2`: the x coordinate of the second vertex of the triangle
+    ///
+    /// - `y2`: the y coordinate of the second vertex of the triangle
+    ///
+    /// - `x3`: the x coordinate of the third vertex of the triangle
+    ///
+    /// - `y3`: the y coordinate of the third vertex of the triangle
+    public void fillTriangle(Object graphics, int x1, int y1, int x2, int y2, int x3, int y3) {
+        fillPolygon(graphics, new int[]{x1, x2, x3}, new int[]{y1, y2, y3}, 3);
+    }
+
+    /// Draws the RGB values from a packed ARGB array. Renders a
+    /// series of device-independent RGB+transparency values in a specified
+    /// region. The values are stored in rgbData in a format with 24 bits of
+    /// RGB and an eight-bit alpha value (0xAARRGGBB), with the first value
+    /// stored at the specified offset. The scanlength  specifies the relative
+    /// offset within the array between the corresponding pixels of consecutive
+    /// rows. Any value for scanlength is acceptable (even negative values)
+    /// provided that all resulting references are within the bounds of the
+    /// rgbData array. The ARGB data is rasterized horizontally from left to
+    /// right within each row. The ARGB values are rendered in the region
+    /// specified by x, y, width and height, and the operation is subject
+    /// to the current clip region and translation for this Graphics object.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `rgbData`: an array of ARGB values in the format 0xAARRGGBB
+    ///
+    /// - `offset`: the array index of the first ARGB value
+    ///
+    /// - `x`: the horizontal location of the region to be rendered
+    ///
+    /// - `y`: the vertical location of the region to be rendered
+    ///
+    /// - `w`: the width of the region to be rendered
+    ///
+    /// - `h`: the height of the region to be rendered
+    ///
+    /// - `processAlpha`: @param processAlpha true if rgbData has an alpha channel, false if
+    /// all pixels are fully opaque
+    public abstract void drawRGB(Object graphics, int[] rgbData, int offset, int x, int y, int w, int h, boolean processAlpha);
+
+    /// Returns the native graphics object on which all rendering operations occur
+    ///
+    /// #### Returns
+    ///
+    /// a native graphics context
+    public abstract Object getNativeGraphics();
+
+    /// Returns the native graphics object on the given native image occur
+    ///
+    /// #### Parameters
+    ///
+    /// - `image`: the native image on which the graphics will draw
+    ///
+    /// #### Returns
+    ///
+    /// a native graphics context
+    public abstract Object getNativeGraphics(Object image);
+
+    /// Return the width of the given characters in the given native font instance
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeFont`: the font for which the string width should be calculated
+    ///
+    /// - `ch`: array of characters
+    ///
+    /// - `offset`: characters offsets
+    ///
+    /// - `length`: characters length
+    ///
+    /// #### Returns
+    ///
+    /// the width of the given characters in this font instance
+    public abstract int charsWidth(Object nativeFont, char[] ch, int offset, int length);
+
+    /// Returns the ascent of the specified native font instance.  Should always
+    /// return a non-negative value.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeFont`
+    ///
+    /// #### Returns
+    ///
+    /// The ascent of the native font instance
+    public int getFontAscent(Object nativeFont) {
+        return (int) (((float) getHeight(nativeFont)) * 0.7);
+    }
+
+    /// Returns the descent below the baseline that a font can span.  Should always
+    /// be non-negative.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeFont`
+    public int getFontDescent(Object nativeFont) {
+        return getHeight(nativeFont) - getFontAscent(nativeFont);
+    }
+
+    /// Checks whether the implementation supports drawing text on the baseline.
+    public boolean isBaselineTextSupported() {
+        return false;
+    }
+
+    /// Return the width of the given string in this font instance
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeFont`: the font for which the string width should be calculated
+    ///
+    /// - `str`: the given string     *
+    ///
+    /// #### Returns
+    ///
+    /// the width of the given string in this font instance
+    public abstract int stringWidth(Object nativeFont, String str);
+
+    /// Return the width of the specific character when rendered alone
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeFont`: the font for which the string width should be calculated
+    ///
+    /// - `ch`: the specific character
+    ///
+    /// #### Returns
+    ///
+    /// the width of the specific character when rendered alone
+    public abstract int charWidth(Object nativeFont, char ch);
+
+    /// Return the total height of the font
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeFont`: the font for which the string width should be calculated
+    ///
+    /// #### Returns
+    ///
+    /// the total height of the font
+    public abstract int getHeight(Object nativeFont);
+
+    /// Return the global default font instance, if font is passed as null
+    /// this font should be used
+    ///
+    /// #### Returns
+    ///
+    /// the global default font instance
+    public abstract Object getDefaultFont();
+
+    /// Optional operation returning the font face for the font
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeFont`: the font for which the string width should be calculated
+    ///
+    /// #### Returns
+    ///
+    /// Optional operation returning the font face for system fonts
+    public int getFace(Object nativeFont) {
+        return 0;
+    }
+
+    /// Optional operation returning the font size for system fonts
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeFont`: the font for which the string width should be calculated
+    ///
+    /// #### Returns
+    ///
+    /// Optional operation returning the font size for system fonts
+    public int getSize(Object nativeFont) {
+        return 0;
+    }
+
+    /// Optional operation returning the font style for system fonts
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeFont`: the font for which the string width should be calculated
+    ///
+    /// #### Returns
+    ///
+    /// Optional operation returning the font style for system fonts
+    public int getStyle(Object nativeFont) {
+        return 0;
+    }
+
+    /// Creates a new instance of a native font
+    ///
+    /// #### Parameters
+    ///
+    /// - `face`: @param face  the face of the font, can be one of FACE_SYSTEM,
+    /// FACE_PROPORTIONAL, FACE_MONOSPACE.
+    ///
+    /// - `style`: @param style the style of the font.
+    /// The value is an OR'ed  combination of STYLE_BOLD, STYLE_ITALIC, and
+    /// STYLE_UNDERLINED; or the value is zero (STYLE_PLAIN).
+    ///
+    /// - `size`: @param size  the size of the font, can be one of SIZE_SMALL,
+    /// SIZE_MEDIUM, SIZE_LARGE
+    ///
+    /// #### Returns
+    ///
+    /// a native font object
+    public abstract Object createFont(int face, int style, int size);
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `keyCode`: the key for the event
+    protected void keyPressed(final int keyCode) {
+        Display.getInstance().keyPressed(keyCode);
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `keyCode`: the key for the event
+    protected void keyReleased(final int keyCode) {
+        Display.getInstance().keyReleased(keyCode);
+    }
+
+    /// Checks if last mouse press was a right click.
+    ///
+    /// #### Returns
+    ///
+    /// True if last mouse press was a right click.
+    ///
+    public boolean isRightMouseButtonDown() {
+        return false;
+    }
+
+    /// Checks whether the alt key is currently down.  Only relevant on desktop ports.
+    public boolean isAltKeyDown() {
+        return false;
+    }
+
+    /// Checks whether the shift key is currently down.  Only relevant on desktop ports.
+    public boolean isShiftKeyDown() {
+        return false;
+    }
+
+    /// Checks whether the altgraph key is currently down.  Only relevant on desktop ports.
+    public boolean isAltGraphKeyDown() {
+        return false;
+    }
+
+    /// Checks whether the control key is currently down.  Only relevant on desktop ports.
+    public boolean isControlKeyDown() {
+        return false;
+    }
+
+    /// Checks whether the meta key is currently down.  Only relevant on desktop ports.
+    public boolean isMetaKeyDown() {
+        return false;
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Rich pointer metadata. Platform ports populate these fields from the native event right
+    // before they call one of the pointerPressed/Dragged/Released/Hover methods. The framework
+    // reads the current values when it dispatches the matching event, mirroring the way the
+    // modifier-key state above is exposed. Every value carries a safe default so ports that do
+    // not opt in keep behaving exactly as before.
+    private int currentPointerButton = com.codename1.ui.events.PointerEvent.BUTTON_PRIMARY;
+    private int currentPointerButtonMask = com.codename1.ui.events.PointerEvent.MASK_PRIMARY;
+    private int currentPointerType = com.codename1.ui.events.PointerEvent.TYPE_UNKNOWN;
+    private float currentPointerPressure = 1f;
+    private float currentPointerTiltX;
+    private float currentPointerTiltY;
+    private float currentPointerContactSize;
+    private int currentPointerModifiers;
+    private boolean currentPointerHovering;
+
+    /// Ring of pointer metadata snapshots, one per queued pointer packet.
+    ///
+    /// The metadata a port reports is a single mutable record, but a port queues pointer
+    /// events off the event dispatch thread and the `PointerEvent` is not built until
+    /// the event is dispatched. A port that drains a burst -- the Win32 pump translates
+    /// queued messages before returning, and the GTK drain does the same -- therefore
+    /// overwrote the record several times before any of those events were dispatched,
+    /// and every one of them came out carrying the *last* packet's button and device
+    /// type. A secondary window's right click or pen event read as a left mouse click,
+    /// which is enough to lose a context menu or a stylus callback.
+    ///
+    /// A snapshot is taken when the packet is queued and restored when it is
+    /// dispatched, so each event keeps the metadata that arrived with it.
+    ///
+    /// Sized for **two** live buffers, not one. `Display` double buffers the input event
+    /// stack: the event dispatch thread swaps a full batch out and dispatches it while
+    /// the native input thread fills the other, so both are live at once. Each is 1000
+    /// ints and the smallest pointer packet is three (type, x, y), which puts a ceiling
+    /// of about 666 queued snapshots -- past a 512 slot ring, which would then wrap onto
+    /// packets that had not been dispatched yet and hand them the wrong button or device
+    /// type under a sustained burst. 2048 leaves headroom over that ceiling.
+    private static final int POINTER_METADATA_SLOTS = 2048;
+    private final int[] pointerMetadataInts =
+            new int[POINTER_METADATA_SLOTS * 4];
+    private final float[] pointerMetadataFloats =
+            new float[POINTER_METADATA_SLOTS * 4];
+    private final boolean[] pointerMetadataHovering =
+            new boolean[POINTER_METADATA_SLOTS];
+    private int pointerMetadataNext;
+
+    /// Snapshots the current pointer metadata and returns the slot holding it.
+    ///
+    /// #### Returns
+    ///
+    /// the slot to hand back to `#selectPointerEventMetadata(int)` when the matching
+    /// packet is dispatched
+    public int capturePointerEventMetadata() {
+        int slot;
+        synchronized (pointerMetadataHovering) {
+            slot = pointerMetadataNext;
+            pointerMetadataNext = (pointerMetadataNext + 1) % POINTER_METADATA_SLOTS;
+        }
+        return recapturePointerEventMetadata(slot);
+    }
+
+    /// Overwrites an existing snapshot slot rather than taking a new one.
+    ///
+    /// Coalescing is why this exists. A drag that replaces the queued drag packet keeps
+    /// one packet however many updates arrive, so advancing the ring on each of them
+    /// would run it forward without bound while the number of live packets stays small
+    /// -- and the ring would then wrap onto slots belonging to presses and releases
+    /// that are still queued, which is the very mix-up the snapshot prevents.
+    ///
+    /// #### Parameters
+    ///
+    /// - `slot`: the slot to overwrite; out of range values are ignored
+    ///
+    /// #### Returns
+    ///
+    /// the slot that now holds the current metadata
+    public int recapturePointerEventMetadata(int slot) {
+        if (slot < 0 || slot >= POINTER_METADATA_SLOTS) {
+            return capturePointerEventMetadata();
+        }
+        int i = slot * 4;
+        pointerMetadataInts[i] = currentPointerButton;
+        pointerMetadataInts[i + 1] = currentPointerButtonMask;
+        pointerMetadataInts[i + 2] = currentPointerType;
+        pointerMetadataInts[i + 3] = currentPointerModifiers;
+        int f = slot * 4;
+        pointerMetadataFloats[f] = currentPointerPressure;
+        pointerMetadataFloats[f + 1] = currentPointerTiltX;
+        pointerMetadataFloats[f + 2] = currentPointerTiltY;
+        pointerMetadataFloats[f + 3] = currentPointerContactSize;
+        pointerMetadataHovering[slot] = currentPointerHovering;
+        return slot;
+    }
+
+    /// Restores the metadata snapshotted into the given slot, so the event about to be
+    /// dispatched builds its `PointerEvent` from the values that arrived with it.
+    ///
+    /// #### Parameters
+    ///
+    /// - `slot`: a slot from `#capturePointerEventMetadata()`, or a negative value to
+    ///   leave the current metadata alone
+    public void selectPointerEventMetadata(int slot) {
+        if (slot < 0 || slot >= POINTER_METADATA_SLOTS) {
+            return;
+        }
+        int i = slot * 4;
+        dispatchPointerButton = pointerMetadataInts[i];
+        dispatchPointerButtonMask = pointerMetadataInts[i + 1];
+        dispatchPointerType = pointerMetadataInts[i + 2];
+        dispatchPointerModifiers = pointerMetadataInts[i + 3];
+        int f = slot * 4;
+        dispatchPointerPressure = pointerMetadataFloats[f];
+        dispatchPointerTiltX = pointerMetadataFloats[f + 1];
+        dispatchPointerTiltY = pointerMetadataFloats[f + 2];
+        dispatchPointerContactSize = pointerMetadataFloats[f + 3];
+        dispatchPointerHovering = pointerMetadataHovering[slot];
+        dispatchMetadataActive = true;
+    }
+
+    /// The metadata of the event being dispatched, restored from its snapshot.
+    ///
+    /// Deliberately a second set of fields rather than a write back into the
+    /// `currentPointer*` staging the ports fill in. Those are written on the port's
+    /// own thread and read when a packet is queued; writing them from the event
+    /// dispatch thread as well put the two in a race, and the restore could land
+    /// between a port's `#setPointerEventMetadata` and the capture that follows it --
+    /// handing the next packet the previous event's button. Separating the two means
+    /// the dispatch thread never writes what the port writes.
+    private int dispatchPointerButton = com.codename1.ui.events.PointerEvent.BUTTON_PRIMARY;
+    private int dispatchPointerButtonMask = com.codename1.ui.events.PointerEvent.MASK_PRIMARY;
+    private int dispatchPointerType = com.codename1.ui.events.PointerEvent.TYPE_UNKNOWN;
+    private float dispatchPointerPressure = 1f;
+    private float dispatchPointerTiltX;
+    private float dispatchPointerTiltY;
+    private float dispatchPointerContactSize;
+    private int dispatchPointerModifiers;
+    private boolean dispatchPointerHovering;
+    /// False until the first packet is dispatched, so the accessors keep answering
+    /// from the staging fields for a port that sets metadata and builds an event
+    /// directly, without going through the queue.
+    private boolean dispatchMetadataActive;
+
+    /// Stops the accessors answering from the last dispatched packet's snapshot.
+    ///
+    /// Called when a dispatch batch is finished. Without it the selection latched on
+    /// and a port that staged fresh metadata and then read it back -- rather than
+    /// queueing an event -- was answered with the previous event's values.
+    public void clearPointerEventMetadataSelection() {
+        dispatchMetadataActive = false;
+    }
+
+    /// Resets the rich pointer metadata back to its defaults. Ports may call this between
+    /// gestures so stale button or pressure values do not leak into unrelated events.
+    public void resetPointerEventMetadata() {
+        currentPointerButton = com.codename1.ui.events.PointerEvent.BUTTON_PRIMARY;
+        currentPointerButtonMask = com.codename1.ui.events.PointerEvent.MASK_PRIMARY;
+        currentPointerType = com.codename1.ui.events.PointerEvent.TYPE_UNKNOWN;
+        currentPointerPressure = 1f;
+        currentPointerTiltX = 0;
+        currentPointerTiltY = 0;
+        currentPointerContactSize = 0;
+        currentPointerModifiers = 0;
+        currentPointerHovering = false;
+        // The dispatch copy goes with it: a port resetting between gestures means the
+        // accessors should stop answering from the last dispatched packet.
+        dispatchMetadataActive = false;
+    }
+
+    /// Populates all of the rich pointer metadata in one call. Platform ports invoke this from
+    /// their native input handler immediately before dispatching a pointer event.
+    public void setPointerEventMetadata(int button, int buttonMask, int pointerType, float pressure,
+            float tiltX, float tiltY, float contactSize, int modifiers, boolean hovering) {
+        currentPointerButton = button;
+        currentPointerButtonMask = buttonMask;
+        currentPointerType = pointerType;
+        currentPointerPressure = pressure;
+        currentPointerTiltX = tiltX;
+        currentPointerTiltY = tiltY;
+        currentPointerContactSize = contactSize;
+        currentPointerModifiers = modifiers;
+        currentPointerHovering = hovering;
+    }
+
+    /// Sets the button and button mask for the next dispatched pointer event.
+    public void setPointerButton(int button, int buttonMask) {
+        currentPointerButton = button;
+        currentPointerButtonMask = buttonMask;
+    }
+
+    /// Sets the pointing device type (one of the `PointerEvent.TYPE_*` constants) for the next event.
+    public void setPointerType(int pointerType) {
+        currentPointerType = pointerType;
+    }
+
+    /// Sets the normalized pressure for the next dispatched pointer event.
+    public void setPointerPressure(float pressure) {
+        currentPointerPressure = pressure;
+    }
+
+    /// Sets the stylus tilt for the next dispatched pointer event.
+    public void setPointerTilt(float tiltX, float tiltY) {
+        currentPointerTiltX = tiltX;
+        currentPointerTiltY = tiltY;
+    }
+
+    /// Sets the normalized contact size for the next dispatched pointer event.
+    public void setPointerContactSize(float contactSize) {
+        currentPointerContactSize = contactSize;
+    }
+
+    /// Sets the keyboard modifier mask for the next dispatched pointer event.
+    public void setPointerModifiers(int modifiers) {
+        currentPointerModifiers = modifiers;
+    }
+
+    /// Sets whether the next dispatched pointer event is a hover (no contact).
+    public void setPointerHovering(boolean hovering) {
+        currentPointerHovering = hovering;
+    }
+
+    /// The button associated with the current pointer event, one of the `PointerEvent.BUTTON_*` constants.
+    public int getPointerButton() {
+        return dispatchMetadataActive ? dispatchPointerButton : currentPointerButton;
+    }
+
+    /// A bitmask of the buttons currently held, built from the `PointerEvent.MASK_*` constants.
+    public int getPointerButtonMask() {
+        return dispatchMetadataActive ? dispatchPointerButtonMask : currentPointerButtonMask;
+    }
+
+    /// The current pointing device type, one of the `PointerEvent.TYPE_*` constants.
+    public int getPointerType() {
+        return dispatchMetadataActive ? dispatchPointerType : currentPointerType;
+    }
+
+    /// The normalized pressure of the current pointer event between `0.0` and `1.0`.
+    public float getPointerPressure() {
+        return dispatchMetadataActive ? dispatchPointerPressure : currentPointerPressure;
+    }
+
+    /// The stylus tilt across the x axis for the current pointer event, in degrees.
+    public float getPointerTiltX() {
+        return dispatchMetadataActive ? dispatchPointerTiltX : currentPointerTiltX;
+    }
+
+    /// The stylus tilt across the y axis for the current pointer event, in degrees.
+    public float getPointerTiltY() {
+        return dispatchMetadataActive ? dispatchPointerTiltY : currentPointerTiltY;
+    }
+
+    /// The normalized contact size of the current pointer event between `0.0` and `1.0`.
+    public float getPointerContactSize() {
+        return dispatchMetadataActive ? dispatchPointerContactSize : currentPointerContactSize;
+    }
+
+    /// The keyboard modifier mask held during the current pointer event.
+    public int getPointerModifiers() {
+        return dispatchMetadataActive ? dispatchPointerModifiers : currentPointerModifiers;
+    }
+
+    /// True if the current pointer event is a hover (no contact with the surface).
+    public boolean isPointerHovering() {
+        return dispatchMetadataActive ? dispatchPointerHovering : currentPointerHovering;
+    }
+
+    /// Builds an immutable `PointerEvent` snapshot from the current metadata for the given coordinates.
+    /// Used by the framework when it dispatches a pointer event.
+    public com.codename1.ui.events.PointerEvent buildPointerEvent(int x, int y, boolean hovering) {
+        // Through the accessors, so this reads the dispatched event's own snapshot
+        // rather than whatever a port has staged since.
+        return new com.codename1.ui.events.PointerEvent(x, y, getPointerButton(),
+                getPointerButtonMask(), getPointerType(), getPointerPressure(),
+                getPointerTiltX(), getPointerTiltY(), getPointerContactSize(),
+                getPointerModifiers(), hovering || isPointerHovering());
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    protected void pointerDragged(final int x, final int y) {
+        xPointerEvent[0] = x;
+        yPointerEvent[0] = y;
+        pointerDragged(xPointerEvent, yPointerEvent);
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    protected void pointerPressed(final int x, final int y) {
+        xPointerEvent[0] = x;
+        yPointerEvent[0] = y;
+        pointerPressed(xPointerEvent, yPointerEvent);
+    }
+
+    /// Delivers a pointer press that happened in one of the additional native
+    /// windows. Ports call this instead of `#pointerPressed(int, int)` when the
+    /// event came from a window rather than the main surface; window id zero routes
+    /// to the main surface, so a port may use this form unconditionally.
+    ///
+    /// #### Parameters
+    ///
+    /// - `windowId`: the id handed to
+    /// `WindowManager#createWindow(int, java.lang.String, int, int, int, int, boolean, boolean, java.lang.Object)`
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    protected void windowPointerPressed(int windowId, int x, int y) {
+        if (windowId > 0) {
+            // A new gesture in this window starts its own activation filter over,
+            // leaving any other window's gesture alone.
+            PointerDragActivation act = Desktop.getInstance().windowDragActivation(windowId);
+            if (act != null) {
+                act.reset();
+            }
+        }
+        if (windowId == 0) {
+            pointerPressed(x, y);
+            return;
+        }
+        xPointerEvent[0] = x;
+        yPointerEvent[0] = y;
+        Desktop.getInstance().windowPointerPressed(windowId, xPointerEvent, yPointerEvent);
+    }
+
+    /// Delivers a pointer release that happened in one of the additional native
+    /// windows.
+    ///
+    /// #### Parameters
+    ///
+    /// - `windowId`: the window's id, or zero for the main surface
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    protected void windowPointerReleased(int windowId, int x, int y) {
+        if (windowId > 0) {
+            PointerDragActivation act = Desktop.getInstance().windowDragActivation(windowId);
+            if (act != null) {
+                act.reset();
+            }
+        }
+        if (windowId == 0) {
+            pointerReleased(x, y);
+            return;
+        }
+        xPointerEvent[0] = x;
+        yPointerEvent[0] = y;
+        Desktop.getInstance().windowPointerReleased(windowId, xPointerEvent, yPointerEvent);
+    }
+
+    /// Delivers a pointer drag that happened in one of the additional native windows.
+    ///
+    /// #### Parameters
+    ///
+    /// - `windowId`: the window's id, or zero for the main surface
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    /// Multi pointer drag over a specific native window, which is how the desktop
+    /// simulator plays a pinch gesture. Without the id the second pointer would land
+    /// on the main form while the press that started the gesture went to the window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `windowId`: the id the port was given when the window was created, or 0 for
+    ///   the application's main surface
+    ///
+    /// - `x`: the x positions of the pointers
+    ///
+    /// - `y`: the y positions of the pointers
+    protected void windowPointerDragged(int windowId, final int[] x, final int[] y) {
+        if (windowId > 0) {
+            // The same activation filter the main surface applies. Forwarding straight
+            // through made a pixel of jitter after a press into a drag, which activates
+            // drag and drop and moves a draggable component on what was meant as a
+            // click.
+            PointerDragActivation act = Desktop.getInstance().windowDragActivation(windowId);
+            if (act == null) {
+                // No window under this id any more -- disposed with events still in
+                // flight. Filtering is a refinement, so let the gesture through rather
+                // than swallow it.
+                Desktop.getInstance().windowPointerDragged(windowId, x, y);
+                return;
+            }
+            boolean started = false;
+            if (!act.started) {
+                try {
+                    started = hasWindowDragStarted(windowId, act, x[0], y[0]);
+                } catch (Throwable t) {
+                    // Matches the main path: a filter that throws must not take the
+                    // gesture with it.
+                    Log.e(t);
+                }
+            }
+            if (act.started || started) {
+                act.started = true;
+                Desktop.getInstance().windowPointerDragged(windowId, x, y);
+            }
+            return;
+        }
+        pointerDragged(x, y);
+    }
+
+    protected void windowPointerDragged(int windowId, int x, int y) {
+        if (windowId == 0) {
+            pointerDragged(x, y);
+            return;
+        }
+        xPointerEvent[0] = x;
+        yPointerEvent[0] = y;
+        // Through the array overload rather than straight to the framework, so this
+        // path gets the activation filter too.
+        windowPointerDragged(windowId, xPointerEvent, yPointerEvent);
+    }
+
+    /// Delivers a key press that happened in one of the additional native windows.
+    ///
+    /// #### Parameters
+    ///
+    /// - `windowId`: the window's id, or zero for the main surface
+    ///
+    /// - `keyCode`: the key code
+    protected void windowKeyPressed(int windowId, int keyCode) {
+        if (windowId == 0) {
+            keyPressed(keyCode);
+            return;
+        }
+        Desktop.getInstance().windowKeyPressed(windowId, keyCode);
+    }
+
+    /// Delivers a key release that happened in one of the additional native windows.
+    ///
+    /// #### Parameters
+    ///
+    /// - `windowId`: the window's id, or zero for the main surface
+    ///
+    /// - `keyCode`: the key code
+    protected void windowKeyReleased(int windowId, int keyCode) {
+        if (windowId == 0) {
+            keyReleased(keyCode);
+            return;
+        }
+        Desktop.getInstance().windowKeyReleased(windowId, keyCode);
+    }
+
+    /// Returns the native window peer owning the given component, or null when the
+    /// component belongs to the main surface. Ports use this to place native peers
+    /// and native text editors into the right window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: the component to locate
+    ///
+    /// #### Returns
+    ///
+    /// the owning window's native peer, or null for the main surface
+    public final Object getWindowPeerForComponent(Component cmp) {
+        return Desktop.getInstance().getWindowPeerForComponent(cmp);
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    protected void pointerReleased(final int x, final int y) {
+        xPointerEvent[0] = x;
+        yPointerEvent[0] = y;
+        pointerReleased(xPointerEvent, yPointerEvent);
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    protected void pointerHover(final int[] x, final int[] y) {
+        Display.getInstance().pointerHover(x, y);
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    protected void pointerHoverReleased(final int[] x, final int[] y) {
+        Display.getInstance().pointerHoverReleased(x, y);
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    protected void pointerHoverReleased(final int x, final int y) {
+        xPointerEvent[0] = x;
+        yPointerEvent[0] = y;
+        pointerHoverReleased(xPointerEvent, yPointerEvent);
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    protected void pointerHoverPressed(final int[] x, final int[] y) {
+        Display.getInstance().pointerHoverPressed(x, y);
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    protected void pointerHoverPressed(final int x, final int y) {
+        xPointerEvent[0] = x;
+        yPointerEvent[0] = y;
+        pointerHoverPressed(xPointerEvent, yPointerEvent);
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    protected void pointerHover(final int x, final int y) {
+        xPointerEvent[0] = x;
+        yPointerEvent[0] = y;
+        pointerHover(xPointerEvent, yPointerEvent);
+    }
+
+    /// Same as `#pointerHover(int, int)`, for a hover over a specific native window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `windowId`: the id the port was given when the window was created, or 0 for
+    ///   the application's main surface
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    protected void windowPointerHover(final int windowId, final int x, final int y) {
+        xPointerEvent[0] = x;
+        yPointerEvent[0] = y;
+        if (windowId > 0) {
+            Desktop.getInstance().windowPointerHover(windowId, xPointerEvent, yPointerEvent);
+        } else {
+            pointerHover(xPointerEvent, yPointerEvent);
+        }
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    protected void pointerDragged(final int[] x, final int[] y) {
+        boolean hasDragStartedXY = false;
+        if (!dragStarted) {
+            try {
+                hasDragStartedXY = hasDragStarted(x, y);
+            } catch (Throwable t) {
+                // PMD Fix (EmptyCatchBlock): Log the exception to retain diagnostic information while tolerating inconsistent states.
+                Log.e(t);
+            }
+        }
+        if (dragStarted || hasDragStartedXY) {
+            dragStarted = true;
+            Display.getInstance().pointerDragged(x, y);
+        }
+    }
+
+    /// This method can be overriden by subclasses to indicate whether a drag
+    /// event has started or whether the device is just sending out "noise".
+    /// This method is invoked by pointer dragged to determine whether to propogate
+    /// the actual pointer drag event to Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the position of the current drag event
+    ///
+    /// - `y`: the position of the current drag event
+    ///
+    /// #### Returns
+    ///
+    /// true if the drag should propagate into Codename One
+    protected boolean hasDragStarted(final int[] x, final int[] y) {
+        return hasDragStarted(x[0], y[0]);
+    }
+
+    /// This method can be overriden by subclasses to indicate whether a drag
+    /// event has started or whether the device is just sending out "noise".
+    /// This method is invoked by pointer dragged to determine whether to propagate
+    /// the actual pointer drag event to Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the position of the current drag event
+    ///
+    /// - `y`: the position of the current drag event
+    ///
+    /// #### Returns
+    ///
+    /// true if the drag should propagate into Codename One
+    protected boolean hasDragStarted(final int x, final int y) {
+        // can happen if a user dragged before init, this happens on iOS during splash screen
+        if (getCurrentForm() == null) {
+            return false;
+        }
+        if (dragActivationCounter == 0) {
+            dragActivationX = x;
+            dragActivationY = y;
+            dragActivationCounter++;
+            return false;
+        }
+        dragActivationCounter++;
+        if (dragPassedThreshold(getCurrentForm().getDragRegionStatus(x, y),
+                getDisplayWidth(), getDisplayHeight(),
+                dragActivationX, dragActivationY, dragActivationCounter, x, y)) {
+            dragActivationCounter = getDragAutoActivationThreshold() + 1;
+            return true;
+        }
+        return false;
+    }
+
+    /// The same activation filter, for a drag inside one of the additional native
+    /// windows.
+    ///
+    /// Window drags used to reach the framework unfiltered, so a pixel of jitter after
+    /// a press was already a drag: drag and drop activated, and a draggable component
+    /// moved on what the user meant as a click.
+    ///
+    /// The state is separate from the main surface's rather than shared, because
+    /// nothing resets the main one for a window gesture -- window presses and releases
+    /// go straight to the framework -- so a shared counter would be stale from the
+    /// first window drag onwards. And the region and the size come from the window: the
+    /// thresholds are a percentage of the surface, and measuring a window's drag
+    /// against the display makes a small window nearly undraggable.
+    ///
+    /// #### Parameters
+    ///
+    /// - `windowId`: the window the drag is happening in
+    ///
+    /// - `x`: the position of the current drag event
+    ///
+    /// - `y`: the position of the current drag event
+    ///
+    /// #### Returns
+    ///
+    /// true if the drag should propagate into Codename One
+    protected boolean hasWindowDragStarted(final int windowId, final PointerDragActivation act,
+            final int x, final int y) {
+        int surfaceWidth = Desktop.getInstance().windowWidth(windowId);
+        int surfaceHeight = Desktop.getInstance().windowHeight(windowId);
+        if (surfaceWidth <= 0 || surfaceHeight <= 0) {
+            return false;
+        }
+        if (act.counter == 0) {
+            act.x = x;
+            act.y = y;
+            act.counter++;
+            return false;
+        }
+        act.counter++;
+        if (dragPassedThreshold(Desktop.getInstance().windowDragRegionStatus(windowId, x, y),
+                surfaceWidth, surfaceHeight, act.x, act.y, act.counter, x, y)) {
+            act.counter = getDragAutoActivationThreshold() + 1;
+            return true;
+        }
+        return false;
+    }
+
+    /// Whether a drag has moved far enough, for a given drag region and surface size.
+    /// Shared by the main surface and by the windows so the two cannot drift.
+    private boolean dragPassedThreshold(int dragRegion, int surfaceWidth, int surfaceHeight,
+            int activationX, int activationY, int counter, final int x, final int y) {
+        float startX = getDragStartPercentage();
+        float startY = startX;
+        switch (dragRegion) {
+            case Component.DRAG_REGION_NOT_DRAGGABLE:
+                if (counter > getDragAutoActivationThreshold()) {
+                    return true;
+                }
+                startX = Math.max(5, startX);
+                startY = startX;
+                break;
+            case Component.DRAG_REGION_LIKELY_DRAG_X:
+                startY = Math.max(5, startY);
+                startX = 0.9f;
+                break;
+            case Component.DRAG_REGION_LIKELY_DRAG_Y:
+                startX = Math.max(5, startX);
+                startY = 0.9f;
+                break;
+            case Component.DRAG_REGION_LIKELY_DRAG_XY:
+                startX = 0.9f;
+                startY = 0.9f;
+                break;
+            case Component.DRAG_REGION_IMMEDIATELY_DRAG_X:
+                startX = 0f;
+                startY = Math.max(5, startY);
+                break;
+
+            case Component.DRAG_REGION_IMMEDIATELY_DRAG_Y:
+                startY = 0f;
+                startX = Math.max(5, startX);
+                break;
+
+            case Component.DRAG_REGION_IMMEDIATELY_DRAG_XY:
+                startX = 0f;
+                startY = 0f;
+                break;
+            case Component.DRAG_REGION_POSSIBLE_DRAG_X:
+                startY = Math.max(5, startY);
+                startX = Math.min(startX, 2f);
+                break;
+            case Component.DRAG_REGION_POSSIBLE_DRAG_Y:
+                startX = Math.max(5, startX);
+                startY = Math.min(startY, 2f);
+                break;
+            case Component.DRAG_REGION_POSSIBLE_DRAG_XY:
+                startX = Math.min(startX, 2f);
+                startY = Math.min(startY, 2f);
+                break;
+            default:
+                break;
+        }
+
+        // have we passed the motion threshold on the X axis?
+        if (((float) surfaceWidth) / 100.0f * startX <=
+                Math.abs(activationX - x)) {
+            return true;
+        }
+
+        // have we passed the motion threshold on the Y axis?
+        return ((float) surfaceHeight) / 100.0f * startY <= Math.abs(activationY - y);
+    }
+
+    /// This method allows us to manipulate the drag started detection logic.
+    /// If the pointer was dragged for more than this percentage of the display size it
+    /// is safe to assume that a drag is in progress.
+    ///
+    /// #### Returns
+    ///
+    /// motion percentage
+    public int getDragStartPercentage() {
+        return dragStartPercentage;
+    }
+
+    /// This method allows us to manipulate the drag started detection logic.
+    /// If the pointer was dragged for more than this percentage of the display size it
+    /// is safe to assume that a drag is in progress.
+    ///
+    /// #### Parameters
+    ///
+    /// - `dragStartPercentage`: percentage of the screen required to initiate drag
+    public void setDragStartPercentage(int dragStartPercentage) {
+        this.dragStartPercentage = dragStartPercentage;
+    }
+
+    /// This method allows subclasses to manipulate the drag started detection logic.
+    /// If more than this number of drag events were delivered it is safe to assume a drag has started
+    /// This number must be bigger than 0!
+    ///
+    /// #### Returns
+    ///
+    /// number representing a minimum number of motion events to start a drag operation
+    protected int getDragAutoActivationThreshold() {
+        return 7;
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    protected void pointerPressed(final int[] x, final int[] y) {
+        pointerPressedX = x[0];
+        pointerPressedY = y[0];
+        Display.getInstance().pointerPressed(x, y);
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the position of the event
+    ///
+    /// - `y`: the position of the event
+    protected void pointerReleased(final int[] x, final int[] y) {
+        // this is a special case designed to detect a "flick" event on some Samsung devices
+        // that send a pointerPressed/Released with widely differing X/Y values but don't send
+        // the pointerDrag events in between
+        if (dragActivationCounter == 0 && x[0] != pointerPressedX && y[0] != pointerPressedY) {
+            hasDragStarted(pointerPressedX, pointerPressedY);
+            if (hasDragStarted(x, y)) {
+                pointerDragged(pointerPressedX, pointerPressedY);
+                pointerDragged(x, y);
+            }
+        }
+        dragStarted = false;
+        dragActivationCounter = 0;
+        Display.getInstance().pointerReleased(x, y);
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    ///
+    /// #### Parameters
+    ///
+    /// - `w`: the size of the screen
+    ///
+    /// - `h`: the size of the screen
+    protected void sizeChanged(int w, int h) {
+        Display.getInstance().sizeChanged(w, h);
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    protected void hideNotify() {
+        Display.getInstance().hideNotify();
+    }
+
+    /// Subclasses should invoke this method, it delegates the event to the display and into
+    /// Codename One.
+    protected void showNotify() {
+        Display.getInstance().showNotify();
+    }
+
+    private Object findCachedGradient(Hashtable cache, int startColor, int endColor, int x, int y, int width, int height, boolean horizontal, int centerX, int centerY, int size) {
+        if (cache != null) {
+            Enumeration e = cache.keys();
+            while (e.hasMoreElements()) {
+                int[] current = (int[]) e.nextElement();
+                Object currentRef = cache.get(current);
+                if (currentRef == null) {
+                    cache.remove(current);
+                    e = cache.keys();
+                    continue;
+                }
+                Object currentImage = extractHardRef(currentRef);
+                if (currentImage == null) {
+                    cache.remove(current);
+                    e = cache.keys();
+                    continue;
+                }
+                if (current[0] == startColor &&
+                        current[1] == endColor &&
+                        current[2] == x &&
+                        current[3] == y &&
+                        current[5] == centerX &&
+                        current[6] == centerY &&
+                        current[7] == size &&
+                        getImageWidth(currentImage) == width &&
+                        getImageHeight(currentImage) == height &&
+                        ((horizontal && current[4] == 1) || (!horizontal && current[4] == 0))) {
+                    // PMD Fix (CollapsibleIfStatements): Collapse nested equality checks for cache reuse.
+                    return currentImage;
+                }
+            }
+        }
+        return null;
+    }
+
+    private void storeCachedGradient(Object img, Hashtable cache, int startColor, int endColor, int x, int y, boolean horizontal, int centerX, int centerY, int size) {
+        int[] key;
+        if (horizontal) {
+            key = new int[]{startColor, endColor, x, y, 1, centerX, centerY, size};
+        } else {
+            key = new int[]{startColor, endColor, x, y, 0, centerX, centerY, size};
+        }
+        cache.put(key, createSoftWeakRef(img));
+    }
+
+    /// Draws a radial gradient in the given coordinates with the given colors,
+    /// doesn't take alpha into consideration when drawing the gradient.
+    /// Notice that a radial gradient will result in a circular shape, to create
+    /// a square use fillRect or draw a larger shape and clip to the appropriate size.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `startColor`: the starting RGB color
+    ///
+    /// - `endColor`: the ending RGB color
+    ///
+    /// - `x`: the x coordinate
+    ///
+    /// - `y`: the y coordinate
+    ///
+    /// - `width`: the width of the region to be filled
+    ///
+    /// - `height`: the height of the region to be filled
+    ///
+    /// - `relativeX`: indicates the relative position of the gradient within the drawing region
+    ///
+    /// - `relativeY`: indicates the relative position of the gradient within the drawing region
+    ///
+    /// - `relativeSize`: indicates the relative size of the gradient within the drawing region
+    public void fillRectRadialGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height, float relativeX, float relativeY, float relativeSize) {
+        int centerX = (int) (width * (1 - relativeX));
+        int centerY = (int) (height * (1 - relativeY));
+        int size = (int) (Math.min(width, height) * relativeSize);
+        int x2 = (int) (width * 0.5f - (size * relativeX));
+        int y2 = (int) (height * 0.5f - (size * relativeY));
+        boolean aa = isAntiAliased(graphics);
+        setAntiAliased(graphics, false);
+
+        if (cacheRadialGradients()) {
+            Object r = findCachedGradient(radialGradientCache, startColor, endColor, x, y, width, height, true, centerX, centerY, size);
+            if (r != null) {
+                drawImage(graphics, r, x, y);
+            } else {
+                r = createMutableImage(width, height, 0xffffffff);
+                Object imageGraphics = getNativeGraphics(r);
+                setColor(imageGraphics, endColor);
+                fillRect(imageGraphics, 0, 0, width, height);
+                fillRadialGradientImpl(imageGraphics, startColor, endColor, x2, y2, size, size, 0, 360);
+                drawImage(graphics, r, x, y);
+                if (radialGradientCache == null) {
+                    radialGradientCache = new Hashtable();
+                }
+                storeCachedGradient(r, radialGradientCache, startColor, endColor, x, y, true, centerX, centerY, size);
+            }
+        } else {
+            setColor(graphics, endColor);
+            fillRect(graphics, x, y, width, height);
+
+            fillRadialGradientImpl(graphics, startColor, endColor, x + x2, y + y2, size, size, 0, 360);
+        }
+        if (aa) {
+            setAntiAliased(graphics, true);
+        }
+    }
+
+    /// Draws a radial gradient in the given coordinates with the given colors,
+    /// doesn't take alpha into consideration when drawing the gradient.
+    /// Notice that a radial gradient will result in a circular shape, to create
+    /// a square use fillRect or draw a larger shape and clip to the appropriate size.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `startColor`: the starting RGB color
+    ///
+    /// - `endColor`: the ending RGB color
+    ///
+    /// - `x`: the x coordinate
+    ///
+    /// - `y`: the y coordinate
+    ///
+    /// - `width`: the width of the region to be filled
+    ///
+    /// - `height`: the height of the region to be filled
+    public void fillRadialGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height) {
+        fillRadialGradientImpl(graphics, startColor, endColor, x, y, width, height, 0, 360);
+    }
+
+    /// Draws a radial gradient in the given coordinates with the given colors,
+    /// doesn't take alpha into consideration when drawing the gradient.
+    /// Notice that a radial gradient will result in a circular shape, to create
+    /// a square use fillRect or draw a larger shape and clip to the appropriate size.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `startColor`: the starting RGB color
+    ///
+    /// - `endColor`: the ending RGB color
+    ///
+    /// - `x`: the x coordinate
+    ///
+    /// - `y`: the y coordinate
+    ///
+    /// - `width`: the width of the region to be filled
+    ///
+    /// - `height`: the height of the region to be filled
+    ///
+    /// - `startAngle`: the beginning angle.  Zero is at 3 o'clock.  Positive angles are counter-clockwise.
+    ///
+    /// - `arcAngle`: the angular extent of the arc, relative to the start angle. Positive angles are counter-clockwise.
+    public void fillRadialGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height, int startAngle, int arcAngle) {
+        fillRadialGradientImpl(graphics, startColor, endColor, x, y, width, height, startAngle, arcAngle);
+    }
+
+    private void fillRadialGradientImpl(Object graphics, int startColor, int endColor, int x, int y, int width, int height, int startAngle, int arcAngle) {
+        boolean aa = isAntiAliased(graphics);
+        setAntiAliased(graphics, false);
+        int sourceR = startColor >> 16 & 0xff;
+        int sourceG = startColor >> 8 & 0xff;
+        int sourceB = startColor & 0xff;
+        int destR = endColor >> 16 & 0xff;
+        int destG = endColor >> 8 & 0xff;
+        int destB = endColor & 0xff;
+        int oldColor = getColor(graphics);
+        int originalHeight = height;
+        boolean outermost = true;
+        while (width > 0 && height > 0) {
+            if (outermost) {
+                setAntiAliased(graphics, true);
+            }
+            updateGradientColor(graphics, sourceR, sourceG, sourceB, destR,
+                    destG, destB, originalHeight, height);
+            fillArc(graphics, x, y, width, height, startAngle, arcAngle);
+            x++;
+            y++;
+            width -= 2;
+            height -= 2;
+            if (outermost) {
+                outermost = false;
+                setAntiAliased(graphics, false);
+            }
+        }
+        setColor(graphics, oldColor);
+        if (aa) {
+            setAntiAliased(graphics, true);
+        }
+    }
+
+    private void updateGradientColor(Object nativeGraphics, int sourceR, int sourceG, int sourceB, int destR,
+                                     int destG, int destB, int distance, int offset) {
+        //int a = calculateGraidentChannel(sourceA, destA, distance, offset);
+        int r = calculateGraidentChannel(sourceR, destR, distance, offset);
+        int g = calculateGraidentChannel(sourceG, destG, distance, offset);
+        int b = calculateGraidentChannel(sourceB, destB, distance, offset);
+        int color = /*((a << 24) & 0xff000000) |*/ ((r << 16) & 0xff0000) |
+                ((g << 8) & 0xff00) | (b & 0xff);
+        setColor(nativeGraphics, color);
+    }
+
+    /// Converts the color channel value according to the offest within the distance
+    private int calculateGraidentChannel(int sourceChannel, int destChannel, int distance, int offset) {
+        if (sourceChannel == destChannel) {
+            return sourceChannel;
+        }
+        float ratio = ((float) offset) / ((float) distance);
+        int pos = (int) (Math.abs(sourceChannel - destChannel) * ratio);
+        if (sourceChannel > destChannel) {
+            return sourceChannel - pos;
+        } else {
+            return sourceChannel + pos;
+        }
+    }
+
+    /// Draws a linear gradient in the given coordinates with the given colors,
+    /// doesn't take alpha into consideration when drawing the gradient
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `startColor`: the starting RGB color
+    ///
+    /// - `endColor`: the ending RGB color
+    ///
+    /// - `x`: the x coordinate
+    ///
+    /// - `y`: the y coordinate
+    ///
+    /// - `width`: the width of the region to be filled
+    ///
+    /// - `height`: the height of the region to be filled
+    ///
+    /// - `horizontal`: indicating wheter it is a horizontal fill or vertical
+    public void fillLinearGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height, boolean horizontal) {
+        // this can happen in the resource editor
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        boolean aa = isAntiAliased(graphics);
+        setAntiAliased(graphics, false);
+        if (cacheLinearGradients()) {
+            Object r = findCachedGradient(linearGradientCache, startColor, endColor, x, y, width, height, horizontal, 0, 0, 0);
+            if (r != null) {
+                drawImage(graphics, r, x, y);
+            } else {
+                r = createMutableImage(width, height, 0xffffffff);
+                fillLinearGradientImpl(getNativeGraphics(r), startColor, endColor, 0, 0, width, height, horizontal);
+                drawImage(graphics, r, x, y);
+                if (linearGradientCache == null) {
+                    linearGradientCache = new Hashtable();
+                }
+                storeCachedGradient(r, linearGradientCache, startColor, endColor, x, y, horizontal, 0, 0, 0);
+            }
+        } else {
+            fillLinearGradientImpl(graphics, startColor, endColor, x, y, width, height, horizontal);
+        }
+        if (aa) {
+            setAntiAliased(graphics, true);
+        }
+    }
+
+    private void fillLinearGradientImpl(Object graphics, int startColor, int endColor, int x, int y, int width, int height, boolean horizontal) {
+        int sourceR = startColor >> 16 & 0xff;
+        int sourceG = startColor >> 8 & 0xff;
+        int sourceB = startColor & 0xff;
+        int destR = endColor >> 16 & 0xff;
+        int destG = endColor >> 8 & 0xff;
+        int destB = endColor & 0xff;
+        int oldColor = getColor(graphics);
+        if (horizontal) {
+            for (int iter = 0; iter < width; iter++) {
+                updateGradientColor(graphics, sourceR, sourceG, sourceB, destR,
+                        destG, destB, width, iter);
+                drawLine(graphics, x + iter, y, x + iter, y + height);
+            }
+        } else {
+            for (int iter = 0; iter < height; iter++) {
+                updateGradientColor(graphics, sourceR, sourceG, sourceB, destR,
+                        destG, destB, height, iter);
+                drawLine(graphics, x, y + iter, x + width, y + iter);
+            }
+        }
+        setColor(graphics, oldColor);
+    }
+
+    /// Fills the rectangle (x, y, width, height) with the given multi-stop
+    /// gradient. Default implementation reuses a weakly-cached rasterization
+    /// from the Gradient (see `Gradient#getCachedRaster`) - so a gradient
+    /// painted into the same-sized rectangle on subsequent frames pays only
+    /// for the texture upload, not per-pixel re-sampling. Ports with hardware
+    /// shader support should override and draw directly through the shader.
+    public void fillGradient(Object graphics, Gradient gradient, int x, int y, int width, int height) {
+        if (gradient == null || width <= 0 || height <= 0) {
+            return;
+        }
+        Image img = gradient.getCachedRaster(width, height);
+        if (img == null) {
+            return;
+        }
+        drawImage(graphics, img.getImage(), x, y);
+    }
+
+    /// In-place region blur for CSS backdrop-filter:blur(). Default returns false
+    /// signalling no in-place support - caller falls back to snapshot+blur.
+    public boolean blurRegion(Object graphics, int x, int y, int width, int height, float radius) {
+        return false;
+    }
+
+    /// In-place region "Liquid Glass" material for backdrop-filter. Default falls
+    /// back to a plain blur (so non-iOS ports still blur, just without the colour
+    /// transform). Ports that support the full material override this.
+    public boolean glassRegion(Object graphics, int x, int y, int width, int height, float radius, float cornerRadius, float sat, float scale, float offset, float refract, float specular) {
+        return blurRegion(graphics, x, y, width, height, radius);
+    }
+
+    /// In-place iOS 26 selection-drop LENS (magnify + chromatic aberration +
+    /// dark-&gt;accent tint over the painted content). Default unsupported; the iOS
+    /// port overrides it. Returns false so callers can fall back (e.g. to a tint).
+    public boolean lensRegion(Object graphics, int x, int y, int width, int height, float cornerRadius, float magnify, float aberration, int tintColor, float tintStrength) {
+        return false;
+    }
+
+    /// Renders an Apple SF Symbol to an image. Default returns null (only iOS
+    /// implements this); callers fall back to the Material icon font.
+    public Image createSFSymbolImage(String name, int color, float sizePixels, int weight) {
+        return null;
+    }
+
+    private boolean checkIntersection(Object g, int y0, int x1, int x2, int y1, int y2, int[] intersections, int intersectionsCount) {
+        if (y0 > y1 && y0 < y2 || y0 > y2 && y0 < y1) {
+            if (y1 == y2) {
+                drawLine(g, x1, y0, x2, y0);
+                return false;
+            }
+            intersections[intersectionsCount] = x1 + ((y0 - y1) * (x2 - x1)) / (y2 - y1);
+            return true;
+        }
+        return false;
+    }
+
+    private int markIntersectionEdge(Object g, int idx, int[] yPoints, int[] xPoints, int nPoints, int[] intersections, int intersectionsCount) {
+        intersections[intersectionsCount] = xPoints[idx];
+
+        if ((yPoints[idx] - yPoints[(idx + 1) % nPoints]) * (yPoints[idx] - yPoints[(idx + nPoints - 1) % nPoints]) > 0) {
+            intersections[intersectionsCount + 1] = xPoints[idx];
+            return 2;
+
+        }
+
+        //Check for special case horizontal line
+        if (yPoints[idx] == yPoints[(idx + 1) % nPoints]) {
+
+            drawLine(g, xPoints[idx], yPoints[idx], xPoints[(idx + 1) % nPoints], yPoints[(idx + 1) % nPoints]);
+
+            if ((yPoints[(idx + 1) % nPoints] - yPoints[(idx + 2) % nPoints]) * (yPoints[idx] - yPoints[(idx + nPoints - 1) % nPoints]) > 0) {
+                return 1;
+            } else {
+                intersections[intersectionsCount + 1] = xPoints[idx];
+                return 2;
+            }
+
+        }
+        return 1;
+    }
+
+    /// Fills a closed polygon defined by arrays of x and y coordinates.
+    /// Each pair of (x, y) coordinates defines a point.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `xPoints`: - a an array of x coordinates.
+    ///
+    /// - `yPoints`: - a an array of y coordinates.
+    ///
+    /// - `nPoints`: - a the total number of points.
+    public void fillPolygon(Object graphics, int[] xPoints, int[] yPoints, int nPoints) {
+
+        int[] intersections = new int[nPoints];
+        int intersectionsCount = 0;
+
+
+        int yMax = yPoints[0];
+        int yMin = yPoints[0];
+
+
+        for (int i = 0; i < nPoints; i++) {
+            yMax = Math.max(yMax, yPoints[i]);
+            yMin = Math.min(yMin, yPoints[i]);
+        }
+        //  Loop through the rows of the image.
+        for (int row = yMin; row <= yMax; row++) {
+
+            intersectionsCount = 0;
+
+            for (int i = 1; i < nPoints; i++) {
+                if (checkIntersection(graphics, row, xPoints[i - 1], xPoints[i], yPoints[i - 1], yPoints[i], intersections, intersectionsCount)) {
+                    intersectionsCount++;
+                }
+            }
+            if (checkIntersection(graphics, row, xPoints[nPoints - 1], xPoints[0], yPoints[nPoints - 1], yPoints[0], intersections, intersectionsCount)) {
+                intersectionsCount++;
+            }
+
+            for (int j = 0; j < nPoints; j++) {
+                if (row == yPoints[j]) {
+                    intersectionsCount += markIntersectionEdge(graphics, j, yPoints, xPoints, nPoints, intersections, intersectionsCount);
+                }
+            }
+
+            int swap = 0;
+            for (int i = 0; i < intersectionsCount; i++) {
+                for (int j = i; j < intersectionsCount; j++) {
+                    if (intersections[j] < intersections[i]) {
+                        swap = intersections[i];
+                        intersections[i] = intersections[j];
+                        intersections[j] = swap;
+                    }
+                }
+            }
+
+
+            for (int i = 1; i < intersectionsCount; i = i + 2) {
+                drawLine(graphics, intersections[i - 1], row, intersections[i], row);
+            }
+        }
+    }
+
+    /// Draws a closed polygon defined by arrays of x and y coordinates.
+    /// Each pair of (x, y) coordinates defines a point.
+    ///
+    /// #### Parameters
+    ///
+    /// - `graphics`: the graphics context
+    ///
+    /// - `xPoints`: - a an array of x coordinates.
+    ///
+    /// - `yPoints`: - a an array of y coordinates.
+    ///
+    /// - `nPoints`: - a the total number of points.
+    public void drawPolygon(Object graphics, int[] xPoints, int[] yPoints, int nPoints) {
+        for (int i = 1; i < nPoints; i++) {
+            drawLine(graphics, xPoints[i - 1], yPoints[i - 1], xPoints[i], yPoints[i]);
+        }
+        drawLine(graphics, xPoints[nPoints - 1], yPoints[nPoints - 1], xPoints[0], yPoints[0]);
+    }
+
+    /// Returns the type of the input device one of:
+    /// KEYBOARD_TYPE_UNKNOWN, KEYBOARD_TYPE_NUMERIC, KEYBOARD_TYPE_QWERTY,
+    /// KEYBOARD_TYPE_VIRTUAL, KEYBOARD_TYPE_HALF_QWERTY
+    ///
+    /// #### Returns
+    ///
+    /// KEYBOARD_TYPE_UNKNOWN
+    public int getKeyboardType() {
+        return Display.KEYBOARD_TYPE_UNKNOWN;
+    }
+
+    /// Indicates whether the device supports native in place editing in which case
+    /// lightweight input logic shouldn't be used for input.
+    ///
+    /// #### Returns
+    ///
+    /// false by default
+    public boolean isNativeInputSupported() {
+        return false;
+    }
+
+    /// Indicates whether the device should switch to native input immediately on first touch
+    ///
+    /// #### Returns
+    ///
+    /// false by default
+    public boolean isNativeInputImmediate() {
+        return false;
+    }
+
+    /// Indicates whether the device supports multi-touch events, this is only
+    /// relevant when touch events are supported
+    ///
+    /// #### Returns
+    ///
+    /// false by default
+    public boolean isMultiTouch() {
+        return false;
+    }
+
+    /// Indicates whether the device has a double layer screen thus allowing two
+    /// stages to touch events: click and hover. This is true for devices such
+    /// as the storm but can also be true for a PC with a mouse pointer floating
+    /// on top.
+    ///
+    /// A click touch screen will also send pointer hover events to the underlying
+    /// software and will only send the standard pointer events on click.
+    ///
+    /// #### Returns
+    ///
+    /// false by default
+    public boolean isClickTouchScreen() {
+        return false;
+    }
+
+    /// Returns true if indexed images should be used natively
+    ///
+    /// #### Returns
+    ///
+    /// true if a native image should be used for indexed images
+    public boolean isNativeIndexed() {
+        return false;
+    }
+
+    /// Creates a native image representing the indexed image
+    ///
+    /// #### Parameters
+    ///
+    /// - `image`: the indexed image
+    ///
+    /// #### Returns
+    ///
+    /// a native version of the indexed image
+    public Object createNativeIndexed(Image image) {
+        return null;
+    }
+
+    /// Returns true if the image was opaque
+    ///
+    /// #### Parameters
+    ///
+    /// - `codenameOneImage`: the Codename One image
+    ///
+    /// - `nativeImage`: the image object to test
+    ///
+    /// #### Returns
+    ///
+    /// true if the image is opaque
+    public boolean isOpaque(Image codenameOneImage, Object nativeImage) {
+        int[] rgb = codenameOneImage.getRGBCached();
+        int rlen = rgb.length;
+        for (int iter = 0; iter < rlen; iter++) {
+            if ((rgb[iter] & 0xff000000) != 0xff000000) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// Indicates whether the underlying implementation can draw using an affine
+    /// transform hence methods such as rotate, scale and shear would work
+    ///
+    /// #### Returns
+    ///
+    /// true if an affine transformation matrix is present
+    public boolean isAffineSupported() {
+        return false;
+    }
+
+    /// Resets the affine transform to the default value
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeGraphics`: the native graphics object
+    public void resetAffine(Object nativeGraphics) {
+        System.out.println("Affine unsupported");
+    }
+
+    /// Indicates whether the underlying implementation composes
+    /// `g.translateMatrix(float, float)` onto the impl-side transform matrix.
+    /// When this returns false `Graphics.translateMatrix` silently falls
+    /// back to the per-Graphics integer accumulator
+    /// (`Graphics.translate(int, int)`), so apps don't render at the wrong
+    /// position on ports that haven't been updated. Ports that DO route
+    /// `translateMatrix` through the matrix (iOS, JavaSE, Android, modern
+    /// JavaScript) must override this to return true AND override
+    /// `#translateMatrix(Object, float, float)`. The legacy / restricted
+    /// JavaScript builds keep the default false until the matrix path is
+    /// wired up.
+    ///
+    /// #### Returns
+    ///
+    /// true if `translateMatrix` reaches the impl matrix on this port.
+    public boolean isTranslateMatrixSupported() {
+        return false;
+    }
+
+    /// Composes a translation onto the impl-side transform matrix -- the
+    /// matrix-correct counterpart of `Graphics.translate(int, int)`. Pairs
+    /// with `#scale(Object, float, float)` and `#rotate(Object, float, int, int)`:
+    /// the new transform is `currentMatrix * T(x, y)` and any subsequent
+    /// draw applies that composed matrix as a single step (no separate
+    /// integer accumulator pre-applied before the matrix). Only invoked
+    /// when `#isTranslateMatrixSupported()` returns true; ports must keep
+    /// the two in sync.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeGraphics`: the native graphics object
+    ///
+    /// - `x`: x-axis translation
+    ///
+    /// - `y`: y-axis translation
+    public void translateMatrix(Object nativeGraphics, float x, float y) {
+        // Default no-op: ports advertise translateMatrix support via
+        // isTranslateMatrixSupported(); Graphics.translateMatrix never
+        // reaches this body when that's false.
+    }
+
+    /// Scales the coordinate system using the affine transform
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeGraphics`: the native graphics object
+    ///
+    /// - `x`: factor for x
+    ///
+    /// - `y`: factor for y
+    public void scale(Object nativeGraphics, float x, float y) {
+        System.out.println("Affine unsupported");
+    }
+
+    /// Rotates the coordinate system around a radian angle using the affine transform
+    ///
+    /// #### Parameters
+    ///
+    /// - `angle`: the rotation angle in radians
+    ///
+    /// - `nativeGraphics`: the native graphics object
+    public void rotate(Object nativeGraphics, float angle) {
+        rotate(nativeGraphics, angle, 0, 0);
+    }
+
+    /// Rotates the coordinate system around a radian angle using the affine transform
+    ///
+    /// #### Parameters
+    ///
+    /// - `angle`: the rotation angle in radians
+    ///
+    /// - `pivotX`: the pivot location
+    ///
+    /// - `pivotY`: the pivot location
+    ///
+    /// - `nativeGraphics`: the native graphics object
+    public void rotate(Object nativeGraphics, float angle, int pivotX, int pivotY) {
+        System.out.println("Affine unsupported");
+    }
+
+    /// Shear the graphics coordinate system using the affine transform
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: factor for x
+    ///
+    /// - `y`: factor for y
+    ///
+    /// - `nativeGraphics`: the native graphics object
+    public void shear(Object nativeGraphics, float x, float y) {
+        System.out.println("Affine unsupported");
+    }
+
+    /// Indicates whether the underlying platform supports creating an SVG Image
+    ///
+    /// #### Returns
+    ///
+    /// @return true if the method create SVG image would return a valid image object
+    /// from an SVG Input stream
+    public boolean isSVGSupported() {
+        return false;
+    }
+
+    /// Creates an SVG Image from the given byte array data and the base URL
+    ///
+    /// #### Parameters
+    ///
+    /// - `baseURL`: URL which is used to resolve relative references within the SVG file
+    ///
+    /// - `data`: the content of the SVG file
+    ///
+    /// #### Returns
+    ///
+    /// a native image that can be used within the image object
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if resource lookup fail SVG is unsupported
+    public Object createSVGImage(String baseURL, byte[] data) throws IOException {
+        throw new IOException("SVG is not supported by this implementation");
+    }
+
+    /// Returns a platform specific DOM object that can be manipulated by the user
+    /// to change the SVG Image
+    ///
+    /// #### Parameters
+    ///
+    /// - `svgImage`: the underlying image object
+    ///
+    /// #### Returns
+    ///
+    /// @return Platform dependent object, when JSR 226 is supported an SVGSVGElement might
+    /// be returned.
+    public Object getSVGDocument(Object svgImage) {
+        throw new RuntimeException("SVG is not supported by this implementation");
+    }
+
+    /// Callback to allow images animated by the underlying system to change their state
+    /// e.g. for SVG or animated gif support. This method returns true if an animation
+    /// state has changed requiring a repaint.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeImage`: a native image used within the image object
+    ///
+    /// - `lastFrame`: the time the last frame of animation was shown
+    ///
+    /// #### Returns
+    ///
+    /// true if a repaint is required since the image state changed, false otherwise
+    public boolean animateImage(Object nativeImage, long lastFrame) {
+        return false;
+    }
+
+    /// Returns a list of the platform names ordered by priority, platform names are
+    /// used to choose a font based on platform. Since a platform might support several
+    /// layers for choice in narrowing platform font selection
+    ///
+    /// #### Returns
+    ///
+    /// the platform names ordered according to priority.
+    public String[] getFontPlatformNames() {
+        return new String[]{"MIDP", "MIDP2"};
+    }
+
+    /// Creates a true type font with the given name/filename (font name might be different from the file name
+    /// and is required by some devices e.g. iOS). The font file must reside in the src root of the project in
+    /// order to be detectable. The file name should contain no slashes or any such value.
+    ///
+    /// #### Parameters
+    ///
+    /// - `fontName`: the name of the font
+    ///
+    /// - `fileName`: the file name of the font as it appears in the src directory of the project
+    ///
+    /// #### Returns
+    ///
+    /// the native font created from the stream
+    public Object loadTrueTypeFont(String fontName, String fileName) {
+        return null;
+    }
+
+    /// Indicates whether the implementation supports loading a font "natively" to handle one of the common
+    /// native prefixes
+    ///
+    /// #### Returns
+    ///
+    /// true if the "native:" prefix is supported by loadTrueTypeFont
+    public boolean isNativeFontSchemeSupported() {
+        return false;
+    }
+
+    /// Creates a font based on this truetype font with the given pixel, **WARNING**! This method
+    /// will only work in the case of truetype fonts!
+    ///
+    /// #### Parameters
+    ///
+    /// - `font`: the native font instance
+    ///
+    /// - `size`: the size of the font in pixels
+    ///
+    /// - `weight`: PLAIN, BOLD or ITALIC weight based on the constants in this class
+    ///
+    /// #### Returns
+    ///
+    /// scaled font instance
+    public Object deriveTrueTypeFont(Object font, float size, int weight) {
+        throw new RuntimeException("Unsupported operation");
+    }
+
+    /// Returns a variant of the given native TrueType font with the supplied letter
+    /// spacing (in EM units) applied to its glyph advances, or the same font when the
+    /// platform does not support letter spacing. Used by Style.letterSpacing so a
+    /// per-component spacing is carried by the font itself (consistent for layout
+    /// measurement and rendering). The default is a no-op.
+    public Object deriveTrueTypeFontWithLetterSpacing(Object font, float letterSpacing) {
+        return font;
+    }
+
+    /// Returns true if the system supports dynamically loading truetype fonts from
+    /// a file.
+    ///
+    /// #### Returns
+    ///
+    /// @return true if the system supports dynamically loading truetype fonts from
+    /// a file.
+    public boolean isTrueTypeSupported() {
+        return false;
+    }
+
+    /// Loads a native font based on a lookup for a font name and attributes. Font lookup
+    /// values can be separated by commas and thus allow fallback if the primary font
+    /// isn't supported by the platform.
+    ///
+    /// #### Parameters
+    ///
+    /// - `lookup`: string describing the font
+    ///
+    /// #### Returns
+    ///
+    /// the native font object
+    public Object loadNativeFont(String lookup) {
+        return null;
+    }
+
+    /// Indicates whether loading a font by a string is supported by the platform
+    ///
+    /// #### Returns
+    ///
+    /// true if the platform supports font lookup
+    public boolean isLookupFontSupported() {
+        return false;
+    }
+
+    /// Minimizes the current application if minimization is supported by the platform (may fail).
+    /// Returns false if minimization failed.
+    ///
+    /// #### Returns
+    ///
+    /// false if minimization failed true if it succeeded or seems to be successful
+    public boolean minimizeApplication() {
+        return false;
+    }
+
+    /// Restore the minimized application if minimization is supported by the platform
+    public void restoreMinimizedApplication() {
+    }
+
+    /// Indicates whether an application is minimized
+    ///
+    /// #### Returns
+    ///
+    /// true if the application is minimized
+    public boolean isMinimized() {
+        return false;
+    }
+
+    /// Indicates whether the implementation is interested in caching radial gradients for
+    /// drawing.
+    ///
+    /// #### Returns
+    ///
+    /// true to activate radial gradient caching
+    protected boolean cacheRadialGradients() {
+        return true;
+    }
+
+    /// Indicates whether the implementation is interested in caching linear gradients for
+    /// drawing.
+    ///
+    /// #### Returns
+    ///
+    /// true to activate linear gradient caching
+    protected boolean cacheLinearGradients() {
+        return true;
+    }
+
+    /// Indicates the default status to apply to the 3rd softbutton variable
+    ///
+    /// #### Returns
+    ///
+    /// true if the 3rd softbutton should be set as true
+    ///
+    /// #### See also
+    ///
+    /// - com.codename1.ui.Display#isThirdSoftButton()
+    ///
+    /// - com.codename1.ui.Display#setThirdSoftButton()
+    public boolean isThirdSoftButton() {
+        return false;
+    }
+
+    /// Indicates how many drag points are used to calculate dragging speed
+    ///
+    /// #### Returns
+    ///
+    /// the size of points to calculate the speed
+    public int getDragPathLength() {
+        return 10;
+    }
+
+    /// Indicates what drag points are valid for the drag speed calculation.
+    /// Points that are older then the current time - the path time are ignored
+    ///
+    /// #### Returns
+    ///
+    /// the relevance time per point
+    public int getDragPathTime() {
+        return 200;
+    }
+
+    /// This method returns the dragging speed based on the latest dragged
+    /// events
+    ///
+    /// #### Parameters
+    ///
+    /// - `points`: array of locations
+    ///
+    /// - `dragPathTime`: the time difference between each point
+    ///
+    /// - `dragPathOffset`: the offset in the arrays
+    ///
+    /// - `dragPathLength`
+    public float getDragSpeed(float[] points, long[] dragPathTime,
+                              int dragPathOffset, int dragPathLength) {
+        long now = System.currentTimeMillis();
+        final long tooold = now - getDragPathTime();
+        int offset = dragPathOffset - dragPathLength;
+        if (offset < 0) {
+            offset = getDragPathLength() + offset;
+        }
+        long old = 0;
+        float oldPoint = 0;
+        float speed = 0;
+        long timediff;
+        float diff;
+        float velocity;
+        float f = dragPathLength;
+        while (dragPathLength > 0) {
+            if (dragPathTime[offset] > tooold) {
+                if (old == 0) {
+                    old = dragPathTime[offset];
+                    oldPoint = points[offset];
+                }
+                timediff = now - old;
+                diff = points[offset] - oldPoint;
+                if (timediff > 0) {
+                    velocity = (diff / timediff) * 1.5f;
+                    speed += velocity;
+                }
+            }
+            dragPathLength--;
+            offset++;
+            if (offset >= getDragPathLength()) {
+                offset = 0;
+            }
+        }
+        f = Math.max(1, f);
+        return -speed / f;
+    }
+
+    /// Indicates whether Codename One should consider the bidi RTL algorithm
+    /// when drawing text or navigating with the text field cursor.
+    ///
+    /// #### Returns
+    ///
+    /// true if the bidi algorithm should be considered
+    public boolean isBidiAlgorithm() {
+        return bidi;
+    }
+
+    /// Indicates whether Codename One should consider the bidi RTL algorithm
+    /// when drawing text or navigating with the text field cursor.
+    ///
+    /// #### Parameters
+    ///
+    /// - `activate`: @param activate set to true to activate the bidi algorithm, false to
+    /// disable it
+    public void setBidiAlgorithm(boolean activate) {
+        bidi = activate;
+    }
+
+    /// Converts the given string from logical bidi layout to visual bidi layout so
+    /// it can be rendered properly on the screen. This method is only necessary
+    /// for devices/platforms that don't have "built in" bidi support such as
+    /// Sony Ericsson devices.
+    /// See [this](http://www.w3.org/International/articles/inline-bidi-markup/#visual)
+    /// for more on visual vs. logical ordering.
+    ///
+    /// #### Parameters
+    ///
+    /// - `s`: a "logical" string with RTL characters
+    ///
+    /// #### Returns
+    ///
+    /// a "visual" renderable string
+    public String convertBidiLogicalToVisual(String s) {
+        if (bidi && s.length() >= 2) {
+            // PMD Fix (CollapsibleIfStatements): Merge bidi activation and length checks prior to processing.
+            char[] c = s.toCharArray();
+            swapBidiChars(c, 0, s.length(), -1);
+            return new String(c);
+        }
+        return s;
+    }
+
+    /// Returns the index of the given char within the source string, the actual
+    /// index isn't necessarily the same when bidi is involved
+    /// See [this](http://www.w3.org/International/articles/inline-bidi-markup/#visual)
+    /// for more on visual vs. logical ordering.
+    ///
+    /// #### Parameters
+    ///
+    /// - `source`: the string in which we are looking for the position
+    ///
+    /// - `index`: the "logical" location of the cursor
+    ///
+    /// #### Returns
+    ///
+    /// the "visual" location of the cursor
+    public int getCharLocation(String source, int index) {
+        if (bidi) {
+            return swapBidiChars(source.toCharArray(), 0, source.length(), index);
+        }
+        return index;
+    }
+
+    private boolean isWhitespace(char c) {
+        return c == ' ' || (c == '\n') || (c == '\t') || (c == 13);
+    }
+
+    /// Returns true if the given character is an RTL character or a space
+    /// character
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: character to test
+    ///
+    /// #### Returns
+    ///
+    /// true if bidi is active and this is a
+    public boolean isRTLOrWhitespace(char c) {
+        if (bidi) {
+            return isRTL(c) || isWhitespace(c);
+        }
+        return false;
+    }
+
+    /// Returns true if the given character is an RTL character
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: character to test
+    ///
+    /// #### Returns
+    ///
+    /// true if the charcter is an RTL character
+    public boolean isRTL(char c) {
+        return (c >= RTL_RANGE_BEGIN && c <= RTL_RANGE_END);
+    }
+
+    // PMD Fix (UnnecessaryModifier): Private methods cannot be overridden, so final is redundant.
+    private int swapBidiChars(char[] chars, int ixStart, int len, int index) {
+        int destIndex = -1;
+
+        int ixEnd = ixStart + len;
+        int ix0;
+        int ix1;
+
+        ix0 = ix1 = ixStart;
+
+        boolean doSwap = false;
+        for (int i1 = ixStart; i1 < ixEnd; i1++) {
+            if (isRTL(chars[i1])) {
+                doSwap = true;
+                break;
+            }
+        }
+
+        if (doSwap) {
+            while (ix0 < ixEnd) {
+                ix1 = scanSecond(chars, ix0, ixEnd);
+                if (ix1 < 0) {
+                    break;
+                }
+                ix0 = ix1;
+                ix1 = scanBackFirst(chars, ix0, ixEnd);
+                // swap
+                for (int iy0 = ix0, iy1 = ix1 - 1; iy0 < iy1; iy0++, iy1--) {
+                    char tmp = chars[iy0];
+                    chars[iy0] = chars[iy1];
+                    chars[iy1] = tmp;
+
+                    if (index == iy1) {
+                        destIndex = iy0;
+                        index = iy0;
+                    }
+                }
+
+                ix0 = ix1;
+            }
+        }
+
+        if (doSwap) {
+            // swap the line
+            for (ix0 = ixStart, ix1 = ixEnd - 1; ix0 <= ix1; ix0++, ix1--) {
+                char ch0 = chars[ix0];
+                char ch1 = chars[ix1];
+
+                chars[ix0] = ch1;
+                chars[ix1] = ch0;
+
+                if (index == ix0) {
+                    destIndex = ix1;
+                } else if (index == ix1) {
+                    destIndex = ix0;
+                }
+            }
+        }
+
+        return destIndex;
+
+    }
+
+    private boolean isRTLBreak(char ch1) {
+        return ch1 == ')' || ch1 == ']' || ch1 == '}' || ch1 == '(' || ch1 == '[' || ch1 == '{';
+    }
+
+    private boolean isLTR(char c) {
+        return !isRTL(c) && !isRTLBreak(c);
+    }
+
+    // PMD Fix (UnnecessaryModifier): Private helper does not require the final modifier.
+    private int scanSecond(char[] chars, int ixStart, int ixEnd) {
+        int ixFound = -1;
+        for (int ix = ixStart; ixFound < 0 && ix < ixEnd; ix++) {
+            if (!isRTLOrWhitespace(chars[ix])) {
+                ixFound = ix;
+            }
+        }
+        return ixFound;
+    }
+
+    // PMD Fix (UnnecessaryModifier): Remove redundant final modifier on private helper.
+    private int scanBackFirst(char[] chars, int ixStart, int ixEnd) {
+        int ix;
+        int ixFound = ixEnd;
+        for (ix = ixStart + 1; ix < ixEnd; ix++) {
+            if (isRTL(chars[ix]) || isRTLBreak(chars[ix])) {
+                ixFound = ix;
+                break;
+            }
+        }
+
+        for (ix = ixFound - 1; ix >= ixStart; ix--) {
+            if (isLTR(chars[ix]) && !isWhitespace(chars[ix])) {
+                ixFound = ix + 1;
+                break;
+            }
+        }
+
+        return ixFound;
+    }
+
+    /// This method is essentially equivalent to cls.getResourceAsStream(String)
+    /// however some platforms might define unique ways in which to load resources
+    /// within the implementation.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cls`: class to load the resource from
+    ///
+    /// - `resource`: relative/absolute URL based on the Java convention
+    ///
+    /// #### Returns
+    ///
+    /// input stream for the resource or null if not found
+    public InputStream getResourceAsStream(Class cls, String resource) {
+        if (cls != null) {
+            return cls.getResourceAsStream(resource);
+        }
+        return CodenameOneImplementation.class.getResourceAsStream(resource);
+    }
+
+    /// Animations should return true to allow the native image animation to update
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeImage`: underlying native imae
+    ///
+    /// #### Returns
+    ///
+    /// true if this is an animation
+    public boolean isAnimation(Object nativeImage) {
+        return false;
+    }
+
+    /// Creates a peer component for the given lightweight component
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeComponent`: a platform specific "native component"
+    ///
+    /// #### Returns
+    ///
+    /// @return a Codename One peer component that can be manipulated just like any other
+    /// Codename One component but would internally encapsulate the given native peer
+    public PeerComponent createNativePeer(Object nativeComponent) {
+        throw new IllegalArgumentException(nativeComponent.getClass().getName());
+    }
+
+    /// Shows a native Form/Canvas or some other heavyweight native screen
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeFullScreenPeer`: the native screen peer
+    public void showNativeScreen(Object nativeFullScreenPeer) {
+    }
+
+    /// Places the following commands on the native menu system
+    ///
+    /// #### Parameters
+    ///
+    /// - `commands`: the Codename One commands to use
+    public void setNativeCommands(Vector commands) {
+    }
+
+    /// Whether this platform actually has a native menu system for
+    /// `#setNativeCommands(Vector)` to put commands on.
+    ///
+    /// False here, and the default matters: `setNativeCommands` is a no-op on a platform
+    /// that has no menu bar, and `MenuBar.updateCommands` calls it and RETURNS -- it draws
+    /// no soft buttons, because on a platform with a real menu bar drawing them too would
+    /// duplicate every command. So on a platform without one, asking for
+    /// `Display#COMMAND_BEHAVIOR_NATIVE` did not fall back to anything: the commands went to
+    /// a method that discards them and were never drawn at all. Silently, since nothing in
+    /// that path can tell "handled natively" from "dropped".
+    ///
+    /// That was latent until a theme asked for it. The desktop native themes declare
+    /// `commandBehavior: Native`, which is right for the platforms they model and which two
+    /// of the ports that will install them -- Windows and Linux -- cannot honour yet.
+    ///
+    /// A port overrides this to true when it really puts the commands somewhere the user can
+    /// reach them. Everything else keeps whatever Codename One draws itself.
+    ///
+    /// #### Returns
+    ///
+    /// true if this platform has a native menu bar
+    public boolean isNativeCommandsSupported() {
+        return false;
+    }
+
+    /// Runs a command the platform's native menu bar just reported, through the form that owns
+    /// it so the form-level routing is not skipped.
+    ///
+    /// `Command#actionPerformed` alone is not enough. `Form#dispatchCommand` calls it and then,
+    /// if the event was not consumed, runs the listeners registered with
+    /// `Form#addCommandListener`, an `actionCommand()` override and the pop guard. While the
+    /// Toolbar was still on screen the same command was reachable through it and the difference
+    /// did not show; a desktop native theme hides the Toolbar, which makes the native menu the
+    /// only route and the skipped routing simply stop happening.
+    ///
+    /// The owning form is resolved HERE, when the item is chosen, rather than when the menu was
+    /// published. Publishing happens from `MenuBar#addCommand`, which runs while a form is being
+    /// built and before `show()` makes it current -- so a form captured at that moment is the
+    /// PREVIOUS one, and showing the new form does not republish. At selection time the form
+    /// whose menu is on screen is simply the current one.
+    ///
+    /// Ownership is then confirmed rather than assumed: a command that the current form does not
+    /// carry -- a stale click during a transition, say -- is run directly rather than dispatched
+    /// through a form it does not belong to.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmd`: the command the native menu reported; ignored when null or disabled
+    protected void dispatchNativeMenuCommand(Command cmd) {
+        if (cmd == null) {
+            return;
+        }
+        if (!cmd.isEnabled()) {
+            // A disabled Command must not run because its menu item was clicked. The row format
+            // carries no enabled flag, so the native item is created enabled and stays
+            // clickable; greying it out as well needs another field and a matching change in
+            // every native parser. This is the half that prevents the damage.
+            return;
+        }
+        Form current = Display.getInstance().getCurrent();
+        ActionEvent ev = new ActionEvent(cmd);
+        if (current != null && formCarriesCommand(current, cmd)) {
+            current.dispatchCommand(cmd, ev);
+            return;
+        }
+        cmd.actionPerformed(ev);
+    }
+
+    /// True when the form lists this command, including as its back command.
+    ///
+    /// #### Parameters
+    ///
+    /// - `f`: the form to search
+    ///
+    /// - `cmd`: the command
+    ///
+    /// #### Returns
+    ///
+    /// true when the command belongs to the form
+    private static boolean formCarriesCommand(Form f, Command cmd) {
+        if (f.getBackCommand() == cmd) { //NOPMD CompareObjectsWithEquals
+            return true;
+        }
+        int count = f.getCommandCount();
+        for (int i = 0; i < count; i++) {
+            if (f.getCommand(i) == cmd) { //NOPMD CompareObjectsWithEquals
+                return true;
+            }
+        }
+        // getCommandCount covers the MenuBar, which is only part of what was published.
+        // Form.initComponentImpl publishes toolbar.getAllNativeMenuCommands() when the desktop
+        // chrome hides the Toolbar, and that set also carries the left bar, the right bar and
+        // the overflow -- the commands the Toolbar API actually recommends. Searching only the
+        // MenuBar therefore failed to recognise exactly those, and they fell through to the
+        // direct call this method exists to avoid.
+        com.codename1.ui.Toolbar tb = f.getToolbar();
+        if (tb != null) {
+            Vector published = tb.getAllNativeMenuCommands();
+            if (published != null && published.contains(cmd)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Returns the desktop title-bar mode for this platform: one of {@code "native"} (OS title
+    /// bar + native menu bar), {@code "custom"} (undecorated window where the CN1 Toolbar acts as
+    /// the title bar) or {@code "toolbar"} (legacy in-app CN1 Toolbar). Returns {@code "toolbar"}
+    /// by default; desktop ports override this when running on the desktop. This is the
+    /// authoritative source consulted by `Form.isDesktopNativeChrome()` - more robust than a theme
+    /// constant, which not all ports propagate identically.
+    ///
+    /// #### Returns
+    ///
+    /// the desktop title-bar mode, never null
+    public String getDesktopTitleBarMode() {
+        return "toolbar";
+    }
+
+    /// The desktop title-bar mode this platform was explicitly asked for, or null when nobody
+    /// asked. Distinct from {@link #getDesktopTitleBarMode()}, which is documented to answer a
+    /// usable mode and therefore cannot express "unset" - it answers {@code "toolbar"} both for
+    /// a port with no opinion and for a project that deliberately chose the legacy look.
+    ///
+    /// That distinction is the whole point: it is what lets a native theme carry a
+    /// {@code desktopTitleBarMode} constant (Windows and macOS keep a system title bar and want
+    /// {@code native}; GNOME's HeaderBar IS the title bar and wants {@code custom}) without
+    /// overriding a project that set the build hint by hand. A build hint answers here; a theme
+    /// constant only gets consulted when this returns null.
+    ///
+    /// #### Returns
+    ///
+    /// the explicitly configured mode, or null when nothing configured one
+    public String getConfiguredDesktopTitleBarMode() {
+        return null;
+    }
+
+    /// Minimizes the native desktop window when the application draws its own (custom mode)
+    /// window chrome on an undecorated window. No-op on platforms without a native window.
+    public void minimizeNativeWindow() {
+    }
+
+    /// Toggles the maximized state of the native desktop window when the application draws
+    /// its own (custom mode) window chrome. No-op on platforms without a native window.
+    public void toggleMaximizeNativeWindow() {
+    }
+
+    /// Closes the native desktop window when the application draws its own (custom mode)
+    /// window chrome. No-op on platforms without a native window.
+    public void closeNativeWindow() {
+    }
+
+    /// Begins dragging the native desktop window (custom mode title bar). The arguments are
+    /// absolute pointer coordinates at the start of the drag. No-op without a native window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: absolute pointer x
+    ///
+    /// - `y`: absolute pointer y
+    public void startNativeWindowDrag(int x, int y) {
+    }
+
+    /// Continues dragging the native desktop window (custom mode title bar). The arguments
+    /// are the current absolute pointer coordinates. No-op without a native window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: absolute pointer x
+    ///
+    /// - `y`: absolute pointer y
+    public void dragNativeWindow(int x, int y) {
+    }
+
+    /// Exits the application...
+    public void exitApplication() {
+    }
+
+    /// Exits the application...
+    public void exit() {
+        if (onExit != null) {
+            onExit.run();
+        }
+        exitApplication();
+    }
+
+    /// Exits the application and removes it from the platform's list of recent tasks, so the
+    /// user cannot resume it by picking it out of the task switcher. Platforms that expose no
+    /// such concept fall back to a plain `#exitApplication()`.
+    public void exitApplicationAndClearTask() {
+        exitApplication();
+    }
+
+    /// Exits the application and removes it from the platform's list of recent tasks, invoking
+    /// the exit callback first exactly as `#exit()` does.
+    public void exitAndClearTask() {
+        if (onExit != null) {
+            onExit.run();
+        }
+        exitApplicationAndClearTask();
+    }
+
+    /// Indicates whether this platform can remove the application from its list of recent tasks
+    /// on exit. When this returns false `#exitAndClearTask()` still works, it just behaves
+    /// identically to `#exit()`.
+    ///
+    /// #### Returns
+    ///
+    /// true if the task can be cleared, false if the call degrades to a plain exit
+    public boolean isExitAndClearTaskSupported() {
+        return false;
+    }
+
+    /// Returns the property from the underlying platform deployment or the default
+    /// value if no deployment values are supported. This is equivalent to the
+    /// getAppProperty from the jad file.
+    ///
+    /// The implementation should be responsible for the following keys to return
+    /// reasonable valid values for the application:
+    ///
+    /// - AppName
+    ///
+    /// - User-Agent - ideally although not required
+    ///
+    /// - AppVersion
+    ///
+    /// - Platform - Similar to microedition.platform
+    ///
+    /// #### Parameters
+    ///
+    /// - `key`: the key of the property
+    ///
+    /// - `defaultValue`: a default return value
+    ///
+    /// #### Returns
+    ///
+    /// the value of the property
+    public String getProperty(String key, String defaultValue) {
+        return defaultValue;
+    }
+
+    /// Returns true if executing this URL should work, returns false if it will not
+    /// and null if this is unknown.
+    ///
+    /// #### Parameters
+    ///
+    /// - `url`: the url that would be executed
+    ///
+    /// #### Returns
+    ///
+    /// @return true if executing this URL should work, returns false if it will not
+    /// and null if this is unknown
+    public Boolean canExecute(String url) {
+        if (url.startsWith("http:") || url.startsWith("https:")) {
+            return Boolean.TRUE;
+        }
+        return null;
+    }
+
+    /// Executes the given URL on the native platform
+    ///
+    /// #### Parameters
+    ///
+    /// - `url`: the url to execute
+    public void execute(String url) {
+    }
+
+    /// Executes the given URL on the native platform, this method is useful if
+    /// the platform has the ability to send an event to the app when the execution
+    /// has ended, currently this works only for Android platform to invoke other
+    /// intents.
+    ///
+    /// #### Parameters
+    ///
+    /// - `url`: the url to execute
+    ///
+    /// - `response`: @param response a callback from the platform when this execution returned
+    /// to the application
+    public void execute(String url, ActionListener response) {
+        execute(url);
+    }
+
+    /// Offers the given in-memory bytes to the user as a downloadable file,
+    /// bypassing local storage. Implemented by platforms (currently the
+    /// JavaScript port) where the storage-backed `execute(file:// URL)`
+    /// download path is unavailable. Returns `true` if the platform handled
+    /// the download (so callers can skip the storage fallback), `false` if
+    /// unsupported.
+    ///
+    /// #### Parameters
+    ///
+    /// - `fileName`: the suggested file name for the download
+    ///
+    /// - `bytes`: the file contents
+    public boolean downloadBytesAsFile(String fileName, byte[] bytes) {
+        return false;
+    }
+
+    /// Returns the platform's own logical-pixel scale factor: device pixels per
+    /// logical pixel, the number iOS calls `UIScreen.scale` and Android calls
+    /// `density`.
+    ///
+    /// This is NOT the same question as [#getDeviceDensity], even though the two are
+    /// easily confused. Density is a coarse DPI bucket used to pick artwork and to size
+    /// things in physical units. The scale factor is what the platform itself uses to
+    /// convert its own layout units into pixels, and on iOS it is only ever 1, 2 or 3 --
+    /// never the 3.5 that a 560-dpi bucket would imply. Anything laying out in
+    /// platform-logical units (density-independent pixels) has to ask this question, not the
+    /// density one, or it renders every dimension off by the ratio between them.
+    ///
+    /// #### Returns
+    ///
+    /// pixels per logical pixel, or 0 when the platform does not report one -- callers
+    /// should then fall back to deriving it from the density bucket
+    public float getDevicePixelRatio() {
+        return 0;
+    }
+
+    /// one of the DENSITY constants of Display
+    public int getDeviceDensity() {
+        int d = getActualDisplayHeight() * getDisplayWidth();
+        if (isTablet()) {
+            // tablets have lower density and allow fitting more details in the screen despite a high resolution
+            if (d >= 1440 * 720) {
+                return Display.DENSITY_HIGH;
+            }
+            return Display.DENSITY_MEDIUM;
+        }
+        if (d <= 176 * 220) {
+            return Display.DENSITY_VERY_LOW;
+        }
+        if (d <= 240 * 320) {
+            return Display.DENSITY_LOW;
+        }
+        if (d <= 360 * 480) {
+            return Display.DENSITY_MEDIUM;
+        }
+        if (d <= 480 * 854) {
+            return Display.DENSITY_HIGH;
+        }
+        if (d <= 1440 * 720) {
+            return Display.DENSITY_VERY_HIGH;
+        }
+        return Display.DENSITY_HD;
+    }
+
+    /// This method returns a rectangle defining the "safe" area of the display, which excludes
+    /// areas on the screen that are covered by notches, task bars, rounded corners, etc.
+    ///
+    /// This feature was primarily added to deal with the task bar on the iPhone X, which
+    /// is displayed on the screen near the bottom edge, and can interfere with components
+    /// that are laid out at the bottom of the screen.
+    ///
+    /// Most platforms will simply return a Rectangle with bounds (0, 0, displayWidth, displayHeight).  iPhone X
+    /// will return a rectangle that excludes the notch, and task bar regions.
+    ///
+    /// #### Parameters
+    ///
+    /// - `rect`: Out parameter where safe bounds are set.
+    ///
+    /// #### Returns
+    ///
+    /// The same rectangle that was passed as a parameter.
+    ///
+    /// #### See also
+    ///
+    /// - Form#getSafeArea()
+    public Rectangle getDisplaySafeArea(Rectangle rect) {
+        if (rect == null) {
+            rect = new Rectangle();
+        }
+        rect.setBounds(0, 0, getDisplayWidth(), getDisplayHeight());
+        return rect;
+    }
+
+    /// Plays a builtin device sound matching the given identifier, implementations
+    /// and themes can offer additional identifiers to the ones that are already built
+    /// in.
+    ///
+    /// #### Parameters
+    ///
+    /// - `soundIdentifier`: @param soundIdentifier the sound identifier which can match one of the
+    /// common constants in this class or be a user/implementation defined sound
+    public void playBuiltinSound(String soundIdentifier) {
+        playUserSound(soundIdentifier);
+    }
+
+    /// Plays a sound defined by the user
+    ///
+    /// #### Parameters
+    ///
+    /// - `soundIdentifier`: @param soundIdentifier the sound identifier which can match one of the
+    /// common constants in this class or be a user/implementation defined sound
+    protected void playUserSound(String soundIdentifier) {
+        // TODO: Reintroduce builitin sound support
+        //Object sound = builtinSounds.get(soundIdentifier);
+        //return sound != null;
+        //playAudio(sound);
+    }
+
+    /// This method allows implementations to store sound objects natively e.g.
+    /// in files, byte arrays whatever
+    ///
+    /// #### Parameters
+    ///
+    /// - `data`: native data object
+    protected void playNativeBuiltinSound(Object data) {
+    }
+
+    /// Converts a sound object to a form which will be easy for the implementation
+    /// to play later on. E.g. a byte array or a file/file name and return an object
+    /// that will allow playNativeBuiltinSound() to use
+    ///
+    /// #### Parameters
+    ///
+    /// - `i`: stream containing a sound file
+    ///
+    /// #### Returns
+    ///
+    /// native playback object
+    ///
+    /// #### Throws
+    ///
+    /// - `java.io.IOException`: thrown by the stream
+    protected Object convertBuiltinSound(InputStream i) throws IOException {
+        ByteArrayOutputStream b = new ByteArrayOutputStream();
+        byte[] buffer = new byte[4096];
+        int size = i.read(buffer);
+        while (size > -1) {
+            b.write(buffer, 0, size);
+            size = i.read(buffer);
+        }
+        b.close();
+        i.close();
+        return b.toByteArray();
+    }
+
+    /// Installs a replacement sound as the builtin sound responsible for the given
+    /// sound identifier (this will override the system sound if such a sound exists).
+    ///
+    /// #### Parameters
+    ///
+    /// - `soundIdentifier`: the sound string passed to playBuiltinSound
+    ///
+    /// - `data`: @param data            an input stream containing platform specific audio file, its usually safe
+    /// to assume that wav/mp3 would be supported.
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if the stream throws an exception
+    public void installBuiltinSound(String soundIdentifier, InputStream data) throws IOException {
+        builtinSounds.put(soundIdentifier, convertBuiltinSound(data));
+    }
+
+    /// Indicates whether a user installed or system sound is available
+    ///
+    /// #### Parameters
+    ///
+    /// - `soundIdentifier`: the sound string passed to playBuiltinSound
+    ///
+    /// #### Returns
+    ///
+    /// true if a sound of this given type is avilable
+    public boolean isBuiltinSoundAvailable(String soundIdentifier) {
+        return builtinSounds.containsKey(soundIdentifier);
+    }
+
+    /// Allows muting/unmuting the builtin sounds easily
+    ///
+    /// #### Returns
+    ///
+    /// true if the sound is *not* muted
+    public boolean isBuiltinSoundsEnabled() {
+        return builtinSoundEnabled;
+    }
+
+    /// Allows muting/unmuting the builtin sounds easily
+    ///
+    /// #### Parameters
+    ///
+    /// - `enabled`: indicates whether the sound is muted
+    public void setBuiltinSoundsEnabled(boolean enabled) {
+        builtinSoundEnabled = enabled;
+    }
+
+    /// Plays the sound in the given URI which is partially platform specific.
+    ///
+    /// #### Parameters
+    ///
+    /// - `uri`: the platform specific location for the sound
+    ///
+    /// - `onCompletion`: invoked when the audio file finishes playing, may be null
+    ///
+    /// #### Returns
+    ///
+    /// a handle that can be used to control the playback of the audio
+    ///
+    /// #### Throws
+    ///
+    /// - `java.io.IOException`: if the URI access fails
+    public Media createMedia(String uri, boolean isVideo, Runnable onCompletion) throws IOException {
+        return null;
+    }
+
+    /// Creates media asynchronously.
+    ///
+    /// #### Parameters
+    ///
+    /// - `uri`: the platform specific location for the sound
+    ///
+    /// - `onCompletion`: invoked when the audio file finishes playing, may be null
+    ///
+    /// #### Returns
+    ///
+    /// a handle that can be used to control the playback of the audio
+    ///
+    /// #### See also
+    ///
+    /// - #createMedia(java.lang.String, boolean, java.lang.Runnable)
+    public AsyncResource<Media> createMediaAsync(final String uri, final boolean video, final Runnable onCompletion) {
+        final AsyncResource<Media> out = new AsyncResource<Media>();
+        CN.scheduleBackgroundTask(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    out.complete(createMedia(uri, video, onCompletion));
+                } catch (IOException ex) {
+                    out.error(ex);
+                }
+            }
+        });
+        return out;
+    }
+
+    /// Adds a callback to a Media element that will be called when the media finishes playing.
+    ///
+    /// #### Parameters
+    ///
+    /// - `media`: The media to add the callback to.
+    ///
+    /// - `onCompletion`: The callback that will run on the EDT when the playback completes.
+    ///
+    /// #### See also
+    ///
+    /// - #removeCompletionHandler(com.codename1.media.Media, java.lang.Runnable)
+    ///
+    /// - Display#addCompletionHandler(com.codename1.media.Media, java.lang.Runnable)
+    public void addCompletionHandler(Media media, Runnable onCompletion) {
+    }
+
+    /// Removes onComplete callback from Media element.
+    ///
+    /// #### Parameters
+    ///
+    /// - `media`: The media element.
+    ///
+    /// - `onCompletion`: The callback.
+    ///
+    /// #### See also
+    ///
+    /// - #addCompletionHandler(com.codename1.media.Media, java.lang.Runnable)
+    ///
+    /// - Display#removeCompletionHandler(com.codename1.media.Media, java.lang.Runnable)
+    public void removeCompletionHandler(Media media, Runnable onCompletion) {
+
+    }
+
+    /// Plays the sound in the given stream
+    ///
+    /// #### Parameters
+    ///
+    /// - `stream`: the stream containing the media data
+    ///
+    /// - `mimeType`: the type of the data in the stream
+    ///
+    /// - `onCompletion`: invoked when the audio file finishes playing, may be null
+    ///
+    /// #### Returns
+    ///
+    /// a handle that can be used to control the playback of the audio
+    ///
+    /// #### Throws
+    ///
+    /// - `java.io.IOException`: if the URI access fails
+    ///
+    /// #### See also
+    ///
+    /// - #createMediaAsync(java.io.InputStream, java.lang.String, java.lang.Runnable)
+    public Media createMedia(InputStream stream, String mimeType, Runnable onCompletion) throws IOException {
+        return null;
+    }
+
+    /// Indicates whether this platform provides a native low latency sound pool
+    /// (backing `com.codename1.gaming.SoundPool`). The default implementation
+    /// returns false, in which case the gaming layer falls back to a
+    /// `MediaManager` based pool. Ports with a purpose built low latency audio API
+    /// (Android `SoundPool`, iOS `AVAudioEngine`, the desktop `javax.sound.sampled`
+    /// mixer, WebAudio) override this and `#createSoundPool(int)`.
+    public boolean isSoundPoolSupported() {
+        return false;
+    }
+
+    /// Creates a native low latency sound pool peer, or returns null when this
+    /// platform does not provide one (the default).
+    ///
+    /// #### Parameters
+    ///
+    /// - `maxStreams`: the maximum number of simultaneously playing voices
+    public com.codename1.media.SoundPoolPeer createSoundPool(int maxStreams) {
+        return null;
+    }
+
+    /// Creates media asynchronously.
+    ///
+    /// #### Parameters
+    ///
+    /// - `stream`: the stream containing the media data
+    ///
+    /// - `mimeType`: the type of the data in the stream
+    ///
+    /// - `onCompletion`: invoked when the audio file finishes playing, may be null
+    ///
+    /// #### Returns
+    ///
+    /// a handle that can be used to control the playback of the audio
+    ///
+    /// #### See also
+    ///
+    /// - #createMedia(java.io.InputStream, java.lang.String, java.lang.Runnable)
+    public AsyncResource<Media> createMediaAsync(final InputStream stream, final String mimeType, final Runnable onCompletion) {
+        final AsyncResource<Media> out = new AsyncResource<Media>();
+        CN.scheduleBackgroundTask(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    out.complete(createMedia(stream, mimeType, onCompletion));
+                } catch (Throwable t) {
+                    out.error(t);
+                }
+            }
+
+        });
+        return out;
+    }
+
+    /// Creates an audio media that can be played in the background.
+    ///
+    /// #### Parameters
+    ///
+    /// - `uri`: @param uri the uri of the media can start with jar://, file://, http://
+    /// (can also use rtsp:// if supported on the platform)
+    ///
+    /// #### Returns
+    ///
+    /// @return Media a Media Object that can be used to control the playback
+    /// of the media
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if creation of media from the given URI has failed
+    public Media createBackgroundMedia(String uri) throws IOException {
+        if (uri.startsWith("jar://")) {
+            uri = uri.substring(6);
+            if (!uri.startsWith("/")) {
+                uri = "/" + uri;
+            }
+            InputStream is = getResourceAsStream(this.getClass(), uri); //NOPMD CloseResource
+            String mime = "";
+            if (uri.endsWith(".mp3")) {
+                mime = "audio/mp3";
+            } else if (uri.endsWith(".wav")) {
+                mime = "audio/x-wav";
+            } else if (uri.endsWith(".amr")) {
+                mime = "audio/amr";
+            } else if (uri.endsWith(".3gp")) {
+                mime = "audio/3gpp";
+            }
+            try {
+                return createMedia(is, mime, null);
+            } finally {
+                Util.cleanup(is);
+            }
+        }
+        return createMedia(uri, false, null);
+    }
+
+    /// Creates an audio media that can be played in the background.
+    ///
+    /// This is run asynchronously so that this call does not block.
+    ///
+    /// #### Parameters
+    ///
+    /// - `uri`: @param uri the uri of the media can start with jar://, file://, http://
+    /// (can also use rtsp:// if supported on the platform)
+    ///
+    /// #### Returns
+    ///
+    /// @return Media a Media Object that can be used to control the playback
+    /// of the media
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if creation of media from the given URI has failed
+    public AsyncResource<Media> createBackgroundMediaAsync(final String uri) {
+
+        if (uri.startsWith("jar://")) {
+            final AsyncResource<Media> out = new AsyncResource<Media>();
+
+            CN.scheduleBackgroundTask(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        out.complete(createBackgroundMedia(uri));
+                    } catch (IOException ex) {
+                        out.error(ex);
+                    }
+                }
+
+            });
+            return out;
+        } else {
+            return createMediaAsync(uri, false, null);
+        }
+    }
+
+    /// Creates a soft/weak reference to an object that allows it to be collected
+    /// yet caches it. This method is in the porting layer since CLDC only includes
+    /// weak references while some platforms include nothing at all and some include
+    /// the superior soft references.
+    ///
+    /// #### Parameters
+    ///
+    /// - `o`: object to cache
+    ///
+    /// #### Returns
+    ///
+    /// a caching object or null  if caching isn't supported
+    public Object createSoftWeakRef(Object o) {
+        // STILL A WeakReference, DELIBERATELY, and not an oversight now that ParparVM has
+        // a real SoftReference with a ranked retention policy behind it.
+        //
+        // Switching this method -- and deleting the iOS override, which pins every entry
+        // in a Hashtable until a memory warning replaces the whole map -- changes the
+        // lifetime of every decoded image, gradient and resource cache in every app on
+        // every platform. That wants its own change and its own bisect point, because
+        // each call site also needs deciding individually rather than mechanically: a
+        // rebuildable cache wants a SoftReference, while a lifetime tracker such as
+        // JavascriptContext reads a null extract as PROOF the wrapper was collected and
+        // would leak, or worse, under one that outlives its referent.
+        return new WeakReference(o);
+    }
+
+    /// Extracts the hard reference from the soft/weak reference given
+    ///
+    /// #### Parameters
+    ///
+    /// - `o`: the reference returned by createSoftWeakRef
+    ///
+    /// #### Returns
+    ///
+    /// the original object submitted or null
+    public Object extractHardRef(Object o) {
+        WeakReference w = (WeakReference) o;
+        if (w != null) {
+            return w.get();
+        }
+        return null;
+    }
+
+    /// This method notifies the implementation about the chosen commands
+    /// behavior
+    ///
+    /// #### Parameters
+    ///
+    /// - `commandBehavior`: see Display.COMMAND_BEHAVIOR...
+    public void notifyCommandBehavior(int commandBehavior) {
+    }
+
+    /// Indicates if the implemenetation has a native underlying theme
+    ///
+    /// #### Returns
+    ///
+    /// true if the implementation has a native theme available
+    public boolean hasNativeTheme() {
+        return false;
+    }
+
+    /// Installs the native theme, this is only applicable if hasNativeTheme() returned true. Notice that this method
+    /// might replace the DefaultLookAndFeel instance and the default transitions.
+    public void installNativeTheme() {
+        throw new RuntimeException();
+    }
+
+    // ------------------------------------------------------------------------------------
+    // Native (operating system) drag and drop. The payload is a ClipboardContent, the same one
+    // copyToClipboard publishes, because a drag is a copy the user aims with the pointer.
+    //
+    // A port implements the outbound half here and calls
+    // com.codename1.ui.NativeDragAndDrop for the inbound half.
+    // ------------------------------------------------------------------------------------
+
+    /// Returns true when this platform can hand a drag to the operating system. False here
+    /// leaves the framework with only its lightweight in-form drag and drop, which is what
+    /// every port had before.
+    ///
+    /// #### Returns
+    ///
+    /// true when native drag and drop is available
+    public boolean isNativeDragAndDropSupported() {
+        return false;
+    }
+
+    /// Returns true when a drag started in this application can be dropped outside it -- on the
+    /// desktop, in a file manager, or in another application's window. Ports that can route a
+    /// drag between their own components but not out of the application return false while
+    /// still returning true from `#isNativeDragAndDropSupported()`.
+    ///
+    /// #### Returns
+    ///
+    /// true when a drag can leave the application
+    public boolean isNativeDragOutsideApplicationSupported() {
+        return isNativeDragAndDropSupported();
+    }
+
+    /// Hands the port the drag that would start if the press currently down turns into a drag.
+    ///
+    /// Ports whose platform owns the gesture -- where the operating system's own recognizer
+    /// decides a drag has begun and then asks what is being dragged -- answer from what they
+    /// were given here. Ports that start the session themselves can ignore this and use
+    /// `#startNativeDrag(com.codename1.ui.NativeDragOperation)`.
+    ///
+    /// Invoked on the event dispatch thread, once per press. A press that produces no drag is
+    /// followed by `#cancelNativeDrag()`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `op`: the drag that is now possible
+    public void prepareNativeDrag(NativeDragOperation op) {
+    }
+
+    /// Starts a native drag session now, because the pointer has moved far enough to be a drag.
+    /// Invoked on the event dispatch thread while the pointer is still down.
+    ///
+    /// A port that starts the session must eventually report the outcome through
+    /// `com.codename1.ui.NativeDragAndDrop#dragCompleted(int)`, or a source that offered a move
+    /// never learns whether to delete its copy.
+    ///
+    /// #### Parameters
+    ///
+    /// - `op`: what is being dragged
+    ///
+    /// #### Returns
+    ///
+    /// true when the operating system took the drag
+    public boolean startNativeDrag(NativeDragOperation op) {
+        return false;
+    }
+
+    /// Discards whatever `#prepareNativeDrag(com.codename1.ui.NativeDragOperation)` staged,
+    /// because the press turned out to be a click.
+    public void cancelNativeDrag() {
+    }
+
+    /// Notifies the port that the application has a component that can be dragged through the
+    /// operating system.
+    ///
+    /// A platform whose drag gesture is its own -- UIKit's is -- recognizes that gesture with a
+    /// recognizer installed on the surface, and installing one changes how every touch on that
+    /// surface is delivered. Doing it unconditionally would alter touch handling for every
+    /// application, including the overwhelming majority that never drags anything; a port that
+    /// needs a recognizer therefore installs it here, the first time an application says it
+    /// wants one.
+    ///
+    /// Called on the event dispatch thread, possibly many times; a port must make it idempotent.
+    public void nativeDragSourceRegistered() {
+    }
+
+    /// Notifies the port that the application has a component that accepts drops from the
+    /// operating system.
+    ///
+    /// The counterpart of `#nativeDragSourceRegistered()`, for the same reason: a port attaches
+    /// whatever the platform needs in order to receive drops only for applications that asked
+    /// to receive them, so an application that never does keeps exactly the input handling it
+    /// had.
+    ///
+    /// Called on the event dispatch thread, possibly many times; a port must make it idempotent.
+    public void nativeDropTargetRegistered() {
+    }
+
+    /// True when the port needs the drag image at the moment the operation is staged rather
+    /// than when the drag begins.
+    ///
+    /// A port that starts the session itself renders the image then, which costs nothing for a
+    /// press that turns out to be a click. A port whose platform owns the drag gesture is asked
+    /// for the preview from inside that platform's own callback, which is not a moment at which
+    /// a component can be rendered, so it has to have the image already.
+    ///
+    /// #### Returns
+    ///
+    /// true to render the drag image on every press over a native drag source
+    public boolean isNativeDragImageNeededOnPrepare() {
+        return false;
+    }
+
+    /// Performs a clipboard copy operation, if the native clipboard is supported by the implementation it would be used
+    ///
+    /// #### Parameters
+    ///
+    /// - `obj`: @param obj object to copy, while this can be any arbitrary object it is recommended that only Strings or Codename One
+    /// image objects be used to copy
+    public void copyToClipboard(Object obj) {
+        lightweightClipboard = obj;
+    }
+
+    /// Copies multiple native clipboard representations in one operation. Ports should override
+    /// `copyToClipboard(Object)` and publish every MIME representation they support.
+    public void copyToClipboard(ClipboardContent content) {
+        copyToClipboard((Object) content);
+    }
+
+    /// Returns the current content of the clipboard
+    ///
+    /// #### Returns
+    ///
+    /// can be any object or null see copyToClipboard
+    public Object getPasteDataFromClipboard() {
+        return lightweightClipboard;
+    }
+
+    /// Stores clipboard data received from a native paste event without publishing it back to the
+    /// system clipboard. Ports that negotiate multiple native clipboard representations should call
+    /// this before dispatching the framework paste event.
+    ///
+    /// #### Parameters
+    ///
+    /// - `data`: the clipboard payload exposed to `getPasteDataFromClipboard()`
+    protected final void setPasteDataFromClipboard(Object data) {
+        lightweightClipboard = data;
+    }
+
+    /// Extracts a plain-text representation from an arbitrary clipboard payload for ports whose system
+    /// clipboard is text only. Handles a raw `String` and any `ClipboardContent` (including its
+    /// `RichTextClipboardData` subtype) uniformly, so every text-only port degrades a generic
+    /// `ClipboardContent` the same way instead of each reimplementing the check. Returns null when the
+    /// payload carries no text representation.
+    ///
+    /// #### Parameters
+    ///
+    /// - `obj`: the clipboard payload passed to `copyToClipboard(Object)`
+    ///
+    /// #### Returns
+    ///
+    /// the plain-text representation, or null
+    protected final String getPlainTextForClipboard(Object obj) {
+        if (obj instanceof String) {
+            return (String) obj;
+        }
+        if (obj instanceof ClipboardContent) {
+            return clipboardText((ClipboardContent) obj, ClipboardContent.MIME_TEXT);
+        }
+        return null;
+    }
+
+    /// One representation of a clip, or null when there is none -- and when the provider
+    /// that would have built it failed.
+    ///
+    /// Every port read of a clip goes through here. `ClipboardDataProvider` says in as many
+    /// words that a provider may fail, and a port asking for a representation is asking on
+    /// the application's behalf: the failure belongs to that one type. Read directly, it
+    /// belonged to whatever the port was doing -- one throwing provider threw the whole copy
+    /// away, put its exception in the caller's lap, and on one platform left a drag session
+    /// in flight that nothing would ever complete.
+    ///
+    /// #### Parameters
+    ///
+    /// - `content`: the clip, which may be null
+    ///
+    /// - `mimeType`: the representation wanted
+    ///
+    /// #### Returns
+    ///
+    /// the value, or null when the clip does not offer it or cannot produce it
+    protected static Object clipboardValue(ClipboardContent content, String mimeType) {
+        if (content == null) {
+            return null;
+        }
+        try {
+            return content.getData(mimeType);
+        } catch (Throwable err) {
+            // Logged rather than swallowed: a provider that fails is an application bug
+            // worth seeing, it is simply not this copy's or this drag's bug.
+            //
+            // And the logging is itself guarded, because Log.e reaches through
+            // Util.getImplementation() and Display.getInstance(), and neither is
+            // necessarily there: AWT reads a Transferable whenever it likes, including
+            // before anything has installed an implementation. Reporting the failure must
+            // never be what turns a recoverable one into a NullPointerException thrown at
+            // whoever asked for the clip.
+            try {
+                Log.e(err);
+            } catch (Throwable unloggable) {
+                err.printStackTrace();
+            }
+            return null;
+        }
+    }
+
+    /// `#clipboardValue(com.codename1.ui.ClipboardContent, java.lang.String)` for a
+    /// representation carried as text.
+    protected static String clipboardText(ClipboardContent content, String mimeType) {
+        Object value = clipboardValue(content, mimeType);
+        return value instanceof String ? (String) value : null;
+    }
+
+    /// `#clipboardValue(com.codename1.ui.ClipboardContent, java.lang.String)` for a
+    /// representation carried as bytes.
+    protected static byte[] clipboardBytes(ClipboardContent content, String mimeType) {
+        Object value = clipboardValue(content, mimeType);
+        return value instanceof byte[] ? (byte[]) value : null;
+    }
+
+    /// Returns the clipboard representations available to framework code. The default adapter keeps
+    /// old ports source-compatible while exposing plain text and content written through the new API.
+    public ClipboardContent getClipboardContent() {
+        Object value = getPasteDataFromClipboard();
+        if (value instanceof ClipboardContent) {
+            return (ClipboardContent) value;
+        }
+        if (value instanceof String) {
+            return new ClipboardContent().setData(ClipboardContent.MIME_TEXT, value);
+        }
+        return null;
+    }
+
+    /// Returns true if the device is currently in portrait mode
+    ///
+    /// #### Returns
+    ///
+    /// true if the device is in portrait mode
+    public boolean isPortrait() {
+        return getDisplayWidth() < getActualDisplayHeight();
+    }
+
+    /// Returns true if the device allows forcing the orientation via code, feature phones do not allow this
+    /// although some include a jad property allowing for this feature
+    ///
+    /// #### Returns
+    ///
+    /// true if lockOrientation  would work
+    public boolean canForceOrientation() {
+        return false;
+    }
+
+    /// On devices that return true for canForceOrientation() this method can lock the device orientation
+    /// either to portrait or landscape mode
+    ///
+    /// #### Parameters
+    ///
+    /// - `portrait`: true to lock to portrait mode, false to lock to landscape mode
+    public void lockOrientation(boolean portrait) {
+    }
+
+    /// This is the reverse method for lock orientation allowing orientation lock to be disabled
+    public void unlockOrientation() {
+    }
+
+    /// An implementation can return true if it supports embedding a native browser widget
+    ///
+    /// #### Returns
+    ///
+    /// true if the implementation supports embedding a native browser widget
+    public boolean isNativeBrowserComponentSupported() {
+        return false;
+    }
+
+    /// Returns the platform's GPU backend for the portable 3D API
+    /// (`com.codename1.gpu.RenderView`), or null on platforms without a 3D
+    /// backend. Returning a single backend object (rather than scattering
+    /// individual peer-lifecycle methods across the implementation) lets each
+    /// port keep all of its GPU wiring in one place. A non-null return is what
+    /// `Display.isGpuSupported()` reports.
+    ///
+    /// #### Returns
+    ///
+    /// the platform GPU backend, or null if the 3D GPU API is unsupported
+    public com.codename1.impl.gpu.GpuImplementation getGpuImplementation() {
+        return null;
+    }
+
+    /// Some platforms require that you enable pinch to zoom explicitly. This method has no
+    /// effect if pinch to zoom isn't supported by the platform
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    ///
+    /// - `e`: true to enable pinch to zoom, false to disable it
+    public void setPinchToZoomEnabled(PeerComponent browserPeer, boolean e) {
+    }
+
+    /// Allows disabling the browsers native scrolling on devices that support it
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    ///
+    /// - `e`: true to enables scrolling and false disables it
+    public void setNativeBrowserScrollingEnabled(PeerComponent browserPeer, boolean e) {
+    }
+
+    /// If the implementation supports the creation of a browser component it should be returned in this
+    /// method
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserComponent`: instance of the browser component thru which events should be fired
+    ///
+    /// #### Returns
+    ///
+    /// an instance of the native browser peer or null
+    public PeerComponent createBrowserComponent(Object browserComponent) {
+        return null;
+    }
+
+    /// Creates a native peer for one of the visual editor components
+    /// (`com.codename1.ui.RichTextArea` / `com.codename1.ui.CodeEditor`).
+    ///
+    /// The default implementation returns null which makes the editor fall back to its 100% cross
+    /// platform `BrowserComponent` based backend. A platform port may override this to return a genuinely
+    /// native editing widget (e.g. a native rich text view or a native code editor) which is then driven
+    /// through `#editorPeerCommand(PeerComponent, String, String)` and
+    /// `#editorPeerQuery(PeerComponent, String, String)`. A native peer should deliver events back to the
+    /// owning editor by calling `editorComponent.fireEditorEvent(type, value)`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `editorComponent`: the owning `AbstractEditorComponent` so native peers can fire events back
+    ///
+    /// - `editorType`: the editor flavor, currently `"richtext"` or `"code"`
+    ///
+    /// #### Returns
+    ///
+    /// a native editor peer, or null to use the cross platform fallback
+    public PeerComponent createNativeEditorPeer(Object editorComponent, String editorType) {
+        return null;
+    }
+
+    /// Sends a one way semantic command to a native editor peer created by
+    /// `#createNativeEditorPeer(Object, String)`. No-op by default.
+    ///
+    /// #### Parameters
+    ///
+    /// - `peer`: the native editor peer
+    ///
+    /// - `name`: the semantic command name (e.g. `"setHtml"`, `"bold"`, `"setText"`)
+    ///
+    /// - `arg`: an optional string argument, may be null
+    public void editorPeerCommand(PeerComponent peer, String name, String arg) {
+    }
+
+    /// Queries a native editor peer for a string value. Returns null by default.
+    ///
+    /// #### Parameters
+    ///
+    /// - `peer`: the native editor peer
+    ///
+    /// - `name`: the semantic query name (e.g. `"getHtml"`, `"getText"`)
+    ///
+    /// - `arg`: an optional string argument, may be null
+    ///
+    /// #### Returns
+    ///
+    /// the queried value or null
+    public String editorPeerQuery(PeerComponent peer, String name, String arg) {
+        return null;
+    }
+
+    /// Returns true when this platform can bind a `com.codename1.ui.TextInputClient` to a low level text
+    /// input source (soft keyboard / IME / hardware keyboard) so a component can capture raw text input
+    /// while rendering the document itself. When false the pure Codename One editors read the physical
+    /// keyboard directly through `Component#keyReleased(int)`; there is no browser or HTML backend.
+    /// The default returns false.
+    public boolean isTextInputSupported() {
+        return false;
+    }
+
+    /// Binds a `com.codename1.ui.TextInputClient` to the platform text input source and shows the soft
+    /// keyboard on touch devices. The platform then routes committed text, IME composition, deletions and
+    /// key commands into the client, and reads back the client's editing state and caret rectangle. The
+    /// returned handle identifies this binding for `#updateTextInputState` and `#stopTextInput`. The
+    /// default returns null (unsupported).
+    ///
+    /// #### Parameters
+    ///
+    /// - `client`: the input client to bind
+    ///
+    /// - `config`: the desired keyboard type and input behavior
+    ///
+    /// #### Returns
+    ///
+    /// an opaque handle for this binding, or null when unsupported
+    public Object startTextInput(com.codename1.ui.TextInputClient client, com.codename1.ui.TextInputConfig config) {
+        return null;
+    }
+
+    /// Pushes the client's authoritative editing state (surrounding text, selection, composition and
+    /// caret rectangle) down to the platform input source so autocorrect, prediction and the IME
+    /// candidate window stay in sync after a Codename One side edit (programmatic change, undo, reflow).
+    /// No-op by default.
+    ///
+    /// #### Parameters
+    ///
+    /// - `handle`: the handle returned by `#startTextInput`
+    ///
+    /// - `state`: the current editing state
+    public void updateTextInputState(Object handle, com.codename1.ui.TextInputState state) {
+    }
+
+    /// Unbinds a text input client bound with `#startTextInput` and hides the soft keyboard on touch
+    /// devices. No-op by default.
+    ///
+    /// #### Parameters
+    ///
+    /// - `handle`: the handle returned by `#startTextInput`
+    public void stopTextInput(Object handle) {
+    }
+
+    /// Posts a message to the window in a BrowserComponent.  This is intended to be an abstraction of the Javascript postMessage() API.
+    ///
+    /// This is only overridden by the Javascript port to provide proper CORS handling.  Other ports use the implementation
+    /// in BrowserComponent.
+    ///
+    /// Web pages wishing to receive messages via this mechanism should register a "message" event listener.  See
+    /// [Javascript postMessage() docs](https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage)
+    /// for more details about this.
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserComponent`: The browser component peer.
+    ///
+    /// - `message`: The message to send
+    ///
+    /// - `targetOrigin`: The target origin for the message.
+    ///
+    /// #### Returns
+    ///
+    /// True if the implementation handled the message.  False to let BrowserComponent handle it in its default way.
+    ///
+    /// #### See also
+    ///
+    /// - BrowserComponent#postMessage(java.lang.String, java.lang.String)
+    ///
+    /// - #installMessageListener(java.lang.Object)
+    ///
+    /// - #uninstallMessageListener(java.lang.Object)
+    public boolean postMessage(Object browserComponent, String message, String targetOrigin) {
+        return false;
+    }
+
+    /// Installs a message listener to allow webpages inside a browser component to send
+    /// messages to CN1 cross-domain.
+    ///
+    /// This will be overridden by the Javascript port only to handle CORS.  Other ports
+    /// use the default implementation in `BrowserComponent`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserComponent`: The browser component peer.
+    ///
+    /// #### Returns
+    ///
+    /// True if a message listener was installed.  False otherwise.
+    ///
+    /// #### See also
+    ///
+    /// - #postMessage(java.lang.Object, java.lang.String, java.lang.String)
+    ///
+    /// - BrowserComponent#onMessage
+    ///
+    /// - BrowserComponent#postMessage(java.lang.String, java.lang.String)
+    public boolean installMessageListener(Object browserComponent) {
+        return false;
+    }
+
+    /// Uninstalls a message listener to allow webpages inside a browser component to send
+    /// messages to CN1 cross-domain.
+    ///
+    /// This will be overridden by the Javascript port only to handle CORS.  Other ports
+    /// use the default implementation in `BrowserComponent`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserComponent`: The browser component peer.
+    ///
+    /// #### Returns
+    ///
+    /// True if a message listener was installed.  False otherwise.
+    ///
+    /// #### See also
+    ///
+    /// - #postMessage(java.lang.Object, java.lang.String, java.lang.String)
+    ///
+    /// - BrowserComponent#onMessage
+    ///
+    /// - BrowserComponent#postMessage(java.lang.String, java.lang.String)
+    public boolean uninstallMessageListener(Object browserComponent) {
+        return false;
+    }
+
+    /// Creates a native overlay for the given component. A native overlay is a native component
+    /// that is always present over the given component.  It can be used to help processing user
+    /// events in a more native way.  In the Javascript port, native overlays are used on TextFields, for example,
+    /// so that users can tap on the text field and activate the keyboard.  This was necessary because
+    /// iOS doesn't allow us to programmatically activate the keyboard.  Without a native overlay,
+    /// the user would first have to tap the lightweight keyboard - upon which we create a native text
+    /// field, and then the user would have to tap again to activate the keyboard.  Using native
+    /// overlays in that case yields better UX.
+    ///
+    /// When using native overlays, you will need to implement `#createNativeOverlay(com.codename1.ui.Component)`,
+    /// `java.lang.Object)`, and `java.lang.Object)`.
+    /// `#createNativeOverlay(com.codename1.ui.Component)` is called in `Component#initComponent()` (i.e. when the component is added to the form).
+    /// This is where you would create the native view and add it to the native view hierarchy above the CN1 canvas.
+    /// `java.lang.Object)` is called in `Component#laidOut()` (i.e. when the component is resized/positioned).
+    /// This is where you can reposition the native view or change its properties to be appropriate for the "occasion". `java.lang.Object)`
+    /// is called in `Component#deinitialize()` (i.e. when the component is removed from the form).  You should destroy the native view and remove it from the native view hierarchy here.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: The component to create the overlay for.
+    ///
+    /// #### Returns
+    ///
+    /// A native object.  The object type/format is decided by the implementation.
+    ///
+    /// #### See also
+    ///
+    /// - #hideNativeOverlay(com.codename1.ui.Component, java.lang.Object)
+    ///
+    /// - #updateNativeOverlay(com.codename1.ui.Component, java.lang.Object)
+    ///
+    /// - Component#showNativeOverlay()
+    public Object createNativeOverlay(Component cmp) {
+        return null;
+    }
+
+    /// Hides the native overlay for a component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: The component
+    ///
+    /// - `nativeOverlay`: The native overlay.
+    ///
+    /// #### See also
+    ///
+    /// - #createNativeOverlay(com.codename1.ui.Component)
+    ///
+    /// - #updateNativeOverlay(com.codename1.ui.Component, java.lang.Object)
+    ///
+    /// - Component#hideNativeOverlay()
+    public void hideNativeOverlay(Component cmp, Object nativeOverlay) {
+
+    }
+
+    /// Updates the native overlay after the component has been repositioned.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: The component
+    ///
+    /// - `nativeOverlay`: The native overlay
+    ///
+    /// #### See also
+    ///
+    /// - #createNativeOverlay(com.codename1.ui.Component)
+    ///
+    /// - #hideNativeOverlay(com.codename1.ui.Component, java.lang.Object)
+    ///
+    /// - Component#updateNativeOverlay()
+    public void updateNativeOverlay(Component cmp, Object nativeOverlay) {
+
+    }
+
+    /// This method allows customizing the properties of a web view in various ways including platform specific settings.
+    /// When a property isn't supported by a specific platform it is just ignored.
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    ///
+    /// - `key`: see the documentation with the Codename One Implementation for further details
+    ///
+    /// - `value`: see the documentation with the Codename One Implementation for further details
+    public void setBrowserProperty(PeerComponent browserPeer, String key, Object value) {
+    }
+
+    /// The page title
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    ///
+    /// #### Returns
+    ///
+    /// the title
+    public String getBrowserTitle(PeerComponent browserPeer) {
+        return null;
+    }
+
+    /// The page URL
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    ///
+    /// #### Returns
+    ///
+    /// the URL
+    public String getBrowserURL(PeerComponent browserPeer) {
+        return null;
+    }
+
+    /// Captures a screenshot from a browser component asynchronously.
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: The browser instance
+    ///
+    /// #### Returns
+    ///
+    /// @return AsyncResource resolving to an image of the snapshot.  If this returns null,
+    /// then `BrowserComponent#captureScreenshot()` will just use `Component#toImage()`
+    /// for screenshots.
+    ///
+    public AsyncResource<Image> captureBrowserScreenshot(PeerComponent browserPeer) {
+        return null;
+    }
+
+    /// Sets a relative URL from the html hierarchy
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: the peer component
+    ///
+    /// - `url`: the url relative to the HTML directory
+    public void setBrowserPageInHierarchy(PeerComponent browserPeer, String url) throws IOException {
+        installTar();
+
+        FileSystemStorage fs = FileSystemStorage.getInstance();
+        String tardir = fs.getAppHomePath() + "cn1html";
+        if (tardir.startsWith("/")) {
+            tardir = "file://" + tardir;
+        }
+        if (url.startsWith("/")) {
+            setBrowserURL(browserPeer, tardir + url);
+        } else {
+            setBrowserURL(browserPeer, tardir + "/" + url);
+        }
+    }
+
+    /// Sets the page URL, jar: URL's must be supported by the implementation
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    ///
+    /// - `url`: the URL
+    ///
+    /// - `headers`: custom headers for the request URL
+    public void setBrowserURL(PeerComponent browserPeer, String url, Map<String, String> headers) {
+        throw new RuntimeException();
+    }
+
+    /// Returns true if setBrowserURL with custom headers is supported
+    ///
+    /// #### Returns
+    ///
+    /// returns false by default
+    public boolean isURLWithCustomHeadersSupported() {
+        return false;
+    }
+
+    /// Sets the page URL, jar: URL's must be supported by the implementation
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    ///
+    /// - `url`: the URL
+    public void setBrowserURL(PeerComponent browserPeer, String url) {
+        // load from jar:// URL's
+        try {
+            InputStream i = Display.getInstance().getResourceAsStream(getClass(), url.substring(6)); //NOPMD CloseResource
+            if (i == null) {
+                System.out.println("Local resource not found: " + url);
+                return;
+            }
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            try {
+                byte[] buffer = new byte[4096];
+                int size = i.read(buffer);
+                while (size > -1) {
+                    bo.write(buffer, 0, size);
+                    size = i.read(buffer);
+                }
+                String htmlText = new String(bo.toByteArray(), "UTF-8");
+                String baseUrl = url.substring(0, url.lastIndexOf('/'));
+                setBrowserPage(browserPeer, htmlText, baseUrl);
+            } finally {
+                Util.cleanup(i);
+                Util.cleanup(bo);
+            }
+        } catch (IOException ex) {
+            Log.e(ex);
+        }
+    }
+
+    /// Reload the current page
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    public void browserReload(PeerComponent browserPeer) {
+    }
+
+    /// Indicates whether back is currently available
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    ///
+    /// #### Returns
+    ///
+    /// true if back should work
+    public boolean browserHasBack(PeerComponent browserPeer) {
+        return false;
+    }
+
+    /// Indicates whether forward is currently available
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    ///
+    /// #### Returns
+    ///
+    /// true if forward should work
+    public boolean browserHasForward(PeerComponent browserPeer) {
+        return false;
+    }
+
+    /// Navigates back in the history
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    public void browserBack(PeerComponent browserPeer) {
+    }
+
+    /// Stops loading the current page
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    public void browserStop(PeerComponent browserPeer) {
+    }
+
+    /// Release browser native resources
+    ///
+    /// #### Parameters
+    ///
+    /// - `internal`: browser instance
+    public void browserDestroy(PeerComponent internal) {
+    }
+
+    /// Navigates forward in the history
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    public void browserForward(PeerComponent browserPeer) {
+    }
+
+    /// Clears navigation history
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    public void browserClearHistory(PeerComponent browserPeer) {
+    }
+
+    /// Shows the given HTML in the native viewer
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    ///
+    /// - `html`: HTML web page
+    ///
+    /// - `baseUrl`: base URL to associate with the HTML
+    public void setBrowserPage(PeerComponent browserPeer, String html, String baseUrl) {
+    }
+
+    /// Executes the given JavaScript string within the current context
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    ///
+    /// - `javaScript`: the JavaScript string
+    public void browserExecute(PeerComponent browserPeer, String javaScript) {
+        setBrowserURL(browserPeer, "javascript:(function(){" + javaScript + "})()");
+    }
+
+    /// Executes javascript and returns string. The default implementation
+    /// just wraps the browserExecute() method that doesn't return anything. It will
+    /// return null always. You need to override this in the native implementation
+    /// to return meaningful values.
+    ///
+    /// #### Parameters
+    ///
+    /// - `internal`: The peer browser component.
+    ///
+    /// - `javaScript`: The javascript to execute.
+    ///
+    /// #### Returns
+    ///
+    /// String result of the javascript expression.
+    public String browserExecuteAndReturnString(PeerComponent internal, String javaScript) {
+        browserExecute(internal, javaScript);
+        return null;
+    }
+
+    public boolean supportsBrowserExecuteAndReturnString(PeerComponent internal) {
+        return false;
+    }
+
+    /// Allows exposing the given object to JavaScript code so the JavaScript code can invoke methods
+    /// and access fields on the given object.
+    ///
+    /// #### Parameters
+    ///
+    /// - `browserPeer`: browser instance
+    ///
+    /// - `o`: the object to invoke, notice all public fields and methods would be exposed to JavaScript
+    ///
+    /// - `name`: the name to expose within JavaScript
+    ///
+    /// #### Deprecated
+    ///
+    /// @deprecated This method was never well-supported across platforms other than Android - and it will no longer work
+    /// even in Android for SDK >= 17, unless o's class has the @JavascriptInterface annotation which
+    /// would only be available if implemented inside a Native Interface.  Don't use this.
+    public void browserExposeInJavaScript(PeerComponent browserPeer, Object o, String name) {
+    }
+
+    /// Converts the dips count to pixels, dips are roughly 1mm in length. This is a very rough estimate and not
+    /// to be relied upon
+    ///
+    /// #### Parameters
+    ///
+    /// - `dipCount`: the dips that we will convert to pixels
+    ///
+    /// - `horizontal`: indicates pixels in the horizontal plane
+    ///
+    /// #### Returns
+    ///
+    /// value in pixels
+    public int convertToPixels(int dipCount, boolean horizontal) {
+        switch (getDeviceDensity()) {
+            case Display.DENSITY_VERY_LOW:
+                return dipCount;
+            case Display.DENSITY_LOW:
+                return dipCount * 2;
+            case Display.DENSITY_MEDIUM:
+                return dipCount * 5;
+            case Display.DENSITY_HIGH:
+                return dipCount * 10;
+            case Display.DENSITY_VERY_HIGH:
+                return dipCount * 14;
+            case Display.DENSITY_HD:
+                return dipCount * 20;
+            default:
+                return dipCount;
+        }
+    }
+
+    /// Indicates whether the device is a tablet, notice that this is often a guess
+    ///
+    /// #### Returns
+    ///
+    /// true if the device is assumed to be a tablet
+    public boolean isTablet() {
+        return false;
+    }
+
+    /// Returns true if this is a desktop application
+    ///
+    /// #### Returns
+    ///
+    /// true if this is a desktop application
+    public boolean isDesktop() {
+        return false;
+    }
+
+    /// Indicates whether the application is running on a smartwatch form factor
+    /// (Apple Watch / Wear OS). Notice that this is often a guess derived from
+    /// the device/skin metadata.
+    ///
+    /// #### Returns
+    ///
+    /// true if the device is assumed to be a smartwatch
+    public boolean isWatch() {
+        return false;
+    }
+
+    /// Indicates whether the application is running on a television form factor
+    /// (Apple TV / Android TV / Google TV). Notice that this is often a guess
+    /// derived from the device/skin metadata.
+    ///
+    /// #### Returns
+    ///
+    /// true if the device is assumed to be a TV
+    public boolean isTV() {
+        return false;
+    }
+
+    /// Returns the platform bridge that renders the portable `com.codename1.car` template tree onto
+    /// the connected head unit (Apple CarPlay / Google Android Auto), or null when in-car projection
+    /// is unsupported on this port (the base implementation). When null, the `com.codename1.car` API
+    /// degrades to a harmless no-op.
+    ///
+    /// #### Returns
+    ///
+    /// the car bridge, or null when unsupported
+    public com.codename1.car.spi.CarBridge getCarBridge() {
+        return null;
+    }
+
+    /// Returns true while a head unit (Apple CarPlay / Google Android Auto) is currently connected.
+    /// False on the base/unsupported implementation.
+    ///
+    /// #### Returns
+    ///
+    /// true if a car is connected
+    public boolean isCarConnected() {
+        com.codename1.car.spi.CarBridge b = getCarBridge();
+        return b != null && b.isConnected();
+    }
+
+    /// Returns the platform bridge that carries the `com.codename1.wearable` phone-to-watch API over
+    /// the native transport (Apple's `WCSession` / Google's Wearable Data Layer), or null when this
+    /// device has no wearable counterpart (the base implementation). When null, the
+    /// `com.codename1.wearable` API degrades to a harmless no-op.
+    ///
+    /// #### Returns
+    ///
+    /// the wearable bridge, or null when unsupported
+    public com.codename1.wearable.spi.WearableBridge getWearableBridge() {
+        return null;
+    }
+
+    /// Returns the platform bridge that backs the `com.codename1.home` smart-home API with HomeKit,
+    /// the Google Home APIs, or a local simulated home. Ports supporting smart home override this;
+    /// the base implementation returns null, which makes `com.codename1.home.SmartHome` report
+    /// `HomeAvailability.NOT_SUPPORTED`, answer every graph query with an empty list and fail every
+    /// operation fast -- so application code needs no platform-specific branch.
+    ///
+    /// #### Returns
+    ///
+    /// the smart-home bridge, or null when unsupported
+    public com.codename1.home.spi.HomeBridge getHomeBridge() {
+        return null;
+    }
+
+    /// Returns the bridge the `com.codename1.nearby` API uses to reach the platform's short-range
+    /// stacks -- precision ranging, companion-device association and the nearby transport. Ports
+    /// that implement any of the three override this; the base implementation returns null, which
+    /// makes every `com.codename1.nearby` entry point report itself unsupported and fail fast, so
+    /// application code needs no platform-specific branch.
+    ///
+    /// A port may implement one cluster and not the others: the bridge answers `isRangingSupported`,
+    /// `isCompanionSupported` and `isTransportSupported` independently.
+    ///
+    /// #### Returns
+    ///
+    /// the nearby bridge, or null when unsupported
+    public com.codename1.nearby.spi.NearbyBridge getNearbyBridge() {
+        return null;
+    }
+
+    /// Returns the platform bridge used by the `com.codename1.call` API to reach the system call
+    /// stack. Ports supporting system call integration override this; the default answers `null`.
+    ///
+    /// A `null` return **is** the capability query -- there is deliberately no separate supported
+    /// flag that could drift out of step with it.
+    ///
+    /// A port may implement one cluster and not the others: the bridge answers `isCallSupported`,
+    /// `isVoipPushSupported` and `isDirectorySupported` independently, because ringing a call,
+    /// being woken to ring one, and naming somebody else's caller are three different capabilities
+    /// with three different costs.
+    ///
+    /// #### Returns
+    ///
+    /// the call bridge, or null when unsupported
+    public com.codename1.call.spi.CallBridge getCallBridge() {
+        return null;
+    }
+
+    /// Returns the platform bridge used by the `com.codename1.vpn` API to install and control VPN
+    /// configurations. Ports supporting VPN management override this; the default answers `null`.
+    ///
+    /// A `null` return **is** the capability query.
+    ///
+    /// #### Returns
+    ///
+    /// the VPN bridge, or null when unsupported
+    public com.codename1.vpn.spi.VpnBridge getVpnBridge() {
+        return null;
+    }
+
+    /// Returns the platform bridge used by the `com.codename1.surfaces` API to render external
+    /// surfaces (home-screen widgets and live activities). Ports supporting surfaces override
+    /// this; the base implementation returns null which renders the whole API an inert no-op.
+    ///
+    /// #### Returns
+    ///
+    /// the surface bridge, or null when unsupported
+    public com.codename1.surfaces.spi.SurfaceBridge getSurfaceBridge() {
+        return null;
+    }
+
+    /// Returns the platform bridge used by the `com.codename1.documents` API to expose the
+    /// application's documents to the system file browser. Ports supporting document providers
+    /// override this; the base implementation returns null which renders the whole API an inert
+    /// no-op.
+    ///
+    /// #### Returns
+    ///
+    /// the document provider bridge, or null when unsupported
+    public com.codename1.documents.spi.DocumentProviderBridge getDocumentProviderBridge() {
+        return null;
+    }
+
+    /// Returns the platform bridge used by the `com.codename1.continuity` API to advertise the
+    /// user's current activity to their other devices and to reach the platform's synced key/value
+    /// store. Ports supporting either capability override this; the base implementation returns
+    /// null, which leaves saving and restoring state on this device working -- that half is pure
+    /// `com.codename1.io.Storage` -- and makes every cross-device capability report itself
+    /// unsupported.
+    ///
+    /// #### Returns
+    ///
+    /// the continuity bridge, or null when unsupported
+    public com.codename1.continuity.spi.ContinuityBridge getContinuityBridge() {
+        return null;
+    }
+
+    /// Returns the platform bridge used by the `com.codename1.intents` API to expose the
+    /// application's capabilities to the system -- assistant intents, app shortcuts and device
+    /// search. Ports supporting intents override this; the base implementation returns null, which
+    /// renders every outward projection an inert no-op while leaving in-process invocation working,
+    /// since that runs through generated code rather than through this bridge.
+    ///
+    /// #### Returns
+    ///
+    /// the intent bridge, or null when unsupported
+    public com.codename1.intents.spi.IntentBridge getIntentBridge() {
+        return null;
+    }
+
+    /// True if the device is a foldable or dual screen device. False on the base implementation.
+    public boolean isFoldable() {
+        return false;
+    }
+
+    /// The current fold posture, one of the `com.codename1.ui.DevicePosture` `POSTURE_*` constants.
+    /// Defaults to `POSTURE_UNKNOWN`.
+    public int getDevicePosture() {
+        return com.codename1.ui.DevicePosture.POSTURE_UNKNOWN;
+    }
+
+    /// The current hinge angle in degrees between 0 and 180, or -1 when not reported.
+    public int getHingeAngle() {
+        return -1;
+    }
+
+    /// The orientation of the fold, one of the `com.codename1.ui.DevicePosture` `FOLD_ORIENTATION_*`
+    /// constants. Defaults to `FOLD_ORIENTATION_NONE`.
+    public int getFoldOrientation() {
+        return com.codename1.ui.DevicePosture.FOLD_ORIENTATION_NONE;
+    }
+
+    /// True if the fold currently separates the display into two distinct logical areas.
+    public boolean isPostureSeparating() {
+        return false;
+    }
+
+    /// Returns the bounds of the region occluded by the hinge in display coordinates, or null when
+    /// there is no separating fold.
+    ///
+    /// #### Parameters
+    ///
+    /// - `rect`: a rectangle to populate and return, or null to allocate a new one
+    ///
+    /// #### Returns
+    ///
+    /// the hinge bounds, or null when there is no separating fold
+    public Rectangle getFoldBounds(Rectangle rect) {
+        return null;
+    }
+
+    /// True if the application is currently running in a desktop windowing mode such as Samsung DeX,
+    /// Android desktop windowing or iPad Stage Manager, where the app shares the screen with other
+    /// windows and behaves like a desktop application. Distinct from `#isDesktop()` which reports a
+    /// genuine desktop platform. Defaults to false.
+    public boolean isDesktopMode() {
+        return false;
+    }
+
+    /// The number of displays (monitors or external screens) currently attached. Defaults to 1.
+    public int getDisplayCount() {
+        return 1;
+    }
+
+    /// True if an external or secondary display is currently attached. Defaults to false.
+    public boolean isExternalDisplayConnected() {
+        return getDisplayCount() > 1;
+    }
+
+    /// Returns true if the device has dialing capabilities
+    ///
+    /// #### Returns
+    ///
+    /// false if it cannot dial
+    public boolean canDial() {
+        return !isTablet() && !isDesktop();
+    }
+
+    /// Allows an implementation to modify setting thread priority, some implementations
+    /// don't handle thread priorities well
+    ///
+    /// #### Parameters
+    ///
+    /// - `t`: the thread
+    ///
+    /// - `p`: the priority
+    public void setThreadPriority(Thread t, int p) {
+        t.setPriority(p);
+    }
+
+    /// Callback allowing the implementation to perform an operation on the init thread
+    /// after initialization was completed
+    public void postInit() {
+        initDefaultUserAgent();
+    }
+
+    /// Some old platforms might need this but for modern platforms the user agent should "just work".
+    protected void initDefaultUserAgent() {
+        //sets the default device user agent if available by the platform, by default
+        //we set Nokia, beacause if the user agent is empty it is most likely a J2ME device
+        ConnectionRequest.setDefaultUserAgent(Display.getInstance().getProperty("User-Agent",
+                "Mozilla/5.0 (SymbianOS/9.4; Series60/5.0 NokiaN97-1/20.0.019; Profile/MIDP-2.1 Configuration/CLDC-1.1) AppleWebKit/525 (KHTML, like Gecko) BrowserNG/7.1.18124"));
+    }
+
+    /// Allows for easier debugging of native implementations by setting the image name to
+    /// the native image object
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeImage`: the native image
+    ///
+    /// - `name`: the name/file name identifying the image
+    public void setImageName(Object nativeImage, String name) {
+    }
+
+    /// On most platforms it is quite fast to draw on a mutable image and then render that
+    /// image, however some platforms have much slower mutable images in comparison to just
+    /// drawing on the screen. These platforms should return false here and Codename One will try
+    /// to use less mutable image related optimizations in transitions and other operations.
+    ///
+    /// #### Returns
+    ///
+    /// true if mutable images are fast on this platform
+    public boolean areMutableImagesFast() {
+        return true;
+    }
+
+    private void purgeOldCookies(Map<String, Cookie> cookies) {
+        long now = System.currentTimeMillis();
+        ArrayList<String> toRemove = new ArrayList<String>();
+        for (Map.Entry<String, Cookie> e : cookies.entrySet()) {
+            if (e.getValue().getExpires() != 0 && e.getValue().getExpires() < now) {
+                toRemove.add(e.getKey());
+            }
+        }
+        for (String key : toRemove) {
+            cookies.remove(key);
+        }
+    }
+
+    protected final void removeCookiesForDomain(String domain) {
+        if (cookies == null || domain == null) {
+            return;
+        }
+        Hashtable h = (Hashtable) cookies.get(domain);
+        if (h == null) {
+            return;
+        }
+        h.clear();
+        if (Cookie.isAutoStored()) {
+            if (Storage.getInstance().exists(Cookie.STORAGE_NAME)) {
+                Storage.getInstance().deleteStorageFile(Cookie.STORAGE_NAME);
+            }
+            Storage.getInstance().writeObject(Cookie.STORAGE_NAME, cookies);
+        }
+
+    }
+
+    public void addCookie(Cookie[] cookiesArray) {
+        if (cookies == null) {
+            cookies = new Hashtable();
+        }
+        int calen = cookiesArray.length;
+        for (int i = 0; i < calen; i++) {
+            Cookie cookie = cookiesArray[i];
+            Hashtable h = (Hashtable) cookies.get(cookie.getDomain());
+            if (h == null) {
+                h = new Hashtable();
+                cookies.put(cookie.getDomain(), h);
+            }
+            purgeOldCookies(h);
+            if (cookie.getExpires() != 0 && cookie.getExpires() < System.currentTimeMillis()) {
+                h.remove(cookie.getName());
+            } else {
+                h.put(cookie.getName(), cookie);
+            }
+        }
+
+        if (Cookie.isAutoStored()) {
+            if (Storage.getInstance().exists(Cookie.STORAGE_NAME)) {
+                Storage.getInstance().deleteStorageFile(Cookie.STORAGE_NAME);
+            }
+            Storage.getInstance().writeObject(Cookie.STORAGE_NAME, cookies);
+        }
+    }
+
+    /// Checks if this platform supports sharing cookies between Native components (e.g. BrowserComponent)
+    /// and ConnectionRequests.  Currently only Android and iOS ports support this.
+    ///
+    /// #### Returns
+    ///
+    /// True if platform supports native cookie sharing.
+    ///
+    public boolean isNativeCookieSharingSupported() {
+        return false;
+    }
+
+    /// Adds/replaces a cookie to be sent to the given domain
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: cookie to add
+    public void addCookie(Cookie c) {
+        if (cookies == null) {
+            cookies = new Hashtable();
+        }
+        Hashtable h = (Hashtable) cookies.get(c.getDomain());
+        if (h == null) {
+            h = new Hashtable();
+            cookies.put(c.getDomain(), h);
+        }
+        h.put(c.getName(), c);
+        if (Cookie.isAutoStored()) {
+            if (Storage.getInstance().exists(Cookie.STORAGE_NAME)) {
+                Storage.getInstance().deleteStorageFile(Cookie.STORAGE_NAME);
+            }
+            Storage.getInstance().writeObject(Cookie.STORAGE_NAME, cookies);
+        }
+    }
+
+    /// Returns the domain for the given URL
+    ///
+    /// #### Parameters
+    ///
+    /// - `url`: a url
+    ///
+    /// #### Returns
+    ///
+    /// the domain
+    public String getURLDomain(String url) {
+        String domain = url.substring(url.indexOf("//") + 2);
+        int i = domain.indexOf('/');
+        if (i > -1) {
+            domain = domain.substring(0, i);
+        }
+        return domain;
+    }
+
+    public String getURLPath(String url) {
+        String path = url.substring(url.indexOf("//") + 2);
+        int i = path.indexOf('/');
+        if (i > -1) {
+            path = path.substring(i);
+        }
+        i = path.indexOf('?');
+        if (i > -1) {
+            path = path.substring(0, i);
+        }
+
+        i = path.indexOf('#');
+        if (i > -1) {
+            path = path.substring(0, i);
+        }
+
+        return path;
+    }
+
+    /// Returns the cookies for this URL
+    ///
+    /// #### Parameters
+    ///
+    /// - `url`: the url on which we are checking for cookies
+    ///
+    /// #### Returns
+    ///
+    /// the cookies to submit to the given URL
+    public Vector getCookiesForURL(String url) {
+        Vector response = null;
+        if (Cookie.isAutoStored()) {
+            cookies = (Hashtable) Storage.getInstance().readObject(Cookie.STORAGE_NAME);
+        }
+
+        String protocol = "";
+        int pos = url.indexOf(":");
+        if (pos >= 0) {
+            protocol = url.substring(0, pos);
+        }
+        boolean isHttp = ("http".equals(protocol) || "https".equals(protocol));
+        boolean isSecure = "https".equals(protocol);
+        String path = getURLPath(url);
+
+
+        if (cookies != null && !cookies.isEmpty()) {
+            String domain = getURLDomain(url);
+            Enumeration e = cookies.keys();
+            while (e.hasMoreElements()) {
+                String domainKey = (String) e.nextElement();
+                if (domain.indexOf(domainKey) > -1) {
+                    Hashtable h = (Hashtable) cookies.get(domainKey);
+                    if (h != null) {
+                        Enumeration enumCookies = h.elements();
+                        if (response == null) {
+                            response = new Vector();
+                        }
+                        while (enumCookies.hasMoreElements()) {
+                            Cookie nex = (Cookie) enumCookies.nextElement();
+                            if (nex.isHttpOnly() && !isHttp) {
+                                continue;
+                            }
+                            if (nex.isSecure() && !isSecure) {
+                                continue;
+                            }
+                            if (path.indexOf(nex.getPath()) != 0) {
+                                continue;
+                            }
+                            response.addElement(nex);
+                        }
+                    }
+                }
+            }
+        }
+        return response;
+    }
+
+    public void clearNativeCookies() {
+
+    }
+
+    /// Connects to a given URL, returns a connection object to be used with the implementation
+    /// later
+    ///
+    /// #### Parameters
+    ///
+    /// - `url`: the URL to connect to
+    ///
+    /// - `read`: indicates whether the connection will be read from
+    ///
+    /// - `write`: indicates whether writing will occur into the connection
+    ///
+    /// #### Returns
+    ///
+    /// a URL instance
+    public abstract Object connect(String url, boolean read, boolean write) throws IOException;
+
+    /// Gets the SSL certificates for a connection
+    ///
+    /// #### Parameters
+    ///
+    /// - `connection`: The connection.
+    ///
+    /// - `url`: The url of the connection.
+    ///
+    /// #### Returns
+    ///
+    /// String array where each certificate is in form :
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`
+    public String[] getSSLCertificates(Object connection, String url) throws IOException {
+        return new String[0];
+    }
+
+    /// Checks if the platform supports getting SSL certificates.
+    ///
+    /// #### Returns
+    ///
+    /// True if the platform supports SSL certificates.
+    public boolean canGetSSLCertificates() {
+        return false;
+    }
+
+    /// True when this port can report a digest of each certificate's subject public key info,
+    /// enabling public-key pinning through [#getSSLCertificatesEx(Object, String)].
+    ///
+    /// Public-key pins survive certificate renewal on the same key pair; whole-certificate
+    /// fingerprints do not, which is why a renewal can otherwise take a pinning app offline.
+    public boolean canGetPublicKeyDigests() {
+        return false;
+    }
+
+    /// The richer certificate list, grouped per certificate.
+    ///
+    /// Same `algorithm:value` encoding as [#getSSLCertificates(Object, String)], with two
+    /// additions: a `CHAIN:<n>` entry starts each certificate's group (0 is the leaf), and a
+    /// `SPKI-SHA-256:<base64>` entry carries the public-key digest.
+    ///
+    /// Called only when something asked for public-key digests, so a port that does not override
+    /// this simply never sees it. The default delegates to the flat form, which parses correctly
+    /// and just yields no digests.
+    public String[] getSSLCertificatesEx(Object connection, String url) throws IOException {
+        return getSSLCertificates(connection, url);
+    }
+
+    /// SSL certificate checks must be performed via a callback from the native side,
+    /// rather than explicitly checking as part of NetworkManager's connection
+    /// flow.   This is mainly for iOS POST requests.  If we try to get the SSL certs
+    /// explicitly, it forces the connection to be sent without a POST body.  Hence
+    /// we need to let iOS do the check on the native side, and callback into Java
+    /// to run the checkSSLCertificates method of the request.
+    ///
+    /// #### Returns
+    ///
+    /// True if the platform requires a native callback fo check SSL certificates
+    public boolean checkSSLCertificatesRequiresCallbackFromNative() {
+        return false;
+    }
+
+    public void setConnectionId(Object connection, int id) {
+
+    }
+
+    /// This method is called by the NetworkManager when a request is added to the queue.  This allows
+    /// the implementation to track the time that the request was queued for diagnostics purposes.
+    /// The Simulator's Network monitor uses this information to display stats about each network connection.
+    ///
+    /// #### Parameters
+    ///
+    /// - `req`: The ConnectionRequest that is queued.
+    public void addConnectionToQueue(ConnectionRequest req) {
+
+    }
+
+    /// Connects to a given URL, returns a connection object to be used with the implementation
+    /// later
+    ///
+    /// #### Parameters
+    ///
+    /// - `url`: the URL to connect to
+    ///
+    /// - `read`: indicates whether the connection will be read from
+    ///
+    /// - `write`: indicates whether writing will occur into the connection
+    ///
+    /// - `timeout`: the timeout version of this method
+    ///
+    /// #### Returns
+    ///
+    /// a URL instance
+    public Object connect(String url, boolean read, boolean write, int timeout) throws IOException {
+        return connect(url, read, write);
+    }
+
+    /// Requests special http method such as put or delete
+    ///
+    /// #### Parameters
+    ///
+    /// - `connection`: the connection object
+    ///
+    /// - `method`: the method string
+    public void setHttpMethod(Object connection, String method) throws IOException {
+    }
+
+    /// Indicates the HTTP header value for an HTTP connection
+    ///
+    /// #### Parameters
+    ///
+    /// - `connection`: the connection object
+    ///
+    /// - `key`: the key for the header
+    ///
+    /// - `val`: the value for the header
+    public abstract void setHeader(Object connection, String key, String val);
+
+    /// This method is used to enable streaming of a HTTP request body without
+    /// internal buffering, when the content length is not known in advance.
+    /// In this mode, chunked transfer encoding is used to send the request body.
+    /// Note, not all HTTP servers support this mode.
+    /// This mode is supported on Android and the Desktop ports.
+    ///
+    /// #### Parameters
+    ///
+    /// - `connection`: the connection object
+    ///
+    /// - `bufferLen`: @param bufferLen  The number of bytes to write in each chunk. If chunklen
+    /// is less than or equal to zero, a default value will be used.
+    public void setChunkedStreamingMode(Object connection, int bufferLen) {
+    }
+
+    /// Closes the object (connection, stream etc.) without throwing any exception, even if the
+    /// object is null
+    ///
+    /// #### Parameters
+    ///
+    /// - `o`: Connection, Stream or other closeable object
+    public void cleanup(Object o) {
+        try {
+            if (o != null) {
+                if (o instanceof InputStream) {
+                    ((InputStream) o).close();
+                    return;
+                }
+                if (o instanceof OutputStream) {
+                    ((OutputStream) o).close();
+                    return;
+                }
+                if (o instanceof Reader) {
+                    ((Reader) o).close();
+                    return;
+                }
+                if (o instanceof Writer) {
+                    ((Writer) o).close();
+                }
+                if (o instanceof Database) {
+                    ((Database) o).close();
+                }
+                if (o instanceof Cursor) {
+                    ((Cursor) o).close();
+                }
+            }
+        } catch (Throwable ex) {
+            Log.e(ex);
+        }
+    }
+
+    /// Checks if this platform supports custom cursors.
+    ///
+    /// #### Returns
+    ///
+    /// True if the platform supports custom cursors.
+    ///
+    /// #### See also
+    ///
+    /// - Form#setEnableCursors(boolean)
+    ///
+    /// - Component#setCursor(int)
+    ///
+    /// - ComponentSelector#setCursor(int)
+    public boolean isSetCursorSupported() {
+        return false;
+    }
+
+    /// Returns the content length for this connection
+    ///
+    /// #### Parameters
+    ///
+    /// - `connection`: the connection
+    ///
+    /// #### Returns
+    ///
+    /// the content length
+    public abstract int getContentLength(Object connection);
+
+    /// Returns an output stream for the given connection
+    ///
+    /// #### Parameters
+    ///
+    /// - `connection`: the connection to open an output stream on
+    ///
+    /// #### Returns
+    ///
+    /// the created output stream
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: thrown by underlying implemnetation
+    public abstract OutputStream openOutputStream(Object connection) throws IOException;
+
+    /// Returns an output stream for the given connection
+    ///
+    /// #### Parameters
+    ///
+    /// - `connection`: the connection to open an output stream on
+    ///
+    /// - `offset`: position in the file
+    ///
+    /// #### Returns
+    ///
+    /// the created output stream
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: thrown by underlying implemnetation
+    public abstract OutputStream openOutputStream(Object connection, int offset) throws IOException;
+
+    /// Returns an input stream for the given connection
+    ///
+    /// #### Parameters
+    ///
+    /// - `connection`: the connection to open an input stream on
+    ///
+    /// #### Returns
+    ///
+    /// the created input stream
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: thrown by underlying implemnetation
+    public abstract InputStream openInputStream(Object connection) throws IOException;
+
+    /// Returns an output stream for the given file
+    ///
+    /// #### Parameters
+    ///
+    /// - `file`: the file to which we should open a stream
+    ///
+    /// #### Returns
+    ///
+    /// the created output stream
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: thrown by underlying implemnetation
+    public OutputStream openFileOutputStream(String file) throws IOException {
+        return openOutputStream(file);
+    }
+
+    /// Returns an input stream for the given connection
+    ///
+    /// #### Parameters
+    ///
+    /// - `file`: the file to which we should open a stream
+    ///
+    /// #### Returns
+    ///
+    /// the created input stream
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: thrown by underlying implemnetation
+    public InputStream openFileInputStream(String file) throws IOException {
+        return openInputStream(file);
+    }
+
+    /// Indicates the whether the request method is GET or POST
+    ///
+    /// #### Parameters
+    ///
+    /// - `connection`: the connection object
+    ///
+    /// - `p`: true for post false for get
+    public abstract void setPostRequest(Object connection, boolean p);
+
+    /// Returns the server response code for the request
+    ///
+    /// #### Parameters
+    ///
+    /// - `connection`: the connection object
+    ///
+    /// #### Returns
+    ///
+    /// a numeric HTTP response code
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if the request failed
+    public abstract int getResponseCode(Object connection) throws IOException;
+
+    /// Returns the server response message for the request
+    ///
+    /// #### Parameters
+    ///
+    /// - `connection`: the connection object
+    ///
+    /// #### Returns
+    ///
+    /// a text message to go along with the response code
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if the request failed
+    public abstract String getResponseMessage(Object connection) throws IOException;
+
+    /// Returns the HTTP response header field
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: field name for http header
+    ///
+    /// - `connection`: the connection object
+    ///
+    /// #### Returns
+    ///
+    /// the value of the header field
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if the request failed
+    public abstract String getHeaderField(String name, Object connection) throws IOException;
+
+    /// Returns the HTTP response header field
+    ///
+    /// #### Parameters
+    ///
+    /// - `connection`: the connection object
+    ///
+    /// #### Returns
+    ///
+    /// the value of the header field
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if the request failed
+    public abstract String[] getHeaderFieldNames(Object connection) throws IOException;
+
+    /// Returns the HTTP response header fields, returns optionally more than one result or null if
+    /// no field is present.
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: field name for http header
+    ///
+    /// - `connection`: the connection object
+    ///
+    /// #### Returns
+    ///
+    /// the values of the header fields
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if the request failed
+    public abstract String[] getHeaderFields(String name, Object connection) throws IOException;
+
+    /// Indicates whether the underlying implementation supports the notion of a network operation
+    /// timeout. If not timeout is "faked"
+    ///
+    /// #### Returns
+    ///
+    /// true if HTTP timeout can be configured for this IO implementation
+    public boolean isTimeoutSupported() {
+        return false;
+    }
+
+    /// This will work only if http timeout is supported
+    ///
+    /// #### Parameters
+    ///
+    /// - `t`: time in milliseconds
+    public void setTimeout(int t) {
+    }
+
+    /// Flush the storage cache allowing implementations that cache storage objects
+    /// to store
+    public void flushStorageCache() {
+    }
+
+    /// The storage data is used by some storage implementations (e.g. CDC) to place the
+    /// storage object in a "proper" location matching the application name. This needs to
+    /// be set by the user, the name might be ignored on platforms where storage
+    /// is mapped to a native application specific storage.
+    ///
+    /// #### Returns
+    ///
+    /// the name for the storage
+    public Object getStorageData() {
+        return storageData;
+    }
+
+    /// The storage data is used by some storage implementations (e.g. CDC) to place the
+    /// storage object in a "proper" location matching the application name. This needs to
+    /// be set by the user, the name might be ignored on platforms where storage
+    /// is mapped to a native application specific storage.
+    ///
+    /// #### Parameters
+    ///
+    /// - `storageData`: the name for the storage or its context
+    public void setStorageData(Object storageData) {
+        this.storageData = storageData;
+    }
+
+    /// Deletes the given file name from the storage
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the name of the storage file
+    public abstract void deleteStorageFile(String name);
+
+    /// Creates an output stream that holds the whole new value and only becomes the
+    /// entry once it is closed, for an implementation that can offer that.
+    ///
+    /// This is not what `createStorageOutputStream` does, and the two are kept apart
+    /// on purpose. That one backs a public streaming API: a caller may hold it open
+    /// for the life of the application and expect what it has flushed to be readable
+    /// meanwhile, which is exactly how the log writer uses it. An entry that appears
+    /// only on close would leave such a caller writing to something nothing can read.
+    ///
+    /// Writing a whole value at once has no such expectation, and gains what the
+    /// streaming form cannot be given: the entry is never seen partly written, and
+    /// what was there before survives a write that fails.
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the storage file name
+    ///
+    /// #### Returns
+    ///
+    /// an output stream, which replaces the entry as one step when closed if this
+    /// implementation is able to
+    public OutputStream createStorageOutputStream(String name, boolean replaceWhenClosed) throws IOException {
+        return createStorageOutputStream(name);
+    }
+
+    /// Gives up a write that failed partway through, for an implementation that can
+    /// throw one away without the entry it was replacing being any the worse for it.
+    ///
+    /// An implementation that writes into the entry itself leaves half an object
+    /// behind when a write fails, and the only way to be rid of that is to delete the
+    /// entry, so the default here reports that it cannot help. One that prepares the
+    /// new value elsewhere and puts it in place in a single step has not touched the
+    /// entry at all, and deleting it would throw away a good value on account of a
+    /// write that never reached it.
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the name of the storage file being written
+    ///
+    /// - `writing`: the stream this implementation returned for the write that
+    /// failed, or null if it never opened. The write is named by its stream rather
+    /// than by its entry so that a second write to the same entry, which may be
+    /// perfectly healthy, is not given up along with it
+    ///
+    /// #### Returns
+    ///
+    /// true if the pending write was discarded and the entry left as it was, false if
+    /// the caller still has to delete the entry to be rid of a partial write
+    public boolean abandonStorageWrite(String name, OutputStream writing) {
+        return false;
+    }
+
+    /// Deletes all the files in the application storage
+    public void clearStorage() {
+        String[] l = listStorageEntries();
+        int llen = l.length;
+        for (int iter = 0; iter < llen; iter++) {
+            deleteStorageFile(l[iter]);
+        }
+    }
+
+    /// Creates an output stream to the storage with the given name
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the storage file name
+    ///
+    /// #### Returns
+    ///
+    /// an output stream of limited capcity
+    public abstract OutputStream createStorageOutputStream(String name) throws IOException;
+
+    /// Creates an input stream to the given storage source file
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the name of the source file
+    ///
+    /// #### Returns
+    ///
+    /// the input stream
+    public abstract InputStream createStorageInputStream(String name) throws IOException;
+
+    /// Returns true if the given storage file exists
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the storage file name
+    ///
+    /// #### Returns
+    ///
+    /// true if it exists
+    public abstract boolean storageFileExists(String name);
+
+    /// Lists the names of the storage files
+    ///
+    /// #### Returns
+    ///
+    /// the names of all the storage files
+    public abstract String[] listStorageEntries();
+
+    /// Returns the size of the entry in bytes
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the entry name
+    ///
+    /// #### Returns
+    ///
+    /// the size
+    public int getStorageEntrySize(String name) {
+        long size = -1;
+        InputStream i = null; //NOPMD CloseResource
+        try {
+            i = createStorageInputStream(name);
+            long val = i.skip(1000000);
+            if (val > -1) {
+                size = 0;
+                while (val > -1) {
+                    size += val;
+                    val = i.skip(1000000);
+                }
+            }
+        } catch (IOException err) {
+            Log.e(err);
+        } finally {
+            Util.cleanup(i);
+        }
+        return (int) size;
+    }
+
+    /// Returns the filesystem roots from which the structure of the file system
+    /// can be traversed
+    ///
+    /// #### Returns
+    ///
+    /// the roots of the filesystem
+    public abstract String[] listFilesystemRoots();
+
+    /// Lists the files within the given directory, returns relative file names and not
+    /// full file names.
+    ///
+    /// #### Parameters
+    ///
+    /// - `directory`: the directory in which files should be listed
+    ///
+    /// #### Returns
+    ///
+    /// array of file names
+    public abstract String[] listFiles(String directory) throws IOException;
+
+    /// Returns the size of the given root directory
+    ///
+    /// #### Parameters
+    ///
+    /// - `root`: the root directory in the filesystem
+    ///
+    /// #### Returns
+    ///
+    /// the byte size of the directory
+    public abstract long getRootSizeBytes(String root);
+
+    /// Returns the available space in the given root directory
+    ///
+    /// #### Parameters
+    ///
+    /// - `root`: the root directory in the filesystem
+    ///
+    /// #### Returns
+    ///
+    /// the bytes available in the directory
+    public abstract long getRootAvailableSpace(String root);
+
+    /// Creates the given directory
+    ///
+    /// #### Parameters
+    ///
+    /// - `directory`: the directory name to create
+    public abstract void mkdir(String directory);
+
+    /// Deletes the specific file or empty directory.
+    ///
+    /// #### Parameters
+    ///
+    /// - `file`: file or empty directory to delete
+    public abstract void deleteFile(String file);
+
+    /// Indicates the hidden state of the file
+    ///
+    /// #### Parameters
+    ///
+    /// - `file`: file
+    ///
+    /// #### Returns
+    ///
+    /// true for a hidden file
+    public abstract boolean isHidden(String file);
+
+    /// Toggles the hidden state of the file
+    ///
+    /// #### Parameters
+    ///
+    /// - `file`: file
+    ///
+    /// - `h`: hidden state
+    public abstract void setHidden(String file, boolean h);
+
+    /// Returns the length of the file
+    ///
+    /// #### Parameters
+    ///
+    /// - `file`: file
+    ///
+    /// #### Returns
+    ///
+    /// length of said file
+    public abstract long getFileLength(String file);
+
+    /// Returns the time that the file denoted by this abstract pathname was
+    /// last modified.
+    ///
+    /// #### Returns
+    ///
+    /// @return A long value representing the time the file was last modified,
+    /// measured in milliseconds
+    public long getFileLastModified(String file) {
+        return -1;
+    }
+
+    /// Indicates whether the given file is a directory
+    ///
+    /// #### Parameters
+    ///
+    /// - `file`: file
+    ///
+    /// #### Returns
+    ///
+    /// true if its a directory
+    public abstract boolean isDirectory(String file);
+
+    /// Indicates whether the given file exists
+    ///
+    /// #### Parameters
+    ///
+    /// - `file`: file
+    ///
+    /// #### Returns
+    ///
+    /// true if it exists
+    public abstract boolean exists(String file);
+
+    /// Renames a file to the given name, expects the new name to be relative to the
+    /// current directory
+    ///
+    /// #### Parameters
+    ///
+    /// - `file`: absolute file name
+    ///
+    /// - `newName`: relative new name
+    public abstract void rename(String file, String newName);
+
+    /// Returns the file system separator char normally '/'
+    ///
+    /// #### Returns
+    ///
+    /// the separator char
+    public abstract char getFileSystemSeparator();
+
+    public String getLineSeparator() {
+        return "\n";
+    }
+
+    /// Indicates whether looking up an access point is supported by this device
+    ///
+    /// #### Returns
+    ///
+    /// true if access point lookup is supported
+    public boolean isAPSupported() {
+        return false;
+    }
+
+    /// Returns the ids of the access points available if supported
+    ///
+    /// #### Returns
+    ///
+    /// ids of access points
+    public String[] getAPIds() {
+        return null;
+    }
+
+    /// Returns the type of the access point
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: access point id
+    ///
+    /// #### Returns
+    ///
+    /// one of the supported access point types from network manager
+    public int getAPType(String id) {
+        return NetworkManager.ACCESS_POINT_TYPE_UNKNOWN;
+    }
+
+    /// Returns the user displayable name for the given access point
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: the id of the access point
+    ///
+    /// #### Returns
+    ///
+    /// the name of the access point
+    public String getAPName(String id) {
+        return null;
+    }
+
+    /// Returns the id of the current access point
+    ///
+    /// #### Returns
+    ///
+    /// id of the current access point
+    public String getCurrentAccessPoint() {
+        return null;
+    }
+
+    /// Returns the id of the current access point
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: id of the current access point
+    public void setCurrentAccessPoint(String id) {
+    }
+
+    /// Indicates whether this platform can attempt to detect active VPN usage.
+    ///
+    /// The default implementation returns `false`. Platforms that provide a
+    /// best-effort VPN heuristic should override this method and `#isVPNActive()`.
+    ///
+    /// #### Returns
+    ///
+    /// `true` if VPN detection is implemented on this platform.
+    public boolean isVPNDetectionSupported() {
+        return false;
+    }
+
+    /// Best-effort check for whether a VPN appears to be active.
+    ///
+    /// This API is intentionally heuristic and should **not** be used as a
+    /// security boundary. False positives and false negatives are both possible,
+    /// and some VPN products may avoid detection completely.
+    ///
+    /// #### Returns
+    ///
+    /// `true` if the platform believes a VPN may be active.
+    public boolean isVPNActive() {
+        return false;
+    }
+
+    // ---------------------------------------------------------------------
+    // Deeper-network connectivity platform accessors.
+    //
+    // Each create*Platform() factory returns a narrow abstract class that
+    // the public-facing APIs in com.codename1.io.{wifi,bonjour,usb} ask for
+    // via Display.getInstance().getXxxPlatform(). Platform ports override
+    // the factory they care about; everything else falls through to the
+    // default no-op implementations. Keeping these as small factories
+    // (instead of dozens of methods on this class) lets each port ship its
+    // platform-specific code in a dedicated class and keeps this base
+    // implementation modular.
+    // ---------------------------------------------------------------------
+
+    private WifiPlatform wifiPlatform;
+    private WifiDirectPlatform wifiDirectPlatform;
+    private BonjourPlatform bonjourPlatform;
+    private UsbPlatform usbPlatform;
+    private NetworkTypePlatform networkTypePlatform;
+
+    public final WifiPlatform getWifiPlatform() {
+        if (wifiPlatform == null) {
+            WifiPlatform p = createWifiPlatform();
+            wifiPlatform = p != null ? p : new WifiPlatform();
+        }
+        return wifiPlatform;
+    }
+
+    /// Platform ports override to return their WiFi implementation. The
+    /// default returns `null`, which the caller turns into the
+    /// unsupported stub built into `WifiPlatform`.
+    protected WifiPlatform createWifiPlatform() {
+        return null;
+    }
+
+    public final WifiDirectPlatform getWifiDirectPlatform() {
+        if (wifiDirectPlatform == null) {
+            WifiDirectPlatform p = createWifiDirectPlatform();
+            wifiDirectPlatform = p != null ? p : new WifiDirectPlatform();
+        }
+        return wifiDirectPlatform;
+    }
+
+    protected WifiDirectPlatform createWifiDirectPlatform() {
+        return null;
+    }
+
+    public final BonjourPlatform getBonjourPlatform() {
+        if (bonjourPlatform == null) {
+            BonjourPlatform p = createBonjourPlatform();
+            bonjourPlatform = p != null ? p : new BonjourPlatform();
+        }
+        return bonjourPlatform;
+    }
+
+    protected BonjourPlatform createBonjourPlatform() {
+        return null;
+    }
+
+    public final UsbPlatform getUsbPlatform() {
+        if (usbPlatform == null) {
+            UsbPlatform p = createUsbPlatform();
+            usbPlatform = p != null ? p : new UsbPlatform();
+        }
+        return usbPlatform;
+    }
+
+    protected UsbPlatform createUsbPlatform() {
+        return null;
+    }
+
+    public final NetworkTypePlatform getNetworkTypePlatform() {
+        if (networkTypePlatform == null) {
+            NetworkTypePlatform p = createNetworkTypePlatform();
+            networkTypePlatform = p != null ? p : new LegacyAccessPointNetworkType(this);
+        }
+        return networkTypePlatform;
+    }
+
+    protected NetworkTypePlatform createNetworkTypePlatform() {
+        return null;
+    }
+
+    /// Fallback `NetworkTypePlatform` for ports that haven't been updated
+    /// to provide their own. Bridges to the legacy access-point API so
+    /// `NetworkManager.getCurrentNetworkType()` still distinguishes
+    /// "online" from "offline" when an AP is configured.
+    private static final class LegacyAccessPointNetworkType extends NetworkTypePlatform {
+        private final CodenameOneImplementation impl;
+        LegacyAccessPointNetworkType(CodenameOneImplementation impl) {
+            this.impl = impl;
+        }
+        @Override public int getCurrentNetworkType() {
+            return impl.isAPSupported() && impl.getCurrentAccessPoint() != null
+                    ? NetworkManager.NETWORK_TYPE_OTHER
+                    : NetworkManager.NETWORK_TYPE_NONE;
+        }
+    }
+
+    /// For some reason the standard code for writing UTF8 output in a server request
+    /// doesn't work as expected on SE/CDC stacks.
+    ///
+    /// #### Returns
+    ///
+    /// true if the getBytes() approach should be used
+    public boolean shouldWriteUTFAsGetBytes() {
+        return false;
+    }
+
+    /// Some devices need more elaborate thread creation logic e.g. to increase the
+    /// default stack size or might use a pooling strategy
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the name of the thread
+    ///
+    /// - `r`: the runnable
+    public void startThread(String name, Runnable r) {
+        new CodenameOneThread(r, name).start();
+    }
+
+    /// Allows binding logic to occur before closing the output stream
+    /// such as syncing
+    ///
+    /// #### Parameters
+    ///
+    /// - `s`: the closing stream
+    public void closingOutput(OutputStream s) {
+    }
+
+    /// Allows the logger to print the stack trace into the log when the native
+    /// platform supports that
+    ///
+    /// #### Parameters
+    ///
+    /// - `t`: the exception
+    ///
+    /// - `o`: the writer
+    public void printStackTraceToStream(Throwable t, Writer o) {
+    }
+
+    /// This method is useful strictly for debugging, the logger can use it to track
+    /// file opening/closing thus detecting potential file resource leaks that
+    /// can cause serious problems in some OS's.
+    ///
+    /// #### Parameters
+    ///
+    /// - `al`: action listener to receive the callback
+    public void setLogListener(ActionListener al) {
+        logger = al;
+    }
+
+    /// Indicates whether logging is turned on
+    ///
+    /// #### Returns
+    ///
+    /// true or false
+    protected boolean isLogged() {
+        return logger != null;
+    }
+
+    /// Dispatch the message to the logger
+    ///
+    /// #### Parameters
+    ///
+    /// - `content`: content of the message
+    protected void log(String content) {
+        ActionListener l = logger;
+        if (l != null) {
+            l.actionPerformed(new ActionEvent(content, ActionEvent.Type.Log));
+        }
+    }
+
+    /// System print
+    ///
+    /// #### Parameters
+    ///
+    /// - `content`
+    public void systemOut(String content) {
+        System.out.println(content);
+    }
+
+    /// Logs the creation of a stream
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the name of the stream
+    ///
+    /// - `isInput`: whether the stream is an input or output stream
+    ///
+    /// - `count`: the number of streams of this type
+    public void logStreamCreate(String name, boolean isInput, int count) {
+        if (isLogged()) {
+            if (isInput) {
+                log("Creating input stream " + name + " total streams: " + count);
+            } else {
+                log("Creating output stream " + name + " total streams: " + count);
+            }
+        }
+    }
+
+    /// Logs the closing of a stream
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the name of the stream
+    ///
+    /// - `isInput`: whether the stream is an input or output stream
+    ///
+    /// - `count`: the number of streams of this type
+    public void logStreamClose(String name, boolean isInput, int count) {
+        if (isLogged()) {
+            if (isInput) {
+                log("Closing input stream " + name + " remaining streams: " + count);
+            } else {
+                log("Closing output stream " + name + " remaining streams: " + count);
+            }
+        }
+    }
+
+    /// Logs the closing of a stream
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the name of the stream
+    ///
+    /// - `isInput`: whether the stream is an input or output stream
+    public void logStreamDoubleClose(String name, boolean isInput) {
+        if (isLogged()) {
+            if (isInput) {
+                log("Double closing input stream " + name);
+            } else {
+                log("Double closing output stream " + name);
+            }
+        }
+    }
+
+    /// Returns the type of the root often by guessing
+    ///
+    /// #### Parameters
+    ///
+    /// - `root`: the root whose type we are checking
+    ///
+    /// #### Returns
+    ///
+    /// one of the type constants above
+    public int getRootType(String root) {
+        root = root.toLowerCase();
+        String sdCard = Display.getInstance().getProperty("sdcard", null);
+        if (sdCard != null) {
+            if (root.indexOf(sdCard) > -1) {
+                return FileSystemStorage.ROOT_TYPE_SDCARD;
+            }
+        } else {
+            if (root.indexOf("file:///f:") > -1 || root.indexOf("file:///e:") > -1 || root.indexOf("memorycard") > -1 ||
+                    root.indexOf("mmc") > -1 || root.indexOf("sdcard") > -1 ||
+                    root.indexOf("store") > -1) {
+                return FileSystemStorage.ROOT_TYPE_SDCARD;
+            }
+        }
+        if (root.indexOf("c:") > -1 || root.indexOf("phone memory") > -1 || root.indexOf("store") > -1) {
+            return FileSystemStorage.ROOT_TYPE_MAINSTORAGE;
+        }
+        return FileSystemStorage.ROOT_TYPE_UNKNOWN;
+    }
+
+    /// This method returns the platform Location Control
+    ///
+    /// #### Returns
+    ///
+    /// LocationManager Object
+    public LocationManager getLocationManager() {
+        return null;
+    }
+
+    /// Whether this platform draws a location button of its own.
+    ///
+    /// A system-rendered button is what earns a session-scoped precise-location
+    /// grant on a tap, which Google Play requires from Android 17 for
+    /// transactional location use. Ports without one answer false and
+    /// [com.codename1.location.LocationButton] uses an ordinary Codename One
+    /// button that asks for the permission instead.
+    ///
+    /// #### Returns
+    ///
+    /// whether [#createLocationButton] can produce a control
+    public boolean isLocationButtonSupported() {
+        return false;
+    }
+
+    /// Builds the platform's own location button.
+    ///
+    /// #### Parameters
+    ///
+    /// - `textType`: one of the `TEXT_` constants on
+    ///   [com.codename1.location.LocationButton]
+    ///
+    /// - `backgroundColor`: an RRGGBB colour for the control, or -1 to let the
+    ///   platform choose
+    ///
+    /// - `textColor`: an RRGGBB colour for its label, or -1 to let the platform
+    ///   choose
+    ///
+    /// - `onPermissionResult`: invoked with TRUE when the user shared their
+    ///   location, FALSE when they declined, and null when the platform's own
+    ///   session failed -- the last of which can arrive without a tap, because
+    ///   the session opens when the control is attached
+    ///
+    /// #### Returns
+    ///
+    /// the control, or null when this platform has none
+    public PeerComponent createLocationButton(int textType, int backgroundColor,
+            int textColor, SuccessCallback<Boolean> onPermissionResult) {
+        return null;
+    }
+
+    /// Whether a control from [#createLocationButton] is actually live.
+    ///
+    /// Creating the control and having the platform draw into it are two
+    /// different moments on a port whose control is rendered by another
+    /// process: the peer exists as soon as it is asked for, and the session
+    /// behind it opens later. Between the two there is a component that looks
+    /// present and shows nothing, and a session that never opens leaves it that
+    /// way -- which is the one outcome this whole feature must not ship
+    /// silently.
+    ///
+    /// The default is true because on a port whose control is live the moment
+    /// it is built -- which is every port that has no remote surface -- there
+    /// is no in-between to report. Override where there is one.
+    ///
+    /// #### Parameters
+    ///
+    /// - `button`: a control this implementation returned
+    ///
+    /// #### Returns
+    ///
+    /// whether the platform is drawing into it
+    public boolean isLocationButtonReady(PeerComponent button) {
+        return button != null;
+    }
+
+    /// Returns the port-specific motion sensor entry point. Default
+    /// implementation returns {@code null}; ports that expose the device motion
+    /// hardware override this to return a cached manager. Application code
+    /// should use
+    /// {@link com.codename1.sensors.MotionSensorManager#getInstance()} instead
+    /// of calling this directly --- it transparently substitutes a no-op
+    /// manager when the port returns {@code null}.
+    public com.codename1.sensors.MotionSensorManager getMotionSensorManager() {
+        return null;
+    }
+
+    /// Returns the port-specific biometric authentication entry point. Default
+    /// implementation returns {@code null}; ports that support biometrics
+    /// override this to return a cached singleton. Application code should
+    /// use {@link com.codename1.security.Biometrics#getInstance()} instead
+    /// of calling this directly --- it transparently substitutes a no-op
+    /// fallback when the port returns {@code null}.
+    public Biometrics getBiometrics() {
+        return null;
+    }
+
+    /// Returns the port-specific biometric-gated secure storage. Default
+    /// implementation returns {@code null}; ports that back the keychain
+    /// override this. Application code should call
+    /// {@link com.codename1.security.SecureStorage#getInstance()} instead.
+    public SecureStorage getSecureStorage() {
+        return null;
+    }
+
+    /// Returns the port-specific NFC entry point. Default implementation
+    /// returns {@code null}; ports that implement
+    /// {@link com.codename1.nfc.Nfc} override this to return a cached
+    /// singleton. Application code should use
+    /// {@link com.codename1.nfc.Nfc#getInstance()} instead of calling this
+    /// directly --- it transparently substitutes a no-op fallback when the
+    /// port returns {@code null}.
+    public com.codename1.nfc.Nfc getNfc() {
+        return null;
+    }
+
+    /// Returns the port-specific local calendar source, or null when the port
+    /// has no device calendar integration.
+    public com.codename1.calendar.LocalCalendarSource getLocalCalendarSource() {
+        return null;
+    }
+
+    /// Returns the port-specific Bluetooth entry point. Default
+    /// implementation returns {@code null}; ports that implement
+    /// {@link com.codename1.bluetooth.Bluetooth} override this to return a
+    /// cached singleton. Application code should use
+    /// {@link com.codename1.bluetooth.Bluetooth#getInstance()} instead of
+    /// calling this directly --- it transparently substitutes a no-op
+    /// fallback when the port returns {@code null}.
+    public com.codename1.bluetooth.Bluetooth getBluetooth() {
+        return null;
+    }
+
+    /// Returns the port-specific health entry point. Default
+    /// implementation returns {@code null}; ports that implement
+    /// {@link com.codename1.health.Health} override this to return a
+    /// cached singleton. Application code should use
+    /// {@link com.codename1.health.Health#getInstance()} instead of
+    /// calling this directly --- it transparently substitutes a no-op
+    /// fallback when the port returns {@code null}.
+    public com.codename1.health.Health getHealth() {
+        return null;
+    }
+
+    /// Returns the port-specific window manager, which carries the whole native
+    /// windowing contract. Default implementation returns {@code null}; the desktop
+    /// ports override it to return a cached instance.
+    ///
+    /// A {@code null} return **is** the capability query --- there is deliberately no
+    /// separate supported flag that could drift out of step with it. Application code
+    /// should use {@link com.codename1.ui.Desktop} rather than calling this directly.
+    ///
+    /// #### Returns
+    ///
+    /// the window manager, or {@code null} when this platform has no windowing system
+    public WindowManager getWindowManager() {
+        return null;
+    }
+
+    /// Allows buggy implementations (Android) to release image objects
+    ///
+    /// #### Parameters
+    ///
+    /// - `image`: native image object
+    public void releaseImage(Object image) {
+    }
+
+    /// Captures a photo and notifies with the image data when available
+    ///
+    /// #### Parameters
+    ///
+    /// - `response`: callback for the resulting image
+    public void capturePhoto(ActionListener response) {
+    }
+
+    /// Factory for the low-level `com.codename1.camera.Camera` API. Each call
+    /// returns a fresh per-session backend, or `null` on platforms that do not
+    /// implement the new API. Subclasses override to wire in their port.
+    public CameraImpl createCameraImpl() {
+        return null;
+    }
+
+    /// Factory for the `com.codename1.ar.AR` augmented reality API. Each call
+    /// returns a fresh per-session backend, or `null` on platforms without AR
+    /// support. Subclasses override to wire in their port.
+    public ARImpl createARImpl() {
+        return null;
+    }
+
+    /// Factory for the built-in on-device vision API.
+    public VisionImpl createVisionImpl() {
+        return null;
+    }
+
+    /// Factory for the built-in LiteRT inference API.
+    public InferenceImpl createInferenceImpl() {
+        return null;
+    }
+
+    /// Factory for built-in on-device language services.
+    public LanguageImpl createLanguageImpl() {
+        return null;
+    }
+
+    /// Captures a screenshot of the screen.
+    ///
+    /// #### Returns
+    ///
+    /// An image of the screen, or null if it failed.
+    ///
+    /// #### Deprecated
+    ///
+    /// replaced by screenshot()
+    public Image captureScreen() {
+        Form form = getCurrentForm();
+        if (form != null) {
+            return form.toImage();
+        }
+        return null;
+    }
+
+    public void captureAudio(final ActionListener<ActionEvent> response) {
+        captureAudio(new MediaRecorderBuilder()
+                .path(new com.codename1.io.File("tmpaudio.wav").getAbsolutePath())
+                .mimeType("audio/wav"), response);
+
+    }
+
+    /// Gets a reference to an application-wide shared Javascript context that can be used for running
+    /// Javascript commands.  When running in the Javascript port, this Javascript context will be the
+    /// same context in which the application itself is running, so it gives you the ability to interact
+    /// with the browser and DOM directly using the familiar `BrowserComponent` API.
+    ///
+    /// When running on other platforms, this shared context will be an off-screen browser component.
+    ///
+    /// #### Returns
+    ///
+    /// A shared BrowserComponent
+    ///
+    public final BrowserComponent getSharedJavscriptContext() {
+        if (sharedJavascriptContext == null) {
+            sharedJavascriptContext = createSharedJavascriptContext();
+        }
+        return sharedJavascriptContext;
+    }
+
+    /// Creates a shared javascript context.  This can be overridden by ports to
+    /// return a special browser component. On the Javascript port it returns a special component
+    /// that encapsulates the browser environment that the application is running in.
+    ///
+    /// #### Returns
+    ///
+    /// A shared BrowserComponent
+    ///
+    protected BrowserComponent createSharedJavascriptContext() {
+        BrowserComponent out = new BrowserComponent();
+        out.setPage("<!doctype html><html><body></body></html>", null);
+
+        return out;
+    }
+
+    /// Captures a audio and notifies with the raw data when available
+    ///
+    /// #### Parameters
+    ///
+    /// - `response`: callback for the resulting data
+
+    public void captureAudio(final MediaRecorderBuilder recordingOptions, final ActionListener<ActionEvent> response) {
+        final MediaRecorderBuilder builder = recordingOptions == null ? new MediaRecorderBuilder() : recordingOptions;
+        if (!builder.isRedirectToAudioBuffer() && builder.getPath() == null) {
+            builder.path(new com.codename1.io.File("tmpaudio.wav").getAbsolutePath());
+        }
+        if (!builder.isRedirectToAudioBuffer() && builder.getMimeType() == null) {
+            builder.mimeType("audio/wav");
+        }
+        final AudioRecorderComponent cmp = new AudioRecorderComponent(builder);
+        final Sheet sheet = new Sheet(null, "Record Audio");
+        sheet.getContentPane().setLayout(new BorderLayout());
+        sheet.getContentPane().add(BorderLayout.CENTER, cmp);
+        cmp.addActionListener(new CaptureAudioActionListener(cmp, sheet, response, builder));
+        sheet.addCloseListener(new CaptureAudioCloseActionListener(cmp, builder, response));
+        sheet.show();
+        //capture(response, new String[] {"wav", "mp3", "aac"}, "*.wav;*.mp3;*.aac");
+    }
+
+    /// Captures a video and notifies with the data when available
+    ///
+    /// #### Parameters
+    ///
+    /// - `response`: callback for the resulting video
+    public void captureVideo(ActionListener response) {
+    }
+
+    /// Captures a video, and notifies with the data when available.  This version accepts
+    /// capture constraints which may be used if the platform supports them.
+    ///
+    /// #### Parameters
+    ///
+    /// - `constraints`: Constraints for the capture.
+    ///
+    /// - `response`: Callback for the resulting video.
+    ///
+    /// #### See also
+    ///
+    /// - com.codename1.capture.Capture#captureVideo(com.codename1.capture.VideoCaptureConstraints, com.codename1.ui.events.ActionListener)
+    public void captureVideo(VideoCaptureConstraints constraints, ActionListener response) {
+        captureVideo(response);
+    }
+
+    /// Checks if the given gallery type is supported on this platform.
+    ///
+    /// #### Parameters
+    ///
+    /// - `type`: A gallery type constant.  E.g. `CN1Constants#GALLERY_IMAGE`, `CN1Constants#GALLERY_VIDEO`, `CN1Constants#GALLERY_ALL`, `CN1Constants#GALLERY_IMAGE_MULTI`, `CN1Constants#GALLERY_VIDEO_MULTI`, `CN1Constants#GALLERY_ALL_MULTI`
+    ///
+    /// #### Returns
+    ///
+    /// True if the gallery type is supported on this platform.
+    public boolean isGalleryTypeSupported(int type) {
+        switch (type) {
+            case Display.GALLERY_IMAGE:
+            case Display.GALLERY_VIDEO:
+            case Display.GALLERY_ALL:
+                return true;
+            default:
+                break;
+        }
+        return false;
+    }
+
+    /// Opens the device gallery
+    /// The method returns immediately and the response will be sent asynchronously
+    /// to the given ActionListener Object
+    ///
+    /// use this in the actionPerformed to retrieve the file path
+    /// String path = (String) evt.getSource();
+    ///
+    /// #### Parameters
+    ///
+    /// - `response`: a callback Object to retrieve the file path
+    ///
+    /// - `type`: one of the following GALLERY_IMAGE, GALLERY_VIDEO, GALLERY_ALL
+    ///
+    /// #### Throws
+    ///
+    /// - `RuntimeException`: if this feature failed or unsupported on the platform
+    public void openGallery(final ActionListener response, int type) {
+        if (!isGalleryTypeSupported(type)) {
+            throw new IllegalArgumentException("Gallery type " + type + " not supported on this platform.");
+        }
+        final Dialog d = new Dialog("Select a picture");
+        d.setLayout(new BorderLayout());
+        FileTreeModel model = new FileTreeModel(true);
+        if (type == Display.GALLERY_IMAGE) {
+            model.addExtensionFilter("jpg");
+            model.addExtensionFilter("png");
+        } else if (type == Display.GALLERY_VIDEO) {
+            model.addExtensionFilter("mp4");
+            model.addExtensionFilter("3pg");
+            model.addExtensionFilter("avi");
+            model.addExtensionFilter("mov");
+        } else if (type == Display.GALLERY_ALL) {
+            model.addExtensionFilter("jpg");
+            model.addExtensionFilter("png");
+            model.addExtensionFilter("mp4");
+            model.addExtensionFilter("3pg");
+            model.addExtensionFilter("avi");
+            model.addExtensionFilter("mov");
+        }
+
+        FileTree t = new OpenGalleryFileTree(model, response, d);
+
+        d.addComponent(BorderLayout.CENTER, t);
+
+        d.placeButtonCommands(new Command[]{new Command("Cancel")});
+        Command c = d.showAtPosition(2, 2, 2, 2, true);
+        if (c != null) {
+            response.actionPerformed(null);
+        }
+
+    }
+
+    /// Opens a native file chooser when the platform provides one. The callback
+    /// source is a `String` path readable by `FileSystemStorage`, or `null` when
+    /// the user cancels.
+    ///
+    /// #### Parameters
+    ///
+    /// - `response`: callback receiving the selected file path
+    /// - `accept`: comma-separated list of accepted file extensions or MIME types
+    public void openFileChooser(final ActionListener response, String accept) {
+        final Dialog d = new Dialog("Select a file");
+        d.setLayout(new BorderLayout());
+        FileTreeModel model = new FileTreeModel(true);
+        if (accept != null) {
+            Vector tokens = StringUtil.tokenizeString(accept, ',');
+            for (int iter = 0; iter < tokens.size(); iter++) {
+                String token = ((String) tokens.elementAt(iter)).trim();
+                int slash = token.indexOf('/');
+                if (token.length() > 0 && slash < 0 && !"*".equals(token)) {
+                    if (token.startsWith(".")) {
+                        token = token.substring(1);
+                    }
+                    model.addExtensionFilter(token);
+                }
+            }
+        }
+
+        FileTree t = new OpenGalleryFileTree(model, response, d);
+        d.addComponent(BorderLayout.CENTER, t);
+        d.placeButtonCommands(new Command[]{new Command("Cancel")});
+        Command c = d.showAtPosition(2, 2, 2, 2, true);
+        if (c != null) {
+            response.actionPerformed(null);
+        }
+    }
+
+    /// Opens the device image gallery
+    ///
+    /// #### Parameters
+    ///
+    /// - `response`: callback for the resulting image
+    public void openImageGallery(final ActionListener response) {
+        openGallery(response, Display.GALLERY_IMAGE);
+    }
+
+    /// Returns a 2-3 letter code representing the platform name for the platform override
+    ///
+    /// #### Returns
+    ///
+    /// the name of the platform e.g. ios, and, win, mac, linux, HTML5
+    public abstract String getPlatformName();
+
+    /// Returns the suffixes for ovr files that should be used when loading a layered resource file on this platform
+    ///
+    /// #### Returns
+    ///
+    /// a string array with the proper order of resource override layers
+    public String[] getPlatformOverrides() {
+        return new String[0];
+    }
+
+    /// This callback allows a platform to automatically detect the network
+    /// type
+    public boolean shouldAutoDetectAccessPoint() {
+        return false;
+    }
+
+    /// Gets all of the contacts that are linked to this contact.  Some platforms, like iOS, allow for multiple distinct contact records to be "linked" to indicate that they refer to the same person.
+    ///
+    /// Implementations should override the `#getLinkedContactIds(com.codename1.contacts.Contact)` method.
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: The contact whose "linked" contacts are to be retrieved.
+    ///
+    /// #### Returns
+    ///
+    /// Array of Contacts.  Should never be null, but may be a zero-sized array.
+    ///
+    /// #### See also
+    ///
+    /// - com.codename1.contacts.ContactsManager#getLinkedContacts(com.codename1.contacts.Contact)
+    //public final Contact[] getLinkedContacts(Contact c) {
+    //    String[] ids = getLinkedContactIds(c);
+    //    if (ids != null) {
+    //        Contact[] out = new Contact[ids.length];
+    //        int len = ids.length;
+    //        for (int i=0; i< len; i++) {
+    //            out[i] = getContactById(ids[i]);
+    //        }
+    //        return out;
+    //    }
+    //    return new Contact[0];
+    //}
+
+    /// Send an email using the platform mail client
+    ///
+    /// #### Parameters
+    ///
+    /// - `recipients`: array of e-mail addresses
+    ///
+    /// - `subject`: e-mail subject
+    ///
+    /// - `msg`: the Message to send
+    public void sendMessage(String[] recipients, String subject, Message msg) {
+    }
+
+    /// Opens the device Dialer application with the given phone number
+    ///
+    /// #### Parameters
+    ///
+    /// - `phoneNumber`
+    public void dial(String phoneNumber) {
+    }
+
+    /// Indicates whether this platform can attempt to detect when an active phone
+    /// call is interrupting the app.
+    ///
+    /// The default implementation returns `false`. Platforms with a best-effort
+    /// call interruption heuristic should override this method and `#isInCall()`.
+    ///
+    /// #### Returns
+    ///
+    /// `true` if call detection is implemented on this platform.
+    public boolean isCallDetectionSupported() {
+        return false;
+    }
+
+    /// Best-effort check for whether the platform believes a phone call is active.
+    ///
+    /// This API is intentionally heuristic and should **not** be treated as a
+    /// reliable telephony state machine. Depending on platform restrictions it may
+    /// report false positives (e.g. other interruptions that temporarily move the
+    /// app out of the foreground) and false negatives (e.g. calls that are never
+    /// surfaced to the app lifecycle).
+    ///
+    /// #### Returns
+    ///
+    /// `true` if the platform currently believes a phone call interruption is active.
+    public boolean isInCall() {
+        return false;
+    }
+
+    /// Sends a SMS message to the given phone number
+    ///
+    /// #### Parameters
+    ///
+    /// - `phoneNumber`: to send the sms
+    ///
+    /// - `message`: the content of the sms
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if for some reason sending failed
+    public void sendSMS(String phoneNumber, String message, boolean interactive) throws IOException {
+    }
+
+    /// Indicates the level of SMS support in the platform as one of: SMS_NOT_SUPPORTED (for desktop, tablet etc.),
+    /// SMS_SEAMLESS (no UI interaction), SMS_INTERACTIVE (with compose UI), SMS_BOTH.
+    ///
+    /// #### Returns
+    ///
+    /// one of the SMS_* values
+    public int getSMSSupport() {
+        return Display.SMS_SEAMLESS;
+    }
+
+    /// Returns an image representing the application icon, or null if not supported. This is used on
+    /// Android to support the title bar icon
+    public Image getApplicationIconImage() {
+        InputStream i = getResourceAsStream(getClass(), "/icon.png"); //NOPMD CloseResource
+        if (i != null) {
+            try {
+                return EncodedImage.create(i);
+            } catch (IOException ex) {
+                Log.e(ex);
+            } finally {
+                Util.cleanup(i);
+            }
+        }
+        return null;
+    }
+
+    /// Gets all contacts from the address book of the device
+    ///
+    /// #### Parameters
+    ///
+    /// - `withNumbers`: if true returns only contacts that has a number
+    ///
+    /// #### Returns
+    ///
+    /// array of contacts unique ids
+    public String[] getAllContacts(boolean withNumbers) {
+        return null;
+    }
+
+    /// Gets the IDs of all contacts that are linked to the provided contact.
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: The contact
+    ///
+    /// #### Returns
+    ///
+    /// Array of IDs for contacts that are linked to `c`.
+    public String[] getLinkedContactIds(Contact c) {
+        if (c == null || c.getId() == null) {
+            return new String[0];
+        }
+        return new String[]{c.getId()};
+    }
+
+    /// Get a Contact according to it's contact id.
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: unique id of the Contact
+    ///
+    /// #### Returns
+    ///
+    /// a Contact Object
+    public Contact getContactById(String id) {
+        return null;
+    }
+
+    /// Notice: this method might be very slow and should be invoked on a separate thread!
+    /// It might have platform specific optimizations over getAllContacts followed by looping
+    /// over individual contacts but that isn't guaranteed. See isGetAllContactsFast for
+    /// information.
+    ///
+    /// #### Parameters
+    ///
+    /// - `withNumbers`: if true returns only contacts that has a number
+    ///
+    /// - `includesFullName`: if true try to fetch the full name of the Contact(not just display name)
+    ///
+    /// - `includesPicture`: if true try to fetch the Contact Picture if exists
+    ///
+    /// - `includesNumbers`: if true try to fetch all Contact numbers
+    ///
+    /// - `includesEmail`: if true try to fetch all Contact Emails
+    ///
+    /// - `includeAddress`: if true try to fetch all Contact Addresses
+    ///
+    /// #### Returns
+    ///
+    /// array of the contacts
+    public Contact[] getAllContacts(boolean withNumbers, boolean includesFullName, boolean includesPicture, boolean includesNumbers, boolean includesEmail, boolean includeAddress) {
+        String[] arr = getAllContacts(withNumbers);
+        if (arr == null) {
+            return null;
+        }
+        Contact[] retVal = new Contact[arr.length];
+        int alen = arr.length;
+        for (int iter = 0; iter < alen; iter++) {
+            retVal[iter] = getContactById(arr[iter], includesFullName, includesPicture, includesNumbers, includesEmail, includeAddress);
+        }
+        return retVal;
+    }
+
+    /// Indicates if the getAllContacts is platform optimized, notice that the method
+    /// might still take seconds or more to run so you should still use a separate thread!
+    ///
+    /// #### Returns
+    ///
+    /// true if getAllContacts will perform faster that just getting each contact
+    public boolean isGetAllContactsFast() {
+        return false;
+    }
+
+    /// This method returns a Contact by the contact id and fills it's data
+    /// according to the given flags
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: of the Contact
+    ///
+    /// - `includesFullName`: if true try to fetch the full name of the Contact(not just display name)
+    ///
+    /// - `includesPicture`: if true try to fetch the Contact Picture if exists
+    ///
+    /// - `includesNumbers`: if true try to fetch all Contact numbers
+    ///
+    /// - `includesEmail`: if ture try to fetch all Contact Emails
+    ///
+    /// - `includeAddress`: if ture try to fetch all Contact Addresses
+    ///
+    /// #### Returns
+    ///
+    /// a Contact Object
+    public Contact getContactById(String id, boolean includesFullName, boolean includesPicture,
+                                  boolean includesNumbers, boolean includesEmail, boolean includeAddress) {
+        return null;
+    }
+
+    /// Create a contact to the device contacts book
+    ///
+    /// #### Parameters
+    ///
+    /// - `firstName`: the Contact firstName
+    ///
+    /// - `surname`: the Contact familyName
+    ///
+    /// - `officePhone`: the Contact work phone or null
+    ///
+    /// - `homePhone`: the Contact home phone or null
+    ///
+    /// - `cellPhone`: the Contact mobile phone or null
+    ///
+    /// - `email`: the Contact email or null
+    ///
+    /// #### Returns
+    ///
+    /// the contact id if creation succeeded or null  if failed
+    public String createContact(String firstName, String surname, String officePhone, String homePhone, String cellPhone, String email) {
+        return null;
+    }
+
+    /// Some platforms allow the user to block contacts access on a per application basis (specifically iOS).
+    ///
+    /// #### Returns
+    ///
+    /// true if contacts access is allowed or globally available, false otherwise
+    public boolean isContactsPermissionGranted() {
+        return true;
+    }
+
+    /// Returns true when the platform has a contact picker that hands over a
+    /// user-selected subset of the address book without the broad contacts
+    /// permission, see `com.codename1.contacts.ContactPicker`.
+    ///
+    /// #### Returns
+    ///
+    /// true if `#pickContacts(int, boolean, int, boolean, com.codename1.ui.events.ActionListener)`
+    /// shows a picker
+    public boolean isContactPickerSupported() {
+        return false;
+    }
+
+    /// Shows the platform's contact picker and reports the user's selection.
+    ///
+    /// A port that has no picker leaves this alone. The default reports an
+    /// empty selection rather than reading the address book, because falling
+    /// back to a broad read is exactly what the caller was avoiding.
+    ///
+    /// **An override must call `response` exactly once**, whether the user
+    /// picked, cancelled or the platform refused. `Display` counts on that to
+    /// know when a pick has finished, and a port that answers twice or not at
+    /// all breaks the next pick rather than only its own.
+    ///
+    /// #### Parameters
+    ///
+    /// - `requestedFields`: bit set of the field constants on
+    /// `com.codename1.contacts.ContactPicker`
+    ///
+    /// - `multiSelect`: true to let the user pick more than one contact
+    ///
+    /// - `selectionLimit`: the largest number of contacts the user may pick
+    ///
+    /// - `requireAllRequestedFields`: true to offer only contacts holding
+    /// every requested field
+    ///
+    /// - `response`: invoked with a `com.codename1.contacts.Contact` array
+    /// source once the user is done
+    public void pickContacts(int requestedFields, boolean multiSelect,
+                             int selectionLimit, boolean requireAllRequestedFields,
+                             ActionListener<ActionEvent> response) {
+        fireContactPickerResult(response, new Contact[0]);
+    }
+
+    /// Hands a picker result to its listener on the EDT.
+    ///
+    /// Ports call this from whatever thread the platform's picker answered
+    /// on -- an Android activity result, an iOS delegate callback -- so the
+    /// application's listener always runs where the rest of its code does.
+    ///
+    /// #### Parameters
+    ///
+    /// - `response`: the listener passed to
+    /// `#pickContacts(int, boolean, int, boolean, com.codename1.ui.events.ActionListener)`
+    ///
+    /// - `picked`: the selection, null being treated as empty
+    protected void fireContactPickerResult(ActionListener<ActionEvent> response,
+                                           Contact[] picked) {
+        if (response == null) {
+            return;
+        }
+        Contact[] result = picked == null ? new Contact[0] : picked;
+        Display.getInstance().callSerially(new ContactPickerDelivery(response, result));
+    }
+
+    /// Delivers one contact-picker selection on the EDT.
+    ///
+    /// A named static class rather than the anonymous one this obviously
+    /// wants to be. An anonymous one would capture the implementation it was
+    /// created in for no reason, which is a SpotBugs finding, and the gate is
+    /// zero-findings.
+    private static final class ContactPickerDelivery implements Runnable {
+        private final ActionListener<ActionEvent> response;
+        private final Contact[] picked;
+
+        ContactPickerDelivery(ActionListener<ActionEvent> response, Contact[] picked) {
+            this.response = response;
+            this.picked = picked;
+        }
+
+        @Override
+        public void run() {
+            response.actionPerformed(new ActionEvent(picked));
+        }
+    }
+
+    /// removed a contact from the device contacts book
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: the contact id to remove
+    ///
+    /// #### Returns
+    ///
+    /// true if deletion succeeded false otherwise
+    public boolean deleteContact(String id) {
+        return false;
+    }
+
+    /// Indicates if the underlying platform supports sharing capabilities
+    ///
+    /// #### Returns
+    ///
+    /// true if the underlying platform handles share.
+    public boolean isNativeShareSupported() {
+        return false;
+    }
+
+    /// Share the required information using the platform sharing services.
+    /// a Sharing service can be: mail, sms, facebook, twitter,...
+    /// This method is implemented if isNativeShareSupported() returned true for
+    /// a specific platform.
+    ///
+    /// #### Parameters
+    ///
+    /// - `text`: String to share.
+    ///
+    /// - `image`: file path to the image or null
+    ///
+    /// - `mimeType`: type of the image or null if no image to share
+    public void share(String text, String image, String mimeType) {
+        share(text, image, mimeType, null);
+    }
+
+    /// Share the required information using the platform sharing services.
+    /// a Sharing service can be: mail, sms, facebook, twitter,...
+    /// This method is implemented if isNativeShareSupported() returned true for
+    /// a specific platform.
+    ///
+    /// #### Parameters
+    ///
+    /// - `text`: String to share.
+    ///
+    /// - `image`: file path to the image or null
+    ///
+    /// - `mimeType`: type of the image or null if no image to share
+    ///
+    /// - `sourceRect`: @param sourceRect The bounds of the button that was clicked to initiate
+    /// the share.  This is used by some platforms (e.g. iPad2 on iOS 8 or
+    /// higher) to dictate where the popover dialog should be placed.
+    public void share(String text, String image, String mimeType, Rectangle sourceRect) {
+
+    }
+
+    /// Share variant that delivers an outcome through `listener`.
+    ///
+    /// The default implementation delegates to the legacy
+    /// [#share(String,String,String,Rectangle)] entry point and reports
+    /// `SHARED_TO(null)` once it returns, since this base class has no
+    /// way to observe the platform sheet. Ports that can observe the
+    /// result (iOS, Android API 22+) override this method.
+    ///
+    /// `listener` is guaranteed non-null by [com.codename1.ui.Display#share].
+    public void share(String text, String image, String mimeType, Rectangle sourceRect, ShareResultListener listener) {
+        share(text, image, mimeType, sourceRect);
+        if (listener != null) {
+            listener.onResult(ShareResult.sharedTo(null));
+        }
+    }
+
+    /// Indicates whether the underlying platform exposes a native in-app
+    /// review/rating prompt (the OS-sanctioned "rate this app" sheet) that
+    /// can be triggered via [#requestNativeInAppReview]. When this returns
+    /// false the higher level API falls back to a Codename One drawn rating
+    /// widget.
+    ///
+    /// #### Returns
+    ///
+    /// true if the platform can present a native review prompt.
+    public boolean isNativeInAppReviewSupported() {
+        return false;
+    }
+
+    /// Requests the native in-app review prompt. This should only be invoked
+    /// when [#isNativeInAppReviewSupported] returns true. The platforms
+    /// deliberately hide whether the user actually submitted a rating and may
+    /// silently ignore the request based on their own quota/throttling
+    /// policies; `done` therefore reports whether the request was handed off
+    /// to the native review controller, not whether a review was written.
+    ///
+    /// #### Parameters
+    ///
+    /// - `done`: invoked with `true` once the native prompt was requested or
+    ///   `false` when the platform did not handle it (in which case the caller
+    ///   may show its own fallback). May be null.
+    public void requestNativeInAppReview(SuccessCallback<Boolean> done) {
+        if (done != null) {
+            done.onSucess(Boolean.FALSE);
+        }
+    }
+
+    /// Indicates if the underlying platform can print documents through
+    /// [#print(String,String,PrintResultListener)].
+    ///
+    /// #### Returns
+    ///
+    /// true if the underlying platform handles printing.
+    public boolean isPrintingSupported() {
+        return false;
+    }
+
+    /// Print a document file through the platform printing system,
+    /// typically showing the native print dialog. The default
+    /// implementation reports failure since this base class has no
+    /// printing capability. Ports that can print override this method.
+    ///
+    /// #### Parameters
+    ///
+    /// - `filePath`: path of the document in file system storage
+    ///
+    /// - `mimeType`: the document type, e.g. `application/pdf`, `image/png`
+    ///
+    /// - `listener`: callback for the print outcome. May be null.
+    public void print(String filePath, String mimeType, PrintResultListener listener) {
+        if (listener != null) {
+            listener.onResult(PrintResult.failed("Printing is not supported on this platform"));
+        }
+    }
+
+    // BEGIN TRANSFORMATION METHODS---------------------------------------------------------
+
+    /// Called before internal paint of component starts
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: the component about to be painted
+    public void beforeComponentPaint(Component c, Graphics g) {
+    }
+
+    /// Called after internal paint of component finishes
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: the component that was painted
+    public void afterComponentPaint(Component c, Graphics g) {
+    }
+
+    /// Indicates to the port that the component won't be painted due to clipping
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: the component that won't be painted
+    public void nothingWithinComponentPaint(Component c) {
+    }
+
+    /// Indicates to the port that the component was removed from the view and its
+    /// UI should be removed in the next flush operation.
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: the removed component.
+    public void componentRemoved(Component c) {
+    }
+
+    /// Gets the localization manager instance for this implementation.
+    ///
+    /// #### Returns
+    ///
+    /// The localization manager.
+    public abstract L10NManager getLocalizationManager();
+
+    /// Returns the package name for the application
+    protected String getPackageName() {
+        if (packageName == null) {
+            return Display.getInstance().getProperty("package_name", null);
+        }
+        return packageName;
+    }
+
+    /// Checks if the Transform class can be used on this platform.  This is similar to
+    /// `#isTransformSupported(java.lang.Object)` but it is more general as it only verifies
+    /// that transforms can be performed, but not necessarily that they will be respected
+    /// by any particular graphics context.
+    ///
+    /// #### Returns
+    ///
+    /// True if this platform supports transforms.
+    ///
+    /// #### See also
+    ///
+    /// - #isTransformSupported(java.lang.Object)
+    public boolean isTransformSupported() {
+        return false;
+    }
+
+    /// Checks of the Transform class can be used on this platform to perform perspective transforms.
+    /// This is similar to
+    /// `#isPerspectiveTransformSupported(java.lang.Object)` but it is more general as it only verifies
+    /// that transforms can be performed, but not necessarily that they will be respected
+    /// by any particular graphics context.
+    ///
+    /// #### Returns
+    ///
+    /// True if this platform supports perspective transforms.
+    public boolean isPerspectiveTransformSupported() {
+        return false;
+    }
+
+    public boolean transformEqualsImpl(Transform t1, Transform t2) {
+        Object o1 = null;
+        if (t1 != null) {
+            o1 = t1.getNativeTransform();
+        }
+        Object o2 = null;
+        if (t2 != null) {
+            o2 = t2.getNativeTransform();
+        }
+        return transformNativeEqualsImpl(o1, o2);
+    }
+
+    public boolean transformNativeEqualsImpl(Object t1, Object t2) {
+        throw new RuntimeException("Transforms not supported");
+    }
+
+    /// Makes a new native translation transform.  Each implementation can decide the format
+    /// to use internally for transforms.  This should return a transform in that internal format.
+    /// This is used by the `com.codename1.ui.Transform` class.
+    ///
+    /// This can only be used if `#isTransformSupported()` returns true.
+    ///
+    /// #### Parameters
+    ///
+    /// - `translateX`: The x-coordinate of the translation.
+    ///
+    /// - `translateY`: The y-coordinate of the translation.
+    ///
+    /// - `translateZ`: The z-coordinate of the translation.
+    ///
+    /// #### Returns
+    ///
+    /// A native transform object encapsulating the specified translation.
+    ///
+    /// #### See also
+    ///
+    /// - #isTransformSupported()
+    public Object makeTransformTranslation(float translateX, float translateY, float translateZ) {
+        throw new RuntimeException("Transforms not supported");
+    }
+
+    public void setTransformTranslation(Object nativeTransform, float translateX, float translateY, float translateZ) {
+        setTransformIdentity(nativeTransform);
+        transformTranslate(nativeTransform, translateX, translateY, translateZ);
+    }
+
+    /// Makes a new native scale transform.  Each implementation can decide the format
+    /// to use internally for transforms.  This should return a transform in that internal format.
+    /// This is used by the `com.codename1.ui.Transform` class.
+    ///
+    /// This can only be used if `#isTransformSupported()` returns true.
+    ///
+    /// #### Parameters
+    ///
+    /// - `scaleX`: The x-scale factor of the transform.
+    ///
+    /// - `scaleY`: The y-scale factor of the transform.
+    ///
+    /// - `scaleZ`: The z-scale factor of the transform.
+    ///
+    /// #### Returns
+    ///
+    /// A native transform object encapsulating the specified scale.
+    ///
+    /// #### See also
+    ///
+    /// - #isTransformSupported()
+    public Object makeTransformScale(float scaleX, float scaleY, float scaleZ) {
+        throw new RuntimeException("Transforms not supported");
+    }
+
+    /// Makes a transform given the specified AffineTransform values.
+    ///
+    /// #### Parameters
+    ///
+    /// - `m00`: the X coordinate scaling element of the 3x3 matrix
+    ///
+    /// - `m10`: the Y coordinate shearing element of the 3x3 matrix
+    ///
+    /// - `m01`: the X coordinate shearing element of the 3x3 matrix
+    ///
+    /// - `m11`: the Y coordinate scaling element of the 3x3 matrix
+    ///
+    /// - `m02`: the X coordinate translation element of the 3x3 matrix
+    ///
+    /// - `m12`: the Y coordinate translation element of the 3x3 matrix
+    ///
+    public Object makeTransformAffine(double m00,
+                                      double m10,
+                                      double m01,
+                                      double m11,
+                                      double m02,
+                                      double m12) {
+        throw new RuntimeException("Transforms not supported");
+    }
+
+    /// Sets transform to the given specified AffineTransform values.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeTransform`: Platform-specific native transform.
+    ///
+    /// - `m00`: the X coordinate scaling element of the 3x3 matrix
+    ///
+    /// - `m10`: the Y coordinate shearing element of the 3x3 matrix
+    ///
+    /// - `m01`: the X coordinate shearing element of the 3x3 matrix
+    ///
+    /// - `m11`: the Y coordinate scaling element of the 3x3 matrix
+    ///
+    /// - `m02`: the X coordinate translation element of the 3x3 matrix
+    ///
+    /// - `m12`: the Y coordinate translation element of the 3x3 matrix
+    ///
+    public void setTransformAffine(Object nativeTransform, double m00,
+                                   double m10,
+                                   double m01,
+                                   double m11,
+                                   double m02,
+                                   double m12) {
+        throw new RuntimeException("Transforms not supported");
+    }
+
+    public void setTransformScale(Object nativeTransform, float scaleX, float scaleY, float scaleZ) {
+        setTransformIdentity(nativeTransform);
+        transformScale(nativeTransform, scaleX, scaleY, scaleZ);
+    }
+
+    /// Makes a new native rotation transform.  Each implementation can decide the format
+    /// to use internally for transforms.  This should return a transform in that internal format.
+    /// This is used by the `com.codename1.ui.Transform` class.
+    ///
+    /// This can only be used if `#isTransformSupported()` returns true.
+    ///
+    /// #### Parameters
+    ///
+    /// - `angle`: The angle to rotate.
+    ///
+    /// - `x`: The x-component of the vector around which to rotate.
+    ///
+    /// - `y`: The y-component of the vector around which to rotate.
+    ///
+    /// - `z`: The z-component of the vector around which to rotate.
+    ///
+    /// #### Returns
+    ///
+    /// A native transform object encapsulating the specified rotation.
+    ///
+    /// #### See also
+    ///
+    /// - #isTransformSupported()
+    public Object makeTransformRotation(float angle, float x, float y, float z) {
+        throw new RuntimeException("Transforms not supported");
+    }
+
+    public void setTransformRotation(Object nativeTransform, float angle, float x, float y, float z) {
+        setTransformIdentity(nativeTransform);
+        transformRotate(nativeTransform, angle, x, y, z);
+    }
+
+    /// Makes a new perspective transform. Each implementation can decide the format
+    /// to use internally for transforms.  This should return a transform in that internal format.
+    /// This is used by the `com.codename1.ui.Transform` class.
+    ///
+    /// This can only be used if `#isPerspectiveTransformSupported()` returns true.
+    ///
+    /// #### Parameters
+    ///
+    /// - `fovy`: The y field of view angle.
+    ///
+    /// - `aspect`: The aspect ratio.
+    ///
+    /// - `zNear`: The nearest visible z coordinate.
+    ///
+    /// - `zFar`: The farthest z coordinate.
+    ///
+    /// #### Returns
+    ///
+    /// A native transform object encapsulating the given perspective.
+    ///
+    /// #### See also
+    ///
+    /// - #isPerspectiveTransformSupported()
+    public Object makeTransformPerspective(float fovy, float aspect, float zNear, float zFar) {
+        throw new RuntimeException("Transforms not supported");
+    }
+
+    public void setTransformPerspective(Object nativeTransform, float fovy, float aspect, float zNear, float zFar) {
+        Object persp = makeTransformPerspective(fovy, aspect, zNear, zFar);
+        copyTransform(persp, nativeTransform);
+    }
+
+    /// Makes a new orthographic projection transform.  Each implementation can decide the format
+    /// to use internally for transforms.  This should return a transform in that internal format.
+    /// This is used by the `com.codename1.ui.Transform` class.
+    ///
+    /// This can only be used if `#isPerspectiveTransformSupported()` returns true.
+    ///
+    /// #### Parameters
+    ///
+    /// - `left`: x-coordinate that is the left edge of the view.
+    ///
+    /// - `right`: The x-coordinate that is the right edge of the view.
+    ///
+    /// - `bottom`: The y-coordinate that is the bottom edge of the view.
+    ///
+    /// - `top`: The y-coordinate that is the top edge of the view.
+    ///
+    /// - `near`: The nearest visible z-coordinate.
+    ///
+    /// - `far`: The farthest visible z-coordinate.
+    ///
+    /// #### Returns
+    ///
+    /// A native transform with the provided orthographic projection.
+    ///
+    /// #### See also
+    ///
+    /// - #isPerspectiveTransformSupported()
+    public Object makeTransformOrtho(float left, float right, float bottom, float top, float near, float far) {
+        throw new RuntimeException("Transforms not supported");
+    }
+
+    public void setTransformOrtho(Object nativeTransform, float left, float right, float bottom, float top, float near, float far) {
+        Object ortho = makeTransformOrtho(left, right, bottom, top, near, far);
+        copyTransform(ortho, nativeTransform);
+    }
+
+    /// Makes a transform to simulate a camera's perspective at a given location. Each implementation can decide the format
+    /// to use internally for transforms.  This should return a transform in that internal format.
+    /// This is used by the `com.codename1.ui.Transform` class.
+    ///
+    /// This can only be used if `#isTransformSupported()` returns true.
+    ///
+    /// #### Parameters
+    ///
+    /// - `eyeX`: The x-coordinate of the camera's eye.
+    ///
+    /// - `eyeY`: The y-coordinate of the camera's eye.
+    ///
+    /// - `eyeZ`: The z-coordinate of the camera's eye.
+    ///
+    /// - `centerX`: The center x coordinate of the view.
+    ///
+    /// - `centerY`: The center y coordinate of the view.
+    ///
+    /// - `centerZ`: The center z coordinate of the view.
+    ///
+    /// - `upX`: The x-coordinate of the up vector for the camera.
+    ///
+    /// - `upY`: The y-coordinate of the up vector for the camera.
+    ///
+    /// - `upZ`: The z-coordinate of the up vector for the camera.
+    ///
+    /// #### Returns
+    ///
+    /// A native transform with the provided camera's view perspective.
+    ///
+    /// #### See also
+    ///
+    /// - #isPerspectiveTransformSupported()
+    public Object makeTransformCamera(float eyeX, float eyeY, float eyeZ, float centerX, float centerY, float centerZ, float upX, float upY, float upZ) {
+        throw new RuntimeException("Transforms not supported");
+    }
+
+    public void setTransformCamera(Object nativeTransform, float eyeX, float eyeY, float eyeZ, float centerX, float centerY, float centerZ, float upX, float upY, float upZ) {
+        Object cam = makeTransformCamera(eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX, upY, upZ);
+        copyTransform(cam, nativeTransform);
+    }
+
+    /// Rotates the provided  transform.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeTransform`: @param nativeTransform The transform to rotate. Each implementation can decide the format
+    /// to use internally for transforms.  This should return a transform in that internal format.
+    /// This is used by the `com.codename1.ui.Transform` class.
+    ///
+    ///
+    /// This can only be used if `#isTransformSupported()` returns true.
+    ///
+    /// - `angle`: The angle to rotate.
+    ///
+    /// - `x`: The x-coordinate of the vector around which to rotate.
+    ///
+    /// - `y`: The y-coordinate of the vector around which to rotate.
+    ///
+    /// - `z`: The z-coordinate of the vector around which to rotate.
+    ///
+    /// #### See also
+    ///
+    /// - #isTransformSupported()
+    public void transformRotate(Object nativeTransform, float angle, float x, float y, float z) {
+        Object rot = makeTransformRotation(angle, x, y, z);
+        concatenateTransform(nativeTransform, rot);
+    }
+
+    /// Translates the transform by the specified amounts.
+    /// with the specified translation.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeTransform`: @param nativeTransform The native transform to translate. Each implementation can decide the format
+    /// to use internally for transforms.  This should return a transform in that internal format.
+    /// This is used by the `com.codename1.ui.Transform` class.
+    ///
+    ///
+    /// This can only be used if `#isTransformSupported()` returns true.
+    ///
+    /// - `x`: The x translation.
+    ///
+    /// - `y`: The y translation.
+    ///
+    /// - `z`: The z translation.
+    ///
+    /// #### See also
+    ///
+    /// - #isTransformSupported()
+    public void transformTranslate(Object nativeTransform, float x, float y, float z) {
+        Object tr = makeTransformTranslation(x, y, z);
+        concatenateTransform(nativeTransform, tr);
+    }
+
+    /// Scales the provided transform by the provide scale factors.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeTransform`: @param nativeTransform Each implementation can decide the format
+    /// to use internally for transforms.  This should return a transform in that internal format.
+    /// This is used by the `com.codename1.ui.Transform` class.
+    ///
+    ///
+    /// This can only be used if `#isTransformSupported()` returns true.
+    ///
+    /// - `x`: The x-scale factor
+    ///
+    /// - `y`: The y-scale factor
+    ///
+    /// - `z`: The z-scale factor
+    ///
+    /// #### See also
+    ///
+    /// - #isTransformSupported()
+    public void transformScale(Object nativeTransform, float x, float y, float z) {
+        Object scale = makeTransformScale(x, y, z);
+        concatenateTransform(nativeTransform, scale);
+    }
+
+    /// Gets the inverse transformation for the provided transform.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeTransform`: @param nativeTransform The native transform of which to make the inverse.  Each implementation can decide the format
+    /// to use internally for transforms.  This should return a transform in that internal format.
+    /// This is used by the `com.codename1.ui.Transform` class.
+    ///
+    ///
+    /// This can only be used if `#isTransformSupported()` returns true.
+    ///
+    /// #### Returns
+    ///
+    /// @return The inverse transform as a native transform object.  Each implementation can decide the format
+    /// to use internally for transforms.  This should return a transform in that internal format.
+    /// This is used by the `com.codename1.ui.Transform` class.
+    ///
+    /// #### See also
+    ///
+    /// - #isTransformSupported()
+    public Object makeTransformInverse(Object nativeTransform) {
+        throw new RuntimeException("Transforms not supported");
+    }
+
+    public void setTransformInverse(Object nativeTransform) throws Transform.NotInvertibleException {
+        copyTransform(makeTransformInverse(nativeTransform), nativeTransform);
+    }
+
+    /// Makes a new identity native transform. Each implementation can decide the format
+    /// to use internally for transforms.  This should return a transform in that internal format.
+    /// This is used by the `com.codename1.ui.Transform` class.
+    ///
+    /// This can only be used if `#isTransformSupported()` returns true.
+    ///
+    /// #### Returns
+    ///
+    /// An identity native transform.
+    ///
+    /// #### See also
+    ///
+    /// - #isTransformSupported()
+    public Object makeTransformIdentity() {
+        throw new RuntimeException("Transforms not supported");
+    }
+
+    /// Sets the given native transform to the identiy transform
+    ///
+    /// #### Parameters
+    ///
+    /// - `transform`
+    public void setTransformIdentity(Object transform) {
+        copyTransform(makeTransformIdentity(), transform);
+    }
+
+    /// Copies the setting of one transform into another.  Each implementation can decide the format
+    /// to use internally for transforms.  This should return a transform in that internal format.
+    /// This is used by the `com.codename1.ui.Transform` class.
+    ///
+    /// This can only be used if `#isTransformSupported()` returns true.
+    ///
+    /// #### Parameters
+    ///
+    /// - `src`: The source native transform.
+    ///
+    /// - `dest`: The destination native transform.
+    ///
+    /// #### See also
+    ///
+    /// - #isTransformSupported()
+    public void copyTransform(Object src, Object dest) {
+        throw new RuntimeException("Transforms not supported");
+    }
+
+    /// Concatenates two transforms and sets the first transform to be the result of the concatenation.
+    ///
+    /// This can only be used if `#isTransformSupported()` returns true.
+    ///
+    /// #### Parameters
+    ///
+    /// - `t1`: The left native transform.  The result will also be stored in this transform.
+    ///
+    /// - `t2`: The right native transform.
+    ///
+    /// #### See also
+    ///
+    /// - #isTransformSupported()
+    public void concatenateTransform(Object t1, Object t2) {
+        throw new RuntimeException("Transforms not supported");
+    }
+
+    // END TRANSFORMATION METHODS-------------------------------------------------------------------- 
+
+    /// Transforms a point and stores the result in a provided array.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeTransform`: @param nativeTransform The native transform to use for the transformation. Each implementation can decide the format
+    /// to use internally for transforms.  This should return a transform in that internal format.
+    ///
+    ///
+    /// This can only be used if `#isTransformSupported()` returns true.
+    ///
+    /// This is used by the `com.codename1.ui.Transform` class.
+    ///
+    /// - `in`: A 2 or 3 element array representing either an (x,y) or (x,y,z) tuple to be transformed.
+    ///
+    /// - `out`: A 2 or 3 element array (length should match `in`) to store the result of the transformation.
+    ///
+    /// #### See also
+    ///
+    /// - #isTransformSupported()
+    public void transformPoint(Object nativeTransform, float[] in, float[] out) {
+        throw new RuntimeException("Transforms not supported");
+    }
+
+    /// Transforms a set of points using the provided transform.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeTransform`: The transform to use for transforming the points
+    ///
+    /// - `pointSize`: The size of the points (either 2 or 3)
+    ///
+    /// - `in`: Input array of points.
+    ///
+    /// - `srcPos`: The start position of the input array
+    ///
+    /// - `out`: The output array of points
+    ///
+    /// - `destPos`: The start position of the output array.
+    ///
+    /// - `numPoints`: The number of points to transform.
+    public void transformPoints(Object nativeTransform, int pointSize, float[] in, int srcPos, float[] out, int destPos, int numPoints) {
+        float[] bufIn = new float[pointSize];
+        float[] bufOut = new float[pointSize];
+        int len = numPoints * pointSize;
+        for (int i = 0; i < len; i += pointSize) {
+            System.arraycopy(in, srcPos + i, bufIn, 0, pointSize);
+            transformPoint(nativeTransform, bufIn, bufOut);
+            System.arraycopy(bufOut, 0, out, destPos + i, pointSize);
+        }
+    }
+
+    /// Translates a set of points.
+    ///
+    /// #### Parameters
+    ///
+    /// - `pointSize`: The size of each point (2 or 3)
+    ///
+    /// - `tX`: Size of translation along x-axis
+    ///
+    /// - `tY`: Size of translation along y-axis
+    ///
+    /// - `tZ`: Size of translation along z-axis (only used if pointSize == 3)
+    ///
+    /// - `in`: Input array of points.
+    ///
+    /// - `srcPos`: Start position in input array
+    ///
+    /// - `out`: Output array of points
+    ///
+    /// - `destPos`: Start position in output array
+    ///
+    /// - `numPoints`: Number of points to translate.
+    public void translatePoints(int pointSize, float tX, float tY, float tZ, float[] in, int srcPos, float[] out, int destPos, int numPoints) {
+        int len = numPoints * pointSize;
+        for (int i = 0; i < len; i += pointSize) {
+            int d0 = destPos + i;
+            int s0 = srcPos + i;
+            out[d0++] = in[s0++] + tX;
+            out[d0++] = in[s0++] + tY;
+            if (pointSize > 2) {
+                out[d0] = in[s0] + tZ;
+            }
+        }
+    }
+
+    /// Scales a set of points.
+    ///
+    /// #### Parameters
+    ///
+    /// - `pointSize`: The size of each point (2 or 3)
+    ///
+    /// - `sX`: Scale factor along x-axis
+    ///
+    /// - `sY`: Scale factor along y-axis
+    ///
+    /// - `sZ`: Scale factor along z-axis (only used if pointSize == 3)
+    ///
+    /// - `in`: Input array of points.
+    ///
+    /// - `srcPos`: Start position in input array
+    ///
+    /// - `out`: Output array of points
+    ///
+    /// - `destPos`: Start position in output array
+    ///
+    /// - `numPoints`: Number of points to translate.
+    public void scalePoints(int pointSize, float sX, float sY, float sZ, float[] in, int srcPos, float[] out, int destPos, int numPoints) {
+        int len = numPoints * pointSize;
+        for (int i = 0; i < len; i += pointSize) {
+            int d0 = destPos + i;
+            int s0 = srcPos + i;
+            out[d0++] = in[s0++] * sX;
+            out[d0++] = in[s0++] * sY;
+            if (pointSize > 2) {
+                out[d0] = in[s0] * sZ;
+            }
+        }
+    }
+
+    /// Clears the addressbook cache.  This is only necessary on iOS since its AddressBookRef is transactional.
+    public void refreshContacts() {
+
+    }
+
+    /// Sets the given transform to the current transform in the given graphics object.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeGraphics`
+    ///
+    /// - `t`
+    public void getTransform(Object nativeGraphics, Transform t) {
+        t.setIdentity();
+    }
+
+    /// True while a wheel scroll started by `#pointerWheelMoved` is being handled.
+    ///
+    /// It used to mean something stronger: that synthetic pointer events were in flight,
+    /// because a wheel was emulated as a press, drag and release into the component tree.
+    /// Components tested this to tell that impostor from a finger. Nothing is synthesized
+    /// any more -- the wheel scrolls the container directly -- so those tests can no longer
+    /// fail to be written, and the flag survives for application code that reads it.
+    private boolean scrollWheeling;
+
+    public boolean isScrollWheeling() {
+        return scrollWheeling;
+    }
+
+    /// Maps a physical scroll-wheel / trackpad scroll into a Codename One scroll.
+    /// Ports call this from their native wheel callback instead of fabricating raw
+    /// pointer (or key) events of their own, so the mapping lives in one place and
+    /// behaves identically everywhere.
+    ///
+    /// The component under `(x, y)` is offered the wheel first, through
+    /// `Component#mouseWheel` and the mouse wheel listeners, walking up the hierarchy
+    /// until something consumes it. If nothing does, the nearest scrollable ancestor is
+    /// scrolled. No pointer event is synthesized: that is what this used to do, and what
+    /// every component reacting to a pointer then had to defend itself against.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: pointer x in display coordinates
+    ///
+    /// - `y`: pointer y in display coordinates
+    ///
+    /// - `scrollX`: horizontal scroll amount in pixels (already converted from the
+    /// native notch count by the port); a positive value reveals content to the
+    /// left, as if the finger were dragged right
+    ///
+    /// - `scrollY`: vertical scroll amount in pixels; a positive value reveals
+    /// content above, as if the finger were dragged down
+    public void pointerWheelMoved(final int x, final int y, final int scrollX, final int scrollY) {
+        pointerWheelMoved(x, y, scrollX, scrollY, false, 0);
+    }
+
+    /// Richer entry point for wheel events that also carries whether the deltas come from a high
+    /// resolution device (a trackpad rather than a notched wheel) and the held keyboard modifiers.
+    /// Ports that can report these should call this overload. The framework dispatches a
+    /// `com.codename1.ui.events.WheelEvent` to the mouse wheel listeners on the component under
+    /// the cursor and its ancestors -- a listener that consumes it stops the gesture there,
+    /// enabling gestures such as control plus wheel to zoom -- and scrolls what nothing claimed.
+    /// The port calls this and is done: no pointer event is synthesized from a wheel.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: pointer x in display coordinates
+    ///
+    /// - `y`: pointer y in display coordinates
+    ///
+    /// - `scrollX`: horizontal scroll amount in pixels; a positive value reveals content to the left
+    ///
+    /// - `scrollY`: vertical scroll amount in pixels; a positive value reveals content above
+    ///
+    /// - `precise`: true if the deltas come from a high resolution device such as a trackpad
+    ///
+    /// - `modifiers`: bitmask of the held keyboard modifiers (the `PointerEvent` `MODIFIER_*` constants)
+    public void pointerWheelMoved(final int x, final int y, final int scrollX, final int scrollY,
+            final boolean precise, final int modifiers) {
+        windowPointerWheelMoved(0, x, y, scrollX, scrollY, precise, modifiers);
+    }
+
+    /// Same as `#pointerWheelMoved(int, int, int, int, boolean, int)`, for a wheel
+    /// event that arrived over a specific native window.
+    ///
+    /// A port with desktop windows has to say which window the wheel was over: the
+    /// main form version resolves everything -- the listeners and the component that
+    /// scrolls -- from the current form, so a wheel over a second window would scroll
+    /// the main form's content instead of the window's.
+    ///
+    /// #### Parameters
+    ///
+    /// - `windowId`: the id the port was given when the window was created, or 0 for
+    ///   the application's main surface
+    ///
+    /// - `x`: the pointer x position in window pixels
+    ///
+    /// - `y`: the pointer y position in window pixels
+    ///
+    /// - `scrollX`: the horizontal scroll amount in display pixels
+    ///
+    /// - `scrollY`: the vertical scroll amount in display pixels
+    ///
+    /// - `precise`: true if the deltas come from a high resolution device
+    ///
+    /// - `modifiers`: bitmask of the held keyboard modifiers
+    public void windowPointerWheelMoved(final int windowId, final int x, final int y,
+            final int scrollX, final int scrollY, final boolean precise, final int modifiers) {
+        if (scrollX == 0 && scrollY == 0) {
+            return;
+        }
+        final Display d = Display.getInstance();
+        d.callSerially(new Runnable() {
+            @Override
+            public void run() {
+                // The whole of it: dispatch the wheel event, and if nobody took it, scroll
+                // the container under the cursor. No pointer events are synthesized.
+                //
+                // They used to be. A wheel was replayed as a press, three drags and a
+                // release into the component tree so the scroll would animate like a finger
+                // drag, and every component that reacts to a pointer had to be taught to
+                // recognise and refuse the impostor -- Button, Slider and ComboBox already
+                // carried that guard, and each new one that did not was a bug: a switch
+                // toggled by scrolling past it, a list row selected, a table row opening a
+                // dialog (issue #5655). The ports have reported real wheel deltas for a
+                // while now, so the emulation had nothing left to buy.
+                scrollWheeling = true;
+                try {
+                    Desktop.getInstance().windowMouseWheelEvent(windowId, x, y, scrollX, scrollY,
+                            precise, modifiers);
+                } finally {
+                    scrollWheeling = false;
+                }
+            }
+        });
+    }
+
+    /// Blocks or enables copy and paste in the entire app.
+    ///
+    /// #### Parameters
+    ///
+    /// - `blockCopyPaste`: True to block copy and paste.  False to enable it.
+    public void blockCopyPaste(boolean blockCopyPaste) {
+
+    }
+    
+    /// Enables/disables screenshot blocking behavior where supported by the platform.
+    ///
+    /// #### Parameters
+    ///
+    /// - `disable`: True to disable screenshots/screen capture where possible.
+    public void setDisableScreenshots(boolean disable) {
+    }
+
+    /// Checks if this platform supports custom database paths.  On platforms
+    /// where this returns true, `#openOrCreateDB(java.lang.String)`
+    /// will accept a file path (starting with "file://"
+    ///
+    /// #### Returns
+    ///
+    /// True if platform supports custom paths.
+    public boolean isDatabaseCustomPathSupported() {
+        return false;
+    }
+
+    /// Attempt to enter full-screen mode.  Should be overridden by the
+    /// platform implementation.
+    ///
+    /// #### Returns
+    ///
+    /// True if already in full-screen mode, or successfully entered full-screen mode.
+    public boolean requestFullScreen() {
+        return false;
+    }
+
+    /// Exit full-screen mode.
+    ///
+    /// #### Returns
+    ///
+    /// True if already not in full-screen mode or successfully exited full-screen mode.
+    public boolean exitFullScreen() {
+        return false;
+    }
+
+    /// Checks to see if the app is currently running in full-screen mode.
+    ///
+    /// #### Returns
+    ///
+    /// True if the app is currently running in full-screen mode.
+    public boolean isInFullScreenMode() {
+        return false;
+    }
+
+    /// Checks if the platform supports full-screen mode.  If this returns true
+    /// then a call to `#requestFullScreen()` should enter full-screen mode.
+    public boolean isFullScreenSupported() {
+        return false;
+    }
+
+    /// Initializes text selection.  This provides an opportunity for the native
+    /// platform to register listeners on text selection to ensure that it works.
+    ///
+    /// Implementations that implement this method should also implement `#deinitializeTextSelection(com.codename1.ui.TextSelection)`
+    ///
+    /// #### Parameters
+    ///
+    /// - `aThis`
+    ///
+    /// #### See also
+    ///
+    /// - #deinitializeTextSelection(com.codename1.ui.TextSelection)
+    public void initializeTextSelection(TextSelection aThis) {
+
+    }
+
+    /// Deinitializes text selection.
+    ///
+    /// #### Parameters
+    ///
+    /// - `aThis`
+    ///
+    /// #### See also
+    ///
+    /// - #initializeTextSelection(com.codename1.ui.TextSelection)
+    public void deinitializeTextSelection(TextSelection aThis) {
+
+    }
+
+    /// Creates the native side of a `com.codename1.ui.HeavyButton`.  A HeavyButton
+    /// is a button that has a native button displayed over top of it.  It is primarily used
+    /// in the Javascript port where some functions can only be executed as a direct result
+    /// of user interaction.
+    ///
+    /// #### Parameters
+    ///
+    /// - `aThis`: The lightweight button for which a heavy peer is created
+    ///
+    /// #### Returns
+    ///
+    /// Native peer.  Format chosen by implementation.
+    ///
+    /// #### See also
+    ///
+    /// - #addHeavyActionListener(java.lang.Object, com.codename1.ui.events.ActionListener)
+    public Object createHeavyButton(Button aThis) {
+        return null;
+    }
+
+    /// Adds an action listener which will be run in response to the native button's
+    /// click event.  `ActionListener#actionPerformed(com.codename1.ui.events.ActionEvent)` will
+    /// be executed on the native UI thread, not the EDT.
+    ///
+    /// #### Parameters
+    ///
+    /// - `peer`: The peer.
+    ///
+    /// - `l`: The action listener.
+    ///
+    /// #### See also
+    ///
+    /// - #createHeavyButton(com.codename1.ui.Button)
+    ///
+    /// - #removeHeavyActionListener(java.lang.Object, com.codename1.ui.events.ActionListener)
+    public void addHeavyActionListener(Object peer, ActionListener l) {
+
+    }
+
+    /// Removes a heavy action listener from a heavy button.
+    ///
+    /// #### Parameters
+    ///
+    /// - `peer`: THe heavy button peer.
+    ///
+    /// - `l`: The action listener.
+    ///
+    /// #### See also
+    ///
+    /// - #addHeavyActionListener(java.lang.Object, com.codename1.ui.events.ActionListener)
+    ///
+    /// - #createHeavyButton(com.codename1.ui.Button)
+    public void removeHeavyActionListener(Object peer, ActionListener l) {
+
+    }
+
+    /// Updates the bounds of the native heavy button to match the bounds of the lightweight button.
+    ///
+    /// #### Parameters
+    ///
+    /// - `peer`: The heavy peer.
+    ///
+    /// - `x`: The absolute X coordinate of the light peer.
+    ///
+    /// - `y`: The absolute Y coordinate of the light peer.
+    ///
+    /// - `width`: The width of the light peer.
+    ///
+    /// - `height`: The height of the light peer.
+    ///
+    public void updateHeavyButtonBounds(Object peer, int x, int y, int width, int height) {
+
+    }
+
+    /// Initializes a heavy button.  This is called whenever the light peer's initComponent() method is called.
+    /// It should add the heavy button to the native UI hierarchy.
+    ///
+    /// #### Parameters
+    ///
+    /// - `peer`: The heavy peer.
+    ///
+    /// #### See also
+    ///
+    /// - #createHeavyButton(com.codename1.ui.Button)
+    public void initHeavyButton(Object peer) {
+
+    }
+
+    /// Deinitializes a heavy button.  This is called whenever the light peer's deinitialize() method is called.  It
+    /// should remove the heavy button from the native UI hierarchy.
+    ///
+    /// #### Parameters
+    ///
+    /// - `peer`: The heavy peer.
+    ///
+    /// #### See also
+    ///
+    /// - #initHeavyButton(java.lang.Object)
+    ///
+    /// - #createHeavyButton(com.codename1.ui.Button)
+    public void deinitializeHeavyButton(Object peer) {
+
+    }
+
+    /// Checks whether the current platform requires a heavy button for copy to clipboard functionality to work.
+    /// This will be true on the Javascript port.
+    ///
+    /// #### See also
+    ///
+    /// - #createHeavyButton(com.codename1.ui.Button)
+    public boolean requiresHeavyButtonForCopyToClipboard() {
+        return false;
+    }
+
+    /// Copies the current text selection to the clipboard.
+    ///
+    /// #### Parameters
+    ///
+    /// - `sel`: The current TextSelection instance for the current form.
+    ///
+    public void copySelectionToClipboard(TextSelection sel) {
+        copyToClipboard(sel.getSelectionAsText());
+    }
+
+    /// Sets the rendering hints for a graphics context.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeGraphics`: The native graphics context
+    ///
+    /// - `hints`: Hints
+    ///
+    /// #### See also
+    ///
+    /// - Graphics#RENDERING_HINT_FAST
+    public void setRenderingHints(Object nativeGraphics, int hints) {
+
+    }
+
+    // START NATIVE BROWSER WINDOW METHODS----------------------------------------
+    // These are useed by the com.codename1.ui.BrowserWindow class
+    // to provide a native implementation for a BrowserWindow.  The JavaSE port
+    // overrides these methods to provide a JavaFX implementation of a browser window.
+    // The AppleSignIn.cn1lib bundles its own implementation of a WebBrowser that it
+    // uses for logging in because JavaFX's webview doesn't seem to support Apple login.
+
+    /// Gets the rendering hints for this graphics context
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeGraphics`: The native graphics context.
+    ///
+    /// #### Returns
+    ///
+    /// The current rendering hints.
+    ///
+    /// #### See also
+    ///
+    /// - Graphics#RENDERING_HINT_FAST
+    public int getRenderingHints(Object nativeGraphics) {
+        return 0;
+    }
+
+    /// Starts the remote control service.  This should be implemented
+    /// in the platform to handle binding the `RemoteControlListener` with
+    /// the platform's remote control.
+    ///
+    /// This is executed when the user registers a new listener using `MediaManager#setRemoteControlListener(com.codename1.media.RemoteControlListener)`
+    ///
+    public void startRemoteControl() {
+
+    }
+
+    /// Stops the remote control service.  This should be implemented in the platform
+    /// to handle unbinding the `RemoteControlListener` with the platform's remote control.
+    ///
+    /// This is executed when a new listener is registered using `MediaManager#setRemoteControlListener(com.codename1.media.RemoteControlListener)`
+    ///
+    public void stopRemoteControl() {
+
+    }
+
+    /// Sets the read timeout of a connection.
+    ///
+    /// #### Parameters
+    ///
+    /// - `connection`
+    ///
+    /// - `readTimeout`
+    ///
+    public void setReadTimeout(Object connection, int readTimeout) {
+
+    }
+
+    /// Sets connection to be insecure.  If platform supports it, this will turn off SSL cerficate checks for validity.
+    ///
+    /// #### Parameters
+    ///
+    /// - `connection`
+    ///
+    /// - `insecure`: True to make connection insecure.
+    ///
+    /// #### See also
+    ///
+    /// - ConnectionRequest#setInsecure(boolean)
+    ///
+    /// - ConnectionRequest#isInsecure()
+    public void setInsecure(Object connection, boolean insecure) {
+
+    }
+
+    /// Checks if this platform supports read timeout in network connections.
+    ///
+    /// #### Returns
+    ///
+    /// True if the platform supports read timeouts.
+    ///
+    public boolean isReadTimeoutSupported() {
+        return false;
+    }
+
+    /// Creates a native web browser window object.  Default implementation returns null.
+    /// Platform may override this to return its own browser window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `startURL`: The Start URL to open in the browser window.
+    ///
+    /// #### Returns
+    ///
+    /// The browser window object, or null.
+    ///
+    /// #### See also
+    ///
+    /// - com.codename1.ui.BrowserWindow
+    ///
+    /// - #addNativeBrowserWindowOnLoadListener(java.lang.Object, com.codename1.ui.events.ActionListener)
+    ///
+    /// - #removeNativeBrowserWindowOnLoadListener(java.lang.Object, com.codename1.ui.events.ActionListener)
+    ///
+    /// - #nativeBrowserWindowAddCloseListener(java.lang.Object, com.codename1.ui.events.ActionListener)
+    ///
+    /// - #nativeBrowserWindowRemoveCloseListener(java.lang.Object, com.codename1.ui.events.ActionListener)
+    ///
+    /// - #nativeBrowserWindowCleanup(java.lang.Object)
+    ///
+    /// - #nativeBrowserWindowHide(java.lang.Object)
+    ///
+    /// - #nativeBrowserWindowShow(java.lang.Object)
+    ///
+    /// - #nativeBrowserWindowSetTitle(java.lang.Object, java.lang.String)
+    ///
+    /// - #nativeBrowserWindowSetSize(java.lang.Object, int, int)
+    ///
+    /// - #nativeBrowserWindowEval(java.lang.Object, com.codename1.ui.BrowserWindow.EvalRequest)
+    public Object createNativeBrowserWindow(String startURL) {
+        return null;
+    }
+
+    /// Adds a load listener to a native browser window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `window`: The window to add the listener to.
+    ///
+    /// - `l`: The listener
+    ///
+    /// #### See also
+    ///
+    /// - #createNativeBrowserWindow(java.lang.String)
+    public void addNativeBrowserWindowOnLoadListener(Object window, ActionListener l) {
+
+    }
+
+    /// Removes a load listener from a native browser window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `window`: The window from which to remove the listener.
+    ///
+    /// - `l`: The listener
+    ///
+    /// #### See also
+    ///
+    /// - #createNativeBrowserWindow(java.lang.String)
+    public void removeNativeBrowserWindowOnLoadListener(Object window, ActionListener l) {
+
+    }
+
+    /// Sets the size of a native browser window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `window`: The window
+    ///
+    /// - `width`: The width in pixels.
+    ///
+    /// - `height`: The height in pixels.
+    ///
+    /// #### See also
+    ///
+    /// - #createNativeBrowserWindow(java.lang.String)
+    public void nativeBrowserWindowSetSize(Object window, int width, int height) {
+
+    }
+
+    /// Sets the window title of a native browser window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `window`: The window
+    ///
+    /// - `title`: The title
+    ///
+    /// #### See also
+    ///
+    /// - #createNativeBrowserWindow(java.lang.String)
+    public void nativeBrowserWindowSetTitle(Object window, String title) {
+
+    }
+
+    // END NATIVE BROWSER WINDOW METHODS--------------------------------------------------
+
+    /// Shows a native browser window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `window`: The window
+    ///
+    /// #### See also
+    ///
+    /// - #createNativeBrowserWindow(java.lang.String)
+    public void nativeBrowserWindowShow(Object window) {
+
+    }
+
+    /// Hides a native browser window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `window`: The window
+    ///
+    /// #### See also
+    ///
+    /// - #createNativeBrowserWindow(java.lang.String)
+    public void nativeBrowserWindowHide(Object window) {
+
+    }
+
+    /// Cleans up and disposes of a native browser window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `window`: The window
+    ///
+    /// #### See also
+    ///
+    /// - #createNativeBrowserWindow(java.lang.String)
+    public void nativeBrowserWindowCleanup(Object window) {
+
+    }
+
+    /// Evaluates javascript on native browser window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `window`: The window
+    ///
+    /// - `req`: The javascript eval request.
+    ///
+    /// #### See also
+    ///
+    /// - #createNativeBrowserWindow(java.lang.String)
+    public void nativeBrowserWindowEval(Object window, BrowserWindow.EvalRequest req) {
+        if (!req.isDone()) {
+            req.error(new RuntimeException("Not implemented"));
+        }
+    }
+
+    /// Adds close listener to native browser window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `window`: The window.
+    ///
+    /// - `l`: The listener
+    ///
+    /// #### See also
+    ///
+    /// - #createNativeBrowserWindow(java.lang.String)
+    public void nativeBrowserWindowAddCloseListener(Object window, ActionListener l) {
+
+    }
+
+    /// Removes close listener from native browser window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `window`: The window.
+    ///
+    /// - `l`: The listener
+    ///
+    /// #### See also
+    ///
+    /// - #createNativeBrowserWindow(java.lang.String)
+    public void nativeBrowserWindowRemoveCloseListener(Object window, ActionListener l) {
+
+    }
+
+    /// User register to receive push notification
+    ///
+    /// #### Parameters
+    ///
+    /// - `noFallback`: @param noFallback some devices don't support an efficient push API and will resort to polling
+    /// to provide push like functionality. If this flag is set to true no polling will occur and
+    /// the error PushCallback.REGISTRATION_ERROR_SERVICE_NOT_AVAILABLE will be sent to the push interface.
+    public void registerPush(Hashtable metaData, boolean noFallback) {
+        if (!noFallback) {
+            Preferences.set("PollingPush", true);
+            registerPushOnServer(getPackageName(), getApplicationKey(), (byte) 10, "", getPackageName());
+
+            // Call pushCallback's registeredForPush
+            Display.getInstance().callSerially(new RPush());
+            registerPollingFallback();
+        }
+    }
+
+    /// Stop receiving push notifications to this client application
+    public void deregisterPush() {
+        Preferences.delete("PollingPush");
+        stopPolling();
+    }
+
+    /// Creates a Media recorder Object which will record from the device mic to
+    /// a file in the given path.
+    ///
+    /// #### Parameters
+    ///
+    /// - `path`: @param path     a file path to where to store the recording, if the file does
+    /// not exists it will be created.
+    ///
+    /// - `mimeType`: @param mimeType the output mime type that is supported see
+    /// getAvailableRecordingMimeTypes()
+    public Media createMediaRecorder(String path, String mimeType) throws IOException {
+        return null;
+    }
+
+    /// Creates a Media recorder Object which will record from the device mic to
+    /// a file in the given path.
+    ///
+    /// #### Parameters
+    ///
+    /// - `builder`: @param builder THe media builder with settings for the recorder.
+    /// getAvailableRecordingMimeTypes()
+    ///
+    public Media createMediaRecorder(MediaRecorderBuilder builder) throws IOException {
+        return createMediaRecorder(builder.getPath(), builder.getMimeType());
+    }
+
+    protected final void sendRegisteredForPush(String id) {
+        if (callback != null) {
+            callback.registeredForPush(id);
+        }
+    }
+
+    protected final void pushReceived(String data) {
+        if (callback != null) {
+            callback.push(data);
+        }
+    }
+
+    /// Sets the frequency for polling the server in case of polling based push notification
+    ///
+    /// #### Parameters
+    ///
+    /// - `freq`: the frequency in milliseconds
+    ///
+    /// #### Deprecated
+    ///
+    /// we no longer support push polling
+    public void setPollingFrequency(int freq) {
+    }
+
+    /// Returns the image IO instance that allows scaling image files.
+    ///
+    /// #### Returns
+    ///
+    /// the image IO instance
+    public ImageIO getImageIO() {
+        return null;
+    }
+
+    /// Returns the video IO instance for encoding and frame accurate decoding, or null
+    /// when video encoding/decoding isn't supported on this platform.
+    ///
+    /// #### Returns
+    ///
+    /// the video IO instance or null
+    public VideoIO getVideoIO() {
+        return null;
+    }
+
+    /// Creates the SIMD implementation for this platform.
+    /// Ports may override this to provide accelerated SIMD behavior.
+    public Simd createSimd() {
+        return new Simd();
+    }
+
+    /// Workaround for XMLVM bug
+    public boolean instanceofObjArray(Object o) {
+        return o instanceof Object[];
+    }
+
+    /// Workaround for XMLVM bug
+    public boolean instanceofByteArray(Object o) {
+        return o instanceof byte[];
+    }
+
+    /// Workaround for XMLVM bug
+    public boolean instanceofShortArray(Object o) {
+        return o instanceof short[];
+    }
+
+    /// Workaround for XMLVM bug
+    public boolean instanceofLongArray(Object o) {
+        return o instanceof long[];
+    }
+
+    /// Workaround for XMLVM bug
+    public boolean instanceofIntArray(Object o) {
+        return o instanceof int[];
+    }
+
+    /// Workaround for XMLVM bug
+    public boolean instanceofFloatArray(Object o) {
+        return o instanceof float[];
+    }
+
+    /// Workaround for XMLVM bug
+    public boolean instanceofDoubleArray(Object o) {
+        return o instanceof double[];
+    }
+
+    /// Gets the available recording MimeTypes
+    public String[] getAvailableRecordingMimeTypes() {
+        return new String[]{"audio/amr", "audio/aac"};
+    }
+
+    /// Opens a database or create one if not exists
+    ///
+    /// #### Parameters
+    ///
+    /// - `databaseName`: the name of the database
+    ///
+    /// #### Returns
+    ///
+    /// Database Object or null if not supported on the platform
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if database cannot be created
+    public Database openOrCreateDB(String databaseName) throws IOException {
+        return null;
+    }
+
+    /// Opens or creates an encrypted database.
+    ///
+    /// Ports that support encryption override this. The default implementation handles the
+    /// plaintext case by delegating, and refuses anything else -- returning an unencrypted
+    /// database to a caller who asked for encryption would be a silent security downgrade.
+    ///
+    /// #### Parameters
+    ///
+    /// - `databaseName`: the name of the database
+    ///
+    /// - `config`: how the database should be keyed
+    ///
+    /// #### Returns
+    ///
+    /// the open database
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if the database cannot be opened or the platform cannot encrypt
+    public Database openOrCreateDB(String databaseName, DatabaseConfig config) throws IOException {
+        if (config == null || !config.isEncrypted()) {
+            return openOrCreateDB(databaseName);
+        }
+        throw new DatabaseEncryptionException(DatabaseEncryptionException.NOT_SUPPORTED,
+                "Encrypted databases are not supported on this platform");
+    }
+
+    /// Indicates whether this platform can open encrypted databases.
+    ///
+    /// #### Returns
+    ///
+    /// false unless the port overrides this
+    public boolean isDatabaseEncryptionSupported() {
+        return false;
+    }
+
+    /// Opens a plaintext database through an engine that is able to encrypt it in place.
+    ///
+    /// Most ports use one engine for both, so the default simply opens normally. Android does not:
+    /// the system SQLite has no cipher, so a database opened through it can never be re-keyed, and
+    /// that port routes this through SQLCipher instead.
+    ///
+    /// #### Parameters
+    ///
+    /// - `databaseName`: the name of the database
+    ///
+    /// #### Returns
+    ///
+    /// the open database
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if the database cannot be opened
+    public Database openOrCreateDBForRekey(String databaseName) throws IOException {
+        return openOrCreateDB(databaseName);
+    }
+
+    /// Indicates whether managed database keys are protected by a hardware backed key store.
+    ///
+    /// Ports with a real key store override this. Returning false is the safe answer: it tells
+    /// security sensitive applications not to rely on hardware protection.
+    ///
+    /// #### Returns
+    ///
+    /// false unless the port overrides this
+    public boolean isDatabaseManagedKeyHardwareBacked() {
+        return false;
+    }
+
+    /// `#isDatabaseFileEncrypted(java.lang.String)` could not determine the answer.
+    public static final int DATABASE_ENCRYPTION_UNKNOWN = -1;
+
+    /// The database is a plaintext file.
+    public static final int DATABASE_NOT_ENCRYPTED = 0;
+
+    /// The database is encrypted.
+    public static final int DATABASE_ENCRYPTED = 1;
+
+    /// Reports whether a database is encrypted, when the platform can tell without reading the
+    /// file itself.
+    ///
+    /// The default reports `#DATABASE_ENCRYPTION_UNKNOWN`, which makes
+    /// `Database#isEncrypted(java.lang.String)` fall back to sniffing the file header. A port whose
+    /// databases do not live in a readable filesystem, such as the JavaScript one, overrides this
+    /// rather than letting the header read fail and be misread as ciphertext.
+    ///
+    /// #### Parameters
+    ///
+    /// - `databaseName`: the name of the database
+    ///
+    /// #### Returns
+    ///
+    /// one of `#DATABASE_ENCRYPTED`, `#DATABASE_NOT_ENCRYPTED` or `#DATABASE_ENCRYPTION_UNKNOWN`
+    /// The identity a managed key with no explicit alias is stored under.
+    ///
+    /// The ports key an implicit managed alias on the file a name resolves to rather than on the
+    /// name, so that two accepted spellings of one database derive one key. Anything that has to
+    /// find that key afterwards -- `com.codename1.db.Database#forgetManagedKey(String)` -- has to
+    /// ask the same question, and only the port can answer it.
+    ///
+    /// #### Parameters
+    ///
+    /// - `databaseName`: the name the application opens the database under
+    ///
+    /// #### Returns
+    ///
+    /// the identity, which is the name itself unless the port resolves it
+    public String databaseManagedKeyIdentity(String databaseName) {
+        return databaseName;
+    }
+
+    /// The registry identity for a file the engine reported, as `PRAGMA database_list` gives it.
+    ///
+    /// Not the same question as `#databaseManagedKeyIdentity(String)`, which takes a name an
+    /// application supplied. What comes back from the engine is whatever that engine calls the
+    /// file it opened: an absolute path on the ports backed by a filesystem, and a pool entry on
+    /// the browser, where dressing it up as a file URL produces a name the pool has never heard
+    /// of -- so the reconciliation released the right reservation and took one on nothing.
+    ///
+    /// #### Parameters
+    ///
+    /// - `engineFile`: the filename the engine reported
+    ///
+    /// #### Returns
+    ///
+    /// the key connections on that file are registered under, or null if it cannot be worked out
+    /// The key open connections, attachments and claims on a database are registered under.
+    ///
+    /// Distinct from `#databaseManagedKeyIdentity(String)`, which answers a different question:
+    /// where a managed KEY for this database is filed. The two need different properties and one
+    /// hook cannot have both. An alias has to survive the file being deleted and made again, or
+    /// the key is lost with it -- so it is derived from the name. A registry key has to say
+    /// whether two handles are the same open FILE, which on a platform where several names reach
+    /// one file (a short name, a junction, a hard link) the name cannot answer.
+    ///
+    /// Answering with the alias, as the default does, is right for every port whose names and
+    /// files correspond one to one.
+    ///
+    /// #### Parameters
+    ///
+    /// - `databaseName`: the database, as an application named it
+    ///
+    /// #### Returns
+    ///
+    /// the key it is registered under, or null when this port cannot say
+    public String databaseRegistryIdentity(String databaseName) {
+        return databaseManagedKeyIdentity(databaseName);
+    }
+
+    /// Whether a relative name in an ATTACH means the same database to this port and its engine.
+    ///
+    /// It does not on a port backed by a filesystem. SQLite resolves a relative name against the
+    /// process working directory, which differs per platform and which no application controls
+    /// through this API, while a name here means a database in the port's own directory -- so a
+    /// reservation taken on one names a different file from the one the engine opens, and the
+    /// database that really was attached goes unprotected. A port whose engine has no filesystem
+    /// -- the browser, where a name is an entry in a storage pool -- resolves it exactly as this
+    /// does, and says so by answering true.
+    ///
+    /// #### Returns
+    ///
+    /// whether a relative attachment name resolves to the database this port would open
+    public boolean isRelativeAttachmentNameResolvable() {
+        return false;
+    }
+
+    public String databaseIdentityForEngineFile(String engineFile) {
+        if (engineFile == null || engineFile.length() == 0) {
+            return null;
+        }
+        return databaseManagedKeyIdentity("file://" + engineFile);
+    }
+
+    /// How many connections this port has open on a database.
+    ///
+    /// `Database#delete(String)` asks before unlinking, because deleting a file something still
+    /// holds succeeds on every platform here and leaves that connection writing to a file with no
+    /// name. The base class keeps its own registry, and ports that register there need not
+    /// override; a port that counts connections somewhere of its own says so here.
+    ///
+    /// #### Parameters
+    ///
+    /// - `databaseName`: the name or path the caller asked to delete
+    ///
+    /// #### Returns
+    ///
+    /// the number of open connections this port knows about
+    public int openDatabaseConnections(String databaseName) {
+        return 0;
+    }
+
+    public int isDatabaseFileEncrypted(String databaseName) {
+        return DATABASE_ENCRYPTION_UNKNOWN;
+    }
+
+    /// Indicates whether `byte[]` values may be bound as query parameters.
+    ///
+    /// #### Returns
+    ///
+    /// false unless the port overrides this
+    public boolean isBlobQueryParameterSupported() {
+        return false;
+    }
+
+    /// The files SQLite keeps beside a database, given the database's own name or path.
+    ///
+    /// A database is not one file. Rows committed in WAL mode live in `-wal` until a checkpoint
+    /// moves them, `-shm` indexes that log, and in rollback mode `-journal` holds the pages a
+    /// transaction is undoing. A crash or a kill leaves whichever applies sitting there with data
+    /// in it.
+    ///
+    /// So deleting the database file alone reports a deletion that did not happen: the rows are
+    /// still on disk under a name nobody thinks to look at, and reopening the same name reads
+    /// them back through the leftovers. For an encrypted database they are as readable as the
+    /// pages they came from, which is the whole of what the encryption was for.
+    ///
+    /// Listed here rather than in each port so that every one of them deletes the same set. The
+    /// deletion itself stays with the port, because only it knows how to remove a file.
+    ///
+    /// **Delete these before the database, not after.** Removing the database first and then
+    /// failing on a companion reports a failure over a database that is already gone: the caller
+    /// is told to retry something that cannot be retried, and reasonably reads the error as its
+    /// data being intact. Taking the companions first makes the database file the last
+    /// destructive step, so any failure before it leaves a database the caller really can delete
+    /// again. It also keeps the invariant that matters on the next open, since a journal that
+    /// outlives its database is read as a hot one against whatever is created under that name
+    /// next.
+    ///
+    /// #### Parameters
+    ///
+    /// - `databasePathOrName`: what the port would delete for the database itself
+    ///
+    /// #### Returns
+    ///
+    /// the companion names, in no particular order
+    protected static String[] databaseSidecarPaths(String databasePathOrName) {
+        return new String[] {
+            databasePathOrName + "-wal",
+            databasePathOrName + "-shm",
+            databasePathOrName + "-journal"
+        };
+    }
+
+    /// Deletes database
+    ///
+    /// #### Parameters
+    ///
+    /// - `databaseName`: the name of the database
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if database cannot be deleted
+    public void deleteDB(String databaseName) throws IOException {
+    }
+
+    /// Indicates weather a database exists
+    ///
+    /// #### Parameters
+    ///
+    /// - `databaseName`: the name of the database
+    ///
+    /// #### Returns
+    ///
+    /// true if database exists
+    public boolean existsDB(String databaseName) {
+        return false;
+    }
+
+    /// Returns the file path of the Database if exists and if supported on
+    /// the platform.
+    ///
+    /// #### Returns
+    ///
+    /// the file path of the database or null if not exists
+    public String getDatabasePath(String databaseName) {
+        return null;
+    }
+
+    /// Indicates if the title of the Form is native title(in android ICS devices
+    /// if the command behavior is native the ActionBar is used to display the title
+    /// and the menu)
+    ///
+    /// #### Returns
+    ///
+    /// true if platform would like to show the Form title
+    public boolean isNativeTitle() {
+        return false;
+    }
+
+    /// if the title is native(e.g the android action bar), notify the native title
+    /// that is needs to be refreshed
+    public void refreshNativeTitle() {
+    }
+
+    /// Indicates the way commands should be added to a form as one of the ocmmand constants defined
+    /// in this class
+    ///
+    /// #### Returns
+    ///
+    /// the commandBehavior
+    public int getCommandBehavior() {
+        return commandBehavior;
+    }
+
+    /// Indicates the way commands should be added to a form as one of the ocmmand constants defined
+    /// in this class
+    ///
+    /// #### Parameters
+    ///
+    /// - `commandBehavior`: the commandBehavior to set
+    public void setCommandBehavior(int commandBehavior) {
+        if (commandBehavior == Display.COMMAND_BEHAVIOR_BUTTON_BAR) {
+            if (!isTouchDevice()) {
+                commandBehavior = Display.COMMAND_BEHAVIOR_SOFTKEY;
+            }
+        }
+        if (commandBehavior == Display.COMMAND_BEHAVIOR_NATIVE && !isNativeCommandsSupported()) {
+            // Normalised here for the same reason BUTTON_BAR is normalised above: this is
+            // where a behaviour the platform cannot honour gets turned into one it can, and
+            // doing it here fixes every reader at once rather than each in turn.
+            //
+            // NATIVE is the one behaviour whose unsupported case is silent. MenuBar.
+            // updateCommands hands the commands to setNativeCommands and returns without
+            // drawing soft buttons -- correct where there is a real menu bar, since drawing
+            // them too would duplicate every command, and on a platform without one it means
+            // the commands go to a method that discards them and are never drawn at all.
+            // Nothing downstream can tell that from "the platform handled it".
+            //
+            // Latent until a theme asked for it, which the desktop native themes now do:
+            // they declare commandBehavior: Native, which is right for the platforms they
+            // model and which the Windows and Linux ports cannot honour yet.
+            commandBehavior = Display.COMMAND_BEHAVIOR_DEFAULT;
+        }
+        this.commandBehavior = commandBehavior;
+        notifyCommandBehavior(commandBehavior);
+    }
+
+    /// Place a notification on the device status bar (if device has this
+    /// functionality).
+    /// The notification will re-start the Application.
+    ///
+    /// #### Parameters
+    ///
+    /// - `tickerText`: the ticker text of the Notification
+    ///
+    /// - `contentTitle`: the title of the Notification
+    ///
+    /// - `contentBody`: the content of the Notification
+    ///
+    /// - `vibrate`: enable/disable notification alert
+    ///
+    /// - `flashLights`: enable/disable notification flashing
+    ///
+    /// - `args`: additional arguments to the notification
+    ///
+    /// #### Returns
+    ///
+    /// a platform native object that allows modifying notification state
+    ///
+    /// #### Deprecated
+    ///
+    /// use scheduleLocalNotification instead
+    public Object notifyStatusBar(String tickerText, String contentTitle,
+                                  String contentBody, boolean vibrate, boolean flashLights, Hashtable args) {
+        return null;
+    }
+
+    /// Indicates whether the notify status bar method will present a notification to the user
+    ///
+    /// #### Returns
+    ///
+    /// true if the notify status bar method will present a notification to the user
+    public boolean isNotificationSupported() {
+        return false;
+    }
+
+    /// Removes the notification previously posted with the notify status bar method
+    ///
+    /// #### Parameters
+    ///
+    /// - `o`: the object returned from the notifyStatusBar method
+    public void dismissNotification(Object o) {
+    }
+
+    /// Returns true if the underlying OS supports numeric badges on icons. Notice this is only available on iOS
+    /// and only when push notification is enabled
+    ///
+    /// #### Returns
+    ///
+    /// true if the underlying OS supports numeric badges
+    public boolean isBadgingSupported() {
+        return false;
+    }
+
+    /// Sets the number that appears on the application icon in iOS
+    ///
+    /// #### Parameters
+    ///
+    /// - `number`: number to show on the icon
+    public void setBadgeNumber(int number) {
+    }
+
+    /// Returns true if the underlying OS supports opening the native navigation
+    /// application
+    ///
+    /// #### Returns
+    ///
+    /// true if the underlying OS supports launch of native navigation app
+    public boolean isOpenNativeNavigationAppSupported() {
+        return false;
+    }
+
+    /// Opens the native navigation app in the given coordinate.
+    ///
+    /// #### Parameters
+    ///
+    /// - `latitude`
+    ///
+    /// - `longitude`
+    public void openNativeNavigationApp(double latitude, double longitude) {
+    }
+
+    /// Opens the native navigation app with the given search location
+    ///
+    /// #### Parameters
+    ///
+    /// - `location`: the location to search for in the native navigation map
+    public void openNativeNavigationApp(String location) {
+        execute("http://maps.google.com/?q=" + Util.encodeUrl(location));
+    }
+
+    /// Returns the UDID for devices that support it
+    ///
+    /// #### Returns
+    ///
+    /// the UDID or null
+    public String getUdid() {
+        return getProperty("UDID", null);
+    }
+
+    /// Returns the MSISDN for devices that expose it
+    ///
+    /// #### Returns
+    ///
+    /// the msisdn or null
+    public String getMsisdn() {
+        return getProperty("MSISDN", null);
+    }
+
+    /// Returns the native OS purchase implementation if applicable, if not this
+    /// method will fallback to a cross platform purchase manager.
+    ///
+    /// #### Returns
+    ///
+    /// instance of the purchase class
+    public Purchase getInAppPurchase() {
+        return null;
+    }
+
+    /// Returns the native implementation of the code scanner or null
+    ///
+    /// #### Returns
+    ///
+    /// code scanner instance
+    ///
+    /// #### Deprecated
+    ///
+    /// Use cn1-codescan cn1lib instead.
+    public CodeScanner getCodeScanner() {
+        return null;
+    }
+
+    /// Converts a FileSystemStorage path to a native path.
+    ///
+    /// #### Parameters
+    ///
+    /// - `path`: The file system storage path.
+    ///
+    /// #### Returns
+    ///
+    /// The native path.
+    public String toNativePath(String path) {
+        return path;
+    }
+
+    /// This will return the application home directory.
+    ///
+    /// #### Returns
+    ///
+    /// a writable directory that represent the application home directory
+    public String getAppHomePath() {
+        String home = listFilesystemRoots()[0];
+        String name = getProperty("AppName", packageName);
+        if (!home.endsWith("" + getFileSystemSeparator())) {
+            home += getFileSystemSeparator();
+        }
+        home = home + name + getFileSystemSeparator();
+        if (!exists(home)) {
+            mkdir(home);
+        }
+        return home;
+    }
+
+    /// Returns true if the device has a directory dedicated for "cache" files
+    ///
+    /// #### Returns
+    ///
+    /// true if a caches style directory exists in this device type
+    public boolean hasCachesDir() {
+        return false;
+    }
+
+    /// Returns a device specific directory designed for cache style files, or null if `#hasCachesDir()`
+    /// is false
+    ///
+    /// #### Returns
+    ///
+    /// file URL or null
+    public String getCachesDir() {
+        return null;
+    }
+
+    /// Uses the native cookie store if applicable, this might break simulator compatibility
+    ///
+    /// #### Returns
+    ///
+    /// the useNativeCookieStore
+    public boolean isUseNativeCookieStore() {
+        return useNativeCookieStore;
+    }
+
+    /// Uses the native cookie store if applicable, this might break simulator compatibility
+    ///
+    /// #### Parameters
+    ///
+    /// - `useNativeCookieStore`: the useNativeCookieStore to set
+    public void setUseNativeCookieStore(boolean useNativeCookieStore) {
+        this.useNativeCookieStore = useNativeCookieStore;
+    }
+
+    /// Indicates the implementation is capable of keeping the background painted by being non-destructive.
+    ///
+    /// #### Returns
+    ///
+    /// whether to paint the background
+    public boolean shouldPaintBackground() {
+        return true;
+    }
+
+    /// This method allows a native implementation to implement a native version of a given transition that
+    /// can be faster
+    ///
+    /// #### Parameters
+    ///
+    /// - `t`: the transition that is about to execute
+    ///
+    /// #### Returns
+    ///
+    /// the given transition or a native version of that transition
+    public Transition getNativeTransition(Transition t) {
+        return t;
+    }
+
+    /// Checks if the device supports locking the screen display from dimming, allowing
+    /// the developer to keep the screen display on.
+    public boolean isScreenLockSupported() {
+        return false;
+    }
+
+    /// If Locking isScreenLockSupported() returns true calling this method will
+    /// lock the screen display on
+    public void lockScreen() {
+    }
+
+    /// Unlock the screen display allowing the screen to dim.
+    public void unlockScreen() {
+    }
+
+    /// Returns true if the device has camera false otherwise.
+    public boolean hasCamera() {
+        return true;
+    }
+
+    /// Returns the platform EDT thread priority
+    public int getEDTThreadPriority() {
+        return Thread.NORM_PRIORITY + 1;
+    }
+
+    /// This method is used by the JavaSE implementation for performance logging
+    ///
+    /// #### Parameters
+    ///
+    /// - `img`: the image being drawn
+    public void drawingEncodedImage(EncodedImage img) {
+    }
+
+    /// Indicates whether the native picker dialog is supported for the given type
+    /// which can include one of PICKER_TYPE_DATE_AND_TIME, PICKER_TYPE_TIME, PICKER_TYPE_DATE
+    ///
+    /// #### Parameters
+    ///
+    /// - `pickerType`: the picker type constant
+    ///
+    /// #### Returns
+    ///
+    /// true if the native platform supports this picker type
+    public boolean isNativePickerTypeSupported(int pickerType) {
+        return false;
+    }
+
+    /// Shows a native modal dialog allowing us to perform the picking for the given type
+    /// which can include one of PICKER_TYPE_DATE_AND_TIME, PICKER_TYPE_TIME, PICKER_TYPE_DATE
+    ///
+    /// #### Parameters
+    ///
+    /// - `type`: the picker type constant
+    ///
+    /// - `source`: @param source       the source component (optional) the native dialog will be placed in relation to this
+    /// component if applicable
+    ///
+    /// - `currentValue`: the currently selected value
+    ///
+    /// - `data`: additional meta data specific to the picker type when applicable
+    ///
+    /// #### Returns
+    ///
+    /// the value from the picker or null if the operation was canceled.
+    public Object showNativePicker(int type, Component source, Object currentValue, Object data) {
+        return null;
+    }
+
+    /// Creates a socket to connect to the given host on the given port
+    ///
+    /// #### Parameters
+    ///
+    /// - `host`: the host
+    ///
+    /// - `port`: the port
+    ///
+    /// #### Returns
+    ///
+    /// the socket object to use
+    public Object connectSocket(String host, int port) {
+        return connectSocket(host, port, 0);
+    }
+
+    /// Creates a socket to connect to the given host on the given port
+    ///
+    /// #### Parameters
+    ///
+    /// - `host`: the host
+    ///
+    /// - `port`: the port
+    ///
+    /// - `connectTimeout`: connect timeout.  0 for infinite timeout.
+    ///
+    /// #### Returns
+    ///
+    /// the socket object to use
+    ///
+    public Object connectSocket(String host, int port, int connectTimeout) {
+        throw new RuntimeException("Not supported");
+    }
+
+    /// Listens on the given port similar to the accept method of server socket in Java. This method
+    /// will only work if isServerSocketAvailable() is true.
+    ///
+    /// #### Parameters
+    ///
+    /// - `port`: the port to listen on
+    ///
+    /// #### Returns
+    ///
+    /// server socket instance
+    public Object listenSocket(int port) {
+        throw new RuntimeException("Not supported");
+    }
+
+    /// Whether this port can bind a server socket to the LOOPBACK interface only.
+    ///
+    /// Deliberately separate from [#isServerSocketAvailable()] and defaulting to false:
+    /// a port must implement loopback binding explicitly. Answering this with the
+    /// wildcard-binding implementation would publish on every network interface a
+    /// channel the caller asked to keep local.
+    ///
+    /// #### Returns
+    ///
+    /// true if [#listenSocketLoopback(int)] is implemented here
+    public boolean isLoopbackServerSocketAvailable() {
+        return false;
+    }
+
+    /// Closes the listening socket for the given port so a thread parked in accept comes
+    /// back, which is what makes stopping a listener actually stop it. Setting a flag
+    /// alone leaves that thread blocked until some client happens to connect, and that
+    /// late connection is then served or dropped by a listener the caller has abandoned.
+    ///
+    /// A port that does not implement this keeps the older behaviour, where stopping takes
+    /// effect on the next accept.
+    ///
+    /// #### Parameters
+    ///
+    /// - `port`: the port that was being listened on
+    ///
+    /// - `loopbackOnly`: true if the listener was created by [#listenSocketLoopback(int)]
+    public void stopListeningSocket(int port, boolean loopbackOnly) {
+    }
+
+    /// Whether this build is a development build rather than a release build headed for
+    /// an app store: a debuggable Android package, a development provisioned iOS build,
+    /// or a JavaSE process, which covers the simulator, the designer, the desktop tooling
+    /// and a packaged desktop application alike - see [#isDebuggableBuild()] on the JavaSE
+    /// port for why it cannot tell them apart.
+    ///
+    /// Facilities that are appropriate while developing but not in a shipped app can gate
+    /// themselves on this. A port that cannot tell should leave the default in place:
+    /// answering "release" is the safe direction, because it withholds a development
+    /// facility rather than exposing one in production.
+    ///
+    /// #### Returns
+    ///
+    /// true if this is a development build
+    public boolean isDebuggableBuild() {
+        return false;
+    }
+
+    /// Listens on the given port, bound to the loopback interface only, and blocks until
+    /// a connection arrives - the accept semantics of [#listenSocket(int)], with a
+    /// narrower bind.
+    ///
+    /// #### Parameters
+    ///
+    /// - `port`: the port to listen on
+    ///
+    /// #### Returns
+    ///
+    /// connected socket instance, or null when the accept failed
+    public Object listenSocketLoopback(int port) {
+        throw new RuntimeException("Loopback server sockets are not supported on this platform");
+    }
+
+    /// Returns the device host or ip address if available
+    ///
+    /// #### Returns
+    ///
+    /// device host or ip
+    public String getHostOrIP() {
+        return null;
+    }
+
+    /// Disconnects the current socket from the server/client on the other side
+    ///
+    /// #### Parameters
+    ///
+    /// - `socket`: the socket instance
+    public void disconnectSocket(Object socket) {
+    }
+
+    /// Indicates whether the socket is currently connected
+    ///
+    /// #### Parameters
+    ///
+    /// - `socket`: is the socket we are connected to
+    ///
+    /// #### Returns
+    ///
+    /// true if the socket is connected
+    public boolean isSocketConnected(Object socket) {
+        return false;
+    }
+
+    /// Indicates whether the underlying implementation supports server sockets
+    ///
+    /// #### Returns
+    ///
+    /// false by default
+    public boolean isServerSocketAvailable() {
+        return false;
+    }
+
+    /// Indicates whether the underlying implementation supports sockets
+    ///
+    /// #### Returns
+    ///
+    /// false by default
+    public boolean isSocketAvailable() {
+        return false;
+    }
+
+    /// Return the pending error message on the given socket
+    ///
+    /// #### Parameters
+    ///
+    /// - `socket`: the socket instance
+    ///
+    /// #### Returns
+    ///
+    /// the error message if available
+    public String getSocketErrorMessage(Object socket) {
+        return null;
+    }
+
+    /// Returns the pending error code on the given socket
+    ///
+    /// #### Parameters
+    ///
+    /// - `socket`: the socket instance
+    ///
+    /// #### Returns
+    ///
+    /// the error code
+    public int getSocketErrorCode(Object socket) {
+        return -1;
+    }
+
+    /// Returns whether data is available for input on the socket
+    ///
+    /// #### Parameters
+    ///
+    /// - `socket`: the socket instance
+    ///
+    /// #### Returns
+    ///
+    /// a none zero value if data is available for input
+    public int getSocketAvailableInput(Object socket) {
+        return 0;
+    }
+
+    /// Read pending bytes from the socket
+    ///
+    /// #### Parameters
+    ///
+    /// - `socket`: the socket object
+    ///
+    /// #### Returns
+    ///
+    /// byte array with data read from the socket
+    public byte[] readFromSocketStream(Object socket) {
+        return null;
+    }
+
+    /// Write the following byte array to the socket
+    ///
+    /// #### Parameters
+    ///
+    /// - `socket`: the socket instance
+    ///
+    /// - `data`: the data written
+    public void writeToSocketStream(Object socket, byte[] data) {
+    }
+
+    /// Indicates whether the underlying implementation supports the
+    /// [com.codename1.io.WebSocket] API. Ports that do not implement
+    /// WebSocket return false; the public `WebSocket.isSupported()` calls
+    /// through here.
+    public boolean isWebSocketSupported() {
+        return false;
+    }
+
+    /// Create a platform-specific `WebSocketImpl` bound to the given URL.
+    /// The returned impl is not yet connected; the public `WebSocket` facade
+    /// wires its event sink and calls `connect(int)`.
+    ///
+    /// @throws RuntimeException if the port does not support WebSocket.
+    public WebSocketImpl createWebSocketImpl(String url) {
+        throw new RuntimeException("WebSocket not supported on this platform");
+    }
+
+    /// Write a range of the given byte array to the socket. The default implementation
+    /// copies the requested range into a fresh array and delegates to
+    /// {@link #writeToSocketStream(Object, byte[])}; platform ports that can write a
+    /// sub-range natively should override this to avoid the intermediate allocation.
+    ///
+    /// #### Parameters
+    ///
+    /// - `socket`: the socket instance
+    ///
+    /// - `data`: the buffer containing the data to write
+    ///
+    /// - `offset`: the offset within the buffer at which to start writing
+    ///
+    /// - `len`: the number of bytes to write
+    public void writeToSocketStream(Object socket, byte[] data, int offset, int len) {
+        if (offset == 0 && len == data.length) {
+            writeToSocketStream(socket, data);
+            return;
+        }
+        byte[] arr = new byte[len];
+        System.arraycopy(data, offset, arr, 0, len);
+        writeToSocketStream(socket, arr);
+    }
+
+    private void mkdirs(FileSystemStorage fs, String path) {
+        int lastPos = path.lastIndexOf('/');
+        if (lastPos >= 0) {
+            mkdirs(fs, path.substring(0, lastPos));
+        }
+        if (!fs.exists(path)) {
+            mkdir(path);
+        }
+
+    }
+
+    /// Installs a tar file from the build server into the file system storage so it can be used with respect for hierarchy
+    public void installTar() throws IOException {
+        String p = Preferences.get("cn1$InstallKey", null);
+        String buildKey = Display.getInstance().getProperty("build_key", null);
+        if (p == null || !p.equals(buildKey)) {
+            FileSystemStorage fs = FileSystemStorage.getInstance();
+            String tardir = fs.getAppHomePath() + "cn1html/";
+            fs.mkdir(tardir);
+            TarInputStream is = new TarInputStream(Display.getInstance().getResourceAsStream(getClass(), "/html.tar")); //NOPMD CloseResource
+            try {
+                TarEntry t = is.getNextEntry();
+                byte[] data = new byte[8192];
+                while (t != null) {
+                    String name = t.getName();
+                    if (t.isDirectory()) {
+                        fs.mkdir(tardir + name);
+                    } else {
+                        String path = tardir + name;
+                        String dir = path.substring(0, path.lastIndexOf('/'));
+                        if (!fs.exists(dir)) {
+                            mkdirs(fs, dir);
+                        }
+
+                        OutputStream os = null; //NOPMD CloseResource
+                        try {
+                            os = fs.openOutputStream(tardir + name);
+                            int count;
+                            while ((count = is.read(data)) != -1) {
+                                os.write(data, 0, count);
+                            }
+                        } finally {
+                            Util.cleanup(os);
+                        }
+                    }
+
+                    t = is.getNextEntry();
+                }
+            } finally {
+                Util.cleanup(is);
+            }
+            Preferences.set("cn1$InstallKey", buildKey);
+        }
+    }
+
+    public void splitString(String source, char separator, ArrayList<String> out) {
+        int len = source.length();
+        boolean lastSeparator = false;
+        StringBuilder buf = new StringBuilder();
+        for (int iter = 0; iter < len; iter++) {
+            char current = source.charAt(iter);
+            if (current == separator) {
+                if (lastSeparator) {
+                    //buf.append(separator);
+                    lastSeparator = false;
+                    continue;
+                }
+                lastSeparator = true;
+                if (buf.length() > 0) {
+                    out.add(buf.toString());
+                    buf.setLength(0);
+                }
+            } else {
+                lastSeparator = false;
+                buf.append(current);
+            }
+        }
+        if (buf.length() > 0) {
+            out.add(buf.toString());
+        }
+    }
+
+    /// Allows detecting development mode so debugging code and special cases can be used to simplify flow
+    ///
+    /// #### Returns
+    ///
+    /// true if we are running in the simulator, false otherwise
+    public boolean isSimulator() {
+        return false;
+    }
+
+    /// Paints the background of a component based on the style values on the
+    /// given graphics context, the style could be accessed from the drawing
+    /// thread in read only capacity to make the code slightly more efficient
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeGraphics`: the graphics context
+    ///
+    /// - `x`: coordinate to draw
+    ///
+    /// - `y`: coordinate to draw
+    ///
+    /// - `width`: coordinate to draw
+    ///
+    /// - `height`: coordinate to draw
+    ///
+    /// - `s`: the style object to draw
+    public void paintComponentBackground(Object nativeGraphics, int x, int y, int width, int height, Style s) {
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        Image bgImageOrig = s.getBgImage();
+        if (bgImageOrig == null) {
+            if (s.getBackgroundType() >= Style.BACKGROUND_GRADIENT_LINEAR_VERTICAL) {
+                drawGradientBackground(s, nativeGraphics, x, y, width, height);
+                return;
+            }
+            setColor(nativeGraphics, s.getBgColor());
+            fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+        } else {
+            int iW = bgImageOrig.getWidth();
+            int iH = bgImageOrig.getHeight();
+            Object bgImage = bgImageOrig.getImage();
+            switch (s.getBackgroundType()) {
+                case Style.BACKGROUND_IMAGE_SCALED_FILL:
+                    float r = Math.max(((float) width) / ((float) iW), ((float) height) / ((float) iH));
+                    int bwidth = (int) (((float) iW) * r);
+                    int bheight = (int) (((float) iH) * r);
+                    if (isScaledImageDrawingSupported()) {
+                        drawImage(nativeGraphics, bgImage, x + (width - bwidth) / 2, y + (height - bheight) / 2, bwidth, bheight);
+                    } else {
+                        if (iW != bwidth || iH != bheight) {
+                            bgImageOrig = bgImageOrig.scaled(bwidth, bheight);
+                            s.setBgImage(bgImageOrig, true);
+                            bgImage = bgImageOrig.getImage();
+                        }
+                        drawImage(nativeGraphics, bgImage, x + (width - bwidth) / 2, y + (height - bheight) / 2);
+                    }
+                    return;
+                case Style.BACKGROUND_IMAGE_SCALED_FIT:
+                    if (s.getBgTransparency() != 0) {
+                        setColor(nativeGraphics, s.getBgColor());
+                        fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    }
+                    float r2 = Math.min(((float) width) / ((float) iW), ((float) height) / ((float) iH));
+                    int awidth = (int) (((float) iW) * r2);
+                    int aheight = (int) (((float) iH) * r2);
+                    if (isScaledImageDrawingSupported()) {
+                        drawImage(nativeGraphics, bgImage, x + (width - awidth) / 2, y + (height - aheight) / 2, awidth, aheight);
+                    } else {
+                        if (iW != awidth || iH != aheight) {
+                            bgImageOrig = bgImageOrig.scaled(awidth, aheight);
+                            s.setBgImage(bgImageOrig, true);
+                            bgImage = bgImageOrig.getImage();
+                        }
+                        drawImage(nativeGraphics, bgImage, x + (width - awidth) / 2, y + (height - aheight) / 2, awidth, aheight);
+                    }
+                    return;
+                case Style.BACKGROUND_IMAGE_TILE_BOTH:
+                    tileImage(nativeGraphics, bgImage, x, y, width, height);
+                    return;
+                case Style.BACKGROUND_IMAGE_TILE_HORIZONTAL_ALIGN_TOP:
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    tileImage(nativeGraphics, bgImage, x, y, width, iH);
+                    return;
+                case Style.BACKGROUND_IMAGE_TILE_HORIZONTAL_ALIGN_CENTER:
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    tileImage(nativeGraphics, bgImage, x, y + (height / 2 - iH / 2), width, iH);
+                    return;
+                case Style.BACKGROUND_IMAGE_TILE_HORIZONTAL_ALIGN_BOTTOM:
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    tileImage(nativeGraphics, bgImage, x, y + (height - iH), width, iH);
+                    return;
+                case Style.BACKGROUND_IMAGE_TILE_VERTICAL_ALIGN_LEFT:
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    for (int yPos = 0; yPos <= height; yPos += iH) {
+                        drawImage(nativeGraphics, bgImage, x, y + yPos);
+                    }
+                    return;
+                case Style.BACKGROUND_IMAGE_TILE_VERTICAL_ALIGN_CENTER:
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    for (int yPos = 0; yPos <= height; yPos += iH) {
+                        drawImage(nativeGraphics, bgImage, x + (width / 2 - iW / 2), y + yPos);
+                    }
+                    return;
+                case Style.BACKGROUND_IMAGE_TILE_VERTICAL_ALIGN_RIGHT:
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    for (int yPos = 0; yPos <= height; yPos += iH) {
+                        drawImage(nativeGraphics, bgImage, x + width - iW, y + yPos);
+                    }
+                    return;
+                case Style.BACKGROUND_IMAGE_ALIGNED_TOP:
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    drawImage(nativeGraphics, bgImage, x + (width / 2 - iW / 2), y);
+                    return;
+                case Style.BACKGROUND_IMAGE_ALIGNED_BOTTOM:
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    drawImage(nativeGraphics, bgImage, x + (width / 2 - iW / 2), y + (height - iH));
+                    return;
+                case Style.BACKGROUND_IMAGE_ALIGNED_LEFT:
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    drawImage(nativeGraphics, bgImage, x, y + (height / 2 - iH / 2));
+                    return;
+                case Style.BACKGROUND_IMAGE_ALIGNED_RIGHT:
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    drawImage(nativeGraphics, bgImage, x + width - iW, y + (height / 2 - iH / 2));
+                    return;
+                case Style.BACKGROUND_IMAGE_ALIGNED_CENTER:
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    drawImage(nativeGraphics, bgImage, x + (width / 2 - iW / 2), y + (height / 2 - iH / 2));
+                    return;
+                case Style.BACKGROUND_IMAGE_ALIGNED_TOP_LEFT:
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    drawImage(nativeGraphics, bgImage, x, y);
+                    return;
+                case Style.BACKGROUND_IMAGE_ALIGNED_TOP_RIGHT:
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    drawImage(nativeGraphics, bgImage, x + width - iW, y);
+                    return;
+                case Style.BACKGROUND_IMAGE_ALIGNED_BOTTOM_LEFT:
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    drawImage(nativeGraphics, bgImage, x, y + (height - iH));
+                    return;
+                case Style.BACKGROUND_IMAGE_ALIGNED_BOTTOM_RIGHT:
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                    drawImage(nativeGraphics, bgImage, x + width - iW, y + (height - iH));
+                    return;
+                case Style.BACKGROUND_GRADIENT_LINEAR_HORIZONTAL:
+                case Style.BACKGROUND_GRADIENT_LINEAR_VERTICAL:
+                case Style.BACKGROUND_GRADIENT_RADIAL:
+                case Style.BACKGROUND_GRADIENT_LINEAR:
+                case Style.BACKGROUND_GRADIENT_RADIAL_FULL:
+                case Style.BACKGROUND_GRADIENT_CONIC:
+                case Style.BACKGROUND_GRADIENT_REPEATING_LINEAR:
+                case Style.BACKGROUND_GRADIENT_REPEATING_RADIAL:
+                    drawGradientBackground(s, nativeGraphics, x, y, width, height);
+                    return;
+                default:
+                    // Style.BACKGROUND_IMAGE_SCALED:
+                    if (isScaledImageDrawingSupported()) {
+                        drawImage(nativeGraphics, bgImage, x, y, width, height);
+                    } else {
+                        if (iW != width || iH != height) {
+                            bgImageOrig = bgImageOrig.scaled(width, height);
+                            s.setBgImage(bgImageOrig, true);
+                            bgImage = bgImageOrig.getImage();
+                        }
+                        drawImage(nativeGraphics, bgImage, x, y);
+                    }
+            }
+        }
+    }
+
+    private void drawGradientBackground(Style s, Object nativeGraphics, int x, int y, int width, int height) {
+        switch (s.getBackgroundType()) {
+            case Style.BACKGROUND_GRADIENT_LINEAR_HORIZONTAL:
+                fillLinearGradient(nativeGraphics, s.getBackgroundGradientStartColor(), s.getBackgroundGradientEndColor(),
+                        x, y, width, height, true);
+                return;
+            case Style.BACKGROUND_GRADIENT_LINEAR_VERTICAL:
+                fillLinearGradient(nativeGraphics, s.getBackgroundGradientStartColor(), s.getBackgroundGradientEndColor(),
+                        x, y, width, height, false);
+                return;
+            case Style.BACKGROUND_GRADIENT_RADIAL:
+                fillRectRadialGradient(nativeGraphics, s.getBackgroundGradientStartColor(), s.getBackgroundGradientEndColor(),
+                        x, y, width, height, s.getBackgroundGradientRelativeX(), s.getBackgroundGradientRelativeY(),
+                        s.getBackgroundGradientRelativeSize());
+                return;
+            case Style.BACKGROUND_GRADIENT_LINEAR:
+            case Style.BACKGROUND_GRADIENT_RADIAL_FULL:
+            case Style.BACKGROUND_GRADIENT_CONIC:
+            case Style.BACKGROUND_GRADIENT_REPEATING_LINEAR:
+            case Style.BACKGROUND_GRADIENT_REPEATING_RADIAL: {
+                Gradient g = s.getGradient();
+                if (g != null) {
+                    fillGradient(nativeGraphics, g, x, y, width, height);
+                    return;
+                }
+                break;
+            }
+            default:
+                // Style.BACKGROUND_NONE
+                if (s.getBgTransparency() != 0) {
+                    setColor(nativeGraphics, s.getBgColor());
+                    fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+                }
+                break;
+        }
+        setColor(nativeGraphics, s.getBgColor());
+        fillRect(nativeGraphics, x, y, width, height, s.getBgTransparency());
+    }
+
+    /// Fills a rectangle with an optionally translucent fill color
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeGraphics`: the underlying native graphics object
+    ///
+    /// - `x`: the x coordinate of the rectangle to be filled
+    ///
+    /// - `y`: the y coordinate of the rectangle to be filled
+    ///
+    /// - `w`: the width of the rectangle to be filled
+    ///
+    /// - `h`: the height of the rectangle to be filled
+    ///
+    /// - `alpha`: the alpha values specify semitransparency
+    public void fillRect(Object nativeGraphics, int x, int y, int w, int h, byte alpha) {
+        if (alpha != 0) {
+            int oldAlpha = getAlpha(nativeGraphics);
+            setAlpha(nativeGraphics, alpha & 0xff);
+            fillRect(nativeGraphics, x, y, w, h);
+            setAlpha(nativeGraphics, oldAlpha);
+        }
+    }
+
+    /// Draws a label on the given graphics context, this method allows optimizing the very common drawing operation
+    /// using platform native code
+    public void drawLabelComponent(Object nativeGraphics, int cmpX, int cmpY, int cmpHeight, int cmpWidth,
+                                   Style style, String text, Object icon, Object stateIcon, int preserveSpaceForState, int gap, boolean rtl,
+                                   boolean isOppositeSide, int textPosition, int stringWidth, boolean isTickerRunning, int tickerShiftText,
+                                   boolean endsWith3Points, int valign) {
+        Font font = style.getFont();
+        Object nativeFont = font.getNativeFont();
+        setNativeFont(nativeGraphics, nativeFont);
+        setColor(nativeGraphics, style.getFgColor());
+
+        int alpha = concatenateAlpha(nativeGraphics, style.getFgAlpha());
+
+        int iconWidth = 0;
+        int iconHeight = 0;
+        if (icon != null) {
+            iconWidth = getImageWidth(icon);
+            iconHeight = getImageHeight(icon);
+        }
+
+        int textDecoration = style.getTextDecoration();
+        int stateIconSize = 0;
+        int stateIconYPosition = 0;
+
+        int leftPadding = style.getPaddingLeft(rtl);
+        int rightPadding = style.getPaddingRight(rtl);
+        int topPadding = style.getPaddingTop();
+        int bottomPadding = style.getPaddingBottom();
+
+        int fontHeight = 0;
+        if (text == null) {
+            text = "";
+        }
+        if (text.length() > 0) {
+            fontHeight = font.getHeight();
+        }
+
+        if (stateIcon != null) {
+            stateIconSize = getImageWidth(stateIcon);
+            stateIconYPosition = cmpY + topPadding
+                    + (cmpHeight - topPadding
+                    - bottomPadding) / 2 - stateIconSize / 2;
+            int tX = cmpX;
+            if (isOppositeSide) {
+                if (rtl) {
+                    tX += leftPadding;
+                } else {
+                    tX = tX + cmpWidth - leftPadding - stateIconSize;
+                }
+                cmpWidth -= leftPadding - stateIconSize;
+            } else {
+                preserveSpaceForState = stateIconSize + gap;
+                if (rtl) {
+                    tX = tX + cmpWidth - leftPadding - stateIconSize;
+                } else {
+                    tX += leftPadding;
+                }
+            }
+
+            drawImage(nativeGraphics, stateIcon, tX, stateIconYPosition);
+        }
+
+        //default for bottom left alignment
+        int x = cmpX + leftPadding + preserveSpaceForState;
+        int y = cmpY + topPadding;
+
+        int align = reverseAlignForBidi(rtl, style.getAlignment());
+
+        int textPos = reverseAlignForBidi(rtl, textPosition);
+
+        //set initial x,y position according to the alignment and textPosition
+        switch (align) {
+            case Component.LEFT:
+                switch (textPos) {
+                    case Label.LEFT:
+                    case Label.RIGHT:
+                        y = y + (cmpHeight - (topPadding + bottomPadding + Math.max(((icon != null) ? iconHeight : 0), fontHeight))) / 2;
+                        break;
+                    case Label.BOTTOM:
+                    case Label.TOP:
+                        y = y + (cmpHeight - (topPadding + bottomPadding + ((icon != null) ? iconHeight + gap : 0) + fontHeight)) / 2;
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            case Component.CENTER:
+                switch (textPos) {
+                    case Label.LEFT:
+                    case Label.RIGHT:
+                        x = x + (cmpWidth - (preserveSpaceForState
+                                + leftPadding
+                                + rightPadding
+                                + ((icon != null) ? iconWidth + gap : 0)
+                                + stringWidth)) / 2;
+                        x = Math.max(x, cmpX + leftPadding + preserveSpaceForState);
+                        y = y + (cmpHeight - (topPadding
+                                + bottomPadding
+                                + Math.max(((icon != null) ? iconHeight : 0),
+                                fontHeight))) / 2;
+                        break;
+                    case Label.BOTTOM:
+                    case Label.TOP:
+                        x = x + (cmpWidth - (preserveSpaceForState + leftPadding
+                                + rightPadding
+                                + Math.max(((icon != null) ? iconWidth + gap : 0),
+                                stringWidth))) / 2;
+                        x = Math.max(x, cmpX + leftPadding + preserveSpaceForState);
+                        y = y + (cmpHeight - (topPadding
+                                + bottomPadding
+                                + ((icon != null) ? iconHeight + gap : 0)
+                                + fontHeight)) / 2;
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            case Component.RIGHT:
+                switch (textPos) {
+                    case Label.LEFT:
+                    case Label.RIGHT:
+                        x = cmpX + cmpWidth - rightPadding
+                                - (((icon != null) ? (iconWidth + gap) : 0)
+                                + stringWidth);
+                        if (rtl) {
+                            x = Math.max(x - preserveSpaceForState, cmpX + leftPadding);
+                        } else {
+                            x = Math.max(x, cmpX + leftPadding + preserveSpaceForState);
+                        }
+                        y = y + (cmpHeight - (topPadding
+                                + bottomPadding
+                                + Math.max(((icon != null) ? iconHeight : 0),
+                                fontHeight))) / 2;
+                        break;
+                    case Label.BOTTOM:
+                    case Label.TOP:
+                        x = cmpX + cmpWidth - rightPadding
+                                - (Math.max(((icon != null) ? (iconWidth) : 0),
+                                stringWidth));
+                        x = Math.max(x, cmpX + leftPadding + preserveSpaceForState);
+                        y = y + (cmpHeight - (topPadding
+                                + bottomPadding
+                                + ((icon != null) ? iconHeight + gap : 0) + fontHeight)) / 2;
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            default:
+                break;
+        }
+
+        int textSpaceW = cmpWidth - rightPadding - leftPadding;
+
+        if (icon != null && (textPos == Label.RIGHT || textPos == Label.LEFT)) {
+            textSpaceW = textSpaceW - iconWidth;
+        }
+
+        if (stateIcon != null) {
+            textSpaceW = textSpaceW - stateIconSize;
+        } else {
+            textSpaceW = textSpaceW - preserveSpaceForState;
+        }
+
+        if (icon == null) {
+            // no icon only string
+            drawLabelString(nativeGraphics, nativeFont, text, x, y, textSpaceW, isTickerRunning, tickerShiftText,
+                    textDecoration, rtl, endsWith3Points, stringWidth, fontHeight);
+        } else {
+            int strWidth = stringWidth;
+            int iconStringWGap;
+            int iconStringHGap;
+
+            switch (textPos) {
+                case Label.LEFT:
+                    if (iconHeight > fontHeight) {
+                        iconStringHGap = (iconHeight - fontHeight) / 2;
+                        strWidth = drawLabelStringValign(nativeGraphics, nativeFont, text, x, y, textSpaceW, isTickerRunning,
+                                tickerShiftText, textDecoration, rtl, endsWith3Points, strWidth, iconStringHGap, iconHeight,
+                                fontHeight, valign);
+
+                        drawImage(nativeGraphics, icon, x + strWidth + gap, y);
+                    } else {
+                        iconStringHGap = (fontHeight - iconHeight) / 2;
+                        strWidth = drawLabelString(nativeGraphics, nativeFont, text, x, y, textSpaceW, isTickerRunning,
+                                tickerShiftText, textDecoration, rtl, endsWith3Points, strWidth, fontHeight);
+
+                        drawImage(nativeGraphics, icon, x + strWidth + gap, y + iconStringHGap);
+                    }
+                    break;
+                case Label.RIGHT:
+                    if (iconHeight > fontHeight) {
+                        iconStringHGap = (iconHeight - fontHeight) / 2;
+                        drawImage(nativeGraphics, icon, x, y);
+                        drawLabelStringValign(nativeGraphics, nativeFont, text, x + iconWidth + gap, y, textSpaceW, isTickerRunning,
+                                tickerShiftText, textDecoration, rtl, endsWith3Points, stringWidth, iconStringHGap, iconHeight, fontHeight, valign);
+                    } else {
+                        iconStringHGap = (fontHeight - iconHeight) / 2;
+                        drawImage(nativeGraphics, icon, x, y + iconStringHGap);
+                        drawLabelString(nativeGraphics, nativeFont, text, x + iconWidth + gap, y, textSpaceW, isTickerRunning,
+                                tickerShiftText, textDecoration, rtl, endsWith3Points, stringWidth, fontHeight);
+                    }
+                    break;
+                case Label.BOTTOM:
+                    //center align the smaller
+                    if (iconWidth > strWidth) {
+                        iconStringWGap = (iconWidth - strWidth) / 2;
+                        drawImage(nativeGraphics, icon, x, y);
+                        drawLabelString(nativeGraphics, nativeFont, text, x + iconStringWGap, y + iconHeight + gap, textSpaceW,
+                                isTickerRunning, tickerShiftText, textDecoration, rtl, endsWith3Points, stringWidth, fontHeight);
+                    } else {
+                        iconStringWGap = (Math.min(strWidth, textSpaceW) - iconWidth) / 2;
+                        drawImage(nativeGraphics, icon, x + iconStringWGap, y);
+
+                        drawLabelString(nativeGraphics, nativeFont, text, x, y + iconHeight + gap, textSpaceW, isTickerRunning,
+                                tickerShiftText, textDecoration, rtl, endsWith3Points, stringWidth, fontHeight);
+                    }
+                    break;
+                case Label.TOP:
+                    //center align the smaller
+                    if (iconWidth > strWidth) {
+                        iconStringWGap = (iconWidth - strWidth) / 2;
+                        drawLabelString(nativeGraphics, nativeFont, text, x + iconStringWGap, y, textSpaceW, isTickerRunning,
+                                tickerShiftText, textDecoration, rtl, endsWith3Points, stringWidth, fontHeight);
+                        drawImage(nativeGraphics, icon, x, y + fontHeight + gap);
+                    } else {
+                        iconStringWGap = (Math.min(strWidth, textSpaceW) - iconWidth) / 2;
+                        drawLabelString(nativeGraphics, nativeFont, text, x, y, textSpaceW, isTickerRunning, tickerShiftText,
+                                textDecoration, rtl, endsWith3Points, stringWidth, fontHeight);
+                        drawImage(nativeGraphics, icon, x + iconStringWGap, y + fontHeight + gap);
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+        setAlpha(nativeGraphics, alpha);
+    }
+
+    /// Implements the drawString for the text component and adjust the valign
+    /// assuming the icon is in one of the sides
+    private int drawLabelStringValign(
+            Object nativeGraphics, Object nativeFont, String str, int x, int y, int textSpaceW,
+            boolean isTickerRunning, int tickerShiftText, int textDecoration, boolean rtl,
+            boolean endsWith3Points, int textWidth,
+            int iconStringHGap, int iconHeight, int fontHeight, int valign) {
+        switch (valign) {
+            case Component.TOP:
+                return drawLabelString(nativeGraphics, nativeFont, str, x, y, textSpaceW, isTickerRunning, tickerShiftText, textDecoration, rtl, endsWith3Points, textWidth, fontHeight);
+            case Component.CENTER:
+                return drawLabelString(nativeGraphics, nativeFont, str, x, y + iconHeight / 2 - fontHeight / 2, textSpaceW, isTickerRunning, tickerShiftText, textDecoration, rtl, endsWith3Points, textWidth, fontHeight);
+            default:
+                return drawLabelString(nativeGraphics, nativeFont, str, x, y + iconStringHGap, textSpaceW, isTickerRunning, tickerShiftText, textDecoration, rtl, endsWith3Points, textWidth, fontHeight);
+        }
+    }
+
+    /// Implements the drawString for the text component and adjust the valign
+    /// assuming the icon is in one of the sides
+    private int drawLabelString(Object nativeGraphics, Object nativeFont, String text, int x, int y, int textSpaceW,
+                                boolean isTickerRunning, int tickerShiftText, int textDecoration, boolean rtl, boolean endsWith3Points, int textWidth,
+                                int fontHeight) {
+        int cx = getClipX(nativeGraphics);
+        int cy = getClipY(nativeGraphics);
+        int cw = getClipWidth(nativeGraphics);
+        int ch = getClipHeight(nativeGraphics);
+        clipRect(nativeGraphics, x, cy, textSpaceW, ch);
+
+        int drawnW = drawLabelText(nativeGraphics, textDecoration, rtl, isTickerRunning, endsWith3Points, nativeFont,
+                textWidth, textSpaceW, tickerShiftText, text, x, y, fontHeight);
+
+        setClip(nativeGraphics, cx, cy, cw, ch);
+
+        return drawnW;
+    }
+
+    private boolean fastCharWidthCheck(String s, int length, int width, int charWidth, Object f) {
+        if (length * charWidth < width) {
+            return true;
+        }
+        length = Math.min(s.length(), length);
+        return stringWidth(f, s.substring(0, length)) < width;
+    }
+
+    /// Draws the text of a label
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeGraphics`: graphics context
+    ///
+    /// - `textDecoration`: decoration information for the text
+    ///
+    /// - `text`: the text for the label
+    ///
+    /// - `x`: position for the label
+    ///
+    /// - `y`: position for the label
+    ///
+    /// - `txtW`: @param txtW           stringWidth(text) equivalent which is faster than just
+    /// invoking string width all the time
+    ///
+    /// - `textSpaceW`: the width available for the component
+    ///
+    /// #### Returns
+    ///
+    /// the space used by the drawing
+    protected int drawLabelText(Object nativeGraphics, int textDecoration, boolean rtl, boolean isTickerRunning,
+                                boolean endsWith3Points, Object nativeFont, int txtW, int textSpaceW, int shiftText, String text, int x, int y, int fontHeight) {
+        if ((!isTickerRunning) || rtl) {
+            //if there is no space to draw the text add ... at the end
+            if (txtW > textSpaceW && textSpaceW > 0) {
+                // Handling of adding 3 points and in fact all text positioning when the text is bigger than
+                // the allowed space is handled differently in RTL, this is due to the reverse algorithm
+                // effects - i.e. when the text includes both Hebrew/Arabic and English/numbers then simply
+                // trimming characters from the end of the text (as done with LTR) won't do.
+                // Instead we simple reposition the text, and draw the 3 points, this is quite simple, but
+                // the downside is that a part of a letter may be shown here as well.
+
+                if (rtl) {
+                    if (!isTickerRunning && endsWith3Points) {
+                        // PMD Fix (CollapsibleIfStatements): Separate combined RTL and ticker checks into a single conditional.
+                        String points = "...";
+                        int pointsW = stringWidth(nativeFont, points);
+                        drawString(nativeGraphics, nativeFont, points, shiftText + x, y, textDecoration, fontHeight);
+                        clipRect(nativeGraphics, pointsW + shiftText + x, y, textSpaceW - pointsW, fontHeight);
+                    }
+                    x = x - txtW + textSpaceW;
+                } else if (endsWith3Points) {
+                    String points = "...";
+                    int index = 1;
+                    int widest = charWidth(nativeFont, 'W');
+                    int pointsW = stringWidth(nativeFont, points);
+                    int textLen = text.length();
+                    while (fastCharWidthCheck(text, index, textSpaceW - pointsW, widest, nativeFont) && index < textLen) {
+                        index++;
+                    }
+                    text = text.substring(0, Math.min(textLen, Math.max(1, index - 1))) + points;
+                    txtW = stringWidth(nativeFont, text);
+                }
+            }
+        }
+
+        drawString(nativeGraphics, nativeFont, text, shiftText + x, y, textDecoration, fontHeight);
+        return Math.min(txtW, textSpaceW);
+    }
+
+    /// Draw a string using the current font and color in the x,y coordinates.
+    /// The font is drawn from the top position and not the baseline.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeGraphics`: the graphics context
+    ///
+    /// - `nativeFont`: the font used
+    ///
+    /// - `str`: the string to be drawn.
+    ///
+    /// - `x`: the x coordinate.
+    ///
+    /// - `y`: the y coordinate.
+    ///
+    /// - `textDecoration`: @param textDecoration Text decoration bitmask (See Style's
+    /// TEXT_DECORATION_* constants)
+    public void drawString(Object nativeGraphics, Object nativeFont, String str, int x, int y, int textDecoration) {
+        drawString(nativeGraphics, nativeFont, str, x, y, textDecoration, getHeight(nativeFont));
+    }
+
+    /// Draw a string using the current font and color in the x,y coordinates.
+    /// The font is drawn from the top position and not the baseline.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeGraphics`: the graphics context
+    ///
+    /// - `nativeFont`: the font used
+    ///
+    /// - `str`: the string to be drawn.
+    ///
+    /// - `x`: the x coordinate.
+    ///
+    /// - `y`: the y coordinate.
+    ///
+    /// - `textDecoration`: @param textDecoration Text decoration bitmask (See Style's
+    /// TEXT_DECORATION_* constants)
+    private void drawString(Object nativeGraphics, Object nativeFont, String str, int x, int y, int textDecoration, int fontHeight) {
+        if (str.length() == 0) {
+            return;
+        }
+
+        // this if has only the minor effect of providing a slighly faster execution path
+        if (textDecoration != 0) {
+            boolean raised = (textDecoration & Style.TEXT_DECORATION_3D) != 0;
+            boolean lowerd = (textDecoration & Style.TEXT_DECORATION_3D_LOWERED) != 0;
+            boolean north = (textDecoration & Style.TEXT_DECORATION_3D_SHADOW_NORTH) != 0;
+            if (raised || lowerd || north) {
+                textDecoration = textDecoration & (~Style.TEXT_DECORATION_3D) & (~Style.TEXT_DECORATION_3D_LOWERED) & (~Style.TEXT_DECORATION_3D_SHADOW_NORTH);
+                int c = getColor(nativeGraphics);
+                int a = getAlpha(nativeGraphics);
+                int newColor = 0;
+                int offset = -2;
+                if (lowerd) {
+                    offset = 2;
+                    newColor = 0xffffff;
+                } else if (north) {
+                    offset = 2;
+                }
+                setColor(nativeGraphics, newColor);
+                concatenateAlpha(nativeGraphics, 140);
+                drawString(nativeGraphics, nativeFont, str, x, y + offset, textDecoration, fontHeight);
+                setAlpha(nativeGraphics, a);
+                setColor(nativeGraphics, c);
+                drawString(nativeGraphics, nativeFont, str, x, y, textDecoration, fontHeight);
+                return;
+            }
+            drawString(nativeGraphics, str, x, y);
+            if ((textDecoration & Style.TEXT_DECORATION_UNDERLINE) != 0) {
+                drawLine(nativeGraphics, x, y + fontHeight - 1, x + stringWidth(nativeFont, str), y + fontHeight - 1);
+            }
+            if ((textDecoration & Style.TEXT_DECORATION_STRIKETHRU) != 0) {
+                drawLine(nativeGraphics, x, y + fontHeight / 2, x + stringWidth(nativeFont, str), y + fontHeight / 2);
+            }
+            if ((textDecoration & Style.TEXT_DECORATION_OVERLINE) != 0) {
+                drawLine(nativeGraphics, x, y, x + stringWidth(nativeFont, str), y);
+            }
+        } else {
+            drawString(nativeGraphics, str, x, y);
+        }
+    }
+
+    /// Reverses alignment in the case of bidi
+    private int reverseAlignForBidi(boolean rtl, int align) {
+        if (rtl) {
+            switch (align) {
+                case Component.RIGHT:
+                    return Component.LEFT;
+                case Component.LEFT:
+                    return Component.RIGHT;
+                default:
+                    break;
+            }
+        }
+        return align;
+    }
+
+    /// Makes it easier to pass hints to the underlying implementation for quicker hacks/pipelines
+    ///
+    /// #### Parameters
+    ///
+    /// - `key`: the key
+    ///
+    /// - `value`: the value
+    public void setPlatformHint(String key, String value) {
+    }
+
+    //METHODS FOR DEALING Local Notifications
+    public void scheduleLocalNotification(LocalNotification notif, long firstTime, int repeat) {
+    }
+
+    public void cancelLocalNotification(String notificationId) {
+    }
+
+    /// Requests permission to post notifications. The default implementation assumes the
+    /// platform has no permission model and immediately reports the permission as granted.
+    public void requestNotificationPermission(NotificationPermissionRequest request, NotificationPermissionCallback callback) {
+        if (callback != null) {
+            callback.notificationPermissionResult(new NotificationPermissionResult(NotificationPermissionResult.AuthorizationLevel.AUTHORIZED));
+        }
+    }
+
+    /// Registers a notification channel. No-op on platforms without channels.
+    public void registerNotificationChannel(NotificationChannelBuilder builder) {
+    }
+
+    /// Deletes a notification channel. No-op on platforms without channels.
+    public void deleteNotificationChannel(String channelId) {
+    }
+
+    /// Creates a notification channel group. No-op on platforms without channels.
+    public void createNotificationChannelGroup(String groupId, String groupName) {
+    }
+
+    /// Returns true if the platform can receive shared content from other apps.
+    public boolean isReceiveSharedContentSupported() {
+        return false;
+    }
+
+    /// Returns true if the platform supports publishing data to a Wallet
+    /// issuer-provisioning extension (iOS only). Defaults to false.
+    public boolean isWalletExtensionSupported() {
+        return false;
+    }
+
+    /// Removes all published Wallet extension pass entries from one of the
+    /// two lists. No-op on platforms without Wallet extension support.
+    ///
+    /// #### Parameters
+    ///
+    /// - `remote`: true for the Apple Watch list, false for the iPhone list
+    public void walletExtensionClearPassEntries(boolean remote) {
+    }
+
+    /// Appends one pass entry to the published Wallet extension list. No-op
+    /// on platforms without Wallet extension support.
+    public void walletExtensionAddPassEntry(boolean remote, String identifier, String title,
+            String cardholderName, String accountSuffix, String network, String description, byte[] artPng) {
+    }
+
+    /// Sets the Wallet extension requires-authentication flag. No-op on
+    /// platforms without Wallet extension support.
+    public void walletExtensionSetRequiresAuthentication(boolean requiresAuthentication) {
+    }
+
+    /// Publishes the Wallet extension auth token, or removes it when null.
+    /// No-op on platforms without Wallet extension support.
+    public void walletExtensionSetAuthToken(String token) {
+    }
+
+    /// Clears all published Wallet extension data. No-op on platforms
+    /// without Wallet extension support.
+    public void walletExtensionClear() {
+    }
+
+    /// Delivers shared content to the running application instance. onReceivedSharedContent
+    /// is defined on com.codename1.system.Lifecycle, so apps that handle shared content
+    /// extend Lifecycle; non-Lifecycle apps cannot override it and are skipped. The
+    /// dispatch is performed on the EDT.
+    public void fireSharedContentReceived(final SharedContent content) {
+        Object app = currentApplicationInstance;
+        if (content == null || !(app instanceof com.codename1.system.Lifecycle)) {
+            return;
+        }
+        Runnable r = new SharedContentDispatch((com.codename1.system.Lifecycle) app, content);
+        if (Display.getInstance().isEdt()) {
+            r.run();
+        } else {
+            Display.getInstance().callSerially(r);
+        }
+    }
+
+    private static final class SharedContentDispatch implements Runnable {
+        private final com.codename1.system.Lifecycle lifecycle;
+        private final SharedContent content;
+
+        SharedContentDispatch(com.codename1.system.Lifecycle lifecycle, SharedContent content) {
+            this.lifecycle = lifecycle;
+            this.content = content;
+        }
+
+        @Override
+        public void run() {
+            lifecycle.onReceivedSharedContent(content);
+        }
+    }
+
+    /// Returns true if the platform supports constraint-aware background work.
+    public boolean isBackgroundWorkSupported() {
+        return false;
+    }
+
+    /// Schedules constraint-aware background work. No-op when unsupported.
+    public void scheduleBackgroundWork(WorkRequest request) {
+    }
+
+    /// Cancels previously scheduled background work. No-op when unsupported.
+    public void cancelBackgroundWork(String workId) {
+    }
+
+    /// Returns true if the platform supports foreground services.
+    public boolean isForegroundServiceSupported() {
+        return false;
+    }
+
+    /// Starts a foreground service. The default implementation runs the task on a thread
+    /// without a system notification and returns null.
+    public Object startForegroundService(String channelId, String title, String body, String iconName, ForegroundService.Task task, ForegroundService handle) {
+        if (task != null) {
+            new Thread(new ForegroundServiceRunner(task, handle)).start();
+        }
+        return null;
+    }
+
+    private static final class ForegroundServiceRunner implements Runnable {
+        private final ForegroundService.Task task;
+        private final ForegroundService handle;
+
+        ForegroundServiceRunner(ForegroundService.Task task, ForegroundService handle) {
+            this.task = task;
+            this.handle = handle;
+        }
+
+        @Override
+        public void run() {
+            task.run(handle);
+        }
+    }
+
+    /// Updates the notification of a running foreground service. No-op by default.
+    public void updateForegroundServiceNotification(Object nativeHandle, String title, String body) {
+    }
+
+    /// Stops a running foreground service. No-op by default.
+    public void stopForegroundService(Object nativeHandle) {
+    }
+
+    /// Returns true if the platform supports deferrable background processing tasks.
+    public boolean isBackgroundProcessingSupported() {
+        return false;
+    }
+
+    /// Schedules a deferrable background processing task. No-op when unsupported.
+    public void scheduleBackgroundProcessing(String id, long earliestBeginEpochMs, boolean requiresNetwork, boolean requiresPower, Runnable task) {
+    }
+
+    /// Cancels a scheduled background processing task. No-op when unsupported.
+    public void cancelBackgroundProcessing(String id) {
+    }
+
+    /// Subscribes the device to a push topic. No-op when unsupported.
+    public void subscribeToPushTopic(String topic) {
+    }
+
+    /// Unsubscribes the device from a push topic. No-op when unsupported.
+    public void unsubscribeFromPushTopic(String topic) {
+    }
+
+    /// Gets the preferred time (in seconds) between background fetches.
+    ///
+    /// #### Returns
+    ///
+    /// The time interval in seconds.
+    ///
+    /// #### See also
+    ///
+    /// - #isBackgroundFetchSupported()
+    ///
+    /// - #setPreferredBackgroundFetchInterval(int)
+    ///
+    /// - com.codename1.background.BackgroundFetch
+    ///
+    /// - com.codename1.ui.Display.setPreferredBackgroundFetchInterval(int)
+    public int getPreferredBackgroundFetchInterval() {
+        if (isBackgroundFetchSupported()) {
+            return Preferences.get("$$CN1_BACKGROUND_FETCH_INTERVAL", 60 * 60);
+        } else {
+            return -1;
+        }
+    }
+    //ENDS METHODS FOR DEALING Local Notifications
+
+    /// Sets the preferred time interval between background fetches.  This is only a
+    /// preferred interval and is not guaranteed.  Some platforms, like iOS, maintain sovereign
+    /// control over when and if background fetches will be allowed. This number is used
+    /// only as a guideline.
+    ///
+    /// **This method must be called in order to activate background fetch.**>
+    ///
+    /// Note: If the platform doesn't support background fetch (i.e. `#isBackgroundFetchSupported()` returns `false`,
+    /// then this method does nothing.
+    ///
+    /// #### Parameters
+    ///
+    /// - `seconds`: The time interval in seconds.
+    ///
+    /// #### See also
+    ///
+    /// - #isBackgroundFetchSupported()
+    ///
+    /// - #getPreferredBackgroundFetchInterval()
+    ///
+    /// - com.codename1.background.BackgroundFetch
+    ///
+    /// - com.codename1.ui.Display.setPreferredBackgroundFetchInterval(int)
+    public void setPreferredBackgroundFetchInterval(int seconds) {
+        if (isBackgroundFetchSupported()) {
+            Preferences.set("$$CN1_BACKGROUND_FETCH_INTERVAL", seconds);
+        }
+    }
+
+    /// Checks to see if the current platform supports background fetch.
+    ///
+    /// #### Returns
+    ///
+    /// True if the current platform supports background fetch.
+    ///
+    /// #### See also
+    ///
+    /// - #setPreferredBackgroundFetchInterval(int)
+    ///
+    /// - #getPreferredBackgroundFetchInterval()
+    ///
+    /// - com.codename1.background.BackgroundFetch
+    ///
+    /// - com.codename1.ui.Display.setPreferredBackgroundFetchInterval(int)
+    public boolean isBackgroundFetchSupported() {
+        return false;
+    }
+
+    public Image gaussianBlurImage(Image image, float radius) {
+        return image;
+    }
+
+    public boolean isGaussianBlurSupported() {
+        return false;
+    }
+
+    /// Returns true if this device is jailbroken or rooted, false if not or unknown. Notice that this method isn't
+    /// accurate and can't detect all jailbreak/rooting cases
+    ///
+    /// #### Returns
+    ///
+    /// true if this device is jailbroken or rooted, false if not or unknown.
+    public boolean isJailbrokenDevice() {
+        return false;
+    }
+
+    /// Requests a signed device-attestation token (Google Play Integrity on Android, Apple App Attest
+    /// on iOS) bound to the supplied server nonce. The returned token must be sent to and verified by
+    /// the application's backend -- an on-device check is meaningless on a compromised device. This base
+    /// implementation reports the platform as unsupported by completing the resource with an error.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nonce`: a server supplied nonce/challenge bound into the attestation
+    ///
+    /// #### Returns
+    ///
+    /// an `AsyncResource` that completes with the opaque attestation token, or completes with an error
+    /// when attestation is unsupported
+    public AsyncResource<String> requestIntegrityToken(String nonce) {
+        AsyncResource<String> result = new AsyncResource<String>();
+        result.error(new UnsupportedOperationException(
+                "Device integrity attestation is not supported on this platform. On Android enable the "
+                + "android.playIntegrity build hint, on iOS enable the ios.appAttest build hint."));
+        return result;
+    }
+
+    /// Returns true if device-attestation (Play Integrity / App Attest) is available on this device and
+    /// was bundled into the build. False on the base/unsupported implementation.
+    public boolean isAttestationSupported() {
+        return false;
+    }
+
+    /// Non-exiting aggregate RASP check: returns true when the device shows signs of being rooted,
+    /// jailbroken, running under dynamic instrumentation or otherwise tampered. Unlike the launch-gate
+    /// build hints (android.rootCheck / ios.detectJailbreak) this does not terminate the app, so callers
+    /// can make granular runtime decisions (e.g. blocking a high value transaction). The base
+    /// implementation falls back to [#isJailbrokenDevice()].
+    public boolean isDeviceCompromised() {
+        return isJailbrokenDevice();
+    }
+
+    /// Returns the individual reasons behind [#isDeviceCompromised()] (e.g. "root", "frida", "emulator").
+    ///
+    /// #### Returns
+    ///
+    /// an array of machine readable reason codes, empty when the device appears clean
+    public String[] getCompromiseReasons() {
+        if (isDeviceCompromised()) {
+            return new String[] {"jailbreak"};
+        }
+        return new String[0];
+    }
+
+    /// Returns the component identifiers of the accessibility services currently enabled on the device.
+    /// Used to detect malware that abuses Android accessibility services for overlay/remote-control and
+    /// text extraction. Returns an empty array on platforms where this concept does not apply (e.g. iOS).
+    public String[] getEnabledAccessibilityServices() {
+        return new String[0];
+    }
+
+    /// Discards cached platform attestation state so the next [#requestIntegrityToken(String)] starts
+    /// from a fresh hardware key.
+    ///
+    /// Apple's App Attest model is attest once, then assert many times against the key the server
+    /// recorded. When the server no longer recognises that key -- the app was reinstalled, the device
+    /// was restored from a backup, or the key was invalidated by the OS -- the client has to throw the
+    /// key away and attest again. This is how the attestation layer is told to do that. No-op where
+    /// attestation is unsupported or stateless (Play Integrity holds no client-side key).
+    public void resetAttestation() {
+    }
+
+    /// Acknowledges that a verifying backend has recorded the attested key, so subsequent requests can
+    /// take the cheap assertion path. See
+    /// [com.codename1.security.DeviceIntegrity#confirmAttestation()]. No-op where attestation holds no
+    /// client-side key.
+    public void confirmAttestation(String keyId) {
+    }
+
+    /// Returns digests of the certificates the running application is actually signed with, so a build
+    /// can be compared against the identity it was built under and repackaging can be reported.
+    ///
+    /// Deliberately not surfaced on [com.codename1.security.DeviceIntegrity]: an app has no use for its
+    /// own signature, and a comparison performed on the device is defeated by the same patch that did
+    /// the repackaging. The value of this is that it is reported to a verifying service, which checks it
+    /// against what the build server recorded. Returns an empty array where the platform has no such
+    /// concept.
+    public String[] getAppSignerDigests() {
+        return new String[0];
+    }
+
+    /// Marks the current screen as secure, blocking OS screenshots, screen recording and accessibility
+    /// screen scraping while it is displayed (Android `FLAG_SECURE`). No-op where unsupported.
+    ///
+    /// #### Parameters
+    ///
+    /// - `secure`: true to mark the window secure, false to clear the flag
+    public void setSecureScreen(boolean secure) {
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Tapjacking / screen-overlay defense. The state lives here rather than in a port so every
+    // platform inherits the same reporting and dispatch semantics, and a port only has to supply
+    // the one thing it alone can know: whether a given touch arrived obscured.
+    // -----------------------------------------------------------------------------------------
+
+    /// Guards the three fields below. They are written from the platform's input thread and read
+    /// and written from the EDT, and the pair (policy, state) has to move together: a report that
+    /// raced a switch-off would otherwise land after the state was cleared and leave
+    /// [#isScreenObscured()] stuck true, because nothing reports again once the policy is OFF.
+    ///
+    /// A lock rather than volatile fields, because the invariant spans two fields rather than
+    /// being about the visibility of either one. Dispatch never happens while it is held: see
+    /// [#notifyScreenObscured(boolean, String)].
+    private final Object tapjackingLock = new Object();
+
+    private TapjackingPolicy tapjackingPolicy = TapjackingPolicy.OFF;
+    private boolean screenObscured;
+    private com.codename1.ui.util.EventDispatcher tapjackingListeners;
+
+    /// Sets the tapjacking policy. See
+    /// [com.codename1.security.DeviceIntegrity#setTapjackingProtection(TapjackingPolicy)]. Ports
+    /// that can also apply a platform level filter override this, call `super`, and apply it.
+    public void setTapjackingProtection(TapjackingPolicy policy) {
+        synchronized (tapjackingLock) {
+            tapjackingPolicy = policy == null ? TapjackingPolicy.OFF : policy;
+            // Switching off has to retract the state, because switching off is also what stops
+            // anything from retracting it later: a port stops reporting under OFF -- the Android
+            // one returns from tapjacked() before it reports -- so a screenObscured left true
+            // here would have isScreenObscured() answering true for the rest of the process and
+            // the listener would never receive its closing transition.
+            //
+            // Cleared here, inside the same critical section as the policy, rather than by a
+            // follow-up notifyScreenObscured(false) call. A retraction that mutated state after
+            // this lock was released could land after another thread had already re-enabled
+            // detection and reported a fresh sighting, wiping that newer observation and leaving
+            // BLOCK active over a state claiming the screen was clear. Policy and state move
+            // together or the pair is not an invariant at all.
+            if (!tapjackingPolicy.isDetecting() && screenObscured) {
+                screenObscured = false;
+                // Queued here, still holding the lock, so this retraction cannot be overtaken
+                // by an obscured report that changed the state before it.
+                queueTapjackingState(false);
+            }
+        }
+    }
+
+    /// Queues a tapjacking state change for the listeners.
+    ///
+    /// **Must be called while holding [#tapjackingLock].** That is the whole mechanism: queuing
+    /// inside the same critical section that wrote the state makes the delivery order identical
+    /// to the order the state actually changed in, on any number of threads. `callSerially`
+    /// appends to one FIFO whoever calls it, the EDT included, so nothing can overtake anything.
+    ///
+    /// Ordering is what this guarantees, deliberately, rather than currency. An earlier attempt
+    /// validated each announcement against the current state at delivery and dropped it if it no
+    /// longer matched. That silently swallowed real history: an overlay that appears and
+    /// withdraws before the EDT drains -- exactly what a malicious overlay does after a blocked
+    /// ACTION_DOWN -- would be coalesced into a single "clear" callback, and the app would never
+    /// learn that a gesture had been blocked, which is the one thing this listener exists to
+    /// tell it. Every transition is now delivered, in order, each carrying its own value; the
+    /// last one delivered is by construction the current state.
+    private void queueTapjackingState(boolean obscured) {
+        final com.codename1.ui.util.EventDispatcher target = tapjackingListeners;
+        // Display.isInitialized() implies codenameOneRunning, which is what makes callSerially
+        // queue rather than run the task inline -- and running it inline here would execute
+        // application code while this lock is held, the deadlock ShieldSignals documents. It is
+        // not a real gap either way: a listener can only be registered through Display, so
+        // before init there is nobody to tell.
+        if (target == null || !Display.isInitialized()) {
+            return;
+        }
+        // The listeners are captured now rather than resolved when the runnable finally runs.
+        // Holding the dispatcher instead would mean the set is read at delivery, so a listener
+        // registered after this transition -- while an EDT backlog held the runnable -- would be
+        // told about a change that predates it, and whether it heard that would depend on
+        // whether some unrelated listener happened to exist at queue time, since an empty set
+        // queues nothing at all. A listener removed in the same window still receives this one
+        // event, which is the same trade ShieldSignals makes by snapshotting its own array here.
+        //
+        // Copied under the dispatcher's own monitor: getListenerCollection hands back the live
+        // list, and addListener/removeListener synchronize on the dispatcher.
+        ActionListener[] snapshot;
+        synchronized (target) {
+            java.util.Collection current = target.getListenerCollection();
+            if (current == null || current.isEmpty()) {
+                return;
+            }
+            Object[] raw = current.toArray();
+            snapshot = new ActionListener[raw.length];
+            for (int i = 0; i < raw.length; i++) {
+                snapshot[i] = (ActionListener) raw[i];
+            }
+        }
+        // Boolean source so a listener can read the state straight off the event without a
+        // second call back into the API, which is what makes an ordered replay meaningful.
+        Display.getInstance().callSerially(
+                new TapjackingDispatch(snapshot, new ActionEvent(Boolean.valueOf(obscured))));
+    }
+
+    /// One queued tapjacking announcement. A named static class rather than an anonymous one
+    /// because it captures nothing from the implementation instance -- the same shape, and for
+    /// the same reason, as ShieldSignals' own dispatch.
+    private static final class TapjackingDispatch implements Runnable {
+        private final ActionListener[] targets;
+        private final ActionEvent event;
+
+        TapjackingDispatch(ActionListener[] targets, ActionEvent event) {
+            this.targets = targets;
+            this.event = event;
+        }
+
+        @Override
+        public void run() {
+            for (ActionListener l : targets) {
+                l.actionPerformed(event);
+            }
+        }
+    }
+
+    /// The tapjacking policy currently in force. Never null.
+    public TapjackingPolicy getTapjackingPolicy() {
+        synchronized (tapjackingLock) {
+            return tapjackingPolicy;
+        }
+    }
+
+    /// True when the most recently observed touch arrived while another application's window was
+    /// drawn over this app. Always false where the platform cannot report it.
+    public boolean isScreenObscured() {
+        synchronized (tapjackingLock) {
+            return screenObscured;
+        }
+    }
+
+    /// Registers a listener notified when the obscured state changes. See
+    /// [com.codename1.security.DeviceIntegrity#addTapjackingListener(ActionListener)].
+    public void addTapjackingListener(ActionListener l) {
+        if (l == null) {
+            return;
+        }
+        com.codename1.ui.util.EventDispatcher target;
+        synchronized (tapjackingLock) {
+            if (tapjackingListeners == null) {
+                tapjackingListeners = new com.codename1.ui.util.EventDispatcher();
+            }
+            target = tapjackingListeners;
+        }
+        // EventDispatcher does its own locking; the lock above is only for the lazy creation,
+        // so that two threads registering at once cannot end up with two dispatchers and one
+        // of them holding a listener nothing ever fires.
+        target.addListener(l);
+    }
+
+    /// Removes a listener added by [#addTapjackingListener(ActionListener)].
+    public void removeTapjackingListener(ActionListener l) {
+        com.codename1.ui.util.EventDispatcher target;
+        synchronized (tapjackingLock) {
+            target = tapjackingListeners;
+        }
+        if (l == null || target == null) {
+            return;
+        }
+        target.removeListener(l);
+    }
+
+    /// Called by a port when it observes a touch, to report whether that touch was obscured.
+    ///
+    /// Only a *change* is acted on. A port calls this for every touch it handles, so notifying
+    /// unconditionally would put a runnable on the EDT per touch and re-raise the same signal
+    /// forever; the interesting events are "an overlay appeared" and "it went away". The signal is
+    /// raised on the [com.codename1.security.shield.ShieldSignals] bus at severity 80, above
+    /// `ROOT` because an overlay over a live screen is an attack in progress rather than a standing
+    /// property of the device, and below `HOOK` because it has benign causes.
+    ///
+    /// #### Parameters
+    ///
+    /// - `obscured`: true when the observed touch was obscured
+    /// - `detail`: a short machine readable description of which flag fired, or null
+    public void notifyScreenObscured(boolean obscured, String detail) {
+        boolean changed;
+        synchronized (tapjackingLock) {
+            if (obscured && !tapjackingPolicy.isDetecting()) {
+                // A sighting that raced a switch-off. The port read the old policy, decided to
+                // report, and only got here after the EDT had already stored OFF and cleared the
+                // state. Letting it through would resurrect a state nothing clears afterwards --
+                // reporting has stopped -- and hand a listener an obscured callback for a
+                // protection the app had already turned off. Retractions are never dropped, only
+                // assertions, so the clearing path below still works.
+                return;
+            }
+            changed = obscured != screenObscured;
+            screenObscured = obscured;
+            if (changed) {
+                // Queued inside the lock so the delivery order matches the order the state
+                // changed in. The listener, unlike the signal bus below, is a state-change
+                // notification: announcing every touch would put a runnable on the EDT for
+                // every event of every gesture.
+                queueTapjackingState(obscured);
+            }
+        }
+        if (obscured) {
+            // Submitted on every obscured touch rather than only on the transition, because
+            // the bus and the listener want different things. ShieldSignals.add already
+            // de-duplicates: it refreshes the stored observation -- detail and timestamp --
+            // and stays silent when nothing changed. Gating this on the transition meant a
+            // partially obscured touch followed by a fully obscured one left the bus
+            // reporting "partiallyObscured" while BLOCK was dropping a fully obscured
+            // attack, and left "when did this device last look obscured" answering with the
+            // first sighting long after the fact.
+            try {
+                com.codename1.security.shield.ShieldSignals.add(
+                        com.codename1.security.shield.ShieldSignal.TAPJACK, 80, detail);
+            } catch (Throwable t) {
+                // Reporting must never break input handling: this runs on the touch path.
+                Log.e(t);
+            }
+        }
+    }
+
+    /// Asks the OS to hide non-system windows drawn over this app while it is in the foreground.
+    /// See [com.codename1.security.DeviceIntegrity#setHideOverlayWindows(boolean)]. No-op where
+    /// unsupported.
+    public void setHideOverlayWindows(boolean hide) {
+    }
+
+    /// True where [#setHideOverlayWindows(boolean)] actually does something.
+    public boolean isHideOverlayWindowsSupported() {
+        return false;
+    }
+
+    /// Returns the build hints for the simulator, this will only work in the debug environment and it's
+    /// designed to allow extensions/API's to verify user settings/build hints exist
+    ///
+    /// #### Returns
+    ///
+    /// map of the build hints that isn't modified without the codename1.arg. prefix
+    public Map<String, String> getProjectBuildHints() {
+        return null;
+    }
+
+    /// Sets a build hint into the settings while overwriting any previous value. This will only work in the
+    /// debug environment and it's designed to allow extensions/API's to verify user settings/build hints exist.
+    /// Important: this will throw an exception outside of the simulator!
+    ///
+    /// #### Parameters
+    ///
+    /// - `key`: the build hint without the codename1.arg. prefix
+    ///
+    /// - `value`: the value for the hint
+    public void setProjectBuildHint(String key, String value) {
+        throw new RuntimeException();
+    }
+
+    /// Checks to see if you can prompt the user to install the app on their homescreen.
+    /// This is only relevant for the Javascript port with PWAs.  This is not a "static" property, as it
+    /// only returns true if the app is in a state that allows you to prompt the user.  E.g. if you have
+    /// previously prompted the user and they have declined, then this will return false.
+    ///
+    /// Best practice is to use `#onCanInstallOnHomescreen(java.lang.Runnable)` to be notified
+    /// when you are allowed to prompt the user for installation.  Then call `#promptInstallOnHomescreen()`
+    /// inside that method - or sometime after.
+    ///
+    /// Example
+    ///
+    /// ```java
+    /// `onCanInstallOnHomescreen(()->{
+    ///      if (canInstallOnHomescreen()) {
+    ///           if (promptInstallOnHomescreen()) {
+    ///               // User accepted installation` else {
+    ///               // user rejected installation
+    ///           }
+    ///      }
+    /// });
+    /// }
+    /// ```
+    ///
+    /// https://developers.google.com/web/fundamentals/app-install-banners/
+    ///
+    /// #### Returns
+    ///
+    /// True if you are able to prompt the user to install the app on their homescreen.
+    ///
+    /// #### See also
+    ///
+    /// - #promptInstallOnHomescreen()
+    ///
+    /// - #onCanInstallOnHomescreen(java.lang.Runnable)
+    public boolean canInstallOnHomescreen() {
+        return false;
+    }
+
+    /// Prompts the user to install this app on their homescreen.  This is only relevant in the
+    /// javascript port.
+    ///
+    /// #### Returns
+    ///
+    /// @return The result of the user prompt.  true if the user accepts the installation,
+    /// false if they reject it.
+    ///
+    /// #### See also
+    ///
+    /// - #canInstallOnHomescreen()
+    ///
+    /// - #onCanInstallOnHomescreen(java.lang.Runnable)
+    public boolean promptInstallOnHomescreen() {
+        return false;
+    }
+
+    /// A callback fired when you are allowed to prompt the user to install the app on their homescreen.
+    /// Only relevant in the javascript port.
+    ///
+    /// #### Parameters
+    ///
+    /// - `r`: @param r Runnable that will be run when/if you are permitted to prompt the user to install
+    /// the app on their homescreen.
+    public void onCanInstallOnHomescreen(Runnable r) {
+
+    }
+
+    /// Checks whether the platform's native text areas support vertical alignment.
+    public boolean supportsNativeTextAreaVerticalAlignment() {
+        return false;
+    }
+
+    /// Posts a message to the native platform.
+    ///
+    /// #### Parameters
+    ///
+    /// - `message`: The message.
+    ///
+    public void postMessage(MessageEvent message) {
+
+    }
+
+    /// Returns true if the platform is in dark mode, null is returned for
+    /// unknown status
+    ///
+    /// #### Returns
+    ///
+    /// true in case of dark mode
+    public Boolean isDarkMode() {
+        return Boolean.FALSE;
+    }
+
+    /// Manually announces text to native accessibility services, associating the announcement with
+    /// a specific component when possible. Components are typically announced automatically when
+    /// focused; this hook allows platforms to expose announcements triggered outside the normal
+    /// focus lifecycle. The default implementation is a no-op.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: the component related to this announcement or `null` for the root context
+    ///
+    /// - `text`: the message to announce
+    public void announceForAccessibility(Component cmp, String text) {
+        // No-op by default. Platforms that support accessibility announcements
+        // should override this method.
+    }
+
+    /// Called after the portable semantic tree changes. Platform ports should
+    /// invalidate their native virtual accessibility roots and request the latest
+    /// immutable snapshot with {@link #getAccessibilityTreeSnapshot()}.
+    public void accessibilityTreeChanged(int changeType) {
+    }
+
+    /// Called after the semantic tree of one rendered surface changes.
+    ///
+    /// Zero is the application's main surface; any other value names a desktop window.
+    /// A port that pushes the tree into a native view has to know which one, or it
+    /// installs whichever surface was rebuilt last onto the main view -- so changing a
+    /// window replaces the main surface's elements with the window's and leaves the
+    /// window itself exposing nothing. Pull-based ports can ignore it and re-read the
+    /// surface they are asked about.
+    ///
+    /// The default forwards to the surface-less form, which is what every port that
+    /// has only one surface already implements.
+    ///
+    /// #### Parameters
+    ///
+    /// - `changeType`: bit mask of `AccessibilityManager.CHANGE_*` constants
+    ///
+    /// - `windowId`: the surface that changed, zero for the main one
+    public void accessibilityTreeChanged(int changeType, int windowId) {
+        accessibilityTreeChanged(changeType);
+    }
+
+    /// Returns the latest immutable semantic tree for the current form.
+    public AccessibilityTreeSnapshot getAccessibilityTreeSnapshot() {
+        return AccessibilityManager.getInstance().getCurrentSnapshot();
+    }
+
+    /// The semantic tree of one rendered surface.
+    ///
+    /// Zero is the application's main surface; any other value names a desktop window.
+    /// A port with more than one surface has to ask per surface, or a screen reader
+    /// attached to a secondary window is handed the main window's tree.
+    ///
+    /// #### Parameters
+    ///
+    /// - `windowId`: the surface to describe, zero for the main one
+    ///
+    /// #### Returns
+    ///
+    /// the snapshot, never null
+    public AccessibilityTreeSnapshot getAccessibilityTreeSnapshot(int windowId) {
+        if (windowId == 0) {
+            // The main form by name, not "the current surface". Surface zero is the
+            // main canvas by contract, and the current-surface accessor answers with
+            // the focused top level on the event dispatch thread and with the last
+            // tree built anywhere off it -- either of which hands the main canvas a
+            // secondary window's labels and actions.
+            return AccessibilityManager.getInstance()
+                    .getSnapshot(Display.getInstance().getCurrent());
+        }
+        Window w = Desktop.getInstance().windowById(windowId);
+        if (w == null) {
+            // The window this surface described has been disposed, and the bridge
+            // asking outlived it. Nothing, rather than the last tree built anywhere --
+            // which belongs to some other window, and would have this dead surface
+            // reading out its labels and handing back its node ids.
+            return AccessibilityManager.getInstance().emptySnapshot();
+        }
+        return AccessibilityManager.getInstance().getSnapshot(w);
+    }
+
+    /// Dispatches an action from a native virtual accessibility node onto the EDT.
+    public boolean performAccessibilityAction(long nodeId, String actionId, Object argument) {
+        return AccessibilityManager.getInstance().performAction(nodeId, actionId, argument);
+    }
+
+    /// Returns true when this port exposes the portable virtual semantic tree.
+    public boolean isAccessibilityTreeSupported() {
+        return false;
+    }
+
+    /// Returns true when semantic invalidations should be projected eagerly.
+    /// Pull-based ports should override this to return true only while assistive
+    /// technology is active. Ports whose semantic projection must always remain
+    /// attached, such as web ARIA, may return true unconditionally.
+    public boolean isAccessibilityTreeUpdateRequired() {
+        return isAccessibilityTreeSupported();
+    }
+
+    /// Returns true if the user has selected larger type fonts in the system settings.
+    /// Default implementation returns false.
+    ///
+    /// #### Returns
+    ///
+    /// true when the platform indicates a larger text preference.
+    ///
+    public boolean isLargerTextEnabled() {
+        return false;
+    }
+
+    /// Returns a scale factor representing how much larger system fonts should be.
+    /// A value of `1.0` indicates the default system font size.
+    ///
+    /// #### Returns
+    ///
+    /// scale factor for larger system fonts.
+    ///
+    public float getLargerTextScale() {
+        return 1.0f;
+    }
+
+    /// Returns true when the user requests stronger foreground/background contrast.
+    public boolean isHighContrastEnabled() {
+        return false;
+    }
+
+    /// Returns true when the user requests that information isn't conveyed by color alone.
+    public boolean isDifferentiateWithoutColorEnabled() {
+        return false;
+    }
+
+    /// Returns the selected color-vision correction mode.
+    public com.codename1.ui.AccessibilityColorVisionDeficiency getColorVisionDeficiency() {
+        return com.codename1.ui.AccessibilityColorVisionDeficiency.UNKNOWN;
+    }
+
+    /// Returns true when the user requests reduced or disabled nonessential motion.
+    public boolean isReduceMotionEnabled() {
+        return false;
+    }
+
+    /// Returns true when the user requests reduced transparency and blur effects.
+    public boolean isReduceTransparencyEnabled() {
+        return false;
+    }
+
+    /// Returns true when the user requests heavier text weight.
+    public boolean isBoldTextEnabled() {
+        return false;
+    }
+
+    /// Returns true when the operating system is inverting displayed colors.
+    public boolean isInvertColorsEnabled() {
+        return false;
+    }
+
+    /// Returns true when the operating system requests a grayscale presentation.
+    public boolean isGrayscaleEnabled() {
+        return false;
+    }
+
+    /// Returns true when switches should include visible on/off labels.
+    public boolean isOnOffSwitchLabelsEnabled() {
+        return false;
+    }
+
+    /// Returns true when a screen reader or touch-exploration service is active.
+    public boolean isScreenReaderEnabled() {
+        return false;
+    }
+
+    /// Returns the stack trace from the exception on the given
+    /// thread. This API isn't supported on all platforms and may
+    /// return a blank string when unavailable.
+    ///
+    /// #### Parameters
+    ///
+    /// - `parentThread`: the thread in which the exception was thrown
+    ///
+    /// - `t`: the exception
+    ///
+    /// #### Returns
+    ///
+    /// a stack trace string that might be blank
+    public String getStackTrace(Thread parentThread, Throwable t) {
+        System.out.println("CN1SS:ERR:Invoking getStackTrace in CodenameOneImplementation");
+        if (parentThread instanceof CodenameOneThread && ((CodenameOneThread) parentThread).hasStackFrame()) {
+            return ((CodenameOneThread) parentThread).getStack(t);
+        }
+        return "";
+    }
+
+    static class RPush implements Runnable {
+        @Override
+        public void run() {
+            final long pushId = Preferences.get("push_id", (long) -1);
+            if (pushId > -1 && callback != null) {
+                callback.registeredForPush("" + pushId);
+            }
+        }
+    }
+
+    // ================================================================
+    // Crypto bridge -- see com.codename1.security package.
+    //
+    // The default implementations below all throw -- each platform port
+    // (JavaSEPort, AndroidImplementation, IOSImplementation) overrides them
+    // with the real native-backed implementation. The core stays free of
+    // java.security / javax.crypto references because the core compiles
+    // against the CLDC11 stub where those classes (and full Class reflection)
+    // are not available.
+
+    private static RuntimeException cryptoUnsupported(String op) {
+        return new RuntimeException("Crypto operation " + op + " is not supported on this platform. "
+                + "If you are running in a fresh CodenameOneImplementation subclass, override the matching method.");
+    }
+
+    /// Fills `out` with cryptographically secure random bytes. Override in the
+    /// port to route to the platform's native CSPRNG.
+    public void secureRandomBytes(byte[] out) {
+        throw cryptoUnsupported("secureRandomBytes");
+    }
+
+    /// Encrypts with AES. Modes / paddings supported: AES/CBC/PKCS5Padding,
+    /// AES/CBC/NoPadding, AES/GCM/NoPadding (recommended -- authenticated;
+    /// the auth tag is appended to the ciphertext per the JCE convention) and
+    /// AES/ECB/PKCS5Padding (legacy interop only). `iv` may be null for ECB.
+    /// `aad` is associated data for GCM (may be null).
+    public byte[] aesEncrypt(String transformation, byte[] key, byte[] iv, byte[] aad, byte[] plaintext) {
+        throw cryptoUnsupported("aesEncrypt");
+    }
+
+    /// Decrypts with AES. Same parameters as `aesEncrypt`.
+    public byte[] aesDecrypt(String transformation, byte[] key, byte[] iv, byte[] aad, byte[] ciphertext) {
+        throw cryptoUnsupported("aesDecrypt");
+    }
+
+    /// Encrypts with RSA using an X.509 (SubjectPublicKeyInfo) DER-encoded
+    /// public key. `transformation` is typically
+    /// "RSA/ECB/OAEPWithSHA-256AndMGF1Padding" or "RSA/ECB/PKCS1Padding".
+    public byte[] rsaEncrypt(String transformation, byte[] publicKeyX509, byte[] plaintext) {
+        throw cryptoUnsupported("rsaEncrypt");
+    }
+
+    /// Decrypts with RSA using a PKCS#8 DER-encoded private key.
+    public byte[] rsaDecrypt(String transformation, byte[] privateKeyPkcs8, byte[] ciphertext) {
+        throw cryptoUnsupported("rsaDecrypt");
+    }
+
+    /// Computes a signature. `algorithm` is e.g. "SHA256withRSA",
+    /// "SHA256withECDSA". `keyAlgorithm` is "RSA" or "EC".
+    public byte[] cryptoSign(String algorithm, String keyAlgorithm, byte[] privateKeyPkcs8, byte[] data) {
+        throw cryptoUnsupported("cryptoSign");
+    }
+
+    /// Verifies a signature with an X.509 public key.
+    public boolean cryptoVerify(String algorithm, String keyAlgorithm, byte[] publicKeyX509, byte[] data, byte[] signature) {
+        throw cryptoUnsupported("cryptoVerify");
+    }
+
+    /// Generates a fresh RSA key pair of the given size in bits. Returns
+    /// `{publicKeyX509, privateKeyPkcs8}`.
+    public byte[][] generateRsaKeyPair(int bits) {
+        throw cryptoUnsupported("generateRsaKeyPair");
+    }
+
+    /// Generates `bytes` of fresh symmetric key material. The default just
+    /// delegates to [#secureRandomBytes(byte[])] (no structure is required
+    /// for AES keys).
+    public byte[] generateSymmetricKey(int bytes) {
+        byte[] out = new byte[bytes];
+        secureRandomBytes(out);
+        return out;
+    }
+
+    /// Derives key material from a password with PBKDF2, per RFC 8018.
+    ///
+    /// Used by [com.codename1.security.vault.KdfProfile], which is the portable password KDF
+    /// behind every vault envelope. The default returns `null`, meaning "no native derivation
+    /// here", and the caller falls back to a pure Java loop over HMAC that produces identical
+    /// bytes. Returning null rather than throwing is deliberate: a missing hook must degrade to
+    /// slow, never to a weaker derivation or a failure.
+    ///
+    /// A port SHOULD override this. Six hundred thousand iterations of software HMAC-SHA-256 is
+    /// seconds of a phone's time and considerably worse in a translated JavaScript worker, and
+    /// every platform Codename One targets has a native PBKDF2 a few lines away.
+    ///
+    /// #### Parameters
+    ///
+    /// - `hashAlgorithm`: the PRF hash, currently always `"SHA-256"`
+    ///
+    /// - `password`: the password bytes, already UTF-8 encoded by the caller. Implementations
+    ///   must not re-encode, normalise or null-terminate them: the derived bytes have to match
+    ///   every other port's exactly.
+    ///
+    /// - `salt`: the salt
+    ///
+    /// - `iterations`: the iteration count, already range-checked by the caller
+    ///
+    /// - `length`: how many bytes to derive
+    ///
+    /// #### Returns
+    ///
+    /// the derived bytes, or `null` when this port has no native derivation
+    ///
+    /// Do not conclude from a search for overrides of this method which ports derive
+    /// natively. Android, iOS and JavaSE override it in Java; the JavaScript port does not
+    /// and still derives through `crypto.subtle.deriveBits`, because it replaces THIS method
+    /// by native binding (`port.js`, alongside `aesEncrypt`, `rsaEncrypt`, `sign` and
+    /// `verify`) rather than by subclassing. A reviewer who greps for the signature sees
+    /// three ports and concludes the browser runs the portable fallback's 600,000 rounds in
+    /// translated JavaScript; it does not.
+    public byte[] pbkdf2(String hashAlgorithm, byte[] password, byte[] salt, int iterations, int length) {
+        return null;
+    }
+
+    /// One storage entry is definitely absent.
+    public static final int STORAGE_ENTRY_ABSENT = 0;
+
+    /// One storage entry is definitely present.
+    public static final int STORAGE_ENTRY_PRESENT = 1;
+
+    /// This port could not tell whether the entry is there.
+    public static final int STORAGE_ENTRY_UNKNOWN = 2;
+
+    /// Whether one storage entry exists, keeping "could not tell" distinct from "no".
+    ///
+    /// `storageFileExists` returns a boolean and therefore cannot express the third answer, so a
+    /// port that hits a transient backend failure has to report one of the two it has -- and
+    /// every port that catches reports `false`. The browser is the clearest case: a temporary
+    /// IndexedDB error becomes "this entry is not here", which for a vault's own metadata record
+    /// means "this device is not enrolled". An enrolment then follows, writing fresh metadata
+    /// under a NEW data key over a vault whose secrets were all sealed under the old one.
+    ///
+    /// The default derives the third state away, which is exactly right for every port whose
+    /// existence check cannot fail -- a file system stat either answers or throws. A port
+    /// overrides this only when its storage can fail in a way it can recognise.
+    public int storageEntryState(String name) {
+        return storageFileExists(name) ? STORAGE_ENTRY_PRESENT : STORAGE_ENTRY_ABSENT;
+    }
+
+    /// Returns the port-specific device protection used by
+    /// [com.codename1.security.vault.Vault] to remember an unlocked vault across restarts.
+    ///
+    /// Default implementation returns `null`, and the vault falls back to a portable
+    /// implementation that keeps a wrapping key in
+    /// [com.codename1.security.SecureStorage] -- which is the right answer on every port whose
+    /// secure storage is the OS key store. A port overrides this only when it can do better than
+    /// a key it can read back: the browser does, because a non-extractable `CryptoKey` in
+    /// IndexedDB can wrap and unwrap without the wrapping key ever existing as bytes the page can
+    /// touch.
+    public com.codename1.security.vault.spi.DeviceProtection getDeviceProtection() {
+        return null;
+    }
+
+    // -------------------------------------------------------------------
+    // Crash protection (com.codename1.crash.CrashProtection) -- platform
+    // hooks that let the framework attach native log context and
+    // off-EDT / native-layer crash data to uploaded crash reports.
+    // Default no-op implementations keep platforms that don't yet
+    // support a given hook completely silent.
+    // -------------------------------------------------------------------
+
+    /// Snapshot of recent platform-log output to attach to a crash
+    /// payload. Used by [com.codename1.crash.CrashProtection] when
+    /// building a report so the developer sees the device log around
+    /// the failure, not just the Java stack frame. Platforms without a
+    /// readable process log (`javase`, `javascript`) return `null`.
+    ///
+    /// Implementations should cap the returned string (e.g. ~32 KB),
+    /// strip sensitive prefixes, and never block.
+    public String getNativeLogSnapshot() {
+        return null;
+    }
+
+    /// Installs the platform native crash handler. On platforms where a
+    /// native crash (a signal, an uncaught Objective-C exception, a
+    /// segfault in JNI code) cannot reach the JVM error path,
+    /// implementations write a structured record to disk in a
+    /// signal-safe way before the process dies. The record is read
+    /// back on the next launch via [#consumePendingNativeCrash()].
+    ///
+    /// Must be idempotent. Default: no-op.
+    public void installNativeCrashHandler() {
+    }
+
+    /// Returns the captured native crash evidence (raw backtrace +
+    /// signal info as a text blob) from [#installNativeCrashHandler()],
+    /// or `null` if none. The implementation MUST delete the
+    /// underlying record before returning so the same crash isn't
+    /// replayed on every launch. The framework wraps the returned
+    /// string in a synthetic {@code NativeCrash} report and hands it
+    /// to the upload queue.
+    public String consumePendingNativeCrash() {
+        return null;
+    }
+}

@@ -1,0 +1,209 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+#ifndef CN1_LINUX_H
+#define CN1_LINUX_H
+
+/*
+ * Common (GTK-free) internals shared across the native Codename One Linux port
+ * translation units. The public surface the Java side
+ * (com.codename1.impl.linux.LinuxNative) binds to is the set of ParparVM-mangled
+ * bridge functions defined across the windowing / graphics / text / image / io /
+ * net translation units; this header holds the cross-unit plumbing those share
+ * that does NOT require the GTK/Cairo stack, so the pure-POSIX units (io, net,
+ * socket) can include it without pulling in GTK. The render structs and GTK
+ * includes live in cn1_linux_gfx.h, included only by the rendering units.
+ */
+
+#include "cn1_globals.h"
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+/* Starts reporting display attach/remove; idempotent. */
+void cn1LinuxWatchMonitors(void);
+
+#endif
+
+/* ------------------------------------------------------------------ events */
+
+/*
+ * GTK runs its main loop on the process main thread, while the Codename One EDT
+ * lives on a translated Java thread. Input is handed across a small
+ * mutex-protected ring buffer: the GTK signal handlers push encoded events; the
+ * EDT drains them through the pollEvent bridge. Keeping the bridge Java-driven
+ * (Java pulls; C never calls arbitrary Java back) avoids threading the
+ * GC/thread-state machinery through GTK callbacks. The type codes mirror the
+ * EVENT_* constants in LinuxImplementation.
+ */
+typedef enum {
+    CN1_EVENT_NONE = 0,
+    CN1_EVENT_POINTER_PRESSED = 1,
+    CN1_EVENT_POINTER_RELEASED = 2,
+    CN1_EVENT_POINTER_DRAGGED = 3,
+    CN1_EVENT_KEY_PRESSED = 4,
+    CN1_EVENT_KEY_RELEASED = 5,
+    CN1_EVENT_SIZE_CHANGED = 6,
+    CN1_EVENT_CLOSE = 7,
+    CN1_EVENT_MOUSE_WHEEL = 8,
+    CN1_EVENT_MOUSE_HWHEEL = 9,
+    /* Touchpad pinch / rotate: x/y are the gesture's widget coordinates and
+     * keyCode is the incremental value in 1/10000 units -- an incremental scale
+     * multiplier for PINCH (10000 == scale 1.0) and incremental radians for
+     * ROTATE. drainInput decodes these into Display.fireMagnifyGesture /
+     * fireRotationGesture, the same hooks the macOS trackpad drives. */
+    CN1_EVENT_PINCH = 10,
+    CN1_EVENT_ROTATE = 11,
+    CN1_EVENT_ACCESSIBILITY_ACTION = 12,
+    /* Additional desktop windows. These carry a non-zero windowId; everything
+     * above carries zero, meaning the application's main window. */
+    CN1_EVENT_WINDOW_CLOSE = 13,
+    CN1_EVENT_WINDOW_FOCUS = 14,      /* keyCode 1 == gained, 0 == lost      */
+    CN1_EVENT_WINDOW_MONITOR = 15,    /* window moved to a different monitor */
+    CN1_EVENT_WINDOW_SHOWN = 16,
+    CN1_EVENT_WINDOW_HIDDEN = 17,
+    CN1_EVENT_WINDOW_MOVED = 18,
+    CN1_EVENT_MONITORS_CHANGED = 19,
+    /* Touchpad pinch phases. The UPDATE stream (CN1_EVENT_PINCH) was already
+     * forwarded; without these the component that zoomed never learns the
+     * gesture ended, because a touchpad produces no pointer events and the
+     * two-pointer path that normally ends a pinch never runs. */
+    CN1_EVENT_PINCH_BEGIN = 20,
+    CN1_EVENT_PINCH_END = 21,
+    /* Pointer motion with NO button held. Dropped entirely before the desktop
+     * themes existed, because a mobile port has no use for it. It is what drives
+     * Component's hover style, so without it an Adwaita button never lights up
+     * under the cursor and the theme's hover rules are dead entries in the .res.
+     * Deliberately the same number the Windows port uses, so the two desktop wire
+     * protocols do not drift apart. */
+    CN1_EVENT_POINTER_HOVER = 22,
+    /* A native menu bar item was chosen. keyCode carries the Codename One command id the
+     * Java side handed out in setNativeCommands. Queued like every other input so the
+     * command runs on the EDT rather than on the GTK thread. Same number as the Windows
+     * port's, so the two desktop wire protocols do not drift apart. */
+    CN1_EVENT_MENU_COMMAND = 23
+} CN1EventType;
+
+/* Fixed-point scale for the gesture keyCode field (see CN1_EVENT_PINCH). */
+#define CN1_GESTURE_FIXED 10000
+
+/* For pointer (pressed/released/dragged/hover) events the otherwise-unused keyCode
+ * field carries the pointer metadata: the low bits are a button bitmask that
+ * mirrors com.codename1.ui.events.PointerEvent.MASK_* (so a press/release carry
+ * the button that changed and a drag carries the buttons held down), and the
+ * high bits flag a touch digitizer or pen. Hover carries no button bits;
+ * a contact event with no button detail defaults to a primary press.
+ * LinuxImplementation.drainInput decodes this. */
+#define CN1_PE_MASK_PRIMARY   1
+#define CN1_PE_MASK_SECONDARY 2
+#define CN1_PE_MASK_MIDDLE    4
+#define CN1_PE_MASK_BACK      8
+#define CN1_PE_MASK_FORWARD   16
+#define CN1_PE_TOUCH_FLAG     256
+#define CN1_PE_PEN_FLAG       512
+#define CN1_PE_ERASER_FLAG    1024
+
+/* Pushes one event onto the ring buffer (called from the GTK thread). */
+/* Turns fractional smooth-scroll notches into whole ones, carrying the remainder
+ * in *residue. Shared by the main window and by each secondary window. */
+int cn1LinuxTakeWholeNotches(double delta, double* residue);
+
+void cn1LinuxPushEvent(int type, int x, int y, int keyCode);
+/* Same, but tagged with the desktop window the event came from. */
+void cn1LinuxPushWindowEvent(int windowId, int type, int x, int y, int keyCode);
+
+/* Additional desktop windows (cn1_linux_desktopwindow.c). The main window's
+ * statics are left alone: a secondary window carries its own GtkWindow, overlay,
+ * drawing area and cairo back buffer, so the single-window path is unchanged.
+ * Every entry point here must run on the GTK main thread; callers marshal with
+ * cn1LinuxRunOnMainAndWait. */
+#define CN1_MAX_DESKTOP_WINDOWS 32
+/* The GTK-typed accessors live in cn1_linux_gfx.h, which is the header that
+ * includes gtk. This one is included by units that have no GTK on their include
+ * path, so declaring a GtkWidget* here would break them. */
+
+/*
+ * Pops one event into out[0..3] = {type, x, y, keyCode}; returns 1 if one was
+ * dequeued, 0 when the queue is empty. Drained by the EDT through pollEvent.
+ */
+int cn1LinuxPopEvent(int* out);
+
+/* --------------------------------------------------------------- widgets */
+
+/*
+ * Surfaces applet windows (cn1_linux_widgets.c): frameless GTK toplevels that
+ * display rasterized widget/live-activity pixels outside the main window.
+ * Events queue as "<id>;click;<x>;<y>" / "<id>;moved;<x>;<y>" strings drained
+ * by the main-thread input pump. The returned string is owned by the caller
+ * (g_free), NULL when the queue is empty.
+ */
+char* cn1LinuxWidgetPollEvent(void);
+
+/* Presents (raises + focuses) the main app window; marshaled to the GTK loop. */
+void cn1LinuxWidgetFocusApp(void);
+
+/* ------------------------------------------------------------- resources */
+
+/*
+ * Returns a pointer to the bytes of a classpath resource embedded into the ELF
+ * (.incbin'd by the ParparVM linux target), writing the length into *lenOut, or
+ * NULL with *lenOut = 0 when no such resource was embedded. Defined in the
+ * generated cn1_resources_table.c.
+ */
+const unsigned char* cn1LinuxFindResource(const char* name, int* lenOut);
+
+/* ------------------------------------------------------------- diagnostics */
+
+/*
+ * Logs (once per distinct tag) that a not-yet-implemented native bridge
+ * capability was invoked on Linux. Used by the generated stub surface so a
+ * missing capability degrades to an honest no-op + a single stderr line rather
+ * than a silent wrong answer. Defined in cn1_linux_io.c.
+ */
+void cn1LinuxStubOnce(const char* tag);
+
+/* Writes one line to stderr (and the journal) -- the nativeLog backing. */
+void cn1LinuxLog(const char* message);
+
+/* ---------------------------------------------------------------- helpers */
+
+/*
+ * Allocates a Java byte[] of n bytes and copies src into it (src may be NULL
+ * when n == 0). Returns the array object, or JAVA_NULL on allocation failure.
+ * Defined in cn1_linux_io.c; shared by the image/media/net units.
+ */
+JAVA_OBJECT cn1LinuxNewByteArray(CODENAME_ONE_THREAD_STATE, const void* src, int n);
+
+/* Copy of a Java String's UTF-8 bytes, owned by the caller (free it).
+ *
+ * stringToUTF8 hands back one buffer per thread and overwrites it on every
+ * call, so a native that converts a second String silently repoints the first
+ * result at the second string. That is not theoretical: it made fileRename
+ * rename a file onto itself and sent every HTTP request header as
+ * "value: value". Any native converting more than one String must use this. */
+char* cn1LinuxJStrDup(CODENAME_ONE_THREAD_STATE, JAVA_OBJECT value);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* CN1_LINUX_H */

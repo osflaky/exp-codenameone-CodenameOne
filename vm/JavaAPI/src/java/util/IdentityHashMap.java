@@ -1,0 +1,882 @@
+/*
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
+package java.util;
+
+/**
+ * IdentityHashMap is a variant on HashMap which tests equality by reference
+ * instead of equality by value. Basically, keys and values are compared for
+ * equality by checking if their references are equal rather than by calling the
+ * "equals" function.
+ * <p>
+ * <b>Note: This class intentionally violates the general contract of {@code
+ * Map}'s on comparing objects by their {@code equals} method.</b>
+ * <p>
+ * IdentityHashMap uses open addressing (linear probing in particular) for
+ * collision resolution. This is different from HashMap which uses Chaining.
+ * <p>
+ * Like HashMap, IdentityHashMap is not thread safe, so access by multiple
+ * threads must be synchronized by an external mechanism such as
+ * Collections.synchronizedMap.
+ * 
+ * @since 1.4
+ */
+public class IdentityHashMap<K, V> extends AbstractMap<K, V> implements
+        Map<K, V> {
+
+    /*
+     * The internal data structure to hold key value pairs This array holds keys
+     * and values in an alternating fashion.
+     */
+    transient Object[] elementData;
+
+    /* Actual number of key-value pairs. */
+    int size;
+
+    /*
+     * maximum number of elements that can be put in this map before having to
+     * rehash.
+     */
+    transient int threshold;
+
+    /*
+     * default threshold value that an IdentityHashMap created using the default
+     * constructor would have.
+     */
+    private static final int DEFAULT_MAX_SIZE = 21;
+
+    /* Default load factor of 0.75; */
+    private static final int loadFactor = 7500;
+
+    /*
+     * Bounds on the backing array length, which is always a power of two. The
+     * minimum is 8 cells (4 slots): findIndex needs at least one empty slot to
+     * terminate on, and remove() reads index + 1.
+     */
+    private static final int MINIMUM_ARRAY_SIZE = 8;
+
+    private static final int MAXIMUM_ARRAY_SIZE = 1 << 30;
+
+    /*
+     * modification count, to keep track of structural modifications between the
+     * IdentityHashMap and the iterator
+     */
+    transient int modCount = 0;
+
+    /*
+     * Object used to represent null keys and values. This is used to
+     * differentiate a literal 'null' key value pair from an empty spot in the
+     * map.
+     */
+    private static final Object NULL_OBJECT = new Object();  //$NON-LOCK-1$
+
+    static class IdentityHashMapEntry<K, V> extends MapEntry<K, V> {
+        IdentityHashMapEntry(K theKey, V theValue) {
+            super(theKey, theValue);
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (object instanceof Map.Entry) {
+                Map.Entry<?, ?> entry = (Map.Entry) object;
+                return (key == entry.getKey()) && (value == entry.getValue());
+            }
+            return false;
+        }
+
+        @Override
+        public int hashCode() {
+            return System.identityHashCode(key)
+                    ^ System.identityHashCode(value);
+        }
+
+        @Override
+        public String toString() {
+            return key + "=" + value; //$NON-NLS-1$
+        }
+    }
+
+    static class IdentityHashMapIterator<E, KT, VT> implements Iterator<E> {
+        private int position = 0; // the current position
+
+        // the position of the entry that was last returned from next()
+        private int lastPosition = 0;
+
+        final IdentityHashMap<KT, VT> associatedMap;
+
+        int expectedModCount;
+
+        final MapEntry.Type<E, KT, VT> type;
+
+        /**
+         * Which of the three views this iterator serves.
+         *
+         * Keys and values come straight out of the table; only entrySet has to
+         * materialise an Entry, and only there can the caller observe one. The
+         * generic {@code type} callback cannot express that, because it takes a
+         * MapEntry -- so serving a key iterator through it allocated an Entry per
+         * next() purely to read one field back out and drop it. Measured on a
+         * self-hosting translation of the ParparVM translator: 1,366,140 such
+         * entries, 43.7MB, all garbage. java.util.HashMap already had separate
+         * key/value/entry iterators for exactly this reason; this one was missed.
+         */
+        static final int KIND_ENTRY = 0;
+        static final int KIND_KEY = 1;
+        static final int KIND_VALUE = 2;
+
+        final int kind;
+
+        boolean canRemove = false;
+
+        IdentityHashMapIterator(MapEntry.Type<E, KT, VT> value,
+                IdentityHashMap<KT, VT> hm) {
+            associatedMap = hm;
+            type = value;
+            kind = KIND_ENTRY;
+            expectedModCount = hm.modCount;
+        }
+
+        IdentityHashMapIterator(int iteratorKind, IdentityHashMap<KT, VT> hm) {
+            associatedMap = hm;
+            type = null;
+            kind = iteratorKind;
+            expectedModCount = hm.modCount;
+        }
+
+        public boolean hasNext() {
+            // elementData hoisted into a local: it was re-loaded from the outer map
+            // on every comparison AND on every array access, twice per probe step.
+            Object[] data = associatedMap.elementData;
+            int p = position;
+            int len = data.length;
+            while (p < len && data[p] == null) {
+                p += 2;
+            }
+            position = p;
+            return p < len;
+        }
+
+        void checkConcurrentMod() throws ConcurrentModificationException {
+            if (expectedModCount != associatedMap.modCount) {
+                throw new ConcurrentModificationException();
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        public E next() {
+            // The concurrent-modification test and the null-skipping scan are
+            // INLINED here rather than reached through checkConcurrentMod() and
+            // hasNext().
+            //
+            // An enhanced-for already pays two interface dispatches per element
+            // (hasNext then next); routing next() through two more non-inlined
+            // calls made it four, and ParparVM has no JIT to fold them away.
+            // MEASURED on the 5782-class hellocodenameone translation:
+            // IdentityHashMapIterator.next 6.43% of mutator self-time with
+            // checkConcurrentMod a further 1.84%, second only to the ArrayList
+            // iterator.
+            //
+            // Behaviour is unchanged: same ConcurrentModificationException on a
+            // structural change, same NoSuchElementException past the end, and
+            // position still advances past empty slots exactly as hasNext() did.
+            if (expectedModCount != associatedMap.modCount) {
+                throw new ConcurrentModificationException();
+            }
+            Object[] data = associatedMap.elementData;
+            int p = position;
+            int len = data.length;
+            while (p < len && data[p] == null) {
+                p += 2;
+            }
+            if (p >= len) {
+                position = p;
+                throw new NoSuchElementException();
+            }
+
+            lastPosition = p;
+            position = p + 2;
+            canRemove = true;
+
+            if (kind == KIND_KEY) {
+                Object key = associatedMap.elementData[lastPosition];
+                return (E) (key == NULL_OBJECT ? null : key);
+            }
+            if (kind == KIND_VALUE) {
+                Object value = associatedMap.elementData[lastPosition + 1];
+                return (E) (value == NULL_OBJECT ? null : value);
+            }
+            return type.get(associatedMap.getEntry(lastPosition));
+        }
+
+        public void remove() {
+            checkConcurrentMod();
+            if (!canRemove) {
+                throw new IllegalStateException();
+            }
+
+            canRemove = false;
+            associatedMap.remove(associatedMap.elementData[lastPosition]);
+            position = lastPosition;
+            expectedModCount++;
+        }
+    }
+
+    static class IdentityHashMapEntrySet<KT, VT> extends
+            AbstractSet<Map.Entry<KT, VT>> {
+        private final IdentityHashMap<KT, VT> associatedMap;
+
+        public IdentityHashMapEntrySet(IdentityHashMap<KT, VT> hm) {
+            associatedMap = hm;
+        }
+
+        IdentityHashMap<KT, VT> hashMap() {
+            return associatedMap;
+        }
+
+        @Override
+        public int size() {
+            return associatedMap.size;
+        }
+
+        @Override
+        public void clear() {
+            associatedMap.clear();
+        }
+
+        @Override
+        public boolean remove(Object object) {
+            if (contains(object)) {
+                associatedMap.remove(((Map.Entry) object).getKey());
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public boolean contains(Object object) {
+            if (object instanceof Map.Entry) {
+                IdentityHashMapEntry<?, ?> entry = associatedMap
+                        .getEntry(((Map.Entry) object).getKey());
+                // we must call equals on the entry obtained from "this"
+                return entry != null && entry.equals(object);
+            }
+            return false;
+        }
+
+        @Override
+        public Iterator<Map.Entry<KT, VT>> iterator() {
+            return new IdentityHashMapIterator<Map.Entry<KT, VT>, KT, VT>(
+                    new MapEntry.Type<Map.Entry<KT, VT>, KT, VT>() {
+                        public Map.Entry<KT, VT> get(MapEntry<KT, VT> entry) {
+                            return entry;
+                        }
+                    }, associatedMap);
+        }
+    }
+
+    /**
+     * Creates an IdentityHashMap with default expected maximum size.
+     */
+    public IdentityHashMap() {
+        this(DEFAULT_MAX_SIZE);
+    }
+
+    /**
+     * Creates an IdentityHashMap with the specified maximum size parameter.
+     * 
+     * @param maxSize
+     *            The estimated maximum number of entries that will be put in
+     *            this map.
+     */
+    public IdentityHashMap(int maxSize) {
+        if (maxSize >= 0) {
+            this.size = 0;
+            threshold = getThreshold(maxSize);
+            elementData = newElementArray(computeElementArraySize());
+        } else {
+            throw new IllegalArgumentException();
+        }
+    }
+
+    private int getThreshold(int maxSize) {
+        // assign the threshold to maxSize initially, this will change to a
+        // higher value if rehashing occurs.
+        return maxSize > 3 ? maxSize : 3;
+    }
+
+    /**
+     * The backing array length, always a POWER OF TWO and at least
+     * {@link #MINIMUM_ARRAY_SIZE}.
+     *
+     * <p>It did not used to be, and that cost an integer division on every
+     * probe: {@link #findIndex} and {@link #remove} wrapped with {@code %} and
+     * {@link #getModuloHash} took {@code % (length / 2)}. A power of two lets
+     * all three be a mask instead. The array holds keys and values in
+     * alternating cells, so the length is twice the slot count and the low bit
+     * of an index is always 0.
+     */
+    private int computeElementArraySize() {
+        long slots = ((long) threshold * 10000) / loadFactor;
+        long arraySize = slots * 2;
+        if (arraySize < MINIMUM_ARRAY_SIZE) {
+            arraySize = MINIMUM_ARRAY_SIZE;
+        }
+        if (arraySize >= MAXIMUM_ARRAY_SIZE) {
+            return MAXIMUM_ARRAY_SIZE;
+        }
+        int pow2 = MINIMUM_ARRAY_SIZE;
+        while (pow2 < arraySize) {
+            pow2 <<= 1;
+        }
+        return pow2;
+    }
+
+    /**
+     * Create a new element array
+     * 
+     * @param s
+     *            the number of elements
+     * @return Reference to the element array
+     */
+    private Object[] newElementArray(int s) {
+        return new Object[s];
+    }
+
+    /**
+     * Creates an IdentityHashMap using the given map as initial values.
+     * 
+     * @param map
+     *            A map of (key,value) pairs to copy into the IdentityHashMap.
+     */
+    public IdentityHashMap(Map<? extends K, ? extends V> map) {
+        this(map.size() < 6 ? 11 : map.size() * 2);
+        putAllImpl(map);
+    }
+
+    @SuppressWarnings("unchecked")
+    private V massageValue(Object value) {
+        return (V) ((value == NULL_OBJECT) ? null : value);
+    }
+
+    /**
+     * Removes all elements from this map, leaving it empty.
+     * 
+     * @see #isEmpty()
+     * @see #size()
+     */
+    @Override
+    public void clear() {
+        size = 0;
+        for (int i = 0; i < elementData.length; i++) {
+            elementData[i] = null;
+        }
+        modCount++;
+    }
+
+    /**
+     * Returns whether this map contains the specified key.
+     * 
+     * @param key
+     *            the key to search for.
+     * @return {@code true} if this map contains the specified key,
+     *         {@code false} otherwise.
+     */
+    @Override
+    public boolean containsKey(Object key) {
+        if (key == null) {
+            key = NULL_OBJECT;
+        }
+
+        int index = findIndex(key, elementData);
+        return elementData[index] == key;
+    }
+
+    /**
+     * Returns whether this map contains the specified value.
+     * 
+     * @param value
+     *            the value to search for.
+     * @return {@code true} if this map contains the specified value,
+     *         {@code false} otherwise.
+     */
+    @Override
+    public boolean containsValue(Object value) {
+        if (value == null) {
+            value = NULL_OBJECT;
+        }
+
+        for (int i = 1; i < elementData.length; i = i + 2) {
+            if (elementData[i] == value) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns the value of the mapping with the specified key.
+     * 
+     * @param key
+     *            the key.
+     * @return the value of the mapping with the specified key.
+     */
+    @Override
+    public V get(Object key) {
+        if (key == null) {
+            key = NULL_OBJECT;
+        }
+
+        int index = findIndex(key, elementData);
+
+        if (elementData[index] == key) {
+            Object result = elementData[index + 1];
+            return massageValue(result);
+        }
+
+        return null;
+    }
+
+    private IdentityHashMapEntry<K, V> getEntry(Object key) {
+        if (key == null) {
+            key = NULL_OBJECT;
+        }
+
+        int index = findIndex(key, elementData);
+        if (elementData[index] == key) {
+            return getEntry(index);
+        }
+
+        return null;
+    }
+
+    /**
+     * Convenience method for getting the IdentityHashMapEntry without the
+     * NULL_OBJECT elements
+     */
+    @SuppressWarnings("unchecked")
+    private IdentityHashMapEntry<K, V> getEntry(int index) {
+        Object key = elementData[index];
+        Object value = elementData[index + 1];
+
+        if (key == NULL_OBJECT) {
+            key = null;
+        }
+        if (value == NULL_OBJECT) {
+            value = null;
+        }
+
+        return new IdentityHashMapEntry<K, V>((K) key, (V) value);
+    }
+
+    /**
+     * Returns the index where the key is found at, or the index of the next
+     * empty spot if the key is not found in this table.
+     */
+    private int findIndex(Object key, Object[] array) {
+        int length = array.length;
+        int mask = length - 1;
+        int index = getModuloHash(key, length);
+        int last = (index + length - 2) & mask;
+        while (index != last) {
+            if (array[index] == key || (array[index] == null)) {
+                /*
+                 * Found the key, or the next empty spot (which means key is not
+                 * in the table)
+                 */
+                break;
+            }
+            index = (index + 2) & mask;
+        }
+        return index;
+    }
+
+    /**
+     * The home index for a key: always even, always in {@code [0, length)}.
+     *
+     * <p>Here {@code System.identityHashCode} is a truncated object ADDRESS, not
+     * a scrambled per-object value the way HotSpot's is, and that changes what a
+     * correct index function looks like. Measured over 50,000 freshly allocated
+     * objects on the translated target, addresses are 32-byte aligned -- the low
+     * FIVE bits are always zero -- so any index that reads the low bits of the
+     * hash directly can only reach a fraction of the table.
+     *
+     * <p>That rules out the obvious thing to copy. {@code java.util.IdentityHashMap}
+     * uses {@code (h << 1) - (h << 8)}, i.e. {@code h * -254}; the multiplier is
+     * EVEN, so it preserves those five zeros and adds a sixth. Measured on a
+     * 65536-slot table it reached 2045 distinct home slots and averaged 12.73
+     * probes per lookup. Using the hash unscrambled reached 4090 and averaged
+     * 6.61. Both are far worse than the {@code % (length / 2)} this replaced,
+     * which survived only because a non-power-of-two modulus folds the high bits
+     * back in as a side effect.
+     *
+     * <p>Folding explicitly is what actually works: {@code h ^= h >>> 16} moves
+     * the high half -- where an address's real entropy lives -- down over the
+     * aligned zeros. That reached 50000 home slots out of 65536 and averaged
+     * 1.00 probes, better than the modulo it replaces and without the divide.
+     * Adding a multiply on top made it worse, not better (2.36 probes):
+     * sequentially allocated objects have sequentially increasing addresses, so
+     * one fold is already very close to a perfect hash, and scrambling that
+     * turns near-perfect placement back into random collisions.
+     *
+     * <p>{@code & ~1} keeps the index even, since the array holds keys and
+     * values in alternating cells.
+     */
+    private int getModuloHash(Object key, int length) {
+        int h = System.identityHashCode(key);
+        h ^= (h >>> 16);
+        return h & (length - 1) & ~1;
+    }
+
+    /**
+     * Maps the specified key to the specified value.
+     * 
+     * @param key
+     *            the key.
+     * @param value
+     *            the value.
+     * @return the value of any previous mapping with the specified key or
+     *         {@code null} if there was no such mapping.
+     */
+    @Override
+    public V put(K key, V value) {
+        Object _key = key;
+        Object _value = value;
+        if (_key == null) {
+            _key = NULL_OBJECT;
+        }
+
+        if (_value == null) {
+            _value = NULL_OBJECT;
+        }
+
+        int index = findIndex(_key, elementData);
+
+        // if the key doesn't exist in the table
+        if (elementData[index] != _key) {
+            modCount++;
+            if (++size > threshold) {
+                rehash();
+                index = findIndex(_key, elementData);
+            }
+
+            // insert the key and assign the value to null initially
+            elementData[index] = _key;
+            elementData[index + 1] = null;
+        }
+
+        // insert value to where it needs to go, return the old value
+        Object result = elementData[index + 1];
+        elementData[index + 1] = _value;
+
+        return massageValue(result);
+    }
+    
+    /**
+     * Copies all the mappings in the specified map to this map. These mappings
+     * will replace all mappings that this map had for any of the keys currently
+     * in the given map.
+     * 
+     * @param map
+     *            the map to copy mappings from.
+     * @throws NullPointerException
+     *             if {@code map} is {@code null}.
+     */
+    @Override
+    public void putAll(Map<? extends K, ? extends V> map) {
+        putAllImpl(map);
+    }
+
+    private void rehash() {
+        // Doubling keeps the length a power of two, which findIndex and remove
+        // rely on. The old guard turned an overflowed length into 1 -- an ODD
+        // array length, which would have split every key from its value; the
+        // real bound is MAXIMUM_ARRAY_SIZE, above which there is nowhere to
+        // grow and the load factor simply rises.
+        int newlength = elementData.length << 1;
+        if (newlength <= 0 || newlength > MAXIMUM_ARRAY_SIZE) {
+            if (elementData.length >= MAXIMUM_ARRAY_SIZE) {
+                return;
+            }
+            newlength = MAXIMUM_ARRAY_SIZE;
+        }
+        Object[] newData = newElementArray(newlength);
+        for (int i = 0; i < elementData.length; i = i + 2) {
+            Object key = elementData[i];
+            if (key != null) {
+                // if not empty
+                int index = findIndex(key, newData);
+                newData[index] = key;
+                newData[index + 1] = elementData[i + 1];
+            }
+        }
+        elementData = newData;
+        computeMaxSize();
+    }
+
+    private void computeMaxSize() {
+        threshold = (int) ((long) (elementData.length / 2) * loadFactor / 10000);
+    }
+
+    /**
+     * Removes the mapping with the specified key from this map.
+     * 
+     * @param key
+     *            the key of the mapping to remove.
+     * @return the value of the removed mapping, or {@code null} if no mapping
+     *         for the specified key was found.
+     */
+    @Override
+    public V remove(Object key) {
+        if (key == null) {
+            key = NULL_OBJECT;
+        }
+
+        boolean hashedOk;
+        int index, next, hash;
+        Object result, object;
+        index = next = findIndex(key, elementData);
+
+        if (elementData[index] != key) {
+            return null;
+        }
+
+        // store the value for this key
+        result = elementData[index + 1];
+
+        // shift the following elements up if needed
+        // until we reach an empty spot
+        int length = elementData.length;
+        int mask = length - 1;
+        while (true) {
+            next = (next + 2) & mask;
+            object = elementData[next];
+            if (object == null) {
+                break;
+            }
+
+            hash = getModuloHash(object, length);
+            hashedOk = hash > index;
+            if (next < index) {
+                hashedOk = hashedOk || (hash <= next);
+            } else {
+                hashedOk = hashedOk && (hash <= next);
+            }
+            if (!hashedOk) {
+                elementData[index] = object;
+                elementData[index + 1] = elementData[next + 1];
+                index = next;
+            }
+        }
+
+        size--;
+        modCount++;
+
+        // clear both the key and the value
+        elementData[index] = null;
+        elementData[index + 1] = null;
+
+        return massageValue(result);
+    }
+
+    /**
+     * Returns a set containing all of the mappings in this map. Each mapping is
+     * an instance of {@link Map.Entry}. As the set is backed by this map,
+     * changes in one will be reflected in the other.
+     * 
+     * @return a set of the mappings.
+     */
+    @Override
+    public Set<Map.Entry<K, V>> entrySet() {
+        return new IdentityHashMapEntrySet<K, V>(this);
+    }
+
+    /**
+     * Returns a set of the keys contained in this map. The set is backed by
+     * this map so changes to one are reflected by the other. The set does not
+     * support adding.
+     * 
+     * @return a set of the keys.
+     */
+    @Override
+    public Set<K> keySet() {
+        if (keySet == null) {
+            keySet = new AbstractSet<K>() {
+                @Override
+                public boolean contains(Object object) {
+                    return containsKey(object);
+                }
+
+                @Override
+                public int size() {
+                    return IdentityHashMap.this.size();
+                }
+
+                @Override
+                public void clear() {
+                    IdentityHashMap.this.clear();
+                }
+
+                @Override
+                public boolean remove(Object key) {
+                    if (containsKey(key)) {
+                        IdentityHashMap.this.remove(key);
+                        return true;
+                    }
+                    return false;
+                }
+
+                @Override
+                public Iterator<K> iterator() {
+                    return new IdentityHashMapIterator<K, K, V>(
+                            IdentityHashMapIterator.KIND_KEY, IdentityHashMap.this);
+                }
+            };
+        }
+        return keySet;
+    }
+
+    /**
+     * Returns a collection of the values contained in this map. The collection
+     * is backed by this map so changes to one are reflected by the other. The
+     * collection supports remove, removeAll, retainAll and clear operations,
+     * and it does not support add or addAll operations.
+     * <p>
+     * This method returns a collection which is the subclass of
+     * AbstractCollection. The iterator method of this subclass returns a
+     * "wrapper object" over the iterator of map's entrySet(). The {@code size}
+     * method wraps the map's size method and the {@code contains} method wraps
+     * the map's containsValue method.
+     * <p>
+     * The collection is created when this method is called for the first time
+     * and returned in response to all subsequent calls. This method may return
+     * different collections when multiple concurrent calls occur, since no
+     * synchronization is performed.
+     * 
+     * @return a collection of the values contained in this map.
+     */
+    @Override
+    public Collection<V> values() {
+        if (valuesCollection == null) {
+            valuesCollection = new AbstractCollection<V>() {
+                @Override
+                public boolean contains(Object object) {
+                    return containsValue(object);
+                }
+
+                @Override
+                public int size() {
+                    return IdentityHashMap.this.size();
+                }
+
+                @Override
+                public void clear() {
+                    IdentityHashMap.this.clear();
+                }
+
+                @Override
+                public Iterator<V> iterator() {
+                    return new IdentityHashMapIterator<V, K, V>(
+                            IdentityHashMapIterator.KIND_VALUE, IdentityHashMap.this);
+                }
+
+                @Override
+                public boolean remove(Object object) {
+                    Iterator<?> it = iterator();
+                    while (it.hasNext()) {
+                        if (object == it.next()) {
+                            it.remove();
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+            };
+        }
+        return valuesCollection;
+    }
+
+    /**
+     * Compares this map with other objects. This map is equal to another map is
+     * it represents the same set of mappings. With this map, two mappings are
+     * the same if both the key and the value are equal by reference. When
+     * compared with a map that is not an IdentityHashMap, the equals method is
+     * neither necessarily symmetric (a.equals(b) implies b.equals(a)) nor
+     * transitive (a.equals(b) and b.equals(c) implies a.equals(c)).
+     * 
+     * @param object
+     *            the object to compare to.
+     * @return whether the argument object is equal to this object.
+     */
+    @Override
+    public boolean equals(Object object) {
+        /*
+         * We need to override the equals method in AbstractMap because
+         * AbstractMap.equals will call ((Map) object).entrySet().contains() to
+         * determine equality of the entries, so it will defer to the argument
+         * for comparison, meaning that reference-based comparison will not take
+         * place. We must ensure that all comparison is implemented by methods
+         * in this class (or in one of our inner classes) for reference-based
+         * comparison to take place.
+         */
+        if (this == object) {
+            return true;
+        }
+        if (object instanceof Map) {
+            Map<?, ?> map = (Map) object;
+            if (size() != map.size()) {
+                return false;
+            }
+
+            Set<Map.Entry<K, V>> set = entrySet();
+            // ensure we use the equals method of the set created by "this"
+            return set.equals(map.entrySet());
+        }
+        return false;
+    }
+
+    /**
+     * Returns whether this IdentityHashMap has no elements.
+     * 
+     * @return {@code true} if this IdentityHashMap has no elements,
+     *         {@code false} otherwise.
+     * @see #size()
+     */
+    @Override
+    public boolean isEmpty() {
+        return size == 0;
+    }
+
+    /**
+     * Returns the number of mappings in this IdentityHashMap.
+     * 
+     * @return the number of mappings in this IdentityHashMap.
+     */
+    @Override
+    public int size() {
+        return size;
+    }
+
+    private void putAllImpl(Map<? extends K, ? extends V> map) {
+        if (map.entrySet() != null) {
+            super.putAll(map);
+        }
+    }
+}
+

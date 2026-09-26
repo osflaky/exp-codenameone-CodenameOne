@@ -1,0 +1,4 @@
+{
+  "_comment": "Queue of browser-only syndication tasks drained by a local syndication tool that runs on the maintainer's machine inside an already-signed-in browser session. Tasks are appended by the website queue scripts invoked by CI, and the local tool writes the resulting URLs back into syndication-state.json.",
+  "tasks": []
+}

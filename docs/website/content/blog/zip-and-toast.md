@@ -1,0 +1,98 @@
+---
+title: Zip and Toast
+slug: zip-and-toast
+url: /blog/zip-and-toast/
+original_url: https://www.codenameone.com/blog/zip-and-toast.html
+aliases:
+- /blog/zip-and-toast.html
+date: '2016-05-17'
+author: Shai Almog
+---
+
+![Header Image](/blog/zip-and-toast/toastbar-error.png)
+
+One of the often requested features in Codename One is zip support, we had some issues with it until a couple  
+of years back when we added tar and gzip support. But people still asked for standard zip file support which was  
+missing.
+
+We’re working on a tool that we hope to share next week that needs zip to work. Initially we thought about doing  
+this natively as zip works on most native OS’s but one of the true benefits of the tool is if we can get it to work in  
+the JavaScript port live on the web…​
+
+So I "ported" the [zipme](https://sourceforge.net/projects/zipme/) project to Codename One  
+[here](https://github.com/codenameone/ZipSupport). I’m quoting the word "ported" because I did almost **nothing**.  
+I just copied the sources into a new cn1lib project and it "just worked" for the most part.
+
+I did have to fix one thing in the iOS builds though. Some hackers use `String` objects to store binary data in  
+rather creative ways to save a bit of syntax. This practice is rather inefficient when compared to just using arrays  
+but it is still widely practiced. In this case this code was used:
+    
+    
+    String bitReverse = "\000\010\004\014\002\012\006\016\001\011\005\015\003\013\007\017";
+
+That is the exceedingly rare octal notation in Java strings…​ Unfortunately because the data includes many "invalid"  
+characters translating this into a C string is **really** hard. So our VM choked on that.
+
+Normally we’d fix something like this but since it’s both rare and slow when compared to just using an array  
+we chose to just fix the code and be done with it.
+
+### ToastBar Messages
+
+My code is littered with code that looks like:
+    
+    
+    // error handling code block...
+    Dialog.show("Error", "Generic error message", "OK", null);
+    return;
+
+This is in catch blocks, if statements etc.
+
+I’m sure your code is full of that too and this was getting on my nerves. It’s great to have an error message but why  
+do we need to dismiss it or even have it in a `Dialog`?
+
+So I wrote some code that shows it in a [ToastBar](/javadoc/com/codename1/components/ToastBar/)  
+and then it dawned on me that this should really replace [Dialog](/javadoc/com/codename1/ui/Dialog/)  
+for this specific use case.
+
+So we added these two static methods:
+    
+    
+    ToastBar.showErrorMessage(String msg, int timeout)
+    ToastBar.showErrorMessage(String msg)
+
+These methods effectively make showing an error message stupid trivial. They also include a nice error icon on  
+the side from the material font…​
+
+This cuts down on the boilerplate code and shows something that is "pretty" & modern by default which is  
+important.
+---
+
+## Archived Comments
+
+_This post was automatically migrated from the legacy Codename One blog. The original comments are preserved below for historical context. New discussion happens in the Discussion section._
+
+
+### **bryan** — May 18, 2016 at 9:41 pm ([permalink](/blog/zip-and-toast/#comment-22679))
+
+> bryan says:
+>
+> The ToastBar error is neat. When will this be available ?
+>
+
+
+
+### **Shai Almog** — May 19, 2016 at 3:33 am ([permalink](/blog/zip-and-toast/#comment-22737))
+
+> Shai Almog says:
+>
+> Thanks. On Friday as usual 😉
+>
+
+
+---
+
+## Discussion
+
+_Join the conversation via GitHub Discussions._
+
+{{< giscus >}}

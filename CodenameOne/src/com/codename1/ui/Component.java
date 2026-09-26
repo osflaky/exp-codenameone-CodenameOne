@@ -1,0 +1,10581 @@
+/*
+ * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores
+ * CA 94065 USA or visit www.oracle.com if you need additional information or
+ * have any questions.
+ */
+package com.codename1.ui;
+
+import com.codename1.cloud.BindTarget;
+import com.codename1.compat.java.util.Objects;
+import com.codename1.components.InfiniteProgress;
+import com.codename1.impl.CodenameOneImplementation;
+import com.codename1.io.Log;
+import com.codename1.ui.TextSelection.TextSelectionSupport;
+import com.codename1.ui.animations.Animation;
+import com.codename1.ui.animations.ComponentAnimation;
+import com.codename1.ui.animations.Motion;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.events.ComponentStateChangeEvent;
+import com.codename1.ui.events.FocusListener;
+import com.codename1.ui.events.ScrollListener;
+import com.codename1.ui.events.StyleListener;
+import com.codename1.ui.geom.Dimension;
+import com.codename1.ui.geom.Rectangle;
+import com.codename1.ui.accessibility.AccessibilityManager;
+import com.codename1.ui.accessibility.AccessibilityNode;
+import com.codename1.ui.layouts.FlowLayout;
+import com.codename1.ui.plaf.Border;
+import com.codename1.ui.plaf.GlassRecipe;
+import com.codename1.ui.plaf.LookAndFeel;
+import com.codename1.ui.plaf.RoundBorder;
+import com.codename1.ui.plaf.RoundRectBorder;
+import com.codename1.ui.plaf.Style;
+import com.codename1.ui.plaf.UIManager;
+import com.codename1.ui.util.EventDispatcher;
+import com.codename1.ui.util.Resources;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+
+/// The component class is the basis of all UI widgets in Codename One, to arrange multiple components
+/// together we use the Container class which itself "IS A" Component subclass. The Container is a
+/// Component that contains Components effectively allowing us to nest Containers infinitely to build any type
+/// of visual hierarchy we want by nesting Containers.
+///
+/// Style Change Events
+///
+/// Styles fire a change event for each style change that occurs.  `Component` listens to all changes events
+/// of its styles, and adjusts some of its properties accordingly.  Currently (as of 6.0) each style change will trigger
+/// a `Container#revalidate()` call on the Style's Component's parent container, which is expensive.  You can disable this
+/// `Container#revalidate()` call by calling `"false")`.  This will
+/// likely be the default behavior in a future version, so we recommend you disable this explicitly for both performance reasons, and
+/// to avoid regressions when the default is changed.
+///
+/// @author Chen Fishbein
+///
+/// #### See also
+///
+/// - Container
+public class Component implements Animation, StyleListener, Editable {
+
+    /// The default cursor
+    public static final int DEFAULT_CURSOR = 0;
+    // -1 = the element should be focusable, but should not be reachable via sequential keyboard navigation. Mostly useful to create accessible widgets 
+    // 0 =  the element should be focusable in sequential keyboard navigation, but its order is defined by the container's source order.
+    /// The crosshair cursor type.
+    public static final int CROSSHAIR_CURSOR = 1;
+    /// The text cursor type.
+    public static final int TEXT_CURSOR = 2;
+    /// The wait cursor type.
+    public static final int WAIT_CURSOR = 3;
+    /// The south-west-resize cursor type.
+    public static final int SW_RESIZE_CURSOR = 4;
+    /// The south-east-resize cursor type.
+    public static final int SE_RESIZE_CURSOR = 5;
+    /// The north-west-resize cursor type.
+    public static final int NW_RESIZE_CURSOR = 6;
+    /// The north-east-resize cursor type.
+    public static final int NE_RESIZE_CURSOR = 7;
+    /// The north-resize cursor type.
+    public static final int N_RESIZE_CURSOR = 8;
+    /// The south-resize cursor type.
+    public static final int S_RESIZE_CURSOR = 9;
+    /// The west-resize cursor type.
+    public static final int W_RESIZE_CURSOR = 10;
+    /// The east-resize cursor type.
+    public static final int E_RESIZE_CURSOR = 11;
+    /// The hand cursor type.
+    public static final int HAND_CURSOR = 12;
+    /// The move cursor type.
+    public static final int MOVE_CURSOR = 13;
+    /// Used by getDragRegionStatus to indicate no dragability
+    public static final int DRAG_REGION_NOT_DRAGGABLE = 1;
+    /// Used by getDragRegionStatus to indicate limited dragability
+    public static final int DRAG_REGION_POSSIBLE_DRAG_X = 10;
+    /// Used by getDragRegionStatus to indicate limited dragability
+    public static final int DRAG_REGION_POSSIBLE_DRAG_Y = 11;
+    /// Used by getDragRegionStatus to indicate limited dragability
+    public static final int DRAG_REGION_POSSIBLE_DRAG_XY = 12;
+    /// Used by getDragRegionStatus to indicate likely dragability
+    public static final int DRAG_REGION_LIKELY_DRAG_X = 21;
+    /// Used by getDragRegionStatus to indicate likely dragability
+    public static final int DRAG_REGION_LIKELY_DRAG_Y = 22;
+    /// Used by getDragRegionStatus to indicate likely dragability
+    public static final int DRAG_REGION_LIKELY_DRAG_XY = 23;
+    /// Used by getDragRegionStatus to indicate immediate dragability
+    public static final int DRAG_REGION_IMMEDIATELY_DRAG_X = 31;
+    /// Used by getDragRegionStatus to indicate immediate dragability
+    public static final int DRAG_REGION_IMMEDIATELY_DRAG_Y = 32;
+    /// Used by getDragRegionStatus to indicate immediate dragability
+    public static final int DRAG_REGION_IMMEDIATELY_DRAG_XY = 33;
+    /// Baseline resize behavior constant used to properly align components.
+    /// Indicates as the size of the component
+    /// changes the baseline remains a fixed distance from the top of the
+    /// component.
+    ///
+    /// #### See also
+    ///
+    /// - #getBaselineResizeBehavior
+    public static final int BRB_CONSTANT_ASCENT = 1;
+    /// Baseline resize behavior constant used to properly align components. Indicates as the size of the component
+    /// changes the baseline remains a fixed distance from the bottom of the
+    /// component.
+    ///
+    /// #### See also
+    ///
+    /// - #getBaselineResizeBehavior
+    public static final int BRB_CONSTANT_DESCENT = 2;
+    /// Baseline resize behavior constant used to properly align components. Indicates as the size of the component
+    /// changes the baseline remains a fixed distance from the center of the
+    /// component.
+    ///
+    /// #### See also
+    ///
+    /// - #getBaselineResizeBehavior
+    public static final int BRB_CENTER_OFFSET = 3;
+    /// Baseline resize behavior constant used to properly align components. Indicates as the size of the component
+    /// changes the baseline can not be determined using one of the other
+    /// constants.
+    ///
+    /// #### See also
+    ///
+    /// - #getBaselineResizeBehavior
+    public static final int BRB_OTHER = 4;
+    /// Indicates a Component center alignment
+    public static final int CENTER = 4;
+    /// Box-orientation constant used to specify the top of a box.
+    public static final int TOP = 0;
+    /// Box-orientation constant used to specify the left side of a box.
+    public static final int LEFT = 1;
+    /// Box-orientation constant used to specify the bottom of a box.
+    public static final int BOTTOM = 2;
+    /// Box-orientation constant used to specify the right side of a box.
+    public static final int RIGHT = 3;
+    /// Alignment to the baseline constraint
+    public static final int BASELINE = 5;
+    private static final Rectangle tmpRect = new Rectangle();
+    /// A flag to toggle between lightweight elevation shadow generation and heavyweight generation.  The lightweight
+    /// does the work entirely in CN1 and it cuts corners.  In simulator, it turns out that the heavyweight implementation
+    /// is too slow to be useful.  This may not be the case on other platforms, but, for now, we'll leave this flag on.
+    /// Later on, after evaluation, this flag will likely be removed, and the best strategy will be decided upon.
+    static int restoreDragPercentage = -1;
+    /// A flag to dictate whether style changes should trigger a revalidate() call
+    /// on the component's parent.  Eventually we would like to phase this to be false
+    /// but for now, we'll leave it as true.
+    ///
+    /// Users can disable this with `CN.setProperty("Component.revalidateOnStyleChange", "false")`.
+    private static boolean revalidateOnStyleChange = true;
+    private static byte defaultDragTransparency = 55;
+    private static boolean disableSmoothScrolling = false;
+    private static boolean paintLockEnableChecked;
+    private static boolean paintLockEnabled;
+
+    // Cached platform check for iOS-style scroll motion. Platform name is constant per
+    // process, so we cache it lazily to avoid repeated string comparisons in the drag hot path.
+    private static Boolean iosPlatformCached;
+
+    /// Returns true when iOS-style scroll physics (nonlinear rubber-band during drag,
+    /// critically-damped snap-back, ScrollMotion=DECAY defaults) should be applied.
+    /// The theme constant `iosScrollMotionBool` can force it on or off explicitly; when
+    /// unset, it defaults to true on the iOS platform and false elsewhere.
+    static boolean isIOSScrollMotion() {
+        String v = UIManager.getInstance().getThemeConstant("iosScrollMotionBool", null);
+        if (v != null) {
+            return "true".equalsIgnoreCase(v) || "1".equals(v);
+        }
+        Boolean cached = iosPlatformCached;
+        if (cached == null) {
+            cached = "ios".equals(Display.getInstance().getPlatformName());
+            iosPlatformCached = cached;
+        }
+        return cached;
+    }
+
+    /// iOS-style rubber-band compression: given a raw over-edge distance and the viewport
+    /// dimension, returns the compressed (visible) distance using `c*d*dim / (c*d + dim)`.
+    /// The coefficient `c` comes from the `rubberBandCoefficientInt` theme constant (value
+    /// is interpreted as hundredths, e.g. `55` = 0.55 which matches iOS UIScrollView).
+    static int rubberBandCompress(int raw, int dim) {
+        if (raw <= 0 || dim <= 0) {
+            return 0;
+        }
+        double c = UIManager.getInstance().getThemeConstant("rubberBandCoefficientInt", 55) / 100.0d;
+        double cd = c * raw;
+        return (int) Math.round(cd * dim / (cd + dim));
+    }
+
+    /// Inverse of `rubberBandCompress` - given a compressed over-edge distance, returns
+    /// the raw (finger) distance that would have produced it. Used to reconstruct the
+    /// raw drag offset from the currently-displayed compressed scroll position.
+    static int rubberBandDecompress(int compressed, int dim) {
+        if (compressed <= 0 || dim <= 0) {
+            return 0;
+        }
+        double c = UIManager.getInstance().getThemeConstant("rubberBandCoefficientInt", 55) / 100.0d;
+        double denom = c * (dim - compressed);
+        if (denom <= 0) {
+            return Integer.MAX_VALUE / 2;
+        }
+        return (int) Math.round(compressed * (double) dim / denom);
+    }
+    private final Rectangle bounds = new Rectangle(0, 0, new Dimension(0, 0));
+    private final Object dirtyRegionLock = new Object();
+    boolean hasLead;
+    /// The elevation at which this component was rendered in its last rendering.
+    ///
+    int renderedElevation;
+    /// The index at which this component was rendered in its last rendering.  This acts as a z-index within
+    /// an elevation layer.
+    ///
+    int renderedElevationComponentIndex;
+    Dimension scrollSize;
+    boolean shouldCalcPreferredSize = true;
+    boolean shouldCalcScrollSize = true;
+    Motion draggedMotionX;
+    Motion draggedMotionY;
+    boolean noBind;
+    EventDispatcher pointerPressedListeners;
+    EventDispatcher pointerReleasedListeners;
+    EventDispatcher pointerDraggedListeners;
+    EventDispatcher dragFinishedListeners;
+    EventDispatcher longPressListeners;
+    EventDispatcher contextMenuListeners;
+    EventDispatcher mouseWheelListeners;
+    EventDispatcher stylusListeners;
+    boolean isUnselectedStyle;
+    /// A flag used by `Container#paintElevatedPane(Graphics)` to turn off rendering of elevated components
+    /// when rendering the non-elevated pane.
+    boolean doNotPaint;
+    /// A flag that tracks whether the component is current registered as an animated with `Form#registerAnimatedInternal(Animation)`.
+    /// Using this flag allows for a small efficiency improvement.  The flag is set in `Form#registerAnimatedInternal(Animation)` and
+    /// unset in `Form#deregisterAnimatedInternal()`.
+    boolean internalRegisteredAnimated;
+    private int tabIndex;
+    private int preferredTabIndex = -1;
+    /// Indicates whether the component displays the material design ripple effect
+    private boolean rippleEffect;
+    private int cursor;
+    private String selectText;
+    private boolean alwaysTensile;
+    private int tensileLength = -1;
+    /// Prevent a lead component hierarchy from this specific component, this allows a component within that
+    /// hierarchy to still act as a standalone component
+    private boolean blockLead;
+    /// Allows us to determine which component will receive focus next when traversing
+    /// with the down key
+    private Component nextFocusDown;
+    private Component nextFocusUp;
+    private Editable editingDelegate;
+    /// Indicates whether component is enabled or disabled
+    private boolean enabled = true;
+    /// Allows us to determine which component will receive focus next when traversing
+    /// with the right key
+    private Component nextFocusRight;
+    private Component nextFocusLeft;
+    private String name;
+    /// This property is useful for blocking in z-order touch events, sometimes we might want to grab touch events in
+    /// a specific component without making it focusable.
+    private boolean grabsPointerEvents;
+    /// Indicates whether tensile drag (dragging beyond the boundary of the component and
+    /// snapping back) is enabled for this component.
+    private boolean tensileDragEnabled;
+    /// Indicates whether tensile highlight (drawing a highlight effect when reaching the edge) is enabled for this component.
+    private boolean tensileHighlightEnabled;
+    private int tensileHighlightIntensity;
+    /// Indicates whether the component should "trigger" tactile touch when pressed by the user
+    /// in a touch screen UI.
+    private boolean tactileTouch;
+    private boolean visible = true;
+    /// Used as an optimization to mark that this component is currently being
+    /// used as a cell renderer
+    private boolean cellRenderer;
+    private Rectangle painterBounds;
+    private int scrollX;
+    private int scrollY;
+    // Last painted geometry of the interactive (desktop) scrollbar, stored component-local
+    // by LookAndFeel.drawScroll so pointer handling can hit-test the thumb/track. Width 0
+    // means "not yet painted". Only populated when LookAndFeel.isInteractiveScroll() is on.
+    private int scrollThumbX;
+    private int scrollThumbY;
+    private int scrollThumbW;
+    private int scrollThumbH;
+    private int scrollTrackX;
+    private int scrollTrackY;
+    private int scrollTrackW;
+    private int scrollTrackH;
+    private int hScrollThumbX;
+    private int hScrollThumbY;
+    private int hScrollThumbW;
+    private int hScrollThumbH;
+    private int hScrollTrackX;
+    private int hScrollTrackY;
+    private int hScrollTrackW;
+    private int hScrollTrackH;
+    // Active interactive-scrollbar drag state and the pointer offset within the thumb at grab time
+    private boolean draggingScrollThumbY;
+    private boolean draggingScrollThumbX;
+    private int scrollThumbGrabOffset;
+    // True while the pointer hovers an interactive scrollbar thumb so the look and feel can render
+    // the desktop-conventional hover highlight. Only meaningful on the desktop with interactive
+    // scrollbars enabled.
+    private boolean scrollThumbHoverY;
+    private boolean scrollThumbHoverX;
+    private boolean sizeRequestedByUser = false;
+    private Dimension preferredSize;
+    private boolean scrollSizeRequestedByUser = false;
+    private Style unSelectedStyle;
+    private Style pressedStyle;
+    private Style hoverStyle;
+    /// Set only on the desktop; see setHovered.
+    private boolean hovered;
+    private Style selectedStyle;
+    private Style disabledStyle;
+    private Style allStyles;
+    private Container parent;
+    private Component owner;
+    private boolean focused = false;
+    private boolean handlesInput = false;
+    private boolean focusable = true;
+    private boolean isScrollVisible = true;
+    private boolean repaintPending;
+    private boolean snapToGrid;
+    private byte dragTransparency = defaultDragTransparency;
+    // A flag to indicate whether to paint the component's background.
+    // Setting this to false will cause the component's background to not be painted.
+    private boolean opaque = true;
+    private boolean hideInPortrait;
+    /// Indicates that this component and all its children should be hidden when the device is switched to landscape mode
+    private boolean hideInLandscape;
+    /// Wheel movement a snapping component could not show yet, because it was smaller than
+    /// the distance to the next row. Carried to the following wheel event instead of being
+    /// dropped: without it a trackpad's small deltas each snap back to the row they started
+    /// on and the component never moves, and with it the visible position is always ON a
+    /// row -- which matters because Spinner3D reads its selected index straight off the
+    /// scroll position, so a component resting between rows reports a value nobody chose.
+    int wheelSnapRemainderY;
+    int wheelSnapRemainderX;
+
+    private int scrollOpacity = 0xff;
+    private boolean ignorePointerEvents;
+    /// Indicates the decrement units for the scroll opacity
+    private int scrollOpacityChangeSpeed = 5;
+    /// Indicates that moving through the component should work as an animation
+    private boolean smoothScrolling;
+    /// Animation speed in milliseconds allowing a developer to slow down or accelerate
+    /// the smooth animation mode
+    private int animationSpeed;
+    private Motion animationMotion;
+    // Reference that is only filled when a drag motion is a decelration motion
+    // for tensile scrolling
+    private Motion decelerationMotion;
+    /// Allows us to flag a drag operation in action thus preventing the mouse pointer
+    /// release event from occurring.
+    private boolean dragActivated;
+    private int oldx;
+    private int oldy;
+    private int draggedx;
+    private int draggedy;
+    private int initialScrollY = -1;
+    private int destScrollY = -1;
+    private int lastScrollY;
+    private int lastScrollX;
+    private int pullY;
+    private boolean shouldGrabScrollEvents;
+    /// Indicates if the component is in the initialized state, a component is initialized
+    /// when its initComponent() method was invoked. The initMethod is invoked before showing the
+    /// component to the user.
+    private boolean initialized;
+    private HashMap<String, Object> clientProperties;
+    private Rectangle dirtyRegion = null;
+    private Label componentLabel;
+    private String portraitUiid;
+    private String landscapeUiid;
+    private Resources inlineStylesTheme;
+    private String inlineAllStyles;
+    private String inlinePressedStyles;
+    private String inlineDisabledStyles;
+    private String inlineSelectedStyles;
+    private String inlineUnselectedStyles;
+    /// Is the component a bidi RTL component
+    private boolean rtl;
+    private boolean flatten;
+    private Object paintLockImage;
+    private boolean draggable;
+    private boolean dragAndDropInitialized;
+    private boolean dropTarget;
+    /// Native (operating system) drag and drop state. Kept beside the lightweight drag and drop
+    /// fields above because the two are alternatives for the same gesture: a component that is a
+    /// native drag source hands the press to the platform, and the lightweight drag never runs.
+    private boolean nativeDragSource;
+    private boolean nativeDropTarget;
+    private NativeDragOperation nativeDragOperation;
+    private String[] acceptedDropMimeTypes;
+    private int acceptedDropActions = NativeDragOperation.ACTION_COPY
+            | NativeDragOperation.ACTION_MOVE | NativeDragOperation.ACTION_LINK;
+    private EventDispatcher nativeDropListeners;
+    private EventDispatcher nativeDragOverListeners;
+    private Image dragImage;
+    private Component dropTargetComponent;
+    private int dragCallbacks = 0;
+    private String cloudBoundProperty;
+    private String cloudDestinationProperty;
+    private Runnable refreshTask;
+    private ActionListener<?> refreshTaskDragListener;
+    private double pinchDistance;
+    private Component[] sameWidth;
+    private Component[] sameHeight;
+    private EventDispatcher focusListeners;
+    private EventDispatcher scrollListeners;
+    private EventDispatcher dropListener;
+    private EventDispatcher dragOverListener;
+    private EventDispatcher stateChangeListeners;
+    private String tooltip;
+    private String accessibilityText;
+    private AccessibilityNode semantics;
+    /// The native overlay object.  Used in Javascript port for some components so that there is
+    /// an inivisible "native" peer overlaid on the component itself to catch events.  E.g.
+    /// TextFields on iOS can't be programmatically focused except through a user-initiated event -
+    /// but since CN1 runs on the EDT, CN1 events aren't considered user-initiated so we can't create
+    /// a native text editor on demand the way we do in desktop port - the native text editor must
+    /// be *always* present.
+    private Object nativeOverlay = null;
+    /// Optional string the specifies the preferred size of the component. Format is
+    /// where  and  are both scalar values.  E.g. "15px", "20.5mm", or "inherit"
+    /// to indicate that it should inherit the value returned from `#calcPreferredSize()` for that coordinate.
+    private String preferredSizeStr;
+    /// A cached image that is used for rendering drop-shadows.  This is only updated when the component elevation, width, or height
+    /// is changed.  Otherwise it is reused for painting shadows.
+    ///
+    /// #### See also
+    ///
+    /// - #paintShadows(Graphics, int, int)
+    private Image cachedShadowImage;
+    /// The elevation of the component when the `#cachedShadowImage` was created.
+    private int cachedShadowElevation;
+    /// The width of the component when the `#cachedShadowImage` was created.
+    private int cachedShadowWidth;
+
+    /// The height of the component when the  `#cachedShadowImage` was created.
+    private int cachedShadowHeight;
+
+    /// Flag to indicate whether the component has elevation.
+    private boolean _hasElevation;
+    /// A flag to prevent reentry into painting the shadow.
+    private boolean paintinShadowInBackground_ = false;
+    private boolean inPinch;
+    private boolean pinchBlocksDragAndDrop;
+    /// Holds a reference to the current surface this this component is registered with.
+    ///
+    /// #### See also
+    ///
+    /// - #registerElevatedInternal(Component)
+    ///
+    /// - Container#addElevatedComponent(Component)
+    ///
+    /// - Container#removeElevatedComponent(Component)
+    private Container _parentSurface;
+
+
+    /// Creates a new instance of Component
+    protected Component() {
+        initLaf(getUIManagerImpl());
+        setCursor(DEFAULT_CURSOR);
+    }
+
+    /// This is identical to invoking `#sameWidth` followed by `#sameHeight`
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: the components to group together, this will override all previous width/height grouping
+    public static void setSameSize(Component... c) {
+        setSameWidth(c);
+        setSameHeight(c);
+    }
+
+    /// Checks to see if this platform supports cursors.  If the platform doesn't support cursors then any cursors
+    /// set with `#setCursor(int)` will simply be ignored.
+    ///
+    /// #### Returns
+    ///
+    /// True if the platform supports custom cursors.
+    public static boolean isSetCursorSupported() {
+        return Display.getInstance().getImplementation().isSetCursorSupported();
+    }
+
+    static boolean isRevalidateOnStyleChange() {
+        return revalidateOnStyleChange;
+    }
+
+    static void setRevalidateOnStyleChange(boolean val) {
+        revalidateOnStyleChange = val;
+    }
+
+    /// Parses the preferred size given as a string
+    ///
+    /// #### Parameters
+    ///
+    /// - `preferredSize`: a string representing a width/height preferred size using common units e.g. mm, px etc.
+    ///
+    /// - `baseSize`: used as the starting point for the calculation, typically the preferred size of the component
+    ///
+    /// #### Returns
+    ///
+    /// the parsed results
+    public static Dimension parsePreferredSize(String preferredSize, Dimension baseSize) {
+        int spacePos = preferredSize.indexOf(" ");
+        if (spacePos == -1) {
+            return baseSize;
+        }
+        String wStr = preferredSize.substring(0, spacePos).trim();
+        String hStr = preferredSize.substring(spacePos + 1).trim();
+        int unitPos;
+        float pixelsPerMM = Display.getInstance().convertToPixels(1000f) / 1000f;
+        try {
+            unitPos = wStr.indexOf("mm");
+            if (unitPos != -1) {
+                baseSize.setWidth(Math.round(Float.parseFloat(wStr.substring(0, unitPos)) * pixelsPerMM));
+            } else {
+                unitPos = wStr.indexOf("px");
+                if (unitPos != -1) {
+                    baseSize.setWidth(Integer.parseInt(wStr.substring(0, unitPos)));
+                } else {
+                    if (!"inherit".equals(wStr)) {
+                        baseSize.setWidth(Integer.parseInt(wStr));
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            Log.e(t);
+        }
+
+        try {
+            if ((unitPos = hStr.indexOf("mm")) != -1) { //NOPMD AssignmentInOperand
+                baseSize.setHeight(Math.round(Float.parseFloat(hStr.substring(0, unitPos)) * pixelsPerMM));
+            } else if ((unitPos = hStr.indexOf("px")) != -1) { //NOPMD AssignmentInOperand
+                baseSize.setHeight(Integer.parseInt(hStr.substring(0, unitPos)));
+            } else if (!"inherit".equals(hStr)) {
+                baseSize.setHeight(Integer.parseInt(hStr));
+            }
+        } catch (Throwable t) {
+            Log.e(t);
+        }
+        return baseSize;
+    }
+
+    /// Disable smooth scrolling on all components
+    ///
+    /// #### Parameters
+    ///
+    /// - `disableSmoothScrolling`: false to disable
+    static void setDisableSmoothScrolling(boolean disableSmoothScrolling) {
+        Component.disableSmoothScrolling = disableSmoothScrolling;
+    }
+
+    /// Returns the default translucency used in the `#getDragImage()` method.
+    ///
+    /// #### Returns
+    ///
+    /// a number between 0 and 255 where 255 indicates an opaque image.
+    public static byte getDefaultDragTransparency() {
+        return defaultDragTransparency;
+    }
+
+    /// Sets the default translucency of the `#getDragImage()` method.
+    ///
+    /// #### Parameters
+    ///
+    /// - `defaultDragTransparency`: @param defaultDragTransparency a number between 0 and 255 where 255
+    /// indicates an opaque image.
+    public static void setDefaultDragTransparency(byte defaultDragTransparency) {
+        Component.defaultDragTransparency = defaultDragTransparency;
+    }
+
+    boolean isDragAndDropInitialized() {
+        return dragAndDropInitialized;
+    }
+
+    /// Gets the delegate that handles the editing of this component.
+    ///
+    /// #### Returns
+    ///
+    /// The editing delegate for this component.
+    ///
+    public Editable getEditingDelegate() {
+        return this.editingDelegate;
+    }
+
+    /// Sets the editing delegate for this component.  The editing delegate allows you to define the
+    /// editing workflow for a component.  If a delegate is registered, then editing methods such as
+    /// `#isEditable()`, `#isEditing()`, `#startEditingAsync()`, and `#stopEditing(java.lang.Runnable)`
+    /// will be delegated to the delegate object.
+    ///
+    /// #### Parameters
+    ///
+    /// - `editable`: An editable delegate.
+    ///
+    public void setEditingDelegate(Editable editable) {
+        this.editingDelegate = editable;
+    }
+
+    /// Gets the custom cursor for this component.  This will only be used if the platform supports custom cursors.
+    /// You can call `#isSetCursorSupported()` to find out.
+    ///
+    /// #### Returns
+    ///
+    /// @return The cursor to set on this component.  One of `#DEFAULT_CURSOR`, `#CROSSHAIR_CURSOR`, `#TEXT_CURSOR`,
+    /// `#WAIT_CURSOR`, `#SW_RESIZE_CURSOR`, `#SE_RESIZE_CURSOR`, `#S_RESIZE_CURSOR`, `#NE_RESIZE_CURSOR`,
+    /// `#NW_RESIZE_CURSOR`, `#W_RESIZE_CURSOR`, `#HAND_CURSOR`, or `#MOVE_CURSOR`.
+    public int getCursor() {
+        return this.cursor;
+    }
+
+    /// Sets a custom mouse cursor for this component if the platform supports mouse cursors, notice that this isn't applicable for touch devices.
+    /// This will only be used if the platform supports custom cursors.
+    /// You can call `#isSetCursorSupported()` to find out.
+    ///
+    /// **Note:** Since cursors incur some overhead, they are turned off at the form level by default.
+    /// If you want your custom cursors to be used, then you'll need to enable cursors in the form using `Form#setEnableCursors(boolean)`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cursor`: @param cursor The cursor to set on this component.  One of `#DEFAULT_CURSOR`, `#CROSSHAIR_CURSOR`, `#TEXT_CURSOR`,
+    /// `#WAIT_CURSOR`, `#SW_RESIZE_CURSOR`, `#SE_RESIZE_CURSOR`, `#S_RESIZE_CURSOR`, `#NE_RESIZE_CURSOR`,
+    /// `#NW_RESIZE_CURSOR`, `#W_RESIZE_CURSOR`, `#HAND_CURSOR`, or `#MOVE_CURSOR`.
+    ///
+    /// #### See also
+    ///
+    /// - Form#setEnableCursors(boolean)
+    ///
+    /// - Form#isEnableCursors()
+    public void setCursor(int cursor) {
+        this.cursor = cursor;
+    }
+
+    /// Creates the native overlay for this component. A native overlay is used on some platforms (e.g. Javascript)
+    /// to help with user interaction of the component in a native way.
+    ///
+    /// #### See also
+    ///
+    /// - #hideNativeOverlay()
+    ///
+    /// - #updateNativeOverlay()
+    ///
+    /// - #getNativeOverlay()
+    protected void showNativeOverlay() {
+        if (nativeOverlay == null) {
+            nativeOverlay = Display.getInstance().getImplementation().createNativeOverlay(this);
+        }
+    }
+
+    /// Hides the native overlay for this component.
+    ///
+    /// #### See also
+    ///
+    /// - #showNativeOverlay()
+    ///
+    /// - #updateNativeOverlay()
+    ///
+    /// - #getNativeOverlay()
+    protected void hideNativeOverlay() {
+        if (nativeOverlay != null) {
+            Display.getInstance().getImplementation().hideNativeOverlay(this, nativeOverlay);
+            nativeOverlay = null;
+        }
+    }
+
+    /// Updates the native overlay for this component.  This is called each time the component
+    /// is laid out, so it can change the position and visibility to match the current context.
+    ///
+    /// #### See also
+    ///
+    /// - #showNativeOverlay()
+    ///
+    /// - #hideNativeOverlay()
+    ///
+    /// - #getNativeOverlay()
+    protected void updateNativeOverlay() {
+        if (nativeOverlay != null) {
+            Display.getInstance().getImplementation().updateNativeOverlay(this, nativeOverlay);
+        }
+    }
+
+    /// Gets the native overlay for this component.  May be null. Native overlays are used in the Javascript
+    /// port to assist with user interaction on touch devices.  Text fields use native overlays to position
+    /// an invisible native text field above themselves so that the keyboard will be activated properly when
+    /// the user taps the text field.
+    ///
+    /// #### Returns
+    ///
+    /// The native overlay
+    public Object getNativeOverlay() {
+        return nativeOverlay;
+    }
+
+    /// Returns a "meta style" that allows setting styles once to all the different Style objects, the getters for this
+    /// style will be meaningless and will return 0 values. Usage:
+    ///
+    /// ```java
+    /// Form hi = new Form("Painter via getAllStyles", new BorderLayout());
+    /// Container cmp = new Container();
+    /// cmp.setPreferredSize(new Dimension(300, 300));
+    /// Painter p = new Painter() {
+    ///     public void paint(Graphics g, Rectangle rect) {
+    ///         boolean antiAliased = g.isAntiAliased();
+    ///         g.setAntiAliased(true);
+    ///         int r = Math.min(rect.getWidth(), rect.getHeight()) / 2;
+    ///         int x = rect.getX() + rect.getWidth() / 2 - r;
+    ///         int y = rect.getY() + rect.getHeight() / 2 - r;
+    ///         g.setColor(cmp.getStyle().getBgColor());
+    ///         g.fillArc(x, y, 2 * r, 2 * r, 0, 360);
+    ///         g.setColor(cmp.getStyle().getFgColor());
+    ///         g.drawArc(x, y, 2 * r - 1, 2 * r - 1, 0, 360);
+    ///         g.setAntiAliased(antiAliased);
+    ///     }
+    /// };
+    /// cmp.getAllStyles().setBgColor(0x4488ff);
+    /// cmp.getAllStyles().setBgTransparency(255);
+    /// cmp.getAllStyles().setFgColor(0xffffff);
+    /// cmp.getAllStyles().setBgPainter(p);
+    /// hi.add(BorderLayout.CENTER, cmp);
+    /// hi.show();
+    /// ```
+    ///
+    /// The hover style is deliberately NOT part of this proxy. A component only has one when
+    /// its theme declares hover for that UIID, so including it would either force one into
+    /// existence for every component this is called on -- the blank-default repaint
+    /// {@link #getHoverStyle()} exists to prevent -- or make the proxy cover four states
+    /// sometimes and five others, depending on the theme and on when it was first called.
+    /// Style hover in the theme, which is where the desktop themes do it.
+    ///
+    /// #### Returns
+    ///
+    /// a unified style object to set values on all styles
+    public final Style getAllStyles() {
+        if (allStyles == null) {
+            allStyles = Style.createProxyStyle(getUnselectedStyle(), getSelectedStyle(), getPressedStyle(), getDisabledStyle());
+        }
+        return allStyles;
+    }
+
+    /// Returns the array of components that have an equal width
+    ///
+    /// #### Returns
+    ///
+    /// components in the same width group
+    public Component[] getSameWidth() {
+        return sameWidth;
+    }
+
+    /// Places all of these components in the same width group, to remove a component from
+    /// the group invoke this method with that component only.
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: the components to group together, this will override all previous width grouping
+    public static void setSameWidth(Component... c) {
+        if (c.length == 1) {
+            // special case, remove grouping
+            if (c[0].sameWidth != null) {
+                ArrayList<Component> lst = new ArrayList<Component>(Arrays.asList(c[0].sameWidth));
+                lst.remove(c[0]);
+                if (lst.size() == 1) {
+                    lst.get(0).sameWidth = null;
+                } else {
+                    if (!lst.isEmpty()) {
+                        Component[] cmps = new Component[lst.size()];
+                        lst.toArray(cmps);
+                        setSameWidth(cmps);
+                    }
+                }
+                c[0].sameWidth = null;
+            }
+        } else {
+            for (Component cc : c) {
+                cc.sameWidth = c;
+            }
+        }
+    }
+
+    /// Returns the array of components that have an equal height
+    ///
+    /// #### Returns
+    ///
+    /// components in the same height group
+    public Component[] getSameHeight() {
+        return sameHeight;
+    }
+
+    /// Places all of these components in the same height group, to remove a component from
+    /// the group invoke this method with that component only.
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: the components to group together, this will override all previous height grouping
+    public static void setSameHeight(Component... c) {
+        if (c.length == 1) {
+            // special case, remove grouping
+            if (c[0].sameHeight != null) {
+                ArrayList<Component> lst = new ArrayList<Component>(Arrays.asList(c[0].sameHeight));
+                lst.remove(c[0]);
+                if (lst.size() == 1) {
+                    lst.get(0).sameHeight = null;
+                } else {
+                    if (!lst.isEmpty()) {
+                        Component[] cmps = new Component[lst.size()];
+                        lst.toArray(cmps);
+                        setSameHeight(cmps);
+                    }
+                }
+                c[0].sameHeight = null;
+            }
+        } else {
+            for (Component cc : c) {
+                cc.sameHeight = c;
+            }
+        }
+    }
+
+    /// Bits recording which scroll-behaviour defaults the caller has set explicitly, so
+    /// [#initLaf] leaves those alone.
+    ///
+    /// initLaf runs from the constructor, from refreshTheme and - the one that used to
+    /// bite - from `Form#show`, which walks the whole hierarchy. Anything set between
+    /// building a component and showing its Form was therefore reverted to the look and
+    /// feel's default without a word: `setScrollVisible(false)` in particular came back
+    /// as true and painted a scrollbar the caller had explicitly turned off.
+    private byte lafOverrides;
+
+    private static final byte LAF_SCROLL_VISIBLE = 1;
+    private static final byte LAF_TENSILE_DRAG = 2;
+    private static final byte LAF_SNAP_TO_GRID = 4;
+    private static final byte LAF_ALWAYS_TENSILE = 8;
+    private static final byte LAF_TENSILE_LENGTH = 16;
+
+    private boolean lafOverridden(byte bit) {
+        return (lafOverrides & bit) != 0;
+    }
+
+    /// This method initializes the Component defaults constants
+    protected void initLaf(UIManager uim) {
+        if (uim == getUIManager() && isInitialized()) { //NOPMD CompareObjectsWithEquals
+            return;
+        }
+        selectText = uim.localize("select", "Select");
+        LookAndFeel laf = uim.getLookAndFeel();
+        animationSpeed = laf.getDefaultSmoothScrollingSpeed();
+        rtl = laf.isRTL();
+        tactileTouch = isFocusable();
+        if (!lafOverridden(LAF_TENSILE_DRAG)) {
+            tensileDragEnabled = laf.isDefaultTensileDrag();
+        }
+        if (!lafOverridden(LAF_SNAP_TO_GRID)) {
+            snapToGrid = laf.isDefaultSnapToGrid();
+        }
+        if (!lafOverridden(LAF_ALWAYS_TENSILE)) {
+            alwaysTensile = laf.isDefaultAlwaysTensile();
+        }
+        tensileHighlightEnabled = laf.isDefaultTensileHighlight();
+        scrollOpacityChangeSpeed = laf.getFadeScrollBarSpeed();
+        if (!lafOverridden(LAF_SCROLL_VISIBLE)) {
+            isScrollVisible = laf.isScrollVisible();
+        }
+
+        if (!lafOverridden(LAF_TENSILE_LENGTH)) {
+            if (tensileHighlightEnabled) {
+                tensileLength = 3;
+            } else {
+                tensileLength = -1;
+            }
+        }
+    }
+
+    /// Gets the UIID that would be used for this component if inline styles are used.
+    /// Generally this UIID follows the format: id[name] where "id" is the UIID of
+    /// the component, and "name" is the name of the component.
+    ///
+    /// #### Returns
+    ///
+    /// the style text or null
+    ///
+    /// #### See also
+    ///
+    /// - #getInlineStylesUIID()
+    private String getInlineStylesUIID() {
+        return getUIID() + "[" + getName() + "]";
+    }
+
+    /// Gets the UIID that would be used for this component if inline styles are used.
+    /// Generally this UIID follows the format: id[name] where "id" is the UIID of
+    /// the component, and "name" is the name of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: UIID to use as the base.
+    ///
+    /// #### Returns
+    ///
+    /// the style text or null
+    ///
+    /// #### See also
+    ///
+    /// - #getInlineStylesUIID()
+    private String getInlineStylesUIID(String id) {
+        return id + "[" + getName() + "]";
+    }
+
+    /// Checks to see if the component has any inline styles registered for its unselected state.
+    ///
+    /// #### Returns
+    ///
+    /// True if the component has inline styles registered for the unselected state.
+    private boolean hasInlineUnselectedStyle() {
+        return getInlineStylesTheme() != null && (inlineAllStyles != null || inlineUnselectedStyles != null);
+    }
+
+    /// Checks to see if the component has any inline styles registered for its pressed state.
+    ///
+    /// #### Returns
+    ///
+    /// True if the component has inline styles registered for the pressed state.
+    private boolean hasInlinePressedStyle() {
+        return getInlineStylesTheme() != null && (inlineAllStyles != null || inlinePressedStyles != null);
+    }
+
+    /// Checks to see if the component has any inline styles registered for its disabled state.
+    ///
+    /// #### Returns
+    ///
+    /// True if the component has inline styles registered for the disabled state.
+    private boolean hasInlineDisabledStyle() {
+        return getInlineStylesTheme() != null && (inlineAllStyles != null || inlineDisabledStyles != null);
+    }
+
+    /// Checks to see if the component has any inline styles registered for its selected state.
+    ///
+    /// #### Returns
+    ///
+    /// True if the component has inline styles registered for the selected state.
+    private boolean hasInlineSelectedStyle() {
+        return getInlineStylesTheme() != null && (inlineAllStyles != null || inlineSelectedStyles != null);
+    }
+
+    /// Gets array of style strings to be used for inline unselected style. This may include
+    /// the `#inlineAllStyles` string and/or the `#inlineUnselectedStyles` string.
+    ///
+    /// #### Returns
+    ///
+    /// @return Array of inline style strings to be applied to pressed state.  Or null if
+    /// none specified.
+    private String[] getInlineUnselectedStyleStrings() {
+        if (inlineAllStyles != null) {
+            if (inlineUnselectedStyles != null) {
+                return new String[]{inlineAllStyles, inlineUnselectedStyles};
+            } else {
+                return new String[]{inlineAllStyles};
+            }
+        } else {
+            if (inlineUnselectedStyles != null) {
+                return new String[]{inlineUnselectedStyles};
+            } else {
+                return null;
+            }
+
+        }
+    }
+
+    /// Gets array of style strings to be used for inline selected style. This may include
+    /// the `#inlineAllStyles` string and/or the `#inlineSelectedStyles` string.
+    ///
+    /// #### Returns
+    ///
+    /// @return Array of inline style strings to be applied to pressed state.  Or null if
+    /// none specified.
+    private String[] getInlineSelectedStyleStrings() {
+        if (inlineAllStyles != null) {
+            if (inlineSelectedStyles != null) {
+                return new String[]{inlineAllStyles, inlineSelectedStyles};
+            } else {
+                return new String[]{inlineAllStyles};
+            }
+        } else {
+            if (inlineSelectedStyles != null) {
+                return new String[]{inlineSelectedStyles};
+            } else {
+                return null;
+            }
+
+        }
+    }
+
+    /// Gets array of style strings to be used for inline pressed style. This may include
+    /// the `#inlineAllStyles` string and/or the `#inlinePressedStyles` string.
+    ///
+    /// #### Returns
+    ///
+    /// @return Array of inline style strings to be applied to pressed state.  Or null if
+    /// none specified.
+    private String[] getInlinePressedStyleStrings() {
+        if (inlineAllStyles != null) {
+            if (inlinePressedStyles != null) {
+                return new String[]{inlineAllStyles, inlinePressedStyles};
+            } else {
+                return new String[]{inlineAllStyles};
+            }
+        } else {
+            if (inlinePressedStyles != null) {
+                return new String[]{inlinePressedStyles};
+            } else {
+                return null;
+            }
+
+        }
+    }
+
+    /// Gets array of style strings to be used for inline disabled style. This may include
+    /// the `#inlineAllStyles` string and/or the `#inlineDisabledStyles` string.
+    ///
+    /// #### Returns
+    ///
+    /// @return Array of inline style strings to be applied to disabled state.  Or null if
+    /// none specified.
+    private String[] getInlineDisabledStyleStrings() {
+        if (inlineAllStyles != null) {
+            if (inlineDisabledStyles != null) {
+                return new String[]{inlineAllStyles, inlineDisabledStyles};
+            } else {
+                return new String[]{inlineAllStyles};
+            }
+        } else {
+            if (inlineDisabledStyles != null) {
+                return new String[]{inlineDisabledStyles};
+            } else {
+                return null;
+            }
+
+        }
+    }
+
+    void setSurface(boolean surface) {
+
+    }
+
+    private void initStyle() {
+        if (hasInlineUnselectedStyle()) {
+            unSelectedStyle = getUIManager().parseComponentStyle(getInlineStylesTheme(), getUIID(), getInlineStylesUIID(), getInlineUnselectedStyleStrings());
+        } else {
+            unSelectedStyle = getUIManager().getComponentStyle(getUIID());
+        }
+        initUnselectedStyle(unSelectedStyle);
+        lockStyleImages(unSelectedStyle);
+        if (unSelectedStyle != null) {
+            if (initialized && unSelectedStyle.getElevation() > 0) {
+                registerElevatedInternal(this);
+            }
+            if (initialized) {
+                setSurface(unSelectedStyle.isSurface());
+            }
+            unSelectedStyle.addStyleListener(this);
+            if (unSelectedStyle.getBgPainter() == null) {
+                unSelectedStyle.setBgPainter(new BGPainter());
+            }
+            if (cellRenderer) {
+                unSelectedStyle.markAsRendererStyle();
+            }
+        }
+        if (disabledStyle != null) {
+            if (initialized && disabledStyle.getElevation() > 0) {
+                registerElevatedInternal(this);
+            }
+            if (initialized) {
+                setSurface(disabledStyle.isSurface());
+            }
+            disabledStyle.addStyleListener(this);
+            if (disabledStyle.getBgPainter() == null) {
+                disabledStyle.setBgPainter(new BGPainter());
+            }
+            if (cellRenderer) {
+                disabledStyle.markAsRendererStyle();
+            }
+        }
+    }
+
+    /// This method should be used by the Component to retrieve the correct UIManager to work with
+    ///
+    /// #### Returns
+    ///
+    /// a UIManager instance
+    public UIManager getUIManager() {
+        return getUIManagerImpl();
+    }
+
+    private UIManager getUIManagerImpl() {
+        Container parent = getParent();
+        //if no parent return the default UIManager
+        if (parent == null) {
+            return UIManager.getInstance();
+        }
+        return parent.getUIManager();
+    }
+
+    /// Returns the current component x location relatively to its parent container
+    ///
+    /// #### Returns
+    ///
+    /// the current x coordinate of the components origin
+    public int getX() {
+        return bounds.getX();
+    }
+
+    /// Sets the Component x location relative to the parent container, this method
+    /// is exposed for the purpose of external layout managers and should not be invoked
+    /// directly.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the current x coordinate of the components origin
+    public void setX(int x) {
+        boolean changed = bounds.getX() != x;
+        bounds.setX(x);
+        if (changed) {
+            accessibilityChanged(AccessibilityManager.CHANGE_BOUNDS);
+        }
+        if (Form.activePeerCount > 0) {
+            onParentPositionChange();
+        }
+    }
+
+    /// Gets the x-coordinate of the outer bounds of this component.  The outer bounds are formed
+    /// by the bounds outside the margin of the component.  (i.e. `x - leftMargin`).
+    ///
+    /// #### Returns
+    ///
+    /// The outer X bound.
+    public int getOuterX() {
+        return getX() - getStyle().getMarginLeftNoRTL();
+    }
+
+    /// Gets x-coordinate of the inner bounds of this component.  The inner bounds are formed by
+    /// the bounds of the padding of the component.  i.e. `x + leftPadding`.
+    ///
+    /// #### Returns
+    ///
+    /// The inner x bound.
+    public int getInnerX() {
+        return getX() + getStyle().getMarginLeftNoRTL();
+    }
+
+    /// Returns the component y location relatively to its parent container
+    ///
+    /// #### Returns
+    ///
+    /// the current y coordinate of the components origin
+    public int getY() {
+        return bounds.getY();
+    }
+
+    /// Sets the Component y location relative to the parent container, this method
+    /// is exposed for the purpose of external layout managers and should not be invoked
+    /// directly.
+    ///
+    /// #### Parameters
+    ///
+    /// - `y`: the current y coordinate of the components origin
+    public void setY(int y) {
+        boolean changed = bounds.getY() != y;
+        bounds.setY(y);
+        if (changed) {
+            accessibilityChanged(AccessibilityManager.CHANGE_BOUNDS);
+        }
+        if (Form.activePeerCount > 0) {
+            onParentPositionChange();
+        }
+    }
+
+    /// Gets the Y-coordinate of the outer bounds of this component.  The outer bounds are formed
+    /// by the bound of the margin of the component.  i.e. `y - leftMargin`.
+    ///
+    /// #### Returns
+    ///
+    /// The outer y bound.
+    public int getOuterY() {
+        return getY() - getStyle().getMarginTop();
+    }
+
+    /// Gets the inner y-coordinate of the inner bounds of this component. The inner bounds are formed
+    /// by the bound of the padding of the component.  i.e. `y + leftPadding`.
+    ///
+    /// #### Returns
+    ///
+    /// The inner y bound.
+    public int getInnerY() {
+        return getY() + getStyle().getPaddingTop();
+    }
+
+    /// Returns whether the component is visible or not
+    ///
+    /// #### Returns
+    ///
+    /// true if component is visible; otherwise false
+    public boolean isVisible() {
+        return visible;
+    }
+
+    /// Toggles visibility of the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `visible`: true if component is visible; otherwise false
+    public void setVisible(boolean visible) {
+        if (this.visible == visible) {
+            return;
+        }
+        this.visible = visible;
+        if (!visible) {
+            // Hiding an attached subtree ends its pointer ownership just like removal.
+            // Showing it again must wait for a fresh pointer event, including tooltips.
+            clearHoverForInactiveSubtree();
+        }
+        if (hovered) {
+            checkHoverAnimationHierarchy();
+        }
+        accessibilityChanged(AccessibilityManager.CHANGE_STRUCTURE);
+    }
+
+    void getVisibleRect(Rectangle r, boolean init) {
+        if (!isVisible() || !initialized) {
+            r.setWidth(0);
+            r.setHeight(0);
+            return;
+        }
+
+        int w = getWidth();
+        int h = getHeight();
+        int x = getAbsoluteX() + scrollX;
+        int y = getAbsoluteY() + scrollY;
+        if (init) {
+            r.setBounds(x, y, w, h);
+            if (w <= 0 || h <= 0) {
+                return;
+            }
+        } else {
+            Rectangle.intersection(x, y, w, h, r.getX(), r.getY(), r.getWidth(), r.getHeight(), r);
+            if (r.getWidth() <= 0 || r.getHeight() <= 0) {
+                return;
+            }
+        }
+
+
+        Container parent = getParent();
+        if (parent != null) {
+            parent.getVisibleRect(r, false);
+
+        }
+
+    }
+
+    boolean isVisibleOnForm() {
+        getVisibleRect(tmpRect, true);
+        return (tmpRect.getWidth() > 0 && tmpRect.getHeight() > 0);
+    }
+
+    /// Client properties allow the association of meta-data with a component, this
+    /// is useful for some applications that construct GUI's on the fly and need
+    /// to track the connection between the UI and the data.
+    ///
+    /// #### Parameters
+    ///
+    /// - `key`: the key used for putClientProperty
+    ///
+    /// #### Returns
+    ///
+    /// the value set to putClientProperty or null if no value is set to the property
+    public Object getClientProperty(String key) {
+        if (clientProperties == null) {
+            return null;
+        }
+        return clientProperties.get(key);
+    }
+
+    /// Convenience method that strips margin and padding from the component, and
+    /// returns itself for chaining.
+    ///
+    /// #### Returns
+    ///
+    /// Self for chaining.
+    ///
+    /// #### See also
+    ///
+    /// - Style#stripMarginAndPadding()
+    public Component stripMarginAndPadding() {
+        getAllStyles().stripMarginAndPadding();
+        return this;
+
+    }
+
+    /// Gets the lead component for this component.
+    ///
+    /// #### Returns
+    ///
+    /// The lead component or null if none is found.
+    Component getLeadComponent() {
+        if (isBlockLead()) {
+            return null;
+        }
+        Container p = getParent();
+        if (p != null) {
+            return p.getLeadComponent();
+        }
+        return null;
+    }
+
+    /// Clears all client properties from this Component
+    public void clearClientProperties() {
+        if (clientProperties != null) {
+            clientProperties.clear();
+            clientProperties = null;
+        }
+    }
+
+    /// Client properties allow the association of meta-data with a component, this
+    /// is useful for some applications that construct GUI's on the fly and need
+    /// to track the connection between the UI and the data. Setting the value to
+    /// null will remove the client property from the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `key`: arbitrary key for the property
+    ///
+    /// - `value`: the value assigned to the given client property
+    public void putClientProperty(String key, Object value) {
+        if (clientProperties == null) {
+            if (value == null) {
+                return;
+            }
+            clientProperties = new HashMap<String, Object>();
+        }
+        if (value == null) {
+            clientProperties.remove(key);
+            if (clientProperties.isEmpty()) {
+                clientProperties = null;
+            }
+        } else {
+            clientProperties.put(key, value);
+        }
+    }
+
+    /// gets the Component dirty region,  this method is for internal use only and SHOULD NOT be invoked by user code.
+    /// Use repaint(int,int,int,int)
+    ///
+    /// #### Returns
+    ///
+    /// returns the region that needs repainting or null for the whole component
+    public final Rectangle getDirtyRegion() {
+        return dirtyRegion;
+    }
+
+    /// sets the Component dirty region, this method is for internal use only and SHOULD NOT be invoked by user code.
+    /// Use repaint(int,int,int,int)
+    ///
+    /// #### Parameters
+    ///
+    /// - `dirty`: the region that needs repainting or null for the whole component
+    public final void setDirtyRegion(Rectangle dirty) {
+        synchronized (dirtyRegionLock) {
+            this.dirtyRegion = dirty;
+        }
+
+    }
+
+    /// Checks whether the component's background should be painted.
+    ///
+    /// #### Returns
+    ///
+    /// true if the component's background should be painted.
+    public boolean isOpaque() {
+        return opaque;
+    }
+
+    /// Sets whether or not to paint the component background.  Default is true
+    ///
+    /// #### Parameters
+    ///
+    /// - `opaque`: False to not paint the component's background.
+    ///
+    public final void setOpaque(boolean opaque) {
+        this.opaque = opaque;
+    }
+
+    /// Returns the component width
+    ///
+    /// #### Returns
+    ///
+    /// the component width
+    public int getWidth() {
+        return bounds.getSize().getWidth();
+    }
+
+    /// Sets the Component width, this method is exposed for the purpose of
+    /// external layout managers and should not be invoked directly.
+    ///
+    /// If a user wishes to affect the component size, setPreferredSize should
+    /// be used.
+    ///
+    /// #### Parameters
+    ///
+    /// - `width`: the width of the component
+    ///
+    /// #### See also
+    ///
+    /// - #setPreferredSize
+    public void setWidth(int width) {
+        boolean changed = bounds.getSize().getWidth() != width;
+        bounds.getSize().setWidth(width);
+        if (changed) {
+            accessibilityChanged(AccessibilityManager.CHANGE_BOUNDS);
+        }
+    }
+
+    /// Gets the outer width of this component. This is the width of the component including horizontal margins.
+    ///
+    /// #### Returns
+    ///
+    /// The outer width.
+    public int getOuterWidth() {
+        return getWidth() + getStyle().getHorizontalMargins();
+    }
+
+    /// Gets the inner width of this component.  This is the width of the component removing horizontal padding.
+    ///
+    /// #### Returns
+    ///
+    /// The inner width.
+    public int getInnerWidth() {
+        return getWidth() - getStyle().getHorizontalPadding();
+    }
+
+    /// Returns the component height
+    ///
+    /// #### Returns
+    ///
+    /// the component height
+    public int getHeight() {
+        return bounds.getSize().getHeight();
+    }
+
+    /// Sets the Component height, this method is exposed for the purpose of
+    /// external layout managers and should not be invoked directly.
+    ///
+    /// If a user wishes to affect the component size, setPreferredSize should
+    /// be used.
+    ///
+    /// #### Parameters
+    ///
+    /// - `height`: the height of the component
+    ///
+    /// #### See also
+    ///
+    /// - #setPreferredSize
+    public void setHeight(int height) {
+        boolean changed = bounds.getSize().getHeight() != height;
+        bounds.getSize().setHeight(height);
+        if (changed) {
+            accessibilityChanged(AccessibilityManager.CHANGE_BOUNDS);
+        }
+    }
+
+    /// Gets the outer height of this component.  This is the height of the component including vertical margins.
+    ///
+    /// #### Returns
+    ///
+    /// The outer height.
+    public int getOuterHeight() {
+        return getHeight() + getStyle().getVerticalMargins();
+    }
+
+    /// Gets the inner height of this component.  This is the height of the component removing vertical padding.
+    ///
+    /// #### Returns
+    ///
+    /// The inner height.
+    public int getInnerHeight() {
+        return getHeight() - getStyle().getVerticalPadding();
+    }
+
+    /// Indicates if the section within the X/Y area is a "drag region" where
+    /// we expect people to drag and never actually "press" in which case we
+    /// can instantly start dragging making perceived performance faster. This
+    /// is invoked by the implementation code to optimize drag start behavior
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: x location for the touch
+    ///
+    /// - `y`: y location for the touch
+    ///
+    /// #### Returns
+    ///
+    /// true if the touch is in a region specifically designated as a "drag region"
+    ///
+    /// #### Deprecated
+    ///
+    /// replaced with getDragRegionStatus
+    protected boolean isDragRegion(int x, int y) {
+        return isDraggable();
+    }
+
+    /// Indicates if the section within the X/Y area is a "drag region" where
+    /// we expect people to drag or press in which case we
+    /// can instantly start dragging making perceived performance faster. This
+    /// is invoked by the implementation code to optimize drag start behavior
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: x location for the touch
+    ///
+    /// - `y`: y location for the touch
+    ///
+    /// #### Returns
+    ///
+    /// one of the DRAG_REGION_* values
+    protected int getDragRegionStatus(int x, int y) {
+        if (isDraggable()) {
+            return DRAG_REGION_LIKELY_DRAG_XY;
+        }
+        Component c = getScrollableFast();
+        if (c != null) {
+            boolean xc = c.scrollableXFlag();
+            boolean yc = c.scrollableYFlag();
+            if (isDragRegion(x, y)) {
+                if (xc && yc) {
+                    return DRAG_REGION_LIKELY_DRAG_XY;
+                }
+                if (xc) {
+                    return DRAG_REGION_LIKELY_DRAG_X;
+                }
+                if (yc) {
+                    return DRAG_REGION_LIKELY_DRAG_Y;
+                }
+            } else {
+                if (xc && yc) {
+                    return DRAG_REGION_POSSIBLE_DRAG_XY;
+                }
+                if (xc) {
+                    return DRAG_REGION_POSSIBLE_DRAG_X;
+                }
+                if (yc) {
+                    return DRAG_REGION_POSSIBLE_DRAG_Y;
+                }
+            }
+        }
+        return DRAG_REGION_NOT_DRAGGABLE;
+    }
+
+    /// This callback allows subcomponents who are interested in following position change of their parents
+    /// to receive such an event
+    void onParentPositionChange() {
+    }
+
+    /// The baseline for the component text according to which it should be aligned
+    /// with other components for best visual look.
+    ///
+    /// #### Parameters
+    ///
+    /// - `width`: the component width
+    ///
+    /// - `height`: the component height
+    ///
+    /// #### Returns
+    ///
+    /// baseline value from the top of the component
+    public int getBaseline(int width, int height) {
+        return height - getStyle().getPaddingBottom();
+    }
+
+    /// Returns a constant indicating how the baseline varies with the size
+    /// of the component.
+    ///
+    /// #### Returns
+    ///
+    /// @return one of BRB_CONSTANT_ASCENT, BRB_CONSTANT_DESCENT,
+    /// BRB_CENTER_OFFSET or BRB_OTHER
+    public int getBaselineResizeBehavior() {
+        return BRB_OTHER;
+    }
+
+    /// Returns the preferred size string that can be used to specify the preferred size of the component
+    /// using pixels or millimetres.  This string is applied to the preferred size just after is is initially
+    /// calculated using `#calcPreferredSize()`.
+    ///
+    /// #### Returns
+    ///
+    /// the preferred size string
+    ///
+    /// #### Deprecated
+    ///
+    /// @deprecated This method is primarily for use by the GUI builder.  Use `#getPreferredSize()` to find
+    /// the preferred size of a component.
+    public String getPreferredSizeStr() {
+        return preferredSizeStr;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `value`: @param value The preferred size to set in format "width height", where width and height can be a scalar
+    /// value with px or mm units. Or the special value "inherit" which will just inherit the default preferred size.
+    ///
+    /// #### Deprecated
+    ///
+    /// @deprecated this method shouldn't be used, use sameWidth/Height, padding, margin or override calcPeferredSize
+    /// to reach similar functionality
+    public void setPreferredSizeStr(String value) {
+        preferredSizeStr = value;
+        setPreferredSize(null);
+    }
+
+    /// Returns the Component Preferred Size, there is no guarantee the Component will
+    /// be sized at its Preferred Size. The final size of the component may be
+    /// smaller than its preferred size or even larger than the size.
+    ///
+    /// The Layout manager can take this value into consideration, but there is
+    /// no guarantee or requirement.
+    ///
+    /// #### Returns
+    ///
+    /// the component preferred size
+    public Dimension getPreferredSize() {
+        return preferredSize();
+    }
+
+    /// Sets the Component Preferred Size, there is no guarantee the Component will
+    /// be sized at its Preferred Size. The final size of the component may be
+    /// smaller than its preferred size or even larger than the size.
+    ///
+    /// The Layout manager can take this value into consideration, but there is
+    /// no guarantee or requirement.
+    ///
+    /// #### Parameters
+    ///
+    /// - `d`: the component dimension
+    ///
+    /// #### Deprecated
+    ///
+    /// @deprecated this method shouldn't be used, use sameWidth/Height, padding, margin or override calcPeferredSize
+    /// to reach similar functionality
+    public void setPreferredSize(Dimension d) {
+        if (d == null) {
+            sizeRequestedByUser = false;
+            preferredSize = null;
+            shouldCalcPreferredSize = true;
+            return;
+        }
+        Dimension dim = preferredSize();
+        dim.setWidth(d.getWidth());
+        dim.setHeight(d.getHeight());
+        sizeRequestedByUser = true;
+    }
+
+    Dimension getPreferredSizeWithMargin() {
+        Dimension d = preferredSize();
+        Style s = getStyle();
+        return new Dimension(d.getWidth() + s.getHorizontalMargins(), d.getHeight() + s.getVerticalMargins());
+    }
+
+    /// Returns the Components dimension in scrolling, this is very similar to the
+    /// preferred size aspect only it represents actual scrolling limits.
+    ///
+    /// #### Returns
+    ///
+    /// the component actual size with all scrolling
+    public Dimension getScrollDimension() {
+        if (!scrollSizeRequestedByUser && (scrollSize == null || shouldCalcScrollSize)) {
+            scrollSize = calcScrollSize();
+            shouldCalcScrollSize = false;
+        }
+        return scrollSize;
+    }
+
+    /// Method that can be overriden to represent the actual size of the component
+    /// when it differs from the desireable size for the viewport
+    ///
+    /// #### Returns
+    ///
+    /// scroll size, by default this is the same as the preferred size
+    protected Dimension calcScrollSize() {
+        return calcPreferredSize();
+    }
+
+    /// Set the size for the scroll area
+    ///
+    /// #### Parameters
+    ///
+    /// - `d`: dimension of the scroll area
+    public void setScrollSize(Dimension d) {
+        if (d == null) {
+            shouldCalcScrollSize = true;
+            scrollSize = null;
+            scrollSizeRequestedByUser = false;
+            return;
+        }
+        scrollSize = d;
+        scrollSizeRequestedByUser = true;
+    }
+
+    /// Helper method to retrieve the preferred width of the component.
+    ///
+    /// #### Returns
+    ///
+    /// preferred width of the component
+    ///
+    /// #### See also
+    ///
+    /// - #getPreferredSize
+    public int getPreferredW() {
+        return getPreferredSize().getWidth();
+    }
+
+    /// Helper method to set the preferred width of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `preferredW`: the preferred width of the component
+    ///
+    /// #### Deprecated
+    ///
+    /// @deprecated this method shouldn't be used, use sameWidth/Height, padding, margin or override calcPeferredSize
+    /// to reach similar functionality
+    ///
+    /// #### See also
+    ///
+    /// - #setPreferredSize
+    public void setPreferredW(int preferredW) {
+        setPreferredSize(new Dimension(preferredW, getPreferredH()));
+    }
+
+    /// Helper method to retrieve the preferred height of the component.
+    ///
+    /// #### Returns
+    ///
+    /// preferred height of the component
+    ///
+    /// #### See also
+    ///
+    /// - #getPreferredSize
+    public int getPreferredH() {
+        return getPreferredSize().getHeight();
+    }
+
+    /// Helper method to set the preferred height of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `preferredH`: the preferred height of the component
+    ///
+    /// #### Deprecated
+    ///
+    /// @deprecated this method shouldn't be used, use sameWidth/Height, padding, margin or override calcPeferredSize
+    /// to reach similar functionality
+    ///
+    /// #### See also
+    ///
+    /// - #setPreferredSize
+    public void setPreferredH(int preferredH) {
+        setPreferredSize(new Dimension(getPreferredW(), preferredH));
+    }
+
+    /// Gets the preferred height including the vertical margins.
+    ///
+    /// #### Returns
+    ///
+    /// The preferred outer height.
+    public int getOuterPreferredH() {
+        return getPreferredH() + getStyle().getVerticalMargins();
+    }
+
+    /// Gets the preferred height removing vertical padding.
+    ///
+    /// #### Returns
+    ///
+    /// The preferred inner height.
+    public int getInnerPreferredH() {
+        return getPreferredH() - getStyle().getVerticalPadding();
+    }
+
+    /// Gets the preferred width including horizontal margins.
+    ///
+    /// #### Returns
+    ///
+    /// The preferred outer width.
+    public int getOuterPreferredW() {
+        return getPreferredW() + getStyle().getHorizontalMargins();
+    }
+
+    /// Gets the preferred width removing horizontal padding.
+    ///
+    /// #### Returns
+    ///
+    /// preferred width
+    public int getInnerPreferredW() {
+        return getPreferredW() - getStyle().getHorizontalPadding();
+    }
+
+    /// Sets the Component size, this method is exposed for the purpose of
+    /// external layout managers and should not be invoked directly.
+    ///
+    /// If a user wishes to affect the component size, setPreferredSize should
+    /// be used.
+    ///
+    /// #### Parameters
+    ///
+    /// - `d`: the component dimension
+    ///
+    /// #### See also
+    ///
+    /// - #setPreferredSize
+    public void setSize(Dimension d) {
+        Dimension d2 = bounds.getSize();
+        d2.setWidth(d.getWidth());
+        d2.setHeight(d.getHeight());
+    }
+
+    /// Unique identifier for a component.
+    /// This id is used to retrieve a suitable Style.
+    ///
+    /// #### Returns
+    ///
+    /// unique string identifying this component for the style sheet
+    public final String getUIID() {
+        if (landscapeUiid != null) {
+            if (Display.impl.isPortrait()) {
+                return portraitUiid;
+            }
+            return landscapeUiid;
+        }
+        return portraitUiid;
+    }
+
+    /// This method sets the Component the Unique identifier.
+    /// This method should be used before a component has been initialized
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: UIID unique identifier for component type
+    public void setUIID(String id) {
+        setUIIDFinal(id);
+    }
+
+    /// This method is the implementation of setUIID and is defined
+    /// as final to allow invocation from constructors.
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: UIID unique identifier for component type
+    protected final void setUIIDFinal(String id) {
+        this.portraitUiid = id;
+        unSelectedStyle = null;
+        selectedStyle = null;
+        disabledStyle = null;
+        pressedStyle = null;
+        hoverStyle = null;
+        allStyles = null;
+        if (!sizeRequestedByUser) {
+            preferredSize = null;
+        }
+    }
+
+    boolean onOrientationChange() {
+        if (landscapeUiid != null) {
+            unSelectedStyle = null;
+            selectedStyle = null;
+            disabledStyle = null;
+            pressedStyle = null;
+            hoverStyle = null;
+            allStyles = null;
+            if (!sizeRequestedByUser) {
+                preferredSize = null;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /// This method sets the Component the Unique identifier.
+    ///
+    /// #### Parameters
+    ///
+    /// - `portraitUiid`: UIID unique identifier for component type in portrait mode
+    ///
+    /// - `landscapeUiid`: UIID unique identifier for component type in landscape mode
+    public void setUIID(String portraitUiid, String landscapeUiid) {
+        this.landscapeUiid = landscapeUiid;
+        setUIID(portraitUiid);
+    }
+
+    /// Gets inline styles that are to be applied to all states of this component.
+    ///
+    /// #### Returns
+    ///
+    /// Inline styles applied to all states.
+    public String getInlineAllStyles() {
+        return inlineAllStyles;
+    }
+
+    /// Registers inline styles that should be applied to all states of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `styles`: a style in the format of `"fgColor:ff0000; font:18mm; border: 1px solid ff0000; bgType:none; padding: 3mm; margin: 1mm"`
+    public void setInlineAllStyles(String styles) {
+        if (styles != null && styles.trim().length() == 0) {
+            styles = null;
+        }
+        if (!Objects.equals(styles, inlineAllStyles)) {
+            this.inlineAllStyles = styles;
+            unSelectedStyle = null;
+            selectedStyle = null;
+            disabledStyle = null;
+            pressedStyle = null;
+            hoverStyle = null;
+            allStyles = null;
+            if (!sizeRequestedByUser) {
+                preferredSize = null;
+            }
+        }
+    }
+
+    /// Gets inline styles that are to be applied to the selected state of this component.
+    ///
+    /// #### Returns
+    ///
+    /// Inline styles applied to selected state
+    public String getInlineSelectedStyles() {
+        return this.inlineSelectedStyles;
+    }
+
+    /// Registers inline styles that should be applied to the selected state of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `styles`: style format
+    ///
+    /// #### See also
+    ///
+    /// - #setInlineAllStyles(String)
+    public void setInlineSelectedStyles(String styles) {
+        if (styles != null && styles.trim().length() == 0) {
+            styles = null;
+        }
+        if (!Objects.equals(styles, inlineSelectedStyles)) {
+            this.inlineSelectedStyles = styles;
+
+            unSelectedStyle = null;
+            selectedStyle = null;
+            disabledStyle = null;
+            pressedStyle = null;
+            hoverStyle = null;
+            allStyles = null;
+            if (!sizeRequestedByUser) {
+                preferredSize = null;
+            }
+        }
+
+    }
+
+    /// Gets inline styles that are to be applied to the unselected state of this component.
+    ///
+    /// #### Returns
+    ///
+    /// Inline styles applied to unselected state
+    public String getInlineUnselectedStyles() {
+        return this.inlineUnselectedStyles;
+    }
+
+    /// Registers inline styles that should be applied to the unselected state of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `styles`: style format
+    ///
+    /// #### See also
+    ///
+    /// - #setInlineAllStyles(String)
+    public void setInlineUnselectedStyles(String styles) {
+        if (styles != null && styles.trim().length() == 0) {
+            styles = null;
+        }
+        if (!Objects.equals(styles, inlineUnselectedStyles)) {
+            this.inlineUnselectedStyles = styles;
+
+            unSelectedStyle = null;
+            selectedStyle = null;
+            disabledStyle = null;
+            pressedStyle = null;
+            hoverStyle = null;
+            allStyles = null;
+            if (!sizeRequestedByUser) {
+                preferredSize = null;
+            }
+        }
+
+    }
+
+    /// Gets inline styles that are to be applied to the disabled state of this component.
+    ///
+    /// #### Returns
+    ///
+    /// Inline styles applied to disabled state
+    public String getInlineDisabledStyles() {
+        return this.inlineDisabledStyles;
+    }
+
+    /// Registers inline styles that should be applied to the disabled state of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `styles`: style format
+    ///
+    /// #### See also
+    ///
+    /// - #setInlineAllStyles(String)
+    public void setInlineDisabledStyles(String styles) {
+        if (styles != null && styles.trim().length() == 0) {
+            styles = null;
+        }
+        if (!Objects.equals(styles, inlineDisabledStyles)) {
+            this.inlineDisabledStyles = styles;
+            unSelectedStyle = null;
+            selectedStyle = null;
+            disabledStyle = null;
+            pressedStyle = null;
+            hoverStyle = null;
+            allStyles = null;
+            if (!sizeRequestedByUser) {
+                preferredSize = null;
+            }
+        }
+    }
+
+    /// Gets inline styles that are to be applied to the pressed state of this component.
+    ///
+    /// #### Returns
+    ///
+    /// Inline styles applied to pressed state
+    public String getInlinePressedStyles() {
+        return this.inlinePressedStyles;
+
+    }
+
+    /// Registers inline styles that should be applied to the pressed state of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `styles`: style format
+    ///
+    /// #### See also
+    ///
+    /// - #setInlineAllStyles(String)
+    public void setInlinePressedStyles(String styles) {
+        if (styles != null && styles.trim().length() == 0) {
+            styles = null;
+        }
+        if (!Objects.equals(styles, inlinePressedStyles)) {
+            this.inlinePressedStyles = styles;
+            unSelectedStyle = null;
+            selectedStyle = null;
+            disabledStyle = null;
+            pressedStyle = null;
+            hoverStyle = null;
+            allStyles = null;
+            if (!sizeRequestedByUser) {
+                preferredSize = null;
+            }
+        }
+    }
+
+    /// This method will remove the Component from its parent.
+    public void remove() {
+        if (parent != null) {
+            parent.removeComponent(this);
+        }
+    }
+
+    /// Returns the container in which this component is contained
+    ///
+    /// #### Returns
+    ///
+    /// the parent container in which this component is contained
+    public Container getParent() {
+        return parent;
+    }
+
+    /// Sets the Component Parent.
+    /// This method should not be called by the user.
+    ///
+    /// #### Parameters
+    ///
+    /// - `parent`: the parent container
+    void setParent(Container parent) {
+        if (parent == this) { //NOPMD CompareObjectsWithEquals
+            throw new IllegalArgumentException("Attempt to add self as parent");
+        }
+        this.parent = parent;
+        accessibilityChanged(AccessibilityManager.CHANGE_STRUCTURE);
+    }
+
+    /// Gets the "owner" of this component as set by `#setOwner(com.codename1.ui.Component)`.
+    ///
+    /// #### Returns
+    ///
+    /// The owner component or null.
+    ///
+    public Component getOwner() {
+        return owner;
+    }
+
+    /// Sets the owner of this component to the specified component.  This can be useful
+    /// for denoting a hierarchical relationship that is outside the actual parent-child
+    /// component hierarchy.  E.g. If there is a popup dialog that allows the user to select
+    /// input for a text field, then you could set the text field as the owner of the popup
+    /// dialog to denote a virtual parent-child relationship.
+    ///
+    /// This is used by `InteractionDialog#setDisposeWhenPointerOutOfBounds(boolean)` to figure out whether a
+    /// pointer event actually occurred outside the bounds of the dialog.  The `int)` method
+    /// is used instead of `int)` so that it can cover the case where the pointer event occurred
+    /// on a component that is logically a child of the dialog, but not physically.
+    ///
+    /// popup dialog is opened, then
+    ///
+    /// #### Parameters
+    ///
+    /// - `owner`: The component to set as the owner of this component.
+    ///
+    /// #### See also
+    ///
+    /// - #isOwnedBy(com.codename1.ui.Component)
+    ///
+    /// - #containsOrOwns(int, int)
+    public void setOwner(Component owner) {
+        this.owner = owner;
+    }
+
+    /// Checks to see if this component is owned by the given other component.  A component A is
+    /// deemed to be owned by another component B if any of the following conditions are true:
+    ///
+    /// - B is the owner of A
+    ///
+    /// - B contains A's owner.
+    ///
+    /// - A's owner is owned by B
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: the owner
+    ///
+    /// #### Returns
+    ///
+    /// True if this component is owned by cmp.
+    ///
+    /// #### See also
+    ///
+    /// - #setOwner(com.codename1.ui.Component)
+    ///
+    /// - #containsOrOwns(int, int)
+    public boolean isOwnedBy(Component cmp) {
+        Component c = this.owner;
+        Container cnt = (cmp instanceof Container) ? (Container) cmp : null;
+        while (c != null) {
+            if (c == cmp) { //NOPMD CompareObjectsWithEquals
+                return true;
+            }
+            if (cnt != null) {
+                if (cnt.contains(c)) {
+                    return true;
+                }
+            }
+            c = c.owner;
+        }
+        c = this.getParent();
+        while (c != null) {
+            if (c.isOwnedBy(cmp)) {
+                return true;
+            }
+            c = c.getParent();
+        }
+
+        return false;
+    }
+
+    /// Checks to see if this component either contains the given point, or
+    /// if it owns the component that contains the given point.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: X-coordinate in absolute coordinates.
+    ///
+    /// - `y`: Y-coordinate in absolute coordinates.
+    ///
+    /// #### Returns
+    ///
+    /// @return True if the coordinate is either inside the bounds of this component
+    /// or a component owned by this component.
+    ///
+    /// #### See also
+    ///
+    /// - #setOwner(com.codename1.ui.Component)
+    ///
+    /// - #isOwnedBy(com.codename1.ui.Component)
+    public boolean containsOrOwns(int x, int y) {
+        if (contains(x, y)) {
+            return true;
+        }
+        Container f = TopLevelSupport.rootOf(this);
+        if (f != null) {
+            Component cmp = f.getComponentAt(x, y);
+            if (cmp.isOwnedBy(this)) {
+                return true;
+            }
+        }
+        return false;
+
+    }
+
+    /// Registers interest in receiving callbacks for focus gained events, a focus event
+    /// is invoked when the component accepts the focus. A special case exists for the
+    /// Form which sends a focus even for every selection within the form.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: listener interface implementing the observable pattern
+    public void addFocusListener(FocusListener l) {
+        if (focusListeners == null) {
+            focusListeners = new EventDispatcher();
+        }
+        focusListeners.addListener(l);
+    }
+
+    /// Deregisters interest in receiving callbacks for focus gained events
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: listener interface implementing the observable pattern
+    public void removeFocusListener(FocusListener l) {
+        if (focusListeners == null) {
+            return;
+        }
+        focusListeners.removeListener(l);
+    }
+
+    /// Registers interest in receiving callbacks for scroll gained events,
+    /// a scroll event is invoked when the component is scrolled.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: listener interface implementing the observable pattern
+    public void addScrollListener(ScrollListener l) {
+        if (scrollListeners == null) {
+            scrollListeners = new EventDispatcher();
+        }
+        scrollListeners.addListener(l);
+    }
+
+    /// Deregisters interest in receiving callbacks for scroll gained events
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: listener interface implementing the observable pattern
+    public void removeScrollListener(ScrollListener l) {
+        if (scrollListeners == null) {
+            return;
+        }
+        scrollListeners.removeListener(l);
+        if (!scrollListeners.hasListeners()) {
+            scrollListeners = null;
+        }
+    }
+
+    /// When working in 3 softbutton mode "fire" key (center softbutton) is sent to this method
+    /// in order to allow 3 button devices to work properly. When overriding this method
+    /// you should also override isSelectableInteraction to indicate that a command is placed
+    /// appropriately on top of the fire key for 3 soft button phones.
+    protected void fireClicked() {
+    }
+
+    /// This method allows a component to indicate that it is interested in an "implicit" select
+    /// command to appear in the "fire" button when 3 softbuttons are defined in a device.
+    ///
+    /// #### Returns
+    ///
+    /// true if this is a selectable interaction
+    protected boolean isSelectableInteraction() {
+        return false;
+    }
+
+    /// Fired when component gains focus
+    void fireFocusGained() {
+        fireFocusGained(this);
+    }
+
+    /// Fired when component lost focus
+    void fireFocusLost() {
+        fireFocusLost(this);
+    }
+
+    /// Fired when component gains focus
+    void fireFocusGained(Component cmp) {
+        if (cmp.isCellRenderer()) {
+            return;
+        }
+
+        if (focusListeners != null) {
+            focusListeners.fireFocus(cmp);
+        }
+        focusGainedInternal();
+        focusGained();
+        if (isSelectableInteraction()) {
+            Form f = getComponentForm();
+            if (f != null) {
+                f.getMenuBar().addSelectCommand(getSelectCommandText());
+            }
+        }
+    }
+
+    /// Allows determining the text for the select command used in the 3rd softbutton
+    /// mode.
+    ///
+    /// #### Returns
+    ///
+    /// text for the interaction with the softkey
+    public String getSelectCommandText() {
+        return selectText;
+    }
+
+    /// Allows determining the text for the select command used in the 3rd softbutton
+    /// mode.
+    ///
+    /// #### Parameters
+    ///
+    /// - `selectText`: text for the interaction with the softkey
+    public void setSelectCommandText(String selectText) {
+        this.selectText = selectText;
+    }
+
+    /// Fired when component lost focus
+    void fireFocusLost(Component cmp) {
+        if (cmp.isCellRenderer()) {
+            return;
+        }
+        if (isSelectableInteraction()) {
+            Form f = getComponentForm();
+            if (f != null) {
+                f.getMenuBar().removeSelectCommand();
+            }
+        }
+
+        if (focusListeners != null) {
+            focusListeners.fireFocus(cmp);
+        }
+        focusLostInternal();
+        focusLost();
+    }
+
+    /// This method allows us to detect an action event internally without
+    /// implementing the action listener interface.
+    void fireActionEvent() {
+    }
+
+    /// Allows us to indicate the label associated with this component thus providing
+    /// visual feedback related for this component e.g. starting the ticker when
+    /// the component receives focus.
+    ///
+    /// #### Returns
+    ///
+    /// the label associated with this component
+    public Label getLabelForComponent() {
+        return componentLabel;
+    }
+
+    /// Allows us to indicate the label associated with this component thus providing
+    /// visual feedback related for this component e.g. starting the ticker when
+    /// the component receives focus.
+    ///
+    /// #### Parameters
+    ///
+    /// - `componentLabel`: a label associated with this component
+    public void setLabelForComponent(Label componentLabel) {
+        this.componentLabel = componentLabel;
+    }
+
+    /// This method is useful since it is not a part of the public API yet
+    /// allows a component within this package to observe focus events
+    /// without implementing a public interface or creating a new class
+    void focusGainedInternal() {
+        startComponentLableTicker();
+        String text = getAccessibilityText();
+        if (text != null && text.length() > 0
+                && !Display.getInstance().isAccessibilityTreeSupported()) {
+            announceForAccessibility(text);
+        }
+    }
+
+    void startComponentLableTicker() {
+        if (componentLabel != null && componentLabel.isTickerEnabled()) {
+            if (componentLabel.shouldTickerStart()) {
+                componentLabel.startTicker(getUIManager().getLookAndFeel().getTickerSpeed(), true);
+            }
+        }
+    }
+
+    void stopComponentLableTicker() {
+        if (componentLabel != null && componentLabel.isTickerEnabled() && componentLabel.isTickerRunning()) {
+            componentLabel.stopTicker();
+        }
+    }
+
+    /// Callback allowing a developer to track when the component gains focus
+    protected void focusGained() {
+    }
+
+    /// Callback allowing a developer to track wheh the component loses focus
+    protected void focusLost() {
+    }
+
+    /// This method is useful since it is not a part of the public API yet
+    /// allows a component within this package to observe focus events
+    /// without implementing a public interface or creating a new class
+    void focusLostInternal() {
+        stopComponentLableTicker();
+    }
+
+    /// This method paints all the parents Components Background.
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: the graphics object
+    public void paintBackgrounds(Graphics g) {
+        if (Display.impl.shouldPaintBackground()) {
+            drawPainters(g, this.getParent(), this, getAbsoluteX() + getScrollX(),
+                    getAbsoluteY() + getScrollY(),
+                    getWidth(), getHeight());
+        }
+    }
+
+    /// Convenience method used by `Image, int, int, int, int, int, int, int, float)` to convert device independent
+    /// pixels (1/96th of an inch) into pixels.
+    ///
+    /// #### Parameters
+    ///
+    /// - `dp`: Value in device independent pixels (1/96th of an inch).
+    ///
+    /// #### Returns
+    ///
+    /// Value converted to pixels.
+    private int dp2px(int dp) {
+        return CN.convertToPixels(dp / 96f * 25.4f);
+    }
+
+    /// Initial implementation used separate shadow rendering on each platform's native layer via the
+    /// platform's drawShadow() method.  However, performance in the simulator was terrible, so I implemented
+    /// a cross-platform fallback solution in `Image, int, int, int, int, int, int, int, float)` that
+    /// was reasonably fast.  After some experimentation it seems that using this cross-platform solution is good enough
+    /// to use on all platforms, however, it is an approximation and doesn't include any blur.
+    ///
+    /// This method acts as a switch to allow us to enable native shadow rendering if it is supported, and it has
+    /// been explicitly enabled either with a display property or a component client property.
+    ///
+    /// #### Returns
+    ///
+    /// True if native shadow rendering should be used for elevation.
+    private boolean useNativeShadowRendering() {
+        if (!Display.impl.isDrawShadowSupported()) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(getClientProperty("Component.nativeShadowRendering"))) {
+            return true;
+        }
+        return "true".equals(CN.getProperty("Component.nativeShadowRendering", "false"));
+    }
+
+    /// Wrapper for `int, int, int, int, int, int, int, float)` that takes coordinates in device-independent
+    /// pixels (1/96th of an inch).  These are converted to pixels and passed to `int, int, int, int, int, int, int, float)`
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`
+    ///
+    /// - `img`
+    ///
+    /// - `relativeX`
+    ///
+    /// - `relativeY`
+    ///
+    /// - `offsetX`
+    ///
+    /// - `offsetY`
+    ///
+    /// - `blurRadius`
+    ///
+    /// - `spreadRadius`
+    ///
+    /// - `color`
+    ///
+    /// - `opacity`
+    private void drawShadow(Graphics g, Image img, int relativeX, int relativeY, int offsetX, int offsetY, int blurRadius, int spreadRadius, int color, float opacity) {
+
+
+        if (!useNativeShadowRendering()) {
+            // Cross-platform "fast" shadow implementation.
+            // No blur.
+            int[] rgb = img.getRGBCached();
+            int[] mask = new int[rgb.length];
+            System.arraycopy(rgb, 0, mask, 0, rgb.length);
+            int len = mask.length;
+            color = (color & 0x00ffffff);
+            int blurRadiusPixels = dp2px(blurRadius);
+            int spreadRadiusPixels = dp2px(spreadRadius);
+            int offsetXPixels = dp2px(offsetX);
+            int offsetYPixels = dp2px(offsetY);
+            for (int i = 0; i < len; i++) {
+                int pixel = mask[i];
+                int alphaMask = (pixel & 0xff000000);
+                int alpha = alphaMask >> 24;
+
+                if (alpha != 0) {
+                    //int adjustedAlpha = (int)(alpha * (float)opacity);
+                    mask[i] = (alphaMask | color);
+                }
+            }
+
+            int origAlpha = g.getAlpha();
+
+            Image maskImage = Image.createImage(mask, img.getWidth(), img.getHeight());
+
+            float step = 1;
+            for (int rad = blurRadiusPixels; rad > 0; rad--) {
+
+                g.setAlpha((int) (255 / step * opacity * (1 - rad / (1 + (float) blurRadiusPixels))));
+                //System.out.println("rad="+rad+";alpha="+g.getAlpha());
+                g.drawImage(maskImage,
+                        relativeX + offsetXPixels - rad - spreadRadiusPixels,
+                        relativeY + offsetYPixels - rad - spreadRadiusPixels,
+                        img.getWidth() + 2 * (spreadRadiusPixels + rad),
+                        img.getHeight() + 2 * (spreadRadiusPixels + rad));
+                step += 0.5;
+            }
+            g.setAlpha((int) (opacity * 255 / step));
+
+            //System.out.println("drawing;alpha="+g.getAlpha());
+
+
+            g.drawImage(maskImage, relativeX + offsetXPixels - spreadRadiusPixels, relativeY + offsetYPixels - spreadRadiusPixels, img.getWidth() + 2 * spreadRadiusPixels, img.getHeight() + 2 * spreadRadiusPixels);
+            //g.drawImage(maskImage, relativeX + offsetXPixels, relativeY + offsetYPixels);
+
+            g.setAlpha(origAlpha);
+
+
+        } else {
+            // Use native shadow support.
+            g.drawShadow(img, relativeX, relativeY, dp2px(offsetX), dp2px(offsetY), dp2px(blurRadius), dp2px(spreadRadius), color, opacity);
+        }
+    }
+
+    /// Checks to see if the component has elevation.  A component is considered to have elevation if either the current style
+    /// has a non-zero elevation value, or the component has *ever* had elevation in the past.  Once this is switched "on", it
+    /// doesn't switch off.
+    ///
+    /// This is used by Container to efficiently paint shadows of its children.  It helps it to know if the child component
+    /// has ever had elevation as it may need to "erase" the previous shadow.
+    boolean hasElevation() {
+        if (_hasElevation) {
+            return true;
+        }
+        Style s = getStyle();
+        if (s.getElevation() > 0) {
+            _hasElevation = true;
+        }
+        return _hasElevation;
+    }
+
+    /// Finds the nearest ancestor surface of this component.  This is the surface onto which drop-shadows will be
+    /// painted and projected.
+    ///
+    /// #### Returns
+    ///
+    /// @return The surface if one is found.  Null if this component has no elevation, or no surface is found.  It is possible that
+    /// this will return a non-null value even if the component currently has zero elevation.  This occurs if the component has *ever* been
+    /// styled to have elevation.
+    Container findSurface() {
+        return findSurfaceInternal();
+    }
+
+    /// Calculates the shadow's X-offset at the given elevation.
+    ///
+    /// #### Parameters
+    ///
+    /// - `elevation`: THe elevation.
+    int calculateShadowOffsetX(int elevation) {
+
+        if (elevation <= 0) {
+            return 0;
+        }
+        switch (elevation) {
+            case 1:
+                return dp2px(-4);
+            case 2:
+                return dp2px(-4);
+            case 3:
+                return dp2px(-9);
+            case 4:
+                return dp2px(-10);
+            case 6:
+                return dp2px(-19);
+            case 8:
+                return dp2px(-19);
+            case 9:
+                return dp2px(-22);
+            case 12:
+                return dp2px(-31);
+            case 16:
+                return dp2px(-42);
+            case 24:
+                return dp2px(-65);
+            default:
+                break;
+        }
+        return 0;
+    }
+
+    /// Caldulates the shadow X-offset in pixels at the componentl's current elevation.
+    ///
+    /// #### Returns
+    ///
+    /// The x-offset in pixels.
+    int calculateShadowOffsetX() {
+        return calculateShadowOffsetX(getStyle().getElevation());
+    }
+
+    /// Calculates the shadow Y offset in pixels at the component's current elevation.
+    ///
+    /// #### Returns
+    ///
+    /// The y-offset in pixels.
+    ///
+    /// #### See also
+    ///
+    /// - Style#getElevation()
+    int calculateShadowOffsetY() {
+        return calculateShadowOffsetY(getStyle().getElevation());
+    }
+
+    /// Calculates the shadow Y offset in pixels at the given elevation.
+    ///
+    /// #### Parameters
+    ///
+    /// - `elevation`: The elevation.
+    ///
+    /// #### Returns
+    ///
+    /// The y-offset.
+    int calculateShadowOffsetY(int elevation) {
+        return calculateShadowOffsetX(elevation);
+    }
+
+    /// Calculates the width of the shadow that this component would project against at its current elevation.
+    ///
+    /// #### Returns
+    ///
+    /// The width in pixels.
+    ///
+    /// #### See also
+    ///
+    /// - Style#getElevation()
+    int calculateShadowWidth() {
+        return calculateShadowWidth(getStyle().getElevation());
+    }
+
+    /// Calculates the width of the shadow that this component would project against a surface at the given
+    /// elevation.
+    ///
+    /// #### Parameters
+    ///
+    /// - `elevation`: The elvation.
+    ///
+    /// #### Returns
+    ///
+    /// The width in pixels.
+    int calculateShadowWidth(int elevation) {
+        return getWidth() - 2 * calculateShadowOffsetX(elevation);
+    }
+
+    /// Calculates the height of the shadow that this component would project against at its current elevation.
+    ///
+    /// #### Returns
+    ///
+    /// The height in pixels.
+    ///
+    /// #### See also
+    ///
+    /// - Style#getElevation()
+    int calculateShadowHeight() {
+        return calculateShadowHeight(getStyle().getElevation());
+    }
+
+    /// Calculates the height of the shadow that this component would project against a surface at the given
+    /// elevation.
+    ///
+    /// #### Parameters
+    ///
+    /// - `elevation`: The elvation.
+    ///
+    /// #### Returns
+    ///
+    /// The width in pixels.
+    int calculateShadowHeight(int elevation) {
+        return getHeight() - 2 * calculateShadowOffsetY(elevation);
+    }
+
+    /// Paints the drop-shadow projections for this component based on its elevation value.
+    ///
+    /// This is called by the ancestor "surface" container of the component, after it paints its background, but
+    /// before painting its children.  If the `Style#getElevation()` of the component is 0, then no shadow
+    /// will be painted.  Similarly, if the component has no ancestor container which is a surface (i.e. `Container#isSurface()` is true,
+    /// the shadow will not be painted.
+    ///
+    /// NOTE: It is also possible that the shadow will not be visible if other opaque components are painted in front of
+    /// the ancestor surface container.  This is one of the limitations of this approach for simulating elevation.
+    ///
+    /// Note: Not all platforms support drawing shadows.  Use `CodenameOneImplementation#isDrawShadowSupported()` to check
+    /// for support at runtime.
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: The graphics context onto which the shadow should be painted.
+    ///
+    /// - `relativeX`: The relative X coordinate onto which the shadow should be drawn.
+    ///
+    /// - `relativeY`: The relative Y coordinate onto which the shadow should be drawn.
+    ///
+    /// #### See also
+    ///
+    /// - Container#paintElevatedPane(Graphics)
+    ///
+    /// - Container#isSurface()
+    ///
+    /// - Style#getElevation()
+
+    public void paintShadows(Graphics g, final int relativeX, final int relativeY) {
+        final int elevation = getStyle().getElevation();
+        if (elevation <= 0) {
+            return;
+        }
+        if (getWidth() == 0 || getHeight() == 0) {
+            return;
+        }
+        synchronized (this) {
+            if (cachedShadowImage != null) {
+                if (cachedShadowWidth != getWidth() || cachedShadowHeight != getHeight() || cachedShadowElevation != elevation) {
+
+                    if (cachedShadowElevation == elevation && cachedShadowWidth / (float) getWidth() > 0.5f && cachedShadowWidth / (float) getWidth() < 2f && cachedShadowHeight / (float) getHeight() > 0.5f && cachedShadowHeight / (float) getHeight() < 2f) {
+                        // If the size change isn't too drastic, we can salvage the existing shadow image for performance reasons.
+                        cachedShadowImage = cachedShadowImage.scaled(calculateShadowWidth(), calculateShadowHeight());
+                        cachedShadowWidth = getWidth();
+                        cachedShadowHeight = getHeight();
+                    } else {
+                        cachedShadowImage = null;
+                    }
+                }
+            }
+            if (cachedShadowImage != null) {
+                g.drawImage(cachedShadowImage, relativeX + calculateShadowOffsetX(), relativeY + calculateShadowOffsetY());
+                return;
+            }
+        }
+
+        final Image fimg = this.toImage();
+        if (fimg == null) {
+            return;
+        }
+        if (paintinShadowInBackground_) {
+            // We are already painting the shadow in a background thread, so don't do it twice.
+            // Just be patient.
+            return;
+        }
+        paintinShadowInBackground_ = true;
+
+        Runnable createImageTask = new Runnable() {
+            @Override
+            public void run() {
+                // We paint shadow in a background thread to avoid jank on the EDT.  It is possible that this
+                // will cause problems on some platforms.  If that is the case, we can hedge and move it onto
+                // the EDT in certain cases.
+
+
+                CN.setProperty("platformHint.showEDTWarnings", "false"); // Yes we know it's an EDT violation... Don't show me the error in simulator.
+                try {
+                    Image paddedImage = Image.createImage(calculateShadowWidth(), calculateShadowHeight(), 0x0);
+                    Graphics paddedImageG = paddedImage.getGraphics();
+                    paddedImageG.drawImage(fimg, -calculateShadowOffsetX(), -calculateShadowOffsetY());
+                    Image img = paddedImage;
+
+
+                    final Image shadowImage = Image.createImage(calculateShadowWidth(), calculateShadowHeight(), 0x0);
+
+                    Graphics g = shadowImage.getGraphics();
+
+                    int relativeX = 0;
+                    int relativeY = 0;
+
+
+                    switch (elevation) {
+                        case 1:
+                        case 2:
+                            //drawShadow(g, img, relativeX, relativeY, 0, 1, 1, 0, 0, 0.14f);
+                            //drawShadow(g, img, relativeX, relativeY, 0, 2, 1, -1, 0, 0.12f);
+                            drawShadow(g, img, relativeX, relativeY, 0, 1, 3, 0, 0, 0.2f);
+                            break;
+                        case 3:
+                            //drawShadow(g, img, relativeX, relativeY, 0, 3, 4, 0, 0, 0.14f);
+                            //drawShadow(g, img, relativeX, relativeY, 0, 3, 3, -2, 0, 0.12f);
+                            drawShadow(g, img, relativeX, relativeY, 0, 1, 8, 0, 0, 0.2f);
+                            break;
+
+                        case 4:
+
+                            //drawShadow(g, img, relativeX, relativeY, 0, 4, 5, 0, 0, 0.14f);
+                            //System.out.println("Shadow 1 took "+(System.currentTimeMillis()-startTime)+"ms");
+                            //long shadow2Start = System.currentTimeMillis();
+                            //drawShadow(g, img, relativeX, relativeY, 0, 1, 10, 0, 0, 0.12f);
+                            //System.out.println("Shadow 2 took "+(System.currentTimeMillis()-shadow2Start)+"ms");
+                            //shadow2Start = System.currentTimeMillis();
+                            drawShadow(g, img, relativeX, relativeY, 0, 2, 4, -1, 0, 0.2f);
+                            //System.out.println("Shadow 3 took "+(System.currentTimeMillis()-shadow2Start)+"ms");
+                            break;
+
+                        case 6:
+                            //drawShadow(g, img, relativeX, relativeY, 0, 6, 10, 0, 0, 0.14f);
+                            //drawShadow(g, img, relativeX, relativeY, 0, 1, 18, 0, 0, 0.12f);
+                            drawShadow(g, img, relativeX, relativeY, 0, 3, 5, -1, 0, 0.2f);
+                            break;
+
+                        case 8:
+                            drawShadow(g, img, relativeX, relativeY, 0, 8, 10, 1, 0, 0.14f);
+                            //drawShadow(g, img, relativeX, relativeY, 0, 3, 4, 2, 0, 0.12f);
+                            //drawShadow(g, img, relativeX, relativeY, 0, 5, 5, -3, 0, 0.2f);
+                            break;
+                        case 9:
+                            drawShadow(g, img, relativeX, relativeY, 0, 9, 12, 1, 0, 0.14f);
+                            //drawShadow(g, img, relativeX, relativeY, 0, 3, 16, 2, 0, 0.12f);
+                            //drawShadow(g, img, relativeX, relativeY, 0, 5, 6, -3, 0, 0.2f);
+                            break;
+
+                        case 12:
+                            drawShadow(g, img, relativeX, relativeY, 0, 12, 17, 2, 0, 0.14f);
+                            //drawShadow(g, img, relativeX, relativeY, 0, 5, 22, 4, 0, 0.12f);
+                            //drawShadow(g, img, relativeX, relativeY, 0, 7, 8, -4, 0, 0.2f);
+                            break;
+
+                        case 16:
+                            drawShadow(g, img, relativeX, relativeY, 0, 16, 24, 2, 0, 0.14f);
+                            //drawShadow(g, img, relativeX, relativeY, 0, 6, 30, 5, 0, 0.12f);
+                            //drawShadow(g, img, relativeX, relativeY, 0, 8, 10, -5, 0, 0.2f);
+                            break;
+
+                        case 24:
+                            drawShadow(g, img, relativeX, relativeY, 0, 24, 38, 3, 0, 0.14f);
+                            //drawShadow(g, img, relativeX, relativeY, 0, 24, 38, 3, 0, 1f);
+                            //drawShadow(g, img, relativeX, relativeY, 0, 9, 46, 8, 0, 0.12f);
+                            //drawShadow(g, img, relativeX, relativeY, 0, 11, 15, -7, 0, 0.2f);
+                            break;
+                        default:
+                            break;
+                    }
+                    synchronized (this) {
+                        cachedShadowImage = shadowImage;
+                        cachedShadowHeight = getHeight();
+                        cachedShadowWidth = getWidth();
+                        cachedShadowElevation = elevation;
+                        paintinShadowInBackground_ = false;
+                    }
+
+                    CN.callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            Container surface = findSurface();
+                            if (surface != null) {
+                                surface.repaint();
+                            }
+                        }
+                    });
+                } finally {
+                    CN.setProperty("platformHint.showEDTWarnings", "true"); // Reinstate EDT violation warnings now that we're done.
+
+                    paintinShadowInBackground_ = false; // release the lock so that painting can resume.
+                }
+
+            }
+        };
+        if (canCreateImageOffEdt()) {
+            CN.scheduleBackgroundTask(createImageTask);
+        } else {
+            createImageTask.run();
+        }
+
+        //origG.drawImage(cachedShadowImage, origRelativeX + calculateShadowOffsetX(), origRelativeY + calculateShadowOffsetY());
+
+
+    }
+
+    private boolean canCreateImageOffEdt() {
+        String platform = CN.getPlatformName();
+        return !"ios".equals(platform) || CN.isSimulator();
+    }
+
+    /// Returns the absolute X location based on the component hierarchy, this method
+    /// calculates a location on the screen for the component rather than a relative
+    /// location as returned by getX()
+    ///
+    /// #### Returns
+    ///
+    /// the absolute x location of the component
+    ///
+    /// #### See also
+    ///
+    /// - #getX
+    public int getAbsoluteX() {
+        int x = getX() - getScrollX();
+        Container parent = getParent();
+        if (parent != null) {
+            x += parent.getAbsoluteX();
+        }
+        return x;
+    }
+
+    /// Returns the absolute Y location based on the component hierarchy, this method
+    /// calculates a location on the screen for the component rather than a relative
+    /// location as returned by getX()
+    ///
+    /// #### Returns
+    ///
+    /// the absolute y location of the component
+    ///
+    /// #### See also
+    ///
+    /// - #getY
+    public int getAbsoluteY() {
+        int y = getY() - getScrollY();
+        Container parent = getParent();
+        if (parent != null) {
+            y += parent.getAbsoluteY();
+        }
+        return y;
+    }
+
+    int getRelativeX(Container relativeTo) {
+        int x = getX() - getScrollX();
+        Container parent = getParent();
+        if (parent != relativeTo && parent != null) { //NOPMD CompareObjectsWithEquals
+            x += parent.getRelativeX(relativeTo);
+        }
+        return x;
+    }
+
+    int getRelativeY(Container relativeTo) {
+        int y = getY() - getScrollY();
+        Container parent = getParent();
+        if (parent != relativeTo && parent != null) { //NOPMD CompareObjectsWithEquals
+            y += parent.getRelativeY(relativeTo);
+        }
+        return y;
+    }
+
+    /// This method performs the paint of the component internally including drawing
+    /// the scrollbars and scrolling the component. This functionality is hidden
+    /// from developers to prevent errors
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: the component graphics
+    final void paintInternal(Graphics g) {
+        paintInternal(g, true);
+    }
+
+    final void paintInternal(Graphics g, boolean paintIntersects) {
+        Display d = Display.getInstance();
+        CodenameOneImplementation impl = d.getImplementation();
+        if (!isVisible() || doNotPaint) {
+            return;
+        }
+
+        if (paintLockImage != null) {
+            if (paintLockImage instanceof Image) {
+                Image i = (Image) paintLockImage;
+                g.drawImage(i, getX(), getY());
+            } else {
+                Image i = (Image) d.extractHardRef(paintLockImage);
+                if (i == null) {
+                    i = ImageFactory.createImage(this, getWidth(), getHeight(), 0);
+                    int x = getX();
+                    int y = getY();
+                    setX(0);
+                    setY(0);
+                    paintInternalImpl(i.getGraphics(), paintIntersects);
+                    setX(x);
+                    setY(y);
+                    paintLockImage = d.createSoftWeakRef(i);
+                }
+                g.drawImage(i, getX(), getY());
+            }
+            return;
+        }
+        impl.beforeComponentPaint(this, g);
+        paintInternalImpl(g, paintIntersects);
+        impl.afterComponentPaint(this, g);
+    }
+
+    protected boolean isInClippingRegion(Graphics g) {
+        int oX = g.getClipX();
+        int oY = g.getClipY();
+        int oWidth = g.getClipWidth();
+        int oHeight = g.getClipHeight();
+        return bounds.intersects(oX, oY, oWidth, oHeight);
+    }
+
+    private void paintInternalImpl(Graphics g, boolean paintIntersects) {
+        int oX = g.getClipX();
+        int oY = g.getClipY();
+        int oWidth = g.getClipWidth();
+        int oHeight = g.getClipHeight();
+        if (bounds.intersects(oX, oY, oWidth, oHeight)) {
+            Style s = getStyle();
+            if (s.getOpacity() < 255 && g.isAlphaSupported()) {
+                int oldAlpha = g.getAlpha();
+                g.setAlpha(s.getOpacity());
+                internalPaintImpl(g, paintIntersects);
+                g.setAlpha(oldAlpha);
+            } else {
+                internalPaintImpl(g, paintIntersects);
+            }
+
+            g.setClip(oX, oY, oWidth, oHeight);
+        } else {
+            Display.impl.nothingWithinComponentPaint(this);
+        }
+    }
+
+    void internalPaintImpl(Graphics g, boolean paintIntersects) {
+        g.clipRect(getX(), getY(), getWidth(), getHeight());
+        // CSS backdrop-filter:blur() -- the "liquid glass" effect. Blur whatever has
+        // already been painted behind this component (the clip confines it to our
+        // bounds) BEFORE our own translucent background and content paint on top. This
+        // runs regardless of opacity, since a glass surface is by definition
+        // translucent (opaque would be false and skip paintComponentBackground). The
+        // port blurs the destination region in place; an unsupported port returns
+        // false and the component simply paints without the blur.
+        // COST/CACHING POLICY (per paint path):
+        //  * A glass surface only pays when it repaints; static chrome over static
+        //    content costs nothing between repaints.
+        //  * iOS live screen, selection lens: a pure GPU fragment shader on the
+        //    frame's own command buffer -- no sync, no readback, no cache needed.
+        //  * iOS live screen, glass material: the backdrop readback is required
+        //    (the material is a function of the pixels behind the glass), but the
+        //    composed patch is CACHED per rect+params+backdrop-hash in the port
+        //    (METALView glass patch cache), so a repaint over an unchanged
+        //    backdrop skips the colour transform + blur + optics; scrolling
+        //    content under the glass recomposes that frame from the real bytes.
+        //  * Offscreen mutable images (capture tooling) and the desktop simulator
+        //    blur per paint -- capture renders once, and the simulator is not a
+        //    shipping surface.
+        float backdropBlur = getStyle().getBackdropFilterBlurRadius();
+        if (backdropBlur > 0) {
+            // The glass surface's material INTENT comes from a typed, named
+            // recipe (GlassRecipe -- plain blur, chrome bar, floating pill,
+            // glass panel), resolved per UIID via <UIID>GlassRecipe /
+            // glassRecipeDefault. The recipe carries the bounded, measured
+            // material parameters; this paint path only forwards them to the
+            // port, so similar glass surfaces share one definition instead of
+            // reconstructing the material from loose per-parameter constants.
+            // glassMaterialBool remains the theme-wide opt-in to the Liquid
+            // Glass materials; without it backdrop-filter stays a plain blur.
+            GlassRecipe recipe = null;
+            if (getUIManager().isThemeConstant("glassMaterialBool", false)) {
+                int fg = getStyle().getFgColor();
+                int fgLuma = (int) (0.2126f * ((fg >> 16) & 0xff) + 0.7152f * ((fg >> 8) & 0xff) + 0.0722f * (fg & 0xff));
+                boolean darkMat = fgLuma > 128; // dark theme uses a light fg
+                recipe = GlassRecipe.resolve(getUIManager(), getUIID(), darkMat);
+                if (recipe.getKind() == GlassRecipe.Kind.PLAIN_BLUR) {
+                    recipe = null;
+                }
+            }
+            if (recipe != null) {
+                // Match the glass material to the component's rounded/pill shape so it
+                // does not spill into a square. RoundBorder is a capsule (-1 sentinel);
+                // RoundRectBorder carries an explicit corner radius (mm -> px); any
+                // other border leaves the patch rectangular (0).
+                Border bd = getStyle().getBorder();
+                float cornerRadius = 0f;
+                if (bd instanceof RoundBorder) {
+                    cornerRadius = -1f;
+                } else if (bd instanceof RoundRectBorder) {
+                    cornerRadius = Display.getInstance().convertToPixels(((RoundRectBorder) bd).getCornerRadius());
+                }
+                g.glassRegion(getX(), getY(), getWidth(), getHeight(), backdropBlur, cornerRadius,
+                        recipe.getSaturation(), recipe.getScale(), recipe.getOffset(),
+                        recipe.getRefraction(), recipe.getSpecular());
+            } else {
+                g.blurRegion(getX(), getY(), getWidth(), getHeight(), backdropBlur);
+            }
+        }
+        paintComponentBackground(g);
+
+        if (isScrollable()) {
+            if (refreshTask != null && !InfiniteProgress.isDefaultMaterialDesignMode() &&
+                    (draggedMotionY == null || getClientProperty("$pullToRelease") != null)) {
+                paintPullToRefresh(g);
+            }
+            int scrollX = getScrollX();
+            int scrollY = getScrollY();
+            g.translate(-scrollX, -scrollY);
+            paint(g);
+            g.translate(scrollX, scrollY);
+            if (isScrollVisible) {
+                paintScrollbars(g);
+            }
+        } else {
+            paint(g);
+        }
+        if (isBorderPainted()) {
+            paintBorder(g);
+        }
+
+        //paint all the intersecting Components above the Component
+        if (paintIntersects && parent != null) {
+            paintIntersectingComponentsAbove(g);
+        }
+    }
+
+    /// Paints intersecting components that appear above this component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: Graphics context
+    ///
+    /// #### Deprecated
+    ///
+    /// For internal use only
+    public void paintIntersectingComponentsAbove(Graphics g) {
+        Container parent = getParent();
+        Component component = this;
+        int tx = g.getTranslateX();
+        int ty = g.getTranslateY();
+
+        g.translate(-tx, -ty);
+        int x1 = getAbsoluteX() + getScrollX();
+        int y1 = getAbsoluteY() + getScrollY();
+        int w = getWidth();
+        int h = getHeight();
+
+        while (parent != null) {
+            int ptx = parent.getAbsoluteX() + parent.getScrollX();
+            int pty = parent.getAbsoluteY() + parent.getScrollY();
+            g.translate(ptx, pty);
+            parent.paintIntersecting(g, component, x1, y1, w, h, true, 0);
+
+
+            if (parent.isSurface()) {
+                // If this is a surface, then we need to render the elevated pane
+                parent.paintElevatedPane(g, true, x1, y1, w, h, this.renderedElevation, this.renderedElevationComponentIndex, true);
+            }
+            g.translate(-ptx, -pty);
+            component = parent;
+            parent = parent.getParent();
+        }
+        g.translate(tx, ty);
+
+    }
+
+    /// Paints the UI for the scrollbars on the component, this will be invoked only
+    /// for scrollable components. This method invokes the appropriate X/Y versions
+    /// to do all the work.
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: the component graphics
+    protected void paintScrollbars(Graphics g) {
+        // isScrollVisible is what getBottomGap/getSideGap consult to decide whether to
+        // reserve room for a scrollbar, so painting one regardless left a component that
+        // had asked for no scrollbar with a scrollbar drawn OVER its content, in the
+        // space it was told it could use. A caller that turns the flag off means it.
+        if (!isScrollVisible()) {
+            return;
+        }
+        if (isScrollableX()) {
+            paintScrollbarX(g);
+        }
+        if (isScrollableY()) {
+            paintScrollbarY(g);
+        }
+    }
+
+    private void paintPullToRefresh(Graphics g) {
+        if (!dragActivated && scrollY == -getUIManager().getLookAndFeel().getPullToRefreshHeight()
+                && getClientProperty("$pullToRelease") != null
+                && "update".equals(getClientProperty("$pullToRelease"))) {
+
+            putClientProperty("$pullToRelease", "updating");
+            draggedMotionY = null;
+            //execute the task
+            Display.getInstance().callSerially(new Runnable() {
+
+                @Override
+                public void run() {
+                    refreshTask.run();
+                    //once the task has finished scroll to 0
+                    startTensile(scrollY, 0, true);
+                    putClientProperty("$pullToRelease", null);
+                }
+            });
+        }
+        boolean updating = getClientProperty("$pullToRelease") != null
+                && "updating".equals(getClientProperty("$pullToRelease"));
+        getUIManager().getLookAndFeel().drawPullToRefresh(g, this, updating);
+    }
+
+    /// Paints the UI for the scrollbar on the X axis, this method allows component
+    /// subclasses to customize the look of a scrollbar
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: the component graphics
+    protected void paintScrollbarX(Graphics g) {
+        float scrollW = getScrollDimension().getWidth();
+        float block = ((float) getWidth()) / scrollW;
+        float offset;
+        if (getScrollX() + getWidth() == scrollW) {
+            // normalize the offset to avoid rounding errors to the bottom of the screen
+            offset = 1 - block;
+        } else {
+            offset = (((float) getScrollX() + getWidth()) / scrollW) - block;
+        }
+        getUIManager().getLookAndFeel().drawHorizontalScroll(g, this, offset, block);
+    }
+
+    /// This method is used internally by the look and feel to implement the fading scrollbar
+    /// behavior.
+    ///
+    /// #### Returns
+    ///
+    /// the opacity of the scrollbar
+    public int getScrollOpacity() {
+        if (Display.getInstance().shouldRenderSelection()) {
+            scrollOpacity = 0xff;
+        }
+        return scrollOpacity;
+    }
+
+    /// Returns the component bounds with absolute screen coordinates, for components that include an internal selection behavior
+    /// and are not containers (currently only List) this method allows returning the position of the selection
+    /// itself which is useful for things such as the popup dialog and similar UI's that need to reference the
+    /// position of the selection externally
+    ///
+    /// #### Returns
+    ///
+    /// the bounds of the component with absolute screen coordinates
+    public Rectangle getSelectedRect() {
+        return new Rectangle(getAbsoluteX(), getAbsoluteY(), bounds.getSize());
+    }
+
+    /// Paints the UI for the scrollbar on the Y axis, this method allows component
+    /// subclasses to customize the look of a scrollbar
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: the component graphics
+    protected void paintScrollbarY(Graphics g) {
+        float scrollH = getScrollDimension().getHeight();
+        float block = ((float) getHeight()) / scrollH;
+        float offset;
+        if (getScrollY() + getHeight() == scrollH) {
+            // normalize the offset to avoid rounding errors to the bottom of the screen
+            offset = 1 - block;
+        } else {
+            offset = (((float) getScrollY() + getHeight()) / scrollH) - block;
+        }
+        getUIManager().getLookAndFeel().drawVerticalScroll(g, this, offset, block);
+    }
+
+    /// Paints this component as a root by going to all the parent components and
+    /// setting the absolute translation based on coordinates and scroll status.
+    /// Restores translation when the painting is finished.
+    ///
+    /// One of the uses of this method is to create a "screenshot" as is demonstrated in the code below
+    /// that creates an image for sharing on social media
+    ///
+    /// ```java
+    /// Form hi = new Form("ShareButton");
+    /// ShareButton sb = new ShareButton();
+    /// sb.setText("Share Screenshot");
+    /// hi.add(sb);
+    ///
+    /// Image screenshot = Image.createImage(hi.getWidth(), hi.getHeight());
+    /// hi.revalidate();
+    /// hi.setVisible(true);
+    /// hi.paintComponent(screenshot.getGraphics(), true);
+    ///
+    /// String imageFile = FileSystemStorage.getInstance().getAppHomePath() + "screenshot.png";
+    /// try(OutputStream os = FileSystemStorage.getInstance().openOutputStream(imageFile)) {
+    ///     ImageIO.getImageIO().save(screenshot, os, ImageIO.FORMAT_PNG, 1);
+    /// } catch(IOException err) {
+    ///     Log.e(err);
+    /// }
+    /// sb.setImageToShare(imageFile, "image/png");
+    /// ```
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: the graphics to paint this Component on
+    final public void paintComponent(Graphics g) {
+        repaintPending = false;
+        paintComponent(g, true);
+    }
+
+    /// Paints this component as a root by going to all the parent components and
+    /// setting the absolute translation based on coordinates and scroll status.
+    /// Restores translation when the painting is finished.
+    ///
+    /// One of the uses of this method is to create a "screenshot" as is demonstrated in the code below
+    /// that creates an image for sharing on social media
+    ///
+    /// ```java
+    /// Form hi = new Form("ShareButton");
+    /// ShareButton sb = new ShareButton();
+    /// sb.setText("Share Screenshot");
+    /// hi.add(sb);
+    ///
+    /// Image screenshot = Image.createImage(hi.getWidth(), hi.getHeight());
+    /// hi.revalidate();
+    /// hi.setVisible(true);
+    /// hi.paintComponent(screenshot.getGraphics(), true);
+    ///
+    /// String imageFile = FileSystemStorage.getInstance().getAppHomePath() + "screenshot.png";
+    /// try(OutputStream os = FileSystemStorage.getInstance().openOutputStream(imageFile)) {
+    ///     ImageIO.getImageIO().save(screenshot, os, ImageIO.FORMAT_PNG, 1);
+    /// } catch(IOException err) {
+    ///     Log.e(err);
+    /// }
+    /// sb.setImageToShare(imageFile, "image/png");
+    /// ```
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: the graphics to paint this Component on
+    ///
+    /// - `background`: if true paints all parents background
+    final public void paintComponent(Graphics g, boolean background) {
+        if (!isVisible()) {
+            return;
+        }
+        int clipX = g.getClipX();
+        int clipY = g.getClipY();
+        int clipW = g.getClipWidth();
+        int clipH = g.getClipHeight();
+        //g.pushClip();
+        Container parent = getParent();
+        int translateX = 0;
+        int translateY = 0;
+        while (parent != null) {
+            translateX += parent.getX();
+            translateY += parent.getY();
+            //if (parent.isScrollable()) {
+            if (parent.isScrollableX()) {
+                translateX -= parent.getScrollX();
+            }
+            if (parent.isScrollableY()) {
+                translateY -= parent.getScrollY();
+            }
+            // since scrollability can translate everything... we should clip based on the
+            // current scroll
+            int parentX = parent.getAbsoluteX() + parent.getScrollX();
+            if (isRTL()) {
+                parentX += parent.getSideGap();
+            }
+            g.clipRect(parentX, parent.getAbsoluteY() + parent.getScrollY(),
+                    parent.getWidth() - parent.getSideGap(), parent.getHeight() - parent.getBottomGap());
+
+            parent = parent.getParent();
+        }
+
+        g.clipRect(translateX + getX(), translateY + getY(), getWidth(), getHeight());
+        if (background) {
+            paintBackgrounds(g);
+        }
+
+
+        g.translate(translateX, translateY);
+        paintInternal(g);
+        g.translate(-translateX, -translateY);
+
+        paintGlassImpl(g);
+
+        g.setClip(clipX, clipY, clipW, clipH);
+        //g.popClip();
+    }
+
+    /// This method can be overriden by a component to draw on top of itself or its children
+    /// after the component or the children finished drawing in a similar way to the glass
+    /// pane but more refined per component
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: the graphics context
+    void paintGlassImpl(Graphics g) {
+        if (parent != null) {
+            parent.paintGlassImpl(g);
+        }
+        paintTensile(g);
+    }
+
+    /// Returns the area of this component that is currently hidden by the virtual keyboard.
+    ///
+    /// #### Returns
+    ///
+    /// The height of the area under the virtual keyboard in pixels
+    /// The part of this component the virtual keyboard is covering, which the scroll range
+    /// has to include or whatever is under the keyboard can never be brought into view.
+    ///
+    /// Package private rather than private because the wheel scroll in `Display` needs the
+    /// same number the drag path uses: a wheel clamps the position itself, and clamping to
+    /// a range that stops at the keyboard is how a field hidden behind it becomes
+    /// unreachable with a trackpad.
+    int getInvisibleAreaUnderVKB() {
+        TopLevelContainer f = getTopLevelContainer();
+        if (f != null) {
+            int invisibleAreaUnderVKB = f.getInvisibleAreaUnderVKB();
+            if (invisibleAreaUnderVKB == 0) {
+                return 0;
+            }
+            int bottomGap = f.asContainer().getHeight() - getAbsoluteY() - getScrollY() - getHeight();
+            if (bottomGap < invisibleAreaUnderVKB) {
+                return invisibleAreaUnderVKB - bottomGap;
+            } else {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    void paintTensile(Graphics g) {
+        if (tensileHighlightIntensity > 0) {
+            int i = getScrollDimension().getHeight() - getHeight() + getInvisibleAreaUnderVKB();
+            if (scrollY >= i - 1) {
+                getUIManager().getLookAndFeel().paintTensileHighlight(this, g, false, tensileHighlightIntensity);
+            } else {
+                if (scrollY < 1) {
+                    getUIManager().getLookAndFeel().paintTensileHighlight(this, g, true, tensileHighlightIntensity);
+                } else {
+                    tensileHighlightIntensity = 0;
+                }
+            }
+        }
+    }
+
+    private void drawPainters(Graphics g, Component par, Component c,
+                              int x, int y, int w, int h) {
+        if (flatten && getWidth() > 0 && getHeight() > 0) {
+            Image i = (Image) getClientProperty("$FLAT");
+            int absX = getAbsoluteX() + getScrollX();
+            int absY = getAbsoluteY() + getScrollY();
+            if (i == null || i.getWidth() != getWidth() || i.getHeight() != getHeight()) {
+                i = ImageFactory.createImage(this, getWidth(), getHeight(), 0);
+                Graphics tg = i.getGraphics();
+                //tg.translate(g.getTranslateX(), g.getTranslateY());
+                drawPaintersImpl(tg, par, c, x, y, w, h);
+                paintBackgroundImpl(tg);
+                putClientProperty("$FLAT", i);
+            }
+            int tx = g.getTranslateX();
+            int ty = g.getTranslateY();
+            g.translate(-tx + absX, -ty + absY);
+            g.drawImage(i, 0, 0);
+            g.translate(tx - absX, ty - absY);
+            return;
+        }
+        drawPaintersImpl(g, par, c, x, y, w, h);
+    }
+
+    private void drawPaintersImpl(Graphics g, Component par, Component c,
+                                  int x, int y, int w, int h) {
+        if (par == null) {
+            return;
+        } else {
+            if (par.getStyle().getBgTransparency() != ((byte) 0xFF)) {
+                drawPainters(g, par.getParent(), par, x, y, w, h);
+            }
+        }
+
+        if (!par.isVisible()) {
+            return;
+        }
+
+        int transX = par.getAbsoluteX() + par.getScrollX();
+        int transY = par.getAbsoluteY() + par.getScrollY();
+
+        g.translate(transX, transY);
+
+
+        if (par.isBorderPainted()) {
+            Border b = par.getBorder();
+            if (b.isBackgroundPainter()) {
+                g.translate(-par.getX(), -par.getY());
+                par.paintBorderBackground(g);
+                par.paintBorder(g);
+                g.translate(par.getX() - transX, par.getY() - transY);
+                return;
+            }
+        }
+        Painter p = par.getStyle().getBgPainter();
+        if (p != null) {
+            Rectangle rect;
+            if (painterBounds == null) {
+                painterBounds = new Rectangle(0, 0, par.getWidth(), par.getHeight());
+                rect = painterBounds;
+            } else {
+                rect = painterBounds;
+                rect.getSize().setWidth(par.getWidth());
+                rect.getSize().setHeight(par.getHeight());
+            }
+            p.paint(g, rect);
+        }
+        par.paintBackground(g);
+        ((Container) par).paintIntersecting(g, c, x, y, w, h, false, 0);
+        g.translate(-transX, -transY);
+    }
+
+    private void paintRippleEffect(Graphics g) {
+        if (isRippleEffect() && Form.getRippleComponent() == this && Form.getRippleMotion() != null) { //NOPMD CompareObjectsWithEquals
+            paintRippleOverlay(g, Form.rippleX, Form.rippleY, Form.getRippleMotion().getValue());
+        }
+    }
+
+    /// Hook that lets a subclass paint a fading overlay directly over its own
+    /// background, right after the background (and ripple) are drawn. Used by
+    /// {@link com.codename1.ui.Button} for the iOS-style release dim-out that
+    /// fades the pressed background back to normal over a few frames. No-op by
+    /// default so components that don't opt in pay nothing.
+    void paintReleaseFadeOverlay(Graphics g) {
+    }
+
+    /// Normally returns getStyle().getBorder() but some subclasses might use this
+    /// to programmatically replace the border in runtime e.g. for a pressed border effect
+    ///
+    /// #### Returns
+    ///
+    /// the border that is drawn according to the current component state
+    protected Border getBorder() {
+        return getStyle().getBorder();
+    }
+
+    /// Paints the background of the component, invoked with the clipping region
+    /// and appropriate scroll translation.
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: the component graphics
+    void paintComponentBackground(Graphics g) {
+        if (isFlatten() || !opaque) {
+            return;
+        }
+        paintBackgroundImpl(g);
+    }
+
+    /// Returns the scrollable parent of this component
+    ///
+    /// #### Returns
+    ///
+    /// the component itself or its parent which is scrollable
+    public Component getScrollable() {
+        if (isScrollable()) {
+            return this;
+        }
+        Component p = getParent();
+        if (p == null) {
+            return null;
+        }
+        return p.getScrollable();
+    }
+
+    /// Returns the scrollable parent of this component
+    private Component getScrollableFast() {
+        if (scrollableXFlag() || scrollableYFlag()) {
+            return this;
+        }
+        Component p = getParent();
+        if (p == null) {
+            return null;
+        }
+        return p.getScrollableFast();
+    }
+
+    private void paintBackgroundImpl(Graphics g) {
+        if (isBorderPainted()) {
+            Border b = getBorder();
+            if (b != null && b.isBackgroundPainter()) {
+                b.paintBorderBackground(g, this);
+                paintRippleEffect(g);
+                paintReleaseFadeOverlay(g);
+                return;
+            }
+        }
+        if (getStyle().getBgPainter() != null) {
+            getStyle().getBgPainter().paint(g, bounds);
+        }
+        paintBackground(g);
+        paintRippleEffect(g);
+        paintReleaseFadeOverlay(g);
+    }
+
+    /// This method paints the Component background, it should be overriden
+    /// by subclasses to perform custom background drawing.
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: the component graphics
+    protected void paintBackground(Graphics g) {
+    }
+
+    /// This method paints the Component on the screen, it should be overriden
+    /// by subclasses to perform custom drawing or invoke the UI API's to let
+    /// the PLAF perform the rendering.
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: the component graphics
+    @Override
+    public void paint(Graphics g) {
+    }
+
+    /// Indicates whether the component should/could scroll by default a component
+    /// is not scrollable.
+    ///
+    /// #### Returns
+    ///
+    /// whether the component is scrollable
+    protected boolean isScrollable() {
+        return isScrollableX() || isScrollableY();
+    }
+
+    /// Indicates whether the component should/could scroll on the X axis
+    ///
+    /// #### Returns
+    ///
+    /// whether the component is scrollable on the X axis
+    public boolean isScrollableX() {
+        return false;
+    }
+
+    /// Indicates whether the component should/could scroll on the Y axis
+    ///
+    /// #### Returns
+    ///
+    /// whether the component is scrollable on the X axis
+    public boolean isScrollableY() {
+        return false;
+    }
+
+    boolean scrollableXFlag() {
+        return isScrollableX();
+    }
+
+    boolean scrollableYFlag() {
+        return isScrollableY();
+    }
+
+    /// Indicates the X position of the scrolling, this number is relative to the
+    /// component position and so a position of 0 would indicate the x position
+    /// of the component.
+    ///
+    /// #### Returns
+    ///
+    /// the X position of the scrolling
+    public int getScrollX() {
+        return scrollX;
+    }
+
+    /// Indicates the X position of the scrolling, this number is relative to the
+    /// component position and so a position of 0 would indicate the x position
+    /// of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `scrollX`: the X position of the scrolling
+    protected void setScrollX(int scrollX) {
+        if (Display.getInstance().wheelScrollTarget != this) { //NOPMD CompareObjectsWithEquals
+            wheelSnapRemainderX = 0;
+        }
+        // the setter must always update the value regardless...
+        int scrollXtmp = scrollX;
+        if (!isSmoothScrolling() || !isTensileDragEnabled()) {
+            scrollXtmp = Math.min(scrollXtmp, getScrollDimension().getWidth() - getWidth());
+            scrollXtmp = Math.max(scrollXtmp, 0);
+        }
+        if (isScrollableX()) {
+            if (Form.activePeerCount > 0) {
+                onParentPositionChange();
+            }
+            repaint();
+        }
+        // See setScrollY: update the field before notifying listeners and skip the
+        // event when the clamped value didn't change, so a listener that scrolls the
+        // component back into view can't recurse infinitely (issue #5305).
+        int oldScrollX = this.scrollX;
+        this.scrollX = scrollXtmp;
+        if (oldScrollX != scrollXtmp) {
+            accessibilityChanged(AccessibilityManager.CHANGE_BOUNDS);
+        }
+        if (scrollListeners != null && oldScrollX != scrollXtmp) {
+            scrollListeners.fireScrollEvent(scrollXtmp, this.scrollY, oldScrollX, this.scrollY);
+        }
+        onScrollX(scrollX);
+    }
+
+    /// Indicates the Y position of the scrolling, this number is relative to the
+    /// component position and so a position of 0 would indicate the y position
+    /// of the component.
+    ///
+    /// #### Returns
+    ///
+    /// the Y position of the scrolling
+    public int getScrollY() {
+        return scrollY;
+    }
+
+    /// Indicates the Y position of the scrolling, this number is relative to the
+    /// component position and so a position of 0 would indicate the y position
+    /// of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `scrollY`: the Y position of the scrolling
+    protected void setScrollY(int scrollY) {
+        if (Display.getInstance().wheelScrollTarget != this) { //NOPMD CompareObjectsWithEquals
+            // Anything that is not the wheel moving THIS component invalidates what it was
+            // carrying: the remainder describes a distance from a position this component
+            // is no longer at, so adding it to the next notch would move further than the
+            // notch asked for. A drag, a selection change and a programmatic scroll all
+            // land here -- including one made by a listener while the wheel is dispatching,
+            // which is why the test is the component being moved rather than whether a
+            // wheel is in flight at all.
+            wheelSnapRemainderY = 0;
+        }
+        int oldAccessibilityScrollY = this.scrollY;
+        if (this.scrollY != scrollY) {
+            CodenameOneImplementation ci = Display.impl;
+
+            if (ci.isAsyncEditMode() && ci.isEditingText()) {
+                Component editingText = ci.getEditingText();
+                if (editingText != null && this instanceof Container && ((Container) this).contains(editingText)) {
+                    ci.hideTextEditor();
+                }
+            }
+        }
+        // the setter must always update the value regardless...
+        int scrollYtmp = scrollY;
+        if (!isSmoothScrolling() || !isTensileDragEnabled()) {
+            int v = getInvisibleAreaUnderVKB();
+            int h = getScrollDimension().getHeight() - getHeight() + v;
+            scrollYtmp = Math.min(scrollYtmp, h);
+            scrollYtmp = Math.max(scrollYtmp, 0);
+        }
+        if (oldAccessibilityScrollY != scrollYtmp) {
+            accessibilityChanged(AccessibilityManager.CHANGE_BOUNDS);
+        }
+        if (isScrollableY()) {
+            if (Form.activePeerCount > 0) {
+                onParentPositionChange();
+            }
+            repaint();
+        }
+        // Update the field *before* notifying listeners and only notify when the
+        // (clamped) value actually changed. A listener that reacts by scrolling the
+        // same component back into view (e.g. via scrollComponentToVisible) reads
+        // getScrollY() during its callback; if the field were still stale it would
+        // recompute the same target and re-fire forever, overflowing the stack
+        // (issue #5305). Suppressing the no-op event also lets such a listener
+        // terminate once the position has settled.
+        int oldScrollY = this.scrollY;
+        this.scrollY = scrollYtmp;
+        if (scrollListeners != null && oldScrollY != scrollYtmp) {
+            scrollListeners.fireScrollEvent(this.scrollX, scrollYtmp, this.scrollX, oldScrollY);
+        }
+        onScrollY(this.scrollY);
+    }
+
+    /// This method can be overriden to receive scroll events, unlike overriding setScrollX
+    /// it will receive all calls for scrolling. Normally you should not override this method
+    /// and try to find a more creative solution since scrolling is very specific to platform
+    /// behavior.
+    ///
+    /// #### Parameters
+    ///
+    /// - `scrollX`: the X position of the scrolling
+    protected void onScrollX(int scrollX) {
+    }
+
+    /// This method can be overriden to receive scroll events, unlike overriding setScrollY
+    /// it will receive all calls for scrolling. Normally you should not override this method
+    /// and try to find a more creative solution since scrolling is very specific to platform
+    /// behavior.
+    ///
+    /// #### Parameters
+    ///
+    /// - `scrollY`: the Y position of the scrolling
+    protected void onScrollY(int scrollY) {
+    }
+
+    void resetScroll() {
+        if (scrollListeners != null) {
+            if (scrollX != 0 || scrollY != 0) {
+                scrollListeners.fireScrollEvent(0, 0, this.scrollX, this.scrollY);
+            }
+        }
+        scrollX = 0;
+        scrollY = 0;
+    }
+
+    /// Gets the current dragged x values when the Component is being dragged
+    ///
+    /// #### Returns
+    ///
+    /// dragged x value
+    public int getDraggedx() {
+        return draggedx;
+    }
+
+    /// Gets the current dragged y values when the Component is being dragged
+    ///
+    /// #### Returns
+    ///
+    /// dragged y value
+    public int getDraggedy() {
+        return draggedy;
+    }
+
+    private void updateTensileHighlightIntensity(int lastScroll, int scroll, boolean motion) {
+        if (tensileHighlightEnabled) {
+            int h = getScrollDimension().getHeight() - getHeight() + getInvisibleAreaUnderVKB();
+            if (h <= 0) {
+                // layout hasn't completed yet
+                tensileHighlightIntensity = 0;
+                return;
+            }
+            if (h > this.scrollY) {
+                if (this.scrollY < 0) {
+                    if (scroll > lastScroll || motion) {
+                        tensileHighlightIntensity = 255;
+                    }
+                }
+            } else {
+                if (lastScroll > scroll || motion) {
+                    tensileHighlightIntensity = 255;
+                }
+            }
+        }
+    }
+
+    /// Returns the gap to be left for the bottom scrollbar on the X axis. This
+    /// method is used by layout managers to determine the room they should
+    /// leave for the scrollbar
+    ///
+    /// #### Returns
+    ///
+    /// the gap to be left for the bottom scrollbar on the X axis
+    public int getBottomGap() {
+        if (isScrollableX() && isScrollVisible()) {
+            return getUIManager().getLookAndFeel().getHorizontalScrollHeight();
+        }
+        return 0;
+    }
+
+    /// Returns the gap to be left for the side scrollbar on the Y axis. This
+    /// method is used by layout managers to determine the room they should
+    /// leave for the scrollbar. (note: side scrollbar rather than left scrollbar
+    /// is used for a future version that would support bidi).
+    ///
+    /// #### Returns
+    ///
+    /// the gap to be left for the side scrollbar on the Y axis
+    public int getSideGap() {
+        if (isScrollableY() && isScrollVisible()) {
+            return getUIManager().getLookAndFeel().getVerticalScrollWidth();
+        }
+        return 0;
+    }
+
+    /// Returns true if the given absolute coordinate is contained in the Component
+    ///
+    /// NOTE: This will return true upon a "hit" even if the component is not
+    /// visible, or if that part of the component is currently clipped by a parent
+    /// component.  To check if a point is contained in the visible component bounds
+    /// use `int)`
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the given absolute x coordinate
+    ///
+    /// - `y`: the given absolute y coordinate
+    ///
+    /// #### Returns
+    ///
+    /// @return true if the given absolute coordinate is contained in the
+    /// Component; otherwise false
+    ///
+    /// #### See also
+    ///
+    /// - #visibleBoundsContains(int, int)
+    public boolean contains(int x, int y) {
+        int absX = getAbsoluteX() + getScrollX();
+        int absY = getAbsoluteY() + getScrollY();
+        return (x >= absX && x < absX + getWidth() && y >= absY && y < absY + getHeight());
+    }
+
+    /// Returns true if the given absolute coordinate is contained inside the visible bounds
+    /// of the component.  This differs from `int)` in that it will
+    /// return false if the component or any of its ancestors are not visible,
+    /// or if (x, y) are contained inside the bounds of the component, but are clipped.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the given absolute x coordinate
+    ///
+    /// - `y`: the given absolute y coordinate
+    ///
+    /// #### Returns
+    ///
+    /// @return true if the given absolute coordinate is contained in the
+    /// Component's visible bounds; otherwise false
+    ///
+    /// #### See also
+    ///
+    /// - #contains(int, int)
+    public boolean visibleBoundsContains(int x, int y) {
+        if (!isVisible() || !contains(x, y)) {
+            return false;
+        }
+        Container parent = getParent();
+        return parent == null || parent.visibleBoundsContains(x, y);
+    }
+
+    /// Calculates the preferred size based on component content. This method is
+    /// invoked lazily by getPreferred size.
+    ///
+    /// #### Returns
+    ///
+    /// the calculated preferred size based on component content
+    protected Dimension calcPreferredSize() {
+        return new Dimension(0, 0);
+    }
+
+    /// Checks if this component has a fixed preferred size either via an explicit call to
+    /// `#setPreferredH(int)` and `#setPreferredW(int)`, or via a preferred
+    /// size style string.
+    ///
+    /// #### Returns
+    ///
+    /// True if this component has a fixed preferred size.
+    ///
+    public boolean hasFixedPreferredSize() {
+        return sizeRequestedByUser || preferredSizeStr != null;
+    }
+
+    private Dimension preferredSizeImpl() {
+        if (!sizeRequestedByUser && (shouldCalcPreferredSize || preferredSize == null)) {
+            shouldCalcPreferredSize = false;
+            if (hideInPortrait && Display.INSTANCE.isPortrait()) {
+                preferredSize = new Dimension(0, 0);
+            } else {
+                if (hideInLandscape && !Display.INSTANCE.isPortrait()) {
+                    preferredSize = new Dimension(0, 0);
+                } else {
+                    // Copy values rather than retain the reference returned by
+                    // calcPreferredSize(). Otherwise, subclasses whose
+                    // calcPreferredSize() returns a shared Dimension (e.g.
+                    // ContainerList.Entry returning the renderer's own
+                    // preferredSize field) cause every "cached" preferredSize
+                    // to point at the same instance, so a single re-measure of
+                    // the renderer silently mutates every previously-measured
+                    // entry. See #1363.
+                    Dimension calculated = calcPreferredSize();
+                    if (preferredSize == null) {
+                        preferredSize = new Dimension(calculated.getWidth(), calculated.getHeight());
+                    } else {
+                        preferredSize.setWidth(calculated.getWidth());
+                        preferredSize.setHeight(calculated.getHeight());
+                    }
+                    if (preferredSizeStr != null) {
+                        Component.parsePreferredSize(preferredSizeStr, preferredSize);
+                    }
+                }
+            }
+        }
+        return preferredSize;
+    }
+
+    private Dimension preferredSize() {
+        if (sameWidth != null || sameHeight != null) {
+            if (!sizeRequestedByUser && (shouldCalcPreferredSize || preferredSize == null)) {
+                if (sameWidth != null) {
+                    int w = -1;
+                    for (Component c : sameWidth) {
+                        int d = c.preferredSizeImpl().getWidth();
+                        if (w < d) {
+                            w = d;
+                        }
+                    }
+                    for (Component c : sameWidth) {
+                        c.preferredSizeImpl().setWidth(w);
+                    }
+                }
+                if (sameHeight != null) {
+                    int h = -1;
+                    for (Component c : sameHeight) {
+                        int d = c.preferredSizeImpl().getHeight();
+                        if (h < d) {
+                            h = d;
+                        }
+                    }
+                    for (Component c : sameHeight) {
+                        c.preferredSizeImpl().setHeight(h);
+                    }
+                }
+            }
+        }
+        return preferredSizeImpl();
+    }
+
+    /// Returns the component bounds which is sometimes more convenient than invoking
+    /// getX/Y/Width/Height. Bounds are relative to parent container.
+    ///
+    /// Changing values within the bounds can lead to unpredicted behavior.
+    ///
+    /// #### Returns
+    ///
+    /// the component bounds
+    ///
+    /// #### See also
+    ///
+    /// - #getX
+    ///
+    /// - #getY
+    ///
+    /// - #getBounds(com.codename1.ui.geom.Rectangle)
+    protected Rectangle getBounds() {
+        return bounds;
+    }
+
+    /// Returns the bounds of this component in the provided Rectangle.
+    ///
+    /// #### Parameters
+    ///
+    /// - `rect`: An "out" parameter to store the component bounds in.  Cannot be null.
+    ///
+    /// #### Returns
+    ///
+    /// The same Rectangle that was passed as a parameter.
+    ///
+    /// #### See also
+    ///
+    /// - #getBounds()
+    public Rectangle getBounds(Rectangle rect) {
+        rect.setBounds(getBounds());
+        return rect;
+    }
+
+    /// Returns the component bounds for scrolling which might differ from the getBounds for large components
+    /// e.g. list.
+    ///
+    /// #### Returns
+    ///
+    /// the component bounds
+    ///
+    /// #### See also
+    ///
+    /// - #getX
+    ///
+    /// - #getY
+    ///
+    /// - #getVisibleBounds(com.codename1.ui.geom.Rectangle)
+    protected Rectangle getVisibleBounds() {
+        return bounds;
+    }
+
+    /// Returns the component bounds for scrolling which might differ from the getBounds for large components
+    /// into the provided rectangle.
+    ///
+    /// #### Parameters
+    ///
+    /// - `rect`: An "out" parameter to store the bounds in.  Cannot be null.
+    ///
+    /// #### Returns
+    ///
+    /// The same Rectangle that was passed as a parameter.
+    ///
+    /// #### See also
+    ///
+    /// - #getVisibleBounds()
+    public Rectangle getVisibleBounds(Rectangle rect) {
+        rect.setBounds(getVisibleBounds());
+        return rect;
+    }
+
+    /// Returns true if this component can receive focus and is enabled
+    ///
+    /// #### Returns
+    ///
+    /// true if this component can receive focus; otherwise false
+    public boolean isFocusable() {
+        return focusable && enabled && isVisible();
+    }
+
+    /// A simple setter to determine if this Component can get focused
+    ///
+    /// #### Parameters
+    ///
+    /// - `focusable`: indicate whether this component can get focused
+    public final void setFocusable(boolean focusable) {
+        this.focusable = focusable;
+        onSetFocusable(focusable);
+    }
+
+    /// Since setFocusable is final this callback is invoked when
+    /// focusable changes.
+    ///
+    /// #### Parameters
+    ///
+    /// - `focusable`: true if the component was made focusable
+    protected void onSetFocusable(boolean focusable) {
+    }
+
+    /// Restores the state of the focusable flag to its default state
+    protected void resetFocusable() {
+        setFocusable(false);
+    }
+
+    /// Gets the tab index of the component. This value is only useful immediately
+    /// after calling `Form#getTabIterator(com.codename1.ui.Component)` on the
+    /// form or `Container#updateTabIndices(int)` in the parent component.
+    ///
+    /// #### Returns
+    ///
+    /// The tab index of the component.
+    ///
+    /// #### Deprecated
+    ///
+    /// This method is used internally when querying the traversal order of the form.  Use `#getPreferredTabIndex()` to get the preferred tab index.
+    ///
+    /// #### See also
+    ///
+    /// - #getPreferredTabIndex()
+    ///
+    /// - #setTabIndex(int)
+    ///
+    /// - #setPreferredTabIndex(int)
+    ///
+    /// - Form#getTabIterator(com.codename1.ui.Component)
+    ///
+    /// - Container#updateTabIndices(int)
+    public int getTabIndex() {
+        return tabIndex;
+    }
+
+    /// Sets the tab index of the component.  This method is for internal use only.  To set the
+    /// preferred tab index, use `#setPreferredTabIndex(int)`
+    ///
+    /// #### Parameters
+    ///
+    /// - `index`: The tab index.
+    ///
+    /// #### Deprecated
+    ///
+    /// This method is called internally by the layout manager each time the traversal order of the form is queried.  Use `#setPreferredTabIndex(int)` instead.
+    ///
+    /// #### See also
+    ///
+    /// - #getPreferredTabIndex()
+    ///
+    /// - #setPreferredTabIndex(int)
+    ///
+    /// - #getTabIndex()
+    ///
+    /// - Form#getTabIterator(com.codename1.ui.Component)
+    public void setTabIndex(int index) {
+        tabIndex = index;
+    }
+
+    /// Gets the preferred tab index of this component.  Tab indices are used to specify the traversal order
+    /// when tabbing from component to component in a form.
+    ///
+    /// Tab index meanings work similar to the HTML tabIndex
+    /// attribute. A tab Index of -1 (the default value) results in the field not being traversable
+    /// using the keyboard (or using the next/prev buttons in devices' virtual keyboards).  A tab index of 0
+    /// results in the component's traversal order being dictated by the natural traversal order of the form.
+    ///
+    /// Use `Form#getTabIterator(com.codename1.ui.Component)` to obtain the complete traversal order for
+    /// all components in the form.
+    ///
+    /// Best practice is to only explicitly set preferred tabIndex values of 0 if you want the component
+    /// to be traversable, or -1 if you don't want the component to be traversable.  Explicitly setting
+    /// a positive preferred tab index may result in unexpected results.
+    ///
+    /// How the Preferred Tab Index is Used
+    ///
+    /// When the user tries to "tab" to the next field (or presses the "Next" button on the virtual keyboard), this
+    /// triggers a call to `Form#getTabIterator(com.codename1.ui.Component)`, crawls the component hierarchy and
+    /// returns a `java.util.ListIterator` of all of the traversable fields in the form in the order they should
+    /// be traversed. This order is determined by the layout managers on the form.  The core layout managers define
+    /// sensible traversal orders by default.  If you have a custom layout manager, you can override its traversal
+    /// order by implementing the `com.codename1.ui.layouts.Layout#overridesTabIndices(com.codename1.ui.Container)` and
+    /// `com.codename1.ui.layouts.Layout#getChildrenInTraversalOrder(com.codename1.ui.Container)` methods.
+    ///
+    /// #### Returns
+    ///
+    /// the tabbing index
+    public int getPreferredTabIndex() {
+        if (isEnabled() && isVisible() && isFocusable()) {
+            return preferredTabIndex;
+        }
+        return -1;
+    }
+
+    /// Sets the preferred tab index of the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `index`: The preferred tab index
+    ///
+    /// #### See also
+    ///
+    /// - #getPreferredTabIndex()
+    ///
+    /// - Form#getTabIterator(com.codename1.ui.Component)
+    ///
+    /// - Container#updateTabIndices(int)
+    public void setPreferredTabIndex(int index) {
+        preferredTabIndex = index;
+    }
+
+    /// Checks if this component should be traversable using the keyboard using tab, next, previous keys.
+    ///
+    /// Note: This method is marked final because it is just a convenience wrapper around `#getPreferredTabIndex()`
+    ///
+    /// #### Returns
+    ///
+    /// true if traversable in tab indexing
+    public final boolean isTraversable() {
+        return getPreferredTabIndex() >= 0;
+    }
+
+    /// Sets whether this component is traversable using the keyboard using tab, next, previous keys.  This is
+    /// just a wrapper around `#setPreferredTabIndex(int)` that sets the tab index to 0 if the component
+    /// should be traversable, and -1 if it shouldn't be.
+    ///
+    /// Note:  This method is marked final because this is just a convenience wrapper around `#setPreferredTabIndex(int)`
+    ///
+    /// #### Parameters
+    ///
+    /// - `traversable`: True to make the component traversable.
+    public final void setTraversable(boolean traversable) {
+        if (traversable && getPreferredTabIndex() < 0) {
+            setPreferredTabIndex(0);
+        } else if (!traversable && getPreferredTabIndex() >= 0) {
+            setPreferredTabIndex(-1);
+        }
+    }
+
+    /// Indicates the values within the component have changed and preferred
+    /// size should be recalculated
+    ///
+    /// #### Parameters
+    ///
+    /// - `shouldCalcPreferredSize`: @param shouldCalcPreferredSize indicate whether this component need to
+    /// recalculate his preferred size
+    public void setShouldCalcPreferredSize(boolean shouldCalcPreferredSize) {
+        if (!shouldCalcScrollSize) {
+            this.shouldCalcScrollSize = shouldCalcPreferredSize;
+        }
+        if (shouldCalcPreferredSize != this.shouldCalcPreferredSize) {
+            this.shouldCalcPreferredSize = shouldCalcPreferredSize;
+            this.shouldCalcScrollSize = shouldCalcPreferredSize;
+            if (shouldCalcPreferredSize && getParent() != null) {
+                this.shouldCalcPreferredSize = true;
+                getParent().setShouldLayout(true);
+            }
+        }
+        if (shouldCalcPreferredSize) {
+            setShouldCalcPreferredSizeGroup(sameWidth);
+            setShouldCalcPreferredSizeGroup(sameHeight);
+        }
+    }
+
+    private void setShouldCalcPreferredSizeGroup(Component[] cmps) {
+        if (cmps != null) {
+            for (Component c : cmps) {
+                c.shouldCalcPreferredSize = true;
+            }
+        }
+    }
+
+    /// Prevents key events from being grabbed for focus traversal. E.g. a list component
+    /// might use the arrow keys for internal navigation so it will switch this flag to
+    /// true in order to prevent the focus manager from moving to the next component.
+    ///
+    /// #### Returns
+    ///
+    /// @return true if key events are being used for focus traversal
+    /// ; otherwise false
+    public boolean handlesInput() {
+        return handlesInput;
+    }
+
+    /// Prevents key events from being grabbed for focus traversal. E.g. a list component
+    /// might use the arrow keys for internal navigation so it will switch this flag to
+    /// true in order to prevent the focus manager from moving to the next component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `handlesInput`: @param handlesInput indicates whether key events can be grabbed for
+    /// focus traversal
+    public void setHandlesInput(boolean handlesInput) {
+        this.handlesInput = handlesInput;
+    }
+
+    /// Whether this component turns key codes into printable characters, as a text editor does.
+    ///
+    /// Key codes and character codes share one value space, so a port is free to map a soft key
+    /// onto a value that is also a printable character: the desktop port maps the left soft key to
+    /// `VK_F1`, which is 112, the code of a lowercase `p`. A form serves a component that answers
+    /// true here before the menu bar, or that character could never be typed into it. This is
+    /// deliberately narrower than `#handlesInput()`, which components such as lists and editable
+    /// sliders also set for focus traversal while still expecting their soft keys to work.
+    ///
+    /// #### Returns
+    ///
+    /// true if key codes reaching this component are text rather than commands
+    protected boolean consumesRawTextInput() {
+        return false;
+    }
+
+    /// Returns true if the component has focus
+    ///
+    /// #### Returns
+    ///
+    /// true if the component has focus; otherwise false
+    ///
+    /// #### See also
+    ///
+    /// - #requestFocus
+    public boolean hasFocus() {
+        return focused;
+    }
+
+    /// This flag doesn't really give focus, its a state that determines
+    /// what colors from the Style should be used when painting the component.
+    /// Actual focus is determined by the parent form
+    ///
+    /// #### Parameters
+    ///
+    /// - `focused`: @param focused sets the state that determines what colors from the
+    /// Style should be used when painting a focused component
+    ///
+    /// #### Deprecated
+    ///
+    /// this method shouldn't be invoked by user code, use requestFocus() instead
+    ///
+    /// #### See also
+    ///
+    /// - #requestFocus
+    public void setFocus(boolean focused) {
+        if (this.focused == focused) {
+            return;
+        }
+        this.focused = focused;
+        if (hovered) {
+            checkHoverAnimationHierarchy();
+        }
+        accessibilityChanged(AccessibilityManager.CHANGE_FOCUS);
+    }
+
+    /// Returns the Component Form or null if this Component
+    /// is not added yet to a form
+    ///
+    /// #### Returns
+    ///
+    /// the Component Form
+    public Form getComponentForm() {
+        Form retVal = null;
+        Component parent = getParent();
+        if (parent != null) {
+            retVal = parent.getComponentForm();
+        }
+        return retVal;
+    }
+
+    /// Returns the top level container this component currently belongs to, which is
+    /// either the `Form` filling the main surface or the `Window` of a native desktop
+    /// window, or null when this component is not attached to one.
+    ///
+    /// Prefer this over `#getComponentForm()` in code that must keep working inside a
+    /// desktop `Window`. `getComponentForm()` keeps its original meaning and returns
+    /// null for a component hosted in a `Window`, because a `Window` is not a `Form`.
+    ///
+    /// #### Returns
+    ///
+    /// the enclosing top level container, or null when detached
+    ///
+    /// #### See also
+    ///
+    /// - #getComponentForm()
+    public TopLevelContainer getTopLevelContainer() {
+        TopLevelContainer retVal = null;
+        Component parent = getParent();
+        if (parent != null) {
+            retVal = parent.getTopLevelContainer();
+        }
+        return retVal;
+    }
+
+    /// Repaint the given component to the screen
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: the given component on the screen
+    void repaint(Component cmp) {
+        if (isCellRenderer() || cmp.getWidth() <= 0 || cmp.getHeight() <= 0 || paintLockImage != null) {
+            return;
+        }
+        // null parent repaint can happen when a component is removed and modified which
+        // is common for a popup
+        Component parent = getParent();
+
+        if (parent != null && parent.isVisible()) {
+            parent.repaint(cmp);
+        }
+    }
+
+    /// Repaint this Component, the repaint call causes a callback of the paint
+    /// method on the event dispatch thread.
+    ///
+    /// #### See also
+    ///
+    /// - Display
+    public void repaint() {
+
+        repaintPending = true;
+        if (dirtyRegion != null) {
+            setDirtyRegion(null);
+        }
+
+        repaint(this);
+    }
+
+    private Container findSurfaceInternal() {
+        Container parent = getParent();
+        if (parent == null) {
+            return null;
+        }
+        if (parent.isSurface()) {
+            return parent;
+        }
+        return ((Component) parent).findSurfaceInternal();
+    }
+
+    /// Repaints a specific region within the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: boundary of the region to repaint in absolute screen coordinates not component coordinates
+    ///
+    /// - `y`: boundary of the region to repaint in absolute screen coordinates not component coordinates
+    ///
+    /// - `w`: boundary of the region to repaint
+    ///
+    /// - `h`: boundary of the region to repaint
+    public void repaint(int x, int y, int w, int h) {
+        Rectangle rect;
+        synchronized (dirtyRegionLock) {
+            if (dirtyRegion == null) {
+                if (repaintPending) {
+                    return;
+                }
+                rect = new Rectangle(x, y, w, h);
+                setDirtyRegion(rect);
+            } else if (dirtyRegion.getX() != x || dirtyRegion.getY() != y ||
+                    dirtyRegion.getSize().getWidth() != w || dirtyRegion.getSize().getHeight() != h) {
+                rect = new Rectangle(dirtyRegion);
+                Dimension size = rect.getSize();
+
+                int x1 = Math.min(rect.getX(), x);
+                int y1 = Math.min(rect.getY(), y);
+
+                int x2 = Math.max(x + w, rect.getX() + size.getWidth());
+                int y2 = Math.max(y + h, rect.getY() + size.getHeight());
+
+                rect.setX(x1);
+                rect.setY(y1);
+                size.setWidth(x2 - x1);
+                size.setHeight(y2 - y1);
+                setDirtyRegion(rect);
+            }
+        }
+
+        repaint(this);
+    }
+
+    /// If this Component is focused this method is invoked when the user presses
+    /// and holds the key
+    ///
+    /// #### Parameters
+    ///
+    /// - `keyCode`: the key code value to indicate a physical key.
+    protected void longKeyPress(int keyCode) {
+    }
+
+    /// If this Component is focused, the key pressed event
+    /// will call this method
+    ///
+    /// #### Parameters
+    ///
+    /// - `keyCode`: the key code value to indicate a physical key.
+    public void keyPressed(int keyCode) {
+    }
+
+    /// If this Component is focused, the key released event
+    /// will call this method
+    ///
+    /// #### Parameters
+    ///
+    /// - `keyCode`: the key code value to indicate a physical key.
+    public void keyReleased(int keyCode) {
+    }
+
+    /// If this Component is focused, the key repeat event
+    /// will call this method.
+    ///
+    /// #### Parameters
+    ///
+    /// - `keyCode`: the key code value to indicate a physical key.
+    public void keyRepeated(int keyCode) {
+        keyPressed(keyCode);
+        keyReleased(keyCode);
+    }
+
+    /// Allows defining the physics for the animation motion behavior directly
+    /// by plugging in an alternative motion object
+    ///
+    /// #### Returns
+    ///
+    /// the component motion object
+    private Motion getAnimationMotion() {
+        return animationMotion;
+    }
+
+    /// Allows defining the physics for the animation motion behavior directly
+    /// by plugging in an alternative motion object
+    ///
+    /// #### Parameters
+    ///
+    /// - `motion`: new motion object
+    private void setAnimationMotion(Motion motion) {
+        animationMotion = motion;
+    }
+
+    /// Returns the animation manager of the parent form or null if this component isn't currently associated with a form
+    ///
+    /// #### Returns
+    ///
+    /// the animation manager instance
+    /// The top level this component is currently registered with for animation.
+    ///
+    /// Kept so that deregistering goes back to the same place registering went. That
+    /// used to be each caller's problem, and it was a recurring defect: the component
+    /// registered against the top level it was in, then something moved or detached it,
+    /// and deregistering resolved a *different* top level -- or none -- so the old one
+    /// went on animating a component that had left it. It was patched separately in a
+    /// dozen classes; holding the answer here fixes the shape rather than the instances.
+    private TopLevelContainer animationRegisteredWith;
+
+    /// Registers this component to be animated by the top level it currently sits in.
+    /// Named apart from registerAnimatedInternal, which is the separate internal
+    /// animation registry Container keeps.
+    protected void registerForAnimation() {
+        TopLevelContainer f = getTopLevelContainer();
+        if (f != null) {
+            animationRegisteredWith = f;
+            f.registerAnimated(this);
+        }
+    }
+
+    /// Stops this component being animated, by the top level it registered with rather
+    /// than whichever one it can resolve now.
+    protected void deregisterFromAnimation() {
+        TopLevelContainer f = animationRegisteredWith != null
+                ? animationRegisteredWith : getTopLevelContainer();
+        animationRegisteredWith = null;
+        if (f != null) {
+            f.deregisterAnimated(this);
+        }
+    }
+
+    public AnimationManager getAnimationManager() {
+        TopLevelContainer f = getTopLevelContainer();
+        if (f == null) {
+            return null;
+        }
+        return f.getAnimationManager();
+    }
+
+    /// Scroll animation speed in milliseconds allowing a developer to slow down or accelerate
+    /// the smooth animation mode
+    ///
+    /// #### Returns
+    ///
+    /// scroll animation speed in milliseconds
+    public int getScrollAnimationSpeed() {
+        return animationSpeed;
+    }
+
+    /// Scroll animation speed in milliseconds allowing a developer to slow down or accelerate
+    /// the smooth animation mode
+    ///
+    /// #### Parameters
+    ///
+    /// - `animationSpeed`: scroll animation speed in milliseconds
+    public void setScrollAnimationSpeed(int animationSpeed) {
+        this.animationSpeed = animationSpeed;
+    }
+
+    /// Prevent a lead component hierarchy from this specific component, this allows a component within that
+    /// hierarchy to still act as a standalone component
+    ///
+    /// #### Returns
+    ///
+    /// the blockLead
+    public boolean isBlockLead() {
+        return blockLead;
+    }
+
+    /// Prevent a lead component hierarchy from this specific component, this allows a component within that
+    /// hierarchy to still act as a standalone component
+    ///
+    /// #### Parameters
+    ///
+    /// - `blockLead`: the blockLead to set
+    public void setBlockLead(boolean blockLead) {
+        if (this.blockLead == blockLead) {
+            return;
+        }
+        HoverTracker tracker = HoverTracker.prepareLeadChange(this);
+        this.blockLead = blockLead;
+        hasLead = !blockLead && getLeadComponent() != null;
+        if (tracker != null) {
+            tracker.finishLeadChange(this);
+        }
+    }
+
+    /// #### Returns
+    ///
+    /// the ignorePointerEvents
+    public boolean isIgnorePointerEvents() {
+        return ignorePointerEvents;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `ignorePointerEvents`: the ignorePointerEvents to set
+    public void setIgnorePointerEvents(boolean ignorePointerEvents) {
+        this.ignorePointerEvents = ignorePointerEvents;
+    }
+
+    /// Indicates whether the component displays the material design ripple effect
+    ///
+    /// #### Returns
+    ///
+    /// the rippleEffect
+    public boolean isRippleEffect() {
+        return rippleEffect;
+    }
+
+    /// Indicates whether the component displays the material design ripple effect
+    ///
+    /// #### Parameters
+    ///
+    /// - `rippleEffect`: the rippleEffect to set
+    public void setRippleEffect(boolean rippleEffect) {
+        this.rippleEffect = rippleEffect;
+    }
+
+    /// Gets the theme that is used by inline styles to reference images.
+    ///
+    /// #### Returns
+    ///
+    /// the inlineStylesTheme
+    ///
+    /// #### See also
+    ///
+    /// - #setInlineStylesTheme(com.codename1.ui.util.Resources)
+    ///
+    /// - #getInlineAllStyles()
+    ///
+    /// - #getInlineSelectedStyles()
+    ///
+    /// - #getInlinePressedStyles()
+    ///
+    /// - #getInlineUnselectedStyles()
+    ///
+    /// - #getInlineDisabledStyles()
+    public Resources getInlineStylesTheme() {
+        return inlineStylesTheme;
+    }
+
+    /// Sets the theme that is used by inline styles to reference images.  Inline styles will be
+    /// disabled unless an inlineStylesTheme is registered with the component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `inlineStylesTheme`: the theme that inline styles use to reference images.
+    ///
+    /// #### See also
+    ///
+    /// - #getInlineStylesTheme()
+    ///
+    /// - #setInlineAllStyles(java.lang.String)
+    ///
+    /// - #setInlinePressedStyles(java.lang.String)
+    ///
+    /// - #setInlineSelectedStyles(java.lang.String)
+    ///
+    /// - #setInlineDisabledStyles(java.lang.String)
+    ///
+    /// - #setInlineUnselectedStyles(java.lang.String)
+    public void setInlineStylesTheme(Resources inlineStylesTheme) {
+        this.inlineStylesTheme = inlineStylesTheme;
+    }
+
+    /// A component can indicate whether it is interested in rendering it's selection explicitly, this defaults to
+    /// true in non-touch UI's and false in touch UI's except for the case where a user clicks the screen.
+    ///
+    /// #### Returns
+    ///
+    /// Defaults to false
+    protected boolean shouldRenderComponentSelection() {
+        return false;
+    }
+
+    /// Indicates that this component and all its children should be hidden when the device is switched to landscape mode
+    ///
+    /// #### Returns
+    ///
+    /// the hideInLandscape
+    public boolean isHideInLandscape() {
+        return hideInLandscape;
+    }
+
+    /// Indicates that this component and all its children should be hidden when the device is switched to landscape mode
+    ///
+    /// #### Parameters
+    ///
+    /// - `hideInLandscape`: the hideInLandscape to set
+    public void setHideInLandscape(boolean hideInLandscape) {
+        this.hideInLandscape = hideInLandscape;
+    }
+
+    /// Creates an animation that will transform the current component to the styling of the destination UIID when
+    /// completed. Notice that fonts will only animate within the truetype and native familiy and we recommend that you
+    /// don't shift weight/typeface/style as this might diminish the effect.
+    ///
+    /// **Important: ** Only unselected styles are animated but once the animation completes all styles are applied.
+    ///
+    /// #### Parameters
+    ///
+    /// - `destUIID`: the UIID to which this component will gradually shift
+    ///
+    /// - `duration`: the duration of the animation or the number of steps
+    ///
+    /// #### Returns
+    ///
+    /// an animation component that can either be stepped or played
+    public ComponentAnimation createStyleAnimation(final String destUIID, final int duration) {
+        final Style sourceStyle = getUnselectedStyle();
+        final Style destStyle = hasInlineUnselectedStyle() ?
+                getUIManager().parseComponentStyle(getInlineStylesTheme(), destUIID, getInlineStylesUIID(destUIID), getInlineUnselectedStyleStrings())
+                : getUIManager().getComponentStyle(destUIID);
+        return createStyleAnimation(sourceStyle, destStyle, duration, destUIID);
+
+    }
+
+    ComponentAnimation createStyleAnimation(final Style sourceStyle, final Style destStyle, final int duration, final String destUIID) {
+
+        Motion m = null;
+        if (sourceStyle.getFgColor() != destStyle.getFgColor()) {
+            m = Motion.createLinearColorMotion(sourceStyle.getFgColor(), destStyle.getFgColor(), duration);
+        }
+        final Motion fgColorMotion = m;
+        m = null;
+
+        if (sourceStyle.getOpacity() != destStyle.getOpacity()) {
+            m = Motion.createLinearColorMotion(sourceStyle.getOpacity(), destStyle.getOpacity(), duration);
+        }
+        final Motion opacityMotion = m;
+        m = null;
+
+        if (sourceStyle.getFont().getHeight() != destStyle.getFont().getHeight() && sourceStyle.getFont().isTTFNativeFont()) {
+            // allows for fractional font sizes
+            m = Motion.createLinearMotion(Math.round(sourceStyle.getFont().getPixelSize() * 100), Math.round(destStyle.getFont().getPixelSize() * 100), duration);
+        }
+
+        final Motion fontMotion = m;
+        m = null;
+
+        if (sourceStyle.getPaddingTop() != destStyle.getPaddingTop()) {
+            m = Motion.createLinearMotion(sourceStyle.getPaddingTop(), destStyle.getPaddingTop(), duration);
+        }
+        final Motion paddingTop = m;
+        m = null;
+
+        if (sourceStyle.getPaddingBottom() != destStyle.getPaddingBottom()) {
+            m = Motion.createLinearMotion(sourceStyle.getPaddingBottom(), destStyle.getPaddingBottom(), duration);
+        }
+        final Motion paddingBottom = m;
+        m = null;
+
+        if (sourceStyle.getPaddingLeftNoRTL() != destStyle.getPaddingLeftNoRTL()) {
+            m = Motion.createLinearMotion(sourceStyle.getPaddingLeftNoRTL(), destStyle.getPaddingLeftNoRTL(), duration);
+        }
+        final Motion paddingLeft = m;
+        m = null;
+
+        if (sourceStyle.getPaddingRightNoRTL() != destStyle.getPaddingRightNoRTL()) {
+            m = Motion.createLinearMotion(sourceStyle.getPaddingRightNoRTL(), destStyle.getPaddingRightNoRTL(), duration);
+        }
+        final Motion paddingRight = m;
+        m = null;
+
+        if (sourceStyle.getMarginTop() != destStyle.getMarginTop()) {
+            m = Motion.createLinearMotion(sourceStyle.getMarginTop(), destStyle.getMarginTop(), duration);
+        }
+        final Motion marginTop = m;
+        m = null;
+
+        if (sourceStyle.getMarginBottom() != destStyle.getMarginBottom()) {
+            m = Motion.createLinearMotion(sourceStyle.getMarginBottom(), destStyle.getMarginBottom(), duration);
+        }
+        final Motion marginBottom = m;
+        m = null;
+
+        if (sourceStyle.getMarginLeftNoRTL() != destStyle.getMarginLeftNoRTL()) {
+            m = Motion.createLinearMotion(sourceStyle.getMarginLeftNoRTL(), destStyle.getMarginLeftNoRTL(), duration);
+        }
+        final Motion marginLeft = m;
+        m = null;
+
+        if (sourceStyle.getMarginRightNoRTL() != destStyle.getMarginRightNoRTL()) {
+            m = Motion.createLinearMotion(sourceStyle.getMarginRightNoRTL(), destStyle.getMarginRightNoRTL(), duration);
+        }
+        final Motion marginRight = m;
+
+        if (paddingLeft != null || paddingRight != null || paddingTop != null || paddingBottom != null) {
+            // convert the padding to pixels for smooth animation
+            int left = sourceStyle.getPaddingLeftNoRTL();
+            int right = sourceStyle.getPaddingRightNoRTL();
+            int top = sourceStyle.getPaddingTop();
+            int bottom = sourceStyle.getPaddingBottom();
+            sourceStyle.setPaddingUnit(Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS);
+            sourceStyle.setPadding(top, bottom, left, right);
+        }
+
+        if (marginLeft != null || marginRight != null || marginTop != null || marginBottom != null) {
+            // convert the margin to pixels for smooth animation
+            int left = sourceStyle.getMarginLeftNoRTL();
+            int right = sourceStyle.getMarginRightNoRTL();
+            int top = sourceStyle.getMarginTop();
+            int bottom = sourceStyle.getMarginBottom();
+            sourceStyle.setMarginUnit(Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS, Style.UNIT_TYPE_PIXELS);
+            sourceStyle.setMargin(top, bottom, left, right);
+        }
+
+        final AnimationTransitionPainter ap = new AnimationTransitionPainter();
+        if (sourceStyle.getBgTransparency() != 0 || destStyle.getBgTransparency() != 0 ||
+                (sourceStyle.getBorder() != null && sourceStyle.getBorder().isEmptyBorder()) ||
+                (destStyle.getBorder() != null && destStyle.getBorder().isEmptyBorder()) ||
+                sourceStyle.getBgImage() != null || destStyle.getBgImage() != null) {
+            ap.original = sourceStyle.getBgPainter();
+            ap.dest = destStyle.getBgPainter();
+            ap.originalStyle = sourceStyle;
+            ap.destStyle = destStyle;
+            if (ap.dest == null) {
+                ap.dest = new BGPainter();
+            }
+            sourceStyle.setBgPainter(ap);
+        }
+
+        final Motion bgMotion = Motion.createLinearMotion(0, 255, duration);
+
+        return new ComponentAnimation() {
+            private boolean finished;
+            private boolean stepMode;
+            private boolean started;
+
+            @Override
+            public boolean isStepModeSupported() {
+                return true;
+            }
+
+            @Override
+            public int getMaxSteps() {
+                return duration;
+            }
+
+
+            @Override
+            public void setStep(int step) {
+                stepMode = true;
+                if (!finished) {
+                    bgMotion.setCurrentMotionTime(step);
+                    if (fgColorMotion != null) {
+                        fgColorMotion.setCurrentMotionTime(step);
+                    }
+                    if (opacityMotion != null) {
+                        opacityMotion.setCurrentMotionTime(step);
+                    }
+                    if (fontMotion != null) {
+                        fontMotion.setCurrentMotionTime(step);
+                    }
+                    if (paddingTop != null) {
+                        paddingTop.setCurrentMotionTime(step);
+                    }
+                    if (paddingBottom != null) {
+                        paddingBottom.setCurrentMotionTime(step);
+                    }
+                    if (paddingLeft != null) {
+                        paddingLeft.setCurrentMotionTime(step);
+                    }
+                    if (paddingRight != null) {
+                        paddingRight.setCurrentMotionTime(step);
+                    }
+                    if (marginTop != null) {
+                        marginTop.setCurrentMotionTime(step);
+                    }
+                    if (marginBottom != null) {
+                        marginBottom.setCurrentMotionTime(step);
+                    }
+                    if (marginLeft != null) {
+                        marginLeft.setCurrentMotionTime(step);
+                    }
+                    if (marginRight != null) {
+                        marginRight.setCurrentMotionTime(step);
+                    }
+                }
+                super.setStep(step);
+            }
+
+            @Override
+            public boolean isInProgress() {
+                if (!stepMode && !started) {
+                    return true;
+                }
+                return stepMode ||
+                        !(bgMotion.isFinished() &&
+                                (opacityMotion == null || opacityMotion.isFinished()) &&
+                                (fgColorMotion == null || fgColorMotion.isFinished()) &&
+                                (paddingLeft == null || paddingLeft.isFinished()) &&
+                                (paddingRight == null || paddingRight.isFinished()) &&
+                                (paddingTop == null || paddingTop.isFinished()) &&
+                                (paddingBottom == null || paddingBottom.isFinished()) &&
+                                (marginLeft == null || marginLeft.isFinished()) &&
+                                (marginRight == null || marginRight.isFinished()) &&
+                                (marginTop == null || marginTop.isFinished()) &&
+                                (marginBottom == null || marginBottom.isFinished()) &&
+                                (fontMotion == null || fontMotion.isFinished()));
+            }
+
+            @Override
+            protected void updateState() {
+                if (finished) {
+                    return;
+                }
+
+                if (!started && !stepMode) {
+                    started = true;
+                    bgMotion.start();
+                    if (opacityMotion != null) {
+                        opacityMotion.start();
+                    }
+                    if (fgColorMotion != null) {
+                        fgColorMotion.start();
+                    }
+                    if (fontMotion != null) {
+                        fontMotion.start();
+                    }
+                    if (paddingTop != null) {
+                        paddingTop.start();
+                    }
+                    if (paddingBottom != null) {
+                        paddingBottom.start();
+                    }
+                    if (paddingLeft != null) {
+                        paddingLeft.start();
+                    }
+                    if (paddingRight != null) {
+                        paddingRight.start();
+                    }
+                    if (marginTop != null) {
+                        marginTop.start();
+                    }
+                    if (marginBottom != null) {
+                        marginBottom.start();
+                    }
+                    if (marginLeft != null) {
+                        marginLeft.start();
+                    }
+                    if (marginRight != null) {
+                        marginRight.start();
+                    }
+                }
+
+                if (!isInProgress()) {
+                    finished = true;
+                    if (destUIID != null) {
+                        setUIID(destUIID);
+                    }
+                } else {
+                    boolean requiresRevalidate = false;
+                    if (opacityMotion != null) {
+                        sourceStyle.setOpacity(opacityMotion.getValue());
+                    }
+                    if (fgColorMotion != null) {
+                        sourceStyle.setFgColor(fgColorMotion.getValue());
+                    }
+                    ap.alpha = bgMotion.getValue();
+                    if (fontMotion != null) {
+                        Font fnt = sourceStyle.getFont();
+                        fnt = fnt.derive(((float) fontMotion.getValue()) / 100.0f, fnt.getStyle());
+                        requiresRevalidate = true;
+                        sourceStyle.setFont(fnt);
+                    }
+                    if (paddingTop != null) {
+                        sourceStyle.setPadding(TOP, paddingTop.getValue());
+                        requiresRevalidate = true;
+                    }
+                    if (paddingBottom != null) {
+                        sourceStyle.setPadding(BOTTOM, paddingBottom.getValue());
+                        requiresRevalidate = true;
+                    }
+                    if (paddingLeft != null) {
+                        sourceStyle.setPadding(LEFT, paddingLeft.getValue());
+                        requiresRevalidate = true;
+                    }
+                    if (paddingRight != null) {
+                        sourceStyle.setPadding(RIGHT, paddingRight.getValue());
+                        requiresRevalidate = true;
+                    }
+                    if (marginTop != null) {
+                        sourceStyle.setMargin(TOP, marginTop.getValue());
+                        requiresRevalidate = true;
+                    }
+                    if (marginBottom != null) {
+                        sourceStyle.setMargin(BOTTOM, marginBottom.getValue());
+                        requiresRevalidate = true;
+                    }
+                    if (marginLeft != null) {
+                        sourceStyle.setMargin(LEFT, marginLeft.getValue());
+                        requiresRevalidate = true;
+                    }
+                    if (marginRight != null) {
+                        sourceStyle.setMargin(RIGHT, marginRight.getValue());
+                        requiresRevalidate = true;
+                    }
+                    if (!Component.isRevalidateOnStyleChange()) {
+                        // If revalidation on stylechange is not enabled, then the style animation
+                        // won't work. We need to explicitly revalidate or repaint here.
+                        if (requiresRevalidate) {
+                            Container parent = getParent();
+                            if (parent != null) {
+                                parent.revalidate();
+                            } else {
+                                repaint();
+                            }
+                        } else {
+                            repaint();
+                        }
+                    }
+                }
+            }
+
+            @Override
+            public void flush() {
+                bgMotion.finish();
+                if (opacityMotion != null) {
+                    opacityMotion.finish();
+                }
+                if (fgColorMotion != null) {
+                    fgColorMotion.finish();
+                }
+                if (fontMotion != null) {
+                    fontMotion.finish();
+                }
+                if (paddingTop != null) {
+                    paddingTop.finish();
+                }
+                if (paddingBottom != null) {
+                    paddingBottom.finish();
+                }
+                if (paddingLeft != null) {
+                    paddingLeft.finish();
+                }
+                if (paddingRight != null) {
+                    paddingRight.finish();
+                }
+                if (marginTop != null) {
+                    marginTop.finish();
+                }
+                if (marginBottom != null) {
+                    marginBottom.finish();
+                }
+                if (marginLeft != null) {
+                    marginLeft.finish();
+                }
+                if (marginRight != null) {
+                    marginRight.finish();
+                }
+                updateState();
+            }
+        };
+    }
+
+    /// Indicates that scrolling through the component should work as an animation
+    ///
+    /// #### Returns
+    ///
+    /// whether this component use smooth scrolling
+    public boolean isSmoothScrolling() {
+        return smoothScrolling && !disableSmoothScrolling;
+    }
+
+    /// Indicates that scrolling through the component should work as an animation
+    ///
+    /// #### Parameters
+    ///
+    /// - `smoothScrolling`: indicates if a component uses smooth scrolling
+    public void setSmoothScrolling(boolean smoothScrolling) {
+        this.smoothScrolling = smoothScrolling;
+    }
+
+    /// Invoked for devices where the pointer can hover without actually clicking
+    /// the display. This is true for PC mouse pointer as well as some devices such
+    /// as the BB storm.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the pointer x coordinate
+    ///
+    /// - `y`: the pointer y coordinate
+    public void pointerHover(int[] x, int[] y) {
+    }
+
+    /// Stops any momentum or tensile scroll animation currently running on this component,
+    /// leaving the scroll position exactly where it is.
+    ///
+    /// This is for a component that wants to take over after the finger lifts and drive the
+    /// scroll itself - a paging/snapping container being the usual case. Codename One starts
+    /// its own decay from `#pointerReleased(int, int)`, so without this the component's own
+    /// animation and the built-in momentum both run, and the result is the scroll coasting
+    /// to a halt and then visibly moving a second time.
+    ///
+    /// Unlike `#clearDrag()` this affects only this component: an ancestor that is
+    /// legitimately scrolling on the other axis keeps its momentum.
+    ///
+    /// #### See also
+    ///
+    /// - #pointerReleased(int, int)
+    public void stopScrollMomentum() {
+        draggedMotionX = null;
+        draggedMotionY = null;
+    }
+
+    void clearDrag() {
+        Component leadParent = LeadUtil.leadParentImpl(this);
+        if (leadParent != null && leadParent != this) { //NOPMD CompareObjectsWithEquals
+            leadParent.clearDrag();
+            return;
+        }
+        //if we are in the middle of a tensile animation reset the scrolling location
+        //before killing the scrolling
+        if (draggedMotionX != null) {
+            if (draggedMotionX.getValue() < 0) {
+                setScrollX(0);
+            } else if (draggedMotionX.getValue() > getScrollDimension().getWidth() - getWidth()) {
+                setScrollX(getScrollDimension().getWidth() - getWidth());
+            }
+        }
+        if (draggedMotionY != null) {
+            int dmv = draggedMotionY.getValue();
+            if (dmv < 0) {
+                setScrollY(0);
+            } else {
+                int hh = getScrollDimension().getHeight() - getHeight();
+                if (dmv > hh) {
+                    setScrollY(Math.max(0, hh));
+                }
+            }
+        }
+        draggedMotionX = null;
+        draggedMotionY = null;
+
+        Component parent = getParent();
+        if (parent != null) {
+            parent.clearDrag();
+        }
+        if (getClientProperty("$pullToRelease") != null
+                && !"updating".equals(getClientProperty("$pullToRelease"))) {
+            putClientProperty("$pullToRelease", null);
+        }
+    }
+
+    /// Invoked for devices where the pointer can hover without actually clicking
+    /// the display. This is true for PC mouse pointer as well as some devices such
+    /// as the BB storm.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the pointer x coordinate
+    ///
+    /// - `y`: the pointer y coordinate
+    public void pointerHoverReleased(int[] x, int[] y) {
+    }
+
+    /// Invoked for devices where the pointer can hover without actually clicking
+    /// the display. This is true for PC mouse pointer as well as some devices such
+    /// as the BB storm.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the pointer x coordinate
+    ///
+    /// - `y`: the pointer y coordinate
+    public void pointerHoverPressed(int[] x, int[] y) {
+    }
+
+    /// Invoked by subclasses interested in handling pinch to zoom events, if true is returned
+    /// other drag events will not be broadcast
+    ///
+    /// #### Parameters
+    ///
+    /// - `scale`: @param scale the scaling of the pinch operation a number larger than 1 means scaling up and smaller than 1 means scaling down.
+    /// It is recommended that code would threshold the number (so a change between 1.0 and 1.02 shouldn't necessarily trigger zoom).
+    /// Notice that this number is relevant to current zoom levels and unaware of them so you should also enforce limits of maximum/minimum
+    /// zoom levels.
+    ///
+    /// #### Returns
+    ///
+    /// false by default
+    protected boolean pinch(float scale) {
+        return false;
+    }
+
+    private double distance(int[] x, int[] y) {
+        int disx = x[0] - x[1];
+        int disy = y[0] - y[1];
+        return Math.sqrt(disx * disx + disy * disy);
+    }
+
+    /// To be implemented by subclasses interested in being notified when a pinch zoom has
+    /// ended (i.e the user has removed one of their fingers, but is still dragging).
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: The x-coordinate of the remaining finger in the drag.  (Absolute)
+    ///
+    /// - `y`: The y-coordinate of the remaining finger in the drag. (Absolute)
+    ///
+    protected void pinchReleased(int x, int y) {
+
+    }
+
+    /// Invoked by subclasses interested in handling pinch to do their own actions based on the position of the two fingers, if true is returned
+    /// other drag events will not be broadcast
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the pointer x coordinate
+    ///
+    /// - `y`: the pointer y coordinate
+    ///
+    /// #### Returns
+    ///
+    /// false by default, true if pinch is handled
+    protected boolean pinch(int[] x, int[] y) {
+        return false;
+    }
+
+    /// Invoked when a rotation (twist) gesture occurs over this component, such as a two finger
+    /// trackpad rotation on macOS or a two finger rotate on a touch screen. Override to rotate
+    /// content. Returning true marks the gesture as handled.
+    ///
+    /// #### Parameters
+    ///
+    /// - `radians`: the incremental rotation in radians since the previous callback; positive is clockwise
+    ///
+    /// #### Returns
+    ///
+    /// false by default, true if the rotation is handled
+    protected boolean rotation(float radians) {
+        return false;
+    }
+
+    /// returns true if pinch will block drag and drop
+    public boolean isPinchBlocksDragAndDrop() {
+        return pinchBlocksDragAndDrop;
+    }
+
+    /// If a component supports pinch as well as drag and drop the two may conflict (if one finger is placed a bit before the other, the drag
+    /// timer will be initiated and may trigger drag even if the second finger has been placed before).
+    /// Setting setPinchBlocksDragAndDrop to true will prevent drag from triggering.
+    ///
+    /// #### Parameters
+    ///
+    /// - `block`: if true will prevent drag and drop to trigger if two fingers are placed to pinch before the drag is initiated
+    public void setPinchBlocksDragAndDrop(boolean block) {
+        pinchBlocksDragAndDrop = block;
+    }
+
+    /// If this Component is focused, the pointer dragged event
+    /// will call this method
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the pointer x coordinate
+    ///
+    /// - `y`: the pointer y coordinate
+    public void pointerDragged(int[] x, int[] y) {
+        if (x.length > 1) {
+            double currentDis = distance(x, y);
+
+            // prevent division by 0
+            if (pinchDistance <= 0) {
+                pinchDistance = currentDis;
+            }
+            double scale = currentDis / pinchDistance;
+            boolean pinchXY = pinch(x, y); // ensure that both pinch(scale) and pinch(x,y) are called
+            if (pinch((float) scale) || pinchXY) {
+                inPinch = true;
+                if (pinchBlocksDragAndDrop) {
+                    dragActivated = false;
+                }
+                return;
+            }
+        } else {
+            if (inPinch) {
+                // if we were in a pinch zoom, but the user
+                // removes a finger, then we need a way to signal to the component
+                // that the pinch portion is over
+                inPinch = false;
+                pinchReleased(x[0], y[0]);
+            }
+        }
+        pointerDragged(x[0], y[0]);
+    }
+
+    /// This method returns an image representing the dragged component, it can be overriden by subclasses to customize the look
+    /// of the image, the image will be overlaid on top of the form during a drag and drop operation
+    ///
+    /// #### Returns
+    ///
+    /// an image
+    protected Image getDragImage() {
+        Image draggedImage = ImageFactory.createImage(this, getWidth(), getHeight(), 0x00ff7777);
+        Graphics g = draggedImage.getGraphics();
+
+        g.translate(-getX(), -getY());
+        paintComponentBackground(g);
+        paint(g);
+        if (isBorderPainted()) {
+            paintBorder(g);
+        }
+        g.translate(getX(), getY());
+
+        if (dragTransparency < 255) {
+            // remove all occurrences of the rare color
+            draggedImage = draggedImage.modifyAlpha(dragTransparency, 0xff7777);
+        }
+        return draggedImage;
+    }
+
+    /// Returns the translucency used in the `#getDragImage()` method.
+    ///
+    /// #### Returns
+    ///
+    /// a number between 0 and 255 where 255 indicates an opaque image.
+    public byte getDragTransparency() {
+        return dragTransparency;
+    }
+
+    /// Sets the translucency of the `#getDragImage()` method.
+    ///
+    /// #### Parameters
+    ///
+    /// - `dragTransparency`: @param dragTransparency a number between 0 and 255 where 255
+    /// indicates an opaque image.
+    public void setDragTransparency(byte dragTransparency) {
+        this.dragTransparency = dragTransparency;
+    }
+
+    /// Returns the component as an image.
+    ///
+    /// #### Returns
+    ///
+    /// This component as an image.
+    public Image toImage() {
+        if (getWidth() <= 0 || getHeight() <= 0) {
+            return null;
+        }
+        Image image = ImageFactory.createImage(this, getWidth(), getHeight(), 0x0);
+        Graphics g = image.getGraphics();
+
+        g.translate(-getX(), -getY());
+        paintComponentBackground(g);
+        paint(g);
+        if (isBorderPainted()) {
+            paintBorder(g);
+        }
+        g.translate(getX(), getY());
+        return image;
+    }
+
+    /// Invoked on the focus component to let it know that drag has started on the parent container
+    /// for the case of a component that doesn't support scrolling
+    protected void dragInitiated() {
+    }
+
+    void drawDraggedImage(Graphics g) {
+        if (dragImage == null) {
+            dragImage = getDragImage();
+        }
+        drawDraggedImage(g, dragImage, draggedx, draggedy);
+    }
+
+    /// Draws the given image at x/y, this method can be overriden to draw additional information such as positive
+    /// or negative drop indication
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: the graphics context
+    ///
+    /// - `img`: the image
+    ///
+    /// - `x`: x position
+    ///
+    /// - `y`: y position
+    protected void drawDraggedImage(Graphics g, Image img, int x, int y) {
+//        g.drawImage(img, x - getWidth() / 2, y - getHeight() / 2);
+        g.drawImage(img, x, y);
+    }
+
+    /// This method allows a component to indicate if it is a drop target for the given component at the given x/y location
+    /// (in component coordiate space). This method can also update the drop tagets appearance to indicate the
+    /// drop location.
+    ///
+    /// #### Parameters
+    ///
+    /// - `dragged`: the component being dragged
+    ///
+    /// - `x`: the x location over the component
+    ///
+    /// - `y`: the y location over the component
+    ///
+    /// #### Returns
+    ///
+    /// true if a drop at this location will be successful
+    protected boolean draggingOver(Component dragged, int x, int y) {
+        return dropTarget;
+    }
+
+    /// This callback method indicates that a component drag has just entered this component
+    ///
+    /// #### Parameters
+    ///
+    /// - `dragged`: the component being dragged
+    protected void dragEnter(Component dragged) {
+    }
+
+    /// This callback method provides an indication for a drop target that a drag operation is exiting the bounds of
+    /// this component and it should clear all relevant state if such state exists. E.g. if a component provides
+    /// drop indication visuaization in draggingOver this visualization should be cleared..
+    ///
+    /// #### Parameters
+    ///
+    /// - `dragged`: the component being dragged
+    protected void dragExit(Component dragged) {
+    }
+
+    /// Performs a drop operation of the component at the given X/Y location in coordinate space, this method
+    /// should be overriden by subclasses to perform all of the logic related to moving a component, by default
+    /// this method does nothing and so dragging a component and dropping it has no effect
+    ///
+    /// #### Parameters
+    ///
+    /// - `dragged`: the component being dropped
+    ///
+    /// - `x`: the x coordinate of the drop
+    ///
+    /// - `y`: the y coordinate of the drop
+    public void drop(Component dragged, int x, int y) {
+    }
+
+    /// Finds the drop target in the given screen coordinates
+    ///
+    /// #### Parameters
+    ///
+    /// - `source`: the component being dragged
+    ///
+    /// - `x`: the screen x coordinate
+    ///
+    /// - `y`: the screen y coordinate
+    ///
+    /// #### Returns
+    ///
+    /// a component drop target or null if no drop target is available at that coordinate
+    private Component findDropTarget(Component source, int x, int y) {
+        Container f = TopLevelSupport.rootOf(this);
+        if (f != null) {
+            Component c = f.findDropTargetAt(x, y);
+            while (c != null) {
+                if (c.isDropTarget() && c.draggingOver(source, x - c.getAbsoluteX() - c.getScrollX(), y - c.getAbsoluteY() - c.getScrollY())) {
+                    return c;
+                }
+                c = c.getParent();
+            }
+        }
+        return null;
+    }
+
+    /// This method adds a refresh task to the Component, the task will be
+    /// executed if the user has pulled the scroll beyond a certain height.
+    ///
+    /// ```java
+    /// Form hi = new Form("Pull To Refresh", BoxLayout.y());
+    /// hi.getContentPane().addPullToRefresh(() -> {
+    ///     hi.add("Pulled at " + L10NManager.getInstance().formatDateTimeShort(new Date()));
+    /// });
+    /// hi.show();
+    /// ```
+    ///
+    /// #### Parameters
+    ///
+    /// - `task`: the refresh task to execute.
+    public void addPullToRefresh(Runnable task) {
+        this.refreshTask = task;
+    }
+
+    /// Alias for `#addPullToRefresh(Runnable)` -- both names point at the
+    /// same single-task slot, and a second call replaces the
+    /// previously-registered runnable.
+    ///
+    /// #### Parameters
+    ///
+    /// - `task`: the refresh task to execute, or `null` to clear.
+    public void setPullToRefresh(Runnable task) {
+        this.refreshTask = task;
+    }
+
+    /// Checks if the component responds to pointer events.  A component is considered
+    /// to respond to pointer events if it is visible and enabled, and is either scrollable,
+    /// focusable, or has the `#isGrabsPointerEvents()` flag true.
+    ///
+    /// #### Returns
+    ///
+    /// True if the pointer responds to pointer events.
+    public boolean respondsToPointerEvents() {
+        boolean isScrollable = CN.isEdt() ? isScrollable() : (scrollableXFlag() || scrollableYFlag());
+        return isVisible() && isEnabled() && (isScrollable || isFocusable() || isGrabsPointerEvents() || isDraggable());
+    }
+
+    private boolean pointerReleaseMaterialPullToRefresh() {
+        TopLevelContainer top = getTopLevelContainer();
+        if (refreshTask != null && top != null && InfiniteProgress.isDefaultMaterialDesignMode()) {
+            Container c = top.getLayeredPane(InfiniteProgress.class, true);
+            if (c.getComponentCount() > 0) {
+                Component cc = c.getComponentAt(0);
+                if (cc instanceof InfiniteProgress) {
+                    return false;
+                }
+                Motion opacityMotion = (Motion) cc.getClientProperty("cn1$opacityMotion");
+                c.removeAll();
+                if (opacityMotion.isFinished()) {
+                    final InfiniteProgress ip = new InfiniteProgress();
+                    ip.setUIID("RefreshLabel");
+                    ip.getUnselectedStyle().
+                            setBorder(RoundBorder.create().
+                                    color(getUnselectedStyle().getBgColor()).
+                                    shadowX(0).
+                                    shadowY(0).
+                                    shadowSpread(1, true).
+                                    shadowOpacity(100));
+                    Style s = ip.getUnselectedStyle();
+                    s.setMarginUnit(Style.UNIT_TYPE_DIPS);
+                    s.setMarginTop(10);
+                    c.add(ip);
+                    Display.INSTANCE.callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            refreshTask.run();
+                            ip.remove();
+                        }
+                    });
+                }
+                c.revalidate();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean updateMaterialPullToRefresh(final TopLevelContainer p, int y) {
+        if (refreshTask != null && InfiniteProgress.isDefaultMaterialDesignMode() &&
+                pullY < getHeight() / 4 &&
+                scrollableYFlag() && getScrollY() == 0) {
+            int mm = Display.INSTANCE.convertToPixels(1);
+            if (mm < y - pullY) {
+                p.clearComponentsAwaitingRelease();
+                Container c = p.getLayeredPane(InfiniteProgress.class, true);
+                c.setLayout(new FlowLayout(CENTER));
+                Motion rotationMotion;
+                Motion opacityMotion;
+                Label refreshLabel;
+                if (c.getComponentCount() == 0) {
+                    refreshLabel = new Label("", "RefreshLabel");
+                    FontImage.setMaterialIcon(refreshLabel, FontImage.MATERIAL_REFRESH, 5);
+                    refreshLabel.
+                            getUnselectedStyle().setBorder(RoundBorder.create().
+                                    color(getUnselectedStyle().getBgColor()).
+                                    shadowX(0).
+                                    shadowY(0).
+                                    shadowSpread(1, true).
+                                    shadowOpacity(100));
+                    opacityMotion = Motion.createLinearMotion(
+                            40, 255, getHeight() / 4);
+                    opacityMotion.setStartTime(pullY);
+
+                    rotationMotion = Motion.createLinearMotion(
+                            0, 360, getHeight() / 4);
+                    rotationMotion.setStartTime(pullY);
+                    refreshLabel.putClientProperty("cn1$opacityMotion", opacityMotion);
+                    refreshLabel.putClientProperty("cn1$rotationMotion", rotationMotion);
+                    c.add(refreshLabel);
+                    final Container pc = p.asContainer();
+                    pc.addPointerReleasedListener(new ActionListener<ActionEvent>() {
+                        @Override
+                        public void actionPerformed(ActionEvent evt) {
+                            pointerReleaseMaterialPullToRefresh();
+                            pc.removePointerReleasedListener(this);
+                            evt.consume();
+                        }
+                    });
+                } else {
+                    Component cc = c.getComponentAt(0);
+                    if (cc instanceof InfiniteProgress) {
+                        return false;
+                    }
+                    refreshLabel = (Label) cc;
+                    opacityMotion = (Motion) refreshLabel.getClientProperty("cn1$opacityMotion");
+                    rotationMotion = (Motion) refreshLabel.getClientProperty("cn1$rotationMotion");
+                }
+                rotationMotion.setCurrentMotionTime(y);
+                opacityMotion.setCurrentMotionTime(y);
+                Style s = refreshLabel.getAllStyles();
+                s.setOpacity(opacityMotion.getValue());
+                Image i = refreshLabel.getIcon().rotate(rotationMotion.getValue());
+                refreshLabel.setIcon(i);
+                s.setMarginUnit(Style.UNIT_TYPE_PIXELS);
+                s.setMarginTop(Math.min(getHeight() / 5, y - pullY));
+                c.revalidate();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// If this Component is focused, the pointer dragged event
+    /// will call this method
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the pointer x coordinate
+    ///
+    /// - `y`: the pointer y coordinate
+    public void pointerDragged(final int x, final int y) {
+        Container f = TopLevelSupport.rootOf(this);
+        if (f != null) {
+            pointerDragged(x, y, f.getCurrentPointerPress());
+        } else {
+            pointerDragged(x, y, null);
+        }
+    }
+
+    private void pointerDragged(final int x, final int y, final Object currentPointerPress) {
+        Component leadParent = LeadUtil.leadParentImpl(this);
+        leadParent.pointerDragged(this, x, y, currentPointerPress);
+
+    }
+
+    /// If this Component is focused, the pointer dragged event
+    /// will call this method
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the pointer x coordinate
+    ///
+    /// - `y`: the pointer y coordinate
+    ///
+    /// - `currentPointerPress`: @param currentPointerPress Object useed to track the current pointer press.  Each time
+    /// the pointer is pressed, a new Object is generated, and is passed to pointerDragged.
+    /// This is to help prevent infinite loops of pointerDragged after a pointer press has been released.
+    private void pointerDragged(final Component lead, final int x, final int y, final Object currentPointerPress) {
+        Container p = TopLevelSupport.rootOf(this);
+        if (p == null) {
+            return;
+        }
+        if (currentPointerPress != p.getCurrentPointerPress()) { //NOPMD CompareObjectsWithEquals
+            return;
+        }
+
+        if (lead.draggingScrollThumbY || lead.draggingScrollThumbX) {
+            lead.dragScrollThumb(x, y);
+            return;
+        }
+
+        if (lead.pointerDraggedListeners != null && lead.pointerDraggedListeners.hasListeners()) {
+            lead.pointerDraggedListeners.fireActionEvent(new ActionEvent(lead, ActionEvent.Type.PointerDrag, x, y));
+        }
+
+        if (dragAndDropInitialized) {
+            //keep call to pointerDragged to move the parent scroll if needed
+            if (dragCallbacks < 2) {
+                dragCallbacks++;
+                Display.getInstance().callSerially(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (dragActivated) {
+                            lead.pointerDragged(oldx, oldy, currentPointerPress);
+                        }
+                        dragCallbacks--;
+                    }
+                });
+            }
+
+            if (!dragActivated) {
+                dragActivated = true;
+                setVisible(false);
+                p.setDraggedComponent(this);
+                oldx = x;
+                oldy = y;
+                draggedx = getAbsoluteX();
+                draggedy = getAbsoluteY();
+            }
+            Component dropTo = findDropTarget(this, x, y);
+            if (dropTo != null && lead.dragOverListener != null) {
+                ActionEvent ev = new ActionEvent(lead, dropTo, x, y);
+                lead.dragOverListener.fireActionEvent(ev);
+                if (ev.isConsumed()) {
+                    return;
+                }
+            }
+            if (dropTargetComponent != dropTo) { //NOPMD CompareObjectsWithEquals
+                if (dropTargetComponent != null) {
+                    dropTargetComponent.dragExit(this);
+                }
+                dropTargetComponent = dropTo;
+                if (dropTargetComponent != null) {
+                    dropTargetComponent.dragEnter(this);
+                }
+            }
+
+            // we repaint twice to create an intersection of the old and new position
+            p.repaint(draggedx, draggedy, getWidth(), getHeight());
+            draggedx = draggedx + (x - oldx);
+            draggedy = draggedy + (y - oldy);
+            oldx = x;
+            oldy = y;
+            p.repaint(draggedx, draggedy, getWidth(), getHeight());
+            Container scrollParent = getParent();
+            while (scrollParent != null && !scrollParent.isScrollable()) {
+                scrollParent = scrollParent.getParent();
+            }
+            if (scrollParent != null) {
+                Style s = getStyle();
+                int w = getWidth() - s.getHorizontalPadding();
+                int h = getHeight() - s.getVerticalPadding();
+
+                Rectangle view;
+                int invisibleAreaUnderVKB = getInvisibleAreaUnderVKB();
+                view = new Rectangle(getScrollX(), getScrollY(), w, h - invisibleAreaUnderVKB);
+                //if the dragging component is out of bounds move the scrollable parent
+                if (!view.contains(draggedx - scrollParent.getAbsoluteX(), draggedy - scrollParent.getAbsoluteY(), getWidth(), getHeight())) {
+                    if ((scrollParent.isScrollableY() && scrollParent.getScrollY() + (draggedy + getHeight()) < scrollParent.getScrollDimension().getHeight()) ||
+                            (scrollParent.isScrollableX() && scrollParent.getScrollX() + (draggedx + getWidth()) < scrollParent.getScrollDimension().getWidth())) {
+                        int yposition = draggedy - scrollParent.getAbsoluteY() - 40;
+                        if (yposition < 0) {
+                            yposition = 0;
+                        }
+                        int xposition = draggedx - scrollParent.getAbsoluteX() - 40;
+                        if (xposition < 0) {
+                            xposition = 0;
+                        }
+                        int height;
+                        int width;
+                        if (isHidden() && dragImage != null) {
+                            height = dragImage.getHeight() + 80;
+                            width = dragImage.getWidth() + 80;
+                        } else {
+                            height = getHeight() + 80;
+                            width = getWidth() + 80;
+                        }
+                        if (scrollParent.getScrollY() + draggedy + height >= scrollParent.getScrollDimension().getHeight()) {
+                            yposition = draggedy - scrollParent.getAbsoluteY();
+                            height = scrollParent.getScrollDimension().getHeight() - yposition;
+                        }
+                        if (scrollParent.getScrollX() + draggedx + width >= scrollParent.getScrollDimension().getWidth()) {
+                            xposition = draggedx - scrollParent.getAbsoluteX();
+                            width = scrollParent.getScrollDimension().getWidth() - xposition;
+                        }
+
+                        scrollParent.scrollRectToVisible(xposition, yposition, width, height, scrollParent);
+                    }
+                }
+            }
+
+            return;
+        }
+        if (dragActivated && p.getDraggedComponent() == null) {
+            dragActivated = false;
+        }
+
+        if (!dragActivated) {
+            boolean draggedOnX = Math.abs(p.getInitialPressX() - x) > Math.abs(p.getInitialPressY() - y);
+            shouldGrabScrollEvents = (isScrollableX() && draggedOnX) || isScrollableY() && !draggedOnX;
+        }
+
+        if (isScrollable() && isSmoothScrolling() && shouldGrabScrollEvents) {
+            if (!dragActivated) {
+                dragActivated = true;
+                lastScrollY = y;
+                lastScrollX = x;
+                p.setDraggedComponent(this);
+                p.registerAnimatedInternal(this);
+                Component fc = p.getFocused();
+                if (fc != null && fc != this) { //NOPMD CompareObjectsWithEquals
+                    fc.dragInitiated();
+                }
+            }
+
+            // we drag inversly to get a feel of grabbing a physical screen
+            // and pulling it in the reverse direction of the drag
+            boolean rubberBand = isIOSScrollMotion();
+            if (isScrollableY()) {
+                int tl;
+                if (getTensileLength() > -1 && (refreshTask == null || InfiniteProgress.isDefaultMaterialDesignMode())) {
+                    tl = getTensileLength();
+                } else {
+                    tl = getHeight() / 2;
+                }
+                if (!isSmoothScrolling() || !isTensileDragEnabled()) {
+                    tl = 0;
+                }
+                int fingerDelta = lastScrollY - y;
+                int maxScroll;
+                if (isAlwaysTensile() && getScrollDimension().getHeight() + getInvisibleAreaUnderVKB() <= getHeight()) {
+                    maxScroll = getHeight();
+                } else {
+                    maxScroll = getScrollDimension().getHeight() + getInvisibleAreaUnderVKB() - getHeight();
+                }
+                int newScroll;
+                if (rubberBand && tl > 0) {
+                    int dim = getHeight();
+                    int currentScroll = getScrollY();
+                    int raw;
+                    if (currentScroll < 0) {
+                        raw = -rubberBandDecompress(-currentScroll, dim);
+                    } else if (currentScroll > maxScroll) {
+                        raw = maxScroll + rubberBandDecompress(currentScroll - maxScroll, dim);
+                    } else {
+                        raw = currentScroll;
+                    }
+                    int newRaw = raw + fingerDelta;
+                    if (newRaw < 0) {
+                        newScroll = -rubberBandCompress(-newRaw, dim);
+                        if (newScroll < -tl) {
+                            newScroll = -tl;
+                        }
+                    } else if (newRaw > maxScroll) {
+                        newScroll = maxScroll + rubberBandCompress(newRaw - maxScroll, dim);
+                        if (newScroll > maxScroll + tl) {
+                            newScroll = maxScroll + tl;
+                        }
+                    } else {
+                        newScroll = newRaw;
+                    }
+                    setScrollY(newScroll);
+                } else {
+                    int scroll = getScrollY() + fingerDelta;
+                    if (scroll >= -tl && scroll < maxScroll + tl) {
+                        setScrollY(scroll);
+                    }
+                }
+                updateTensileHighlightIntensity(lastScrollY, y, false);
+            }
+            if (isScrollableX()) {
+                int tl;
+                if (getTensileLength() > -1) {
+                    tl = getTensileLength();
+                } else {
+                    tl = getWidth() / 2;
+                }
+                if (!isSmoothScrolling() || !isTensileDragEnabled()) {
+                    tl = 0;
+                }
+                int fingerDelta = lastScrollX - x;
+                int maxScroll = getScrollDimension().getWidth() - getWidth();
+                if (rubberBand && tl > 0) {
+                    int dim = getWidth();
+                    int currentScroll = getScrollX();
+                    int raw;
+                    if (currentScroll < 0) {
+                        raw = -rubberBandDecompress(-currentScroll, dim);
+                    } else if (currentScroll > maxScroll) {
+                        raw = maxScroll + rubberBandDecompress(currentScroll - maxScroll, dim);
+                    } else {
+                        raw = currentScroll;
+                    }
+                    int newRaw = raw + fingerDelta;
+                    int newScroll;
+                    if (newRaw < 0) {
+                        newScroll = -rubberBandCompress(-newRaw, dim);
+                        if (newScroll < -tl) {
+                            newScroll = -tl;
+                        }
+                    } else if (newRaw > maxScroll) {
+                        newScroll = maxScroll + rubberBandCompress(newRaw - maxScroll, dim);
+                        if (newScroll > maxScroll + tl) {
+                            newScroll = maxScroll + tl;
+                        }
+                    } else {
+                        newScroll = newRaw;
+                    }
+                    setScrollX(newScroll);
+                } else {
+                    int scroll = getScrollX() + fingerDelta;
+                    if (scroll >= -tl && scroll < maxScroll + tl) {
+                        setScrollX(scroll);
+                    }
+                }
+            }
+            lastScrollY = y;
+            lastScrollX = x;
+        } else {
+            //try to find a scrollable element until you reach the top level
+            Component parent = getParent();
+            // Any top level, not just a Form: a Window dispatches drags to the pressed
+            // component itself, so bubbling past one would come straight back here and
+            // recurse until the stack ran out.
+            if (parent != null && !(parent instanceof TopLevelContainer)) {
+                parent.pointerDragged(x, y);
+            }
+        }
+    }
+
+    /// Returns true if the component is interested in receiving drag/pointer release events even
+    /// after the gesture exceeded its boundaries. This is useful for spinners etc. where the motion
+    /// might continue beyond the size of the component
+    ///
+    /// #### Returns
+    ///
+    /// false by default
+    protected boolean isStickyDrag() {
+        return false;
+    }
+
+    private void initScrollMotion() {
+        // the component might not be registered for animation if it started off
+        // as smaller than the screen and grew (e.g. by adding components to the container
+        // once it is visible).
+        Container f = TopLevelSupport.rootOf(this);
+        if (f != null) {
+            f.registerAnimatedInternal(this);
+        }
+
+        Motion m = Motion.createLinearMotion(initialScrollY, destScrollY, getScrollAnimationSpeed());
+        setAnimationMotion(m);
+        m.start();
+    }
+
+    /// If this Component is focused, the pointer pressed event
+    /// will call this method
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the pointer x coordinate
+    ///
+    /// - `y`: the pointer y coordinate
+    public void pointerPressed(int[] x, int[] y) {
+        Component leadParent = LeadUtil.leadParentImpl(this);
+        leadParent.inPinch = false;
+        leadParent.dragActivated = false;
+        pointerPressed(x[0], y[0]);
+        leadParent.scrollOpacity = 0xff;
+    }
+
+    /// This method allows a developer to define only a specific portion of a component as draggable
+    /// by default it returns true if the component is defined as "draggable"
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the x coordinate relative to the component
+    ///
+    /// - `y`: the y coordinate relative to the component
+    ///
+    /// #### Returns
+    ///
+    /// true if a press in this point might indicate the desire to begin a drag operation
+    protected boolean isDragAndDropOperation(int x, int y) {
+        return LeadUtil.leadParentImpl(this).draggable;
+    }
+
+    /// If this Component is focused, the pointer pressed event
+    /// will call this method
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the pointer x coordinate
+    ///
+    /// - `y`: the pointer y coordinate
+    public void pointerPressed(int x, int y) {
+        Component leadParent = LeadUtil.leadParentImpl(this);
+        leadParent.dragActivated = false;
+        if (leadParent.handleInteractiveScrollPress(x, y)) {
+            return;
+        }
+        if (pointerPressedListeners != null && pointerPressedListeners.hasListeners()) {
+            pointerPressedListeners.fireActionEvent(new ActionEvent(this, ActionEvent.Type.PointerPressed, x, y));
+        }
+        leadParent.clearDrag();
+        if (leadParent.isDragAndDropOperation(x, y)) {
+            int restore = Display.getInstance().getDragStartPercentage();
+            if (restore > 1) {
+                Component.restoreDragPercentage = restore;
+            }
+            Display.getInstance().setDragStartPercentage(1);
+        }
+    }
+
+    void initDragAndDrop(int x, int y) {
+        Component leadParent = LeadUtil.leadParentImpl(this);
+        leadParent.dragAndDropInitialized = leadParent.isDragAndDropOperation(x, y);
+        // Native drag and drop is primed from the same place, so a native drag source is
+        // pressed, dragged and released through exactly the gesture a draggable component is.
+        NativeDragAndDrop.pressedOn(leadParent, x, y);
+    }
+
+    /// Abandons a lightweight drag that has already started, without running the drop
+    /// machinery. Used when a native drag takes the gesture over: the port stops delivering
+    /// pointer drags at that point, so the lightweight drag would otherwise stay activated with
+    /// its image stranded where the gesture began.
+    void cancelLightweightDrag() {
+        Component leadParent = LeadUtil.leadParentImpl(this);
+        if (leadParent.dragActivated) {
+            if (leadParent.dragAndDropInitialized) {
+                // pointerDragged hides the source while the framework carries its image; the
+                // native session draws its own preview and never runs dragFinishedImpl, so
+                // without this the component the user dragged stays invisible for good.
+                leadParent.setVisible(true);
+            }
+            // The top level, not the form: pointerDragged records the dragged component
+            // on TopLevelSupport.rootOf(this), and a component dragged inside a window
+            // has no form at all -- so asking for one left that window still holding a
+            // component it would never be told had stopped being dragged.
+            Container p = TopLevelSupport.rootOf(leadParent);
+            if (p != null) {
+                p.setDraggedComponent(null);
+                p.repaint();
+            }
+        }
+        leadParent.dragActivated = false;
+        leadParent.dragAndDropInitialized = false;
+        leadParent.dragImage = null;
+        leadParent.dropTargetComponent = null;
+    }
+
+    /// If this Component is focused, the pointer released event
+    /// will call this method
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the pointer x coordinate
+    ///
+    /// - `y`: the pointer y coordinate
+    public void pointerReleased(int[] x, int[] y) {
+        pointerReleased(x[0], y[0]);
+    }
+
+    /// If this Component is focused this method is invoked when the user presses
+    /// and holds the pointer on the Component
+    public void longPointerPress(int x, int y) {
+        if (longPressListeners != null && longPressListeners.hasListeners()) {
+            ActionEvent ev = new ActionEvent(this, ActionEvent.Type.LongPointerPress, x, y);
+            longPressListeners.fireActionEvent(ev);
+        }
+    }
+
+    /// If this Component is focused, the pointer released event
+    /// will call this method
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the pointer x coordinate
+    ///
+    /// - `y`: the pointer y coordinate
+    public void pointerReleased(int x, int y) {
+        Component leadParent = LeadUtil.leadParentImpl(this);
+        if (leadParent.draggingScrollThumbY || leadParent.draggingScrollThumbX) {
+            // releasing an interactive scrollbar grab must not start momentum/tensile
+            leadParent.draggingScrollThumbY = false;
+            leadParent.draggingScrollThumbX = false;
+            leadParent.dragActivated = false;
+            leadParent.repaint();
+            return;
+        }
+        if (leadParent.inPinch) {
+            leadParent.inPinch = false;
+        }
+        if (pointerReleasedListeners != null && pointerReleasedListeners.hasListeners()) {
+            ActionEvent ev = new ActionEvent(this, ActionEvent.Type.PointerReleased, x, y);
+            pointerReleasedListeners.fireActionEvent(ev);
+            if (ev.isConsumed()) {
+                return;
+            }
+        }
+        pointerReleaseImpl(x, y);
+        leadParent.scrollOpacity = 0xff;
+    }
+
+    /// Records the painted geometry of the vertical interactive scrollbar so the pointer
+    /// handling code can hit-test the thumb and track. This is used internally by the
+    /// look and feel and should not be invoked by application code. Coordinates are
+    /// component-local (relative to this component's x/y).
+    ///
+    /// #### Parameters
+    ///
+    /// - `thumbX`: component-local x of the thumb
+    ///
+    /// - `thumbY`: component-local y of the thumb
+    ///
+    /// - `thumbW`: thumb width
+    ///
+    /// - `thumbH`: thumb height
+    ///
+    /// - `trackX`: component-local x of the track
+    ///
+    /// - `trackY`: component-local y of the track
+    ///
+    /// - `trackW`: track width
+    ///
+    /// - `trackH`: track height
+    public void setVerticalScrollBounds(int thumbX, int thumbY, int thumbW, int thumbH, int trackX, int trackY, int trackW, int trackH) {
+        scrollThumbX = thumbX;
+        scrollThumbY = thumbY;
+        scrollThumbW = thumbW;
+        scrollThumbH = thumbH;
+        scrollTrackX = trackX;
+        scrollTrackY = trackY;
+        scrollTrackW = trackW;
+        scrollTrackH = trackH;
+    }
+
+    /// Records the painted geometry of the horizontal interactive scrollbar. Used internally
+    /// by the look and feel, see `#setVerticalScrollBounds(int, int, int, int, int, int, int, int)`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `thumbX`: component-local x of the thumb
+    ///
+    /// - `thumbY`: component-local y of the thumb
+    ///
+    /// - `thumbW`: thumb width
+    ///
+    /// - `thumbH`: thumb height
+    ///
+    /// - `trackX`: component-local x of the track
+    ///
+    /// - `trackY`: component-local y of the track
+    ///
+    /// - `trackW`: track width
+    ///
+    /// - `trackH`: track height
+    public void setHorizontalScrollBounds(int thumbX, int thumbY, int thumbW, int thumbH, int trackX, int trackY, int trackW, int trackH) {
+        hScrollThumbX = thumbX;
+        hScrollThumbY = thumbY;
+        hScrollThumbW = thumbW;
+        hScrollThumbH = thumbH;
+        hScrollTrackX = trackX;
+        hScrollTrackY = trackY;
+        hScrollTrackW = trackW;
+        hScrollTrackH = trackH;
+    }
+
+    /// Handles a pointer press on an interactive (desktop) scrollbar. Returns true if the
+    /// press was consumed by the scrollbar (grabbing the thumb or paging the track), in
+    /// which case the regular press handling is skipped. Inert unless the look and feel
+    /// has interactive scrollbars enabled and the scrollbar has been painted at least once.
+    private boolean handleInteractiveScrollPress(int x, int y) {
+        if (!getUIManager().getLookAndFeel().isInteractiveScroll()) {
+            return false;
+        }
+        if (isScrollableY() && isScrollVisible() && scrollThumbW > 0) {
+            int absX = getAbsoluteX();
+            int absY = getAbsoluteY();
+            int thumbTop = absY + scrollThumbY;
+            int thumbLeft = absX + scrollThumbX;
+            if (x >= thumbLeft && x < thumbLeft + scrollThumbW && y >= thumbTop && y < thumbTop + scrollThumbH) {
+                draggingScrollThumbY = true;
+                scrollThumbGrabOffset = y - thumbTop;
+                return true;
+            }
+            int trackTop = absY + scrollTrackY;
+            int trackLeft = absX + scrollTrackX;
+            if (x >= trackLeft && x < trackLeft + scrollTrackW && y >= trackTop && y < trackTop + scrollTrackH) {
+                pageScroll(true, y < thumbTop);
+                return true;
+            }
+        }
+        if (isScrollableX() && isScrollVisible() && hScrollThumbW > 0) {
+            int absX = getAbsoluteX();
+            int absY = getAbsoluteY();
+            int thumbLeft = absX + hScrollThumbX;
+            int thumbTop = absY + hScrollThumbY;
+            if (x >= thumbLeft && x < thumbLeft + hScrollThumbW && y >= thumbTop && y < thumbTop + hScrollThumbH) {
+                draggingScrollThumbX = true;
+                scrollThumbGrabOffset = x - thumbLeft;
+                return true;
+            }
+            int trackLeft = absX + hScrollTrackX;
+            int trackTop = absY + hScrollTrackY;
+            if (x >= trackLeft && x < trackLeft + hScrollTrackW && y >= trackTop && y < trackTop + hScrollTrackH) {
+                pageScroll(false, x < thumbLeft);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Pages the scroll position by roughly one viewport toward the pointer when the track
+    /// (rather than the thumb) of an interactive scrollbar is clicked.
+    private void pageScroll(boolean vertical, boolean towardsStart) {
+        if (vertical) {
+            int max = getScrollDimension().getHeight() - getHeight() + getInvisibleAreaUnderVKB();
+            if (max < 0) {
+                max = 0;
+            }
+            int target = getScrollY() + (towardsStart ? -getHeight() : getHeight());
+            target = Math.max(0, Math.min(target, max));
+            if (isSmoothScrolling()) {
+                startTensile(getScrollY(), target, true);
+            } else {
+                setScrollY(target);
+                repaint();
+            }
+        } else {
+            int max = getScrollDimension().getWidth() - getWidth();
+            if (max < 0) {
+                max = 0;
+            }
+            int target = getScrollX() + (towardsStart ? -getWidth() : getWidth());
+            target = Math.max(0, Math.min(target, max));
+            if (isSmoothScrolling()) {
+                startTensile(getScrollX(), target, false);
+            } else {
+                setScrollX(target);
+                repaint();
+            }
+        }
+    }
+
+    /// Maps the current pointer position to a scroll offset while the user drags an
+    /// interactive scrollbar thumb. The mapping is the inverse of the thumb positioning
+    /// performed by the look and feel, and the resulting offset is clamped to the scrollable
+    /// range so a thumb drag never overscrolls.
+    private void dragScrollThumb(int x, int y) {
+        if (draggingScrollThumbY) {
+            int travel = scrollTrackH - scrollThumbH;
+            if (travel <= 0) {
+                return;
+            }
+            int trackTop = getAbsoluteY() + scrollTrackY;
+            int thumbTop = y - scrollThumbGrabOffset - trackTop;
+            thumbTop = Math.max(0, Math.min(thumbTop, travel));
+            int max = getScrollDimension().getHeight() - getHeight() + getInvisibleAreaUnderVKB();
+            if (max < 0) {
+                max = 0;
+            }
+            setScrollY((int) (((float) thumbTop / (float) travel) * max));
+            repaint();
+        } else if (draggingScrollThumbX) {
+            int travel = hScrollTrackW - hScrollThumbW;
+            if (travel <= 0) {
+                return;
+            }
+            int trackLeft = getAbsoluteX() + hScrollTrackX;
+            int thumbLeft = x - scrollThumbGrabOffset - trackLeft;
+            thumbLeft = Math.max(0, Math.min(thumbLeft, travel));
+            int max = getScrollDimension().getWidth() - getWidth();
+            if (max < 0) {
+                max = 0;
+            }
+            setScrollX((int) (((float) thumbLeft / (float) travel) * max));
+            repaint();
+        }
+    }
+
+    /// Indicates whether an interactive scrollbar thumb is currently being dragged.
+    /// Package visibility for unit tests in this package; not part of the public API.
+    boolean isInteractiveScrollThumbGrabbed() {
+        return draggingScrollThumbY || draggingScrollThumbX;
+    }
+
+    /// Indicates whether the vertical interactive scrollbar thumb is currently grabbed/dragged.
+    /// Invoked by the look and feel to render the pressed thumb style; not part of the public API.
+    ///
+    /// #### Returns
+    ///
+    /// true when the vertical thumb is being dragged
+    public boolean isVScrollThumbGrabbed() {
+        return draggingScrollThumbY;
+    }
+
+    /// Indicates whether the horizontal interactive scrollbar thumb is currently grabbed/dragged.
+    /// Invoked by the look and feel to render the pressed thumb style; not part of the public API.
+    ///
+    /// #### Returns
+    ///
+    /// true when the horizontal thumb is being dragged
+    public boolean isHScrollThumbGrabbed() {
+        return draggingScrollThumbX;
+    }
+
+    /// Indicates whether the pointer hovers the vertical interactive scrollbar thumb. Invoked by
+    /// the look and feel to render the hover thumb style; not part of the public API.
+    ///
+    /// #### Returns
+    ///
+    /// true when the vertical thumb is hovered
+    public boolean isVScrollThumbHover() {
+        return scrollThumbHoverY;
+    }
+
+    /// Indicates whether the pointer hovers the horizontal interactive scrollbar thumb. Invoked by
+    /// the look and feel to render the hover thumb style; not part of the public API.
+    ///
+    /// #### Returns
+    ///
+    /// true when the horizontal thumb is hovered
+    public boolean isHScrollThumbHover() {
+        return scrollThumbHoverX;
+    }
+
+    /// Updates the interactive-scrollbar hover state for the given absolute pointer location and
+    /// repaints if it changed. Inert unless the look and feel has interactive scrollbars enabled
+    /// and a scrollbar has been painted at least once. Returns true when the hover state changed.
+    boolean updateInteractiveScrollHover(int x, int y) {
+        if (!getUIManager().getLookAndFeel().isInteractiveScroll()) {
+            return false;
+        }
+        boolean vHover = false;
+        boolean hHover = false;
+        if (isScrollableY() && isScrollVisible() && scrollThumbW > 0) {
+            int thumbLeft = getAbsoluteX() + scrollThumbX;
+            int thumbTop = getAbsoluteY() + scrollThumbY;
+            vHover = x >= thumbLeft && x < thumbLeft + scrollThumbW && y >= thumbTop && y < thumbTop + scrollThumbH;
+        }
+        if (isScrollableX() && isScrollVisible() && hScrollThumbW > 0) {
+            int thumbLeft = getAbsoluteX() + hScrollThumbX;
+            int thumbTop = getAbsoluteY() + hScrollThumbY;
+            hHover = x >= thumbLeft && x < thumbLeft + hScrollThumbW && y >= thumbTop && y < thumbTop + hScrollThumbH;
+        }
+        if (vHover != scrollThumbHoverY || hHover != scrollThumbHoverX) {
+            scrollThumbHoverY = vHover;
+            scrollThumbHoverX = hHover;
+            repaint();
+            return true;
+        }
+        return false;
+    }
+
+    /// Clears any interactive-scrollbar hover highlight on this component, repainting if needed.
+    void clearInteractiveScrollHover() {
+        if (scrollThumbHoverY || scrollThumbHoverX) {
+            scrollThumbHoverY = false;
+            scrollThumbHoverX = false;
+            repaint();
+        }
+    }
+
+    // Package-private accessors for the last painted vertical interactive-scrollbar geometry,
+    // used only by the in-package unit tests; not part of the public API.
+    int getVScrollThumbYInternal() {
+        return scrollThumbY;
+    }
+
+    int getVScrollThumbHInternal() {
+        return scrollThumbH;
+    }
+
+    int getVScrollTrackYInternal() {
+        return scrollTrackY;
+    }
+
+    int getVScrollTrackHInternal() {
+        return scrollTrackH;
+    }
+
+    /// Indicates whether tensile drag (dragging beyond the boundry of the component and
+    /// snapping back) is enabled for this component.
+    ///
+    /// #### Returns
+    ///
+    /// true when tensile drag is enabled
+    public boolean isTensileDragEnabled() {
+        return tensileDragEnabled;
+    }
+
+    /// Indicates whether tensile drag (dragging beyond the boundry of the component and
+    /// snapping back) is enabled for this component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `tensileDragEnabled`: true to enable tensile drag
+    public void setTensileDragEnabled(boolean tensileDragEnabled) {
+        this.tensileDragEnabled = tensileDragEnabled;
+        lafOverrides |= LAF_TENSILE_DRAG;
+    }
+
+    /// Returns text selection support object for this component.  Only used by
+    /// components that support text selection (e.g. Labels, un-editable text fields, etc..).
+    ///
+    /// #### Returns
+    ///
+    /// text selection support object
+    ///
+    public TextSelectionSupport getTextSelectionSupport() {
+        return null;
+    }
+
+    boolean isScrollDecelerationMotionInProgress() {
+        Motion dmY = draggedMotionY;
+        if (dmY != null) {
+            if (dmY == decelerationMotion && !dmY.isFinished()) { //NOPMD CompareObjectsWithEquals
+                return true;
+            }
+        }
+        Motion dmX = draggedMotionX;
+        if (dmX != null) {
+            if (dmX == decelerationMotion && !dmX.isFinished()) { //NOPMD CompareObjectsWithEquals
+                return true;
+            }
+        }
+        Container parent = getParent();
+        if (parent != null) {
+            return parent.isScrollDecelerationMotionInProgress();
+        }
+
+        return false;
+    }
+
+    void startTensile(int offset, int dest, boolean vertical) {
+        Motion draggedMotion;
+        if (tensileDragEnabled) {
+            final int distance = Math.abs(offset - dest);
+            final UIManager uim = UIManager.getInstance();
+            final boolean ios = isIOSScrollMotion();
+            final int minDuration = uim.getThemeConstant("tensileSnapMinDurationInt", ios ? 400 : 300);
+            final int duration = Math.max(minDuration, (int) Math.round(1000 * distance / (double) CN.getDisplayHeight()));
+            final String motion = uim.getThemeConstant("tensileSnapMotion", ios ? "SPRING" : "DECELERATION");
+            if ("SPRING".equalsIgnoreCase(motion)) {
+                draggedMotion = Motion.createCriticalDampedSpringMotion(offset, dest, duration);
+            } else {
+                draggedMotion = Motion.createDecelerationMotion(offset, dest, duration);
+            }
+            draggedMotion.start();
+        } else {
+            draggedMotion = Motion.createLinearMotion(offset, dest, 0);
+            draggedMotion.start();
+        }
+        decelerationMotion = draggedMotion;
+
+        if (vertical) {
+            draggedMotionY = draggedMotion;
+        } else {
+            draggedMotionX = draggedMotion;
+        }
+        // just to be sure, there are some cases where this doesn't work as expected
+        Container p = TopLevelSupport.rootOf(this);
+        if (p != null) {
+            p.registerAnimatedInternal(this);
+        }
+    }
+
+    private boolean chooseScrollXOrY(int x, int y) {
+        boolean ix = isScrollableX();
+        boolean iy = isScrollableY();
+        if (ix && iy) {
+            Container parent = TopLevelSupport.rootOf(this);
+            if (parent == null) {
+                return ix;
+            }
+            return Math.abs(parent.getInitialPressX() - x) > Math.abs(parent.getInitialPressY() - y);
+        }
+        return ix;
+    }
+
+    /// Binds an action listener to drop events which are invoked when this component is dropped on a target
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: the callback
+    public void addDropListener(ActionListener l) {
+        if (dropListener == null) {
+            dropListener = new EventDispatcher();
+        }
+        dropListener.addListener(l);
+    }
+
+    /// Removes an action listener to drop events which are invoked when this component is dropped on a target
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: the callback
+    public void removeDropListener(ActionListener l) {
+        if (dropListener == null) {
+            return;
+        }
+        dropListener.removeListener(l);
+        if (!dropListener.hasListeners()) {
+            dropListener = null;
+        }
+    }
+
+    /// Broadcasts an event when dragging over a component
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: the listener
+    public void addDragOverListener(ActionListener l) {
+        if (dragOverListener == null) {
+            dragOverListener = new EventDispatcher();
+        }
+        dragOverListener.addListener(l);
+    }
+
+    /// Removes an action listener to drag over events
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: the callback
+    public void removeDragOverListener(ActionListener l) {
+        if (dragOverListener == null) {
+            return;
+        }
+        dragOverListener.removeListener(l);
+        if (!dragOverListener.hasListeners()) {
+            dragOverListener = null;
+        }
+    }
+
+    // ------------------------------------------------------------------------------------
+    // Native (operating system) drag and drop.
+    //
+    // The listeners and callbacks above move a component around inside one form. The ones
+    // below hand the drag to the platform, so it can end on the desktop, in a file manager or
+    // in another application -- and so a drag from any of those can end here. The payload is a
+    // ClipboardContent either way, which is the point: whatever the component can already copy
+    // it can already drag, and whatever it can already paste it can already accept.
+    //
+    // See NativeDragAndDrop for the platform support matrix and for starting a drag by hand.
+    // ------------------------------------------------------------------------------------
+
+    /// Returns true when a drag starting on this component is handed to the operating system.
+    public boolean isNativeDragSource() {
+        return nativeDragSource;
+    }
+
+    /// Makes a drag that starts on this component an operating system drag, which can be
+    /// dropped outside the application.
+    ///
+    /// Supply what is being dragged either by calling
+    /// `#setNativeDragOperation(com.codename1.ui.NativeDragOperation)`, or by overriding
+    /// `#createNativeDragOperation(int, int)` when the payload depends on where the press
+    /// landed -- which item of a list was grabbed, for instance.
+    ///
+    /// This is independent of `#setDraggable(boolean)`. Where the platform has no native drag
+    /// and drop this flag simply does nothing, so a component that should be draggable either
+    /// way sets both and the native session, when there is one, takes precedence.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeDragSource`: true to hand drags on this component to the operating system
+    public void setNativeDragSource(boolean nativeDragSource) {
+        this.nativeDragSource = nativeDragSource;
+        if (nativeDragSource) {
+            // Tells the port that this application wants to drag. Ports whose platform needs a
+            // gesture recognizer on the surface install it here rather than at startup, so an
+            // application that never drags keeps exactly the touch handling it has today.
+            Display.impl.nativeDragSourceRegistered();
+        }
+    }
+
+    /// Returns the operation this component drags, or null when it supplies one per press by
+    /// overriding `#createNativeDragOperation(int, int)`.
+    public NativeDragOperation getNativeDragOperation() {
+        return nativeDragOperation;
+    }
+
+    /// Sets what dragging this component puts on the operating system's drag, and makes the
+    /// component a native drag source. Passing null clears both.
+    ///
+    /// The operation is reusable: the same instance is offered for every drag of this
+    /// component, so it must not hold state from a previous session. Anything expensive in the
+    /// payload belongs behind
+    /// `ClipboardContent#setDataProvider(java.lang.String, com.codename1.ui.ClipboardDataProvider)`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeDragOperation`: what to drag, or null to stop being a drag source
+    public void setNativeDragOperation(NativeDragOperation nativeDragOperation) {
+        this.nativeDragOperation = nativeDragOperation;
+        setNativeDragSource(nativeDragOperation != null);
+    }
+
+    /// Produces the operation for a drag starting at the given position, invoked on the event
+    /// dispatch thread as the press is dispatched. Override when the payload depends on where
+    /// the user grabbed the component; the default returns whatever
+    /// `#setNativeDragOperation(com.codename1.ui.NativeDragOperation)` was given.
+    ///
+    /// Returning null, or an operation allowing no actions, leaves the gesture alone -- which
+    /// is how a component refuses to be dragged from a particular spot.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the absolute x position of the press
+    ///
+    /// - `y`: the absolute y position of the press
+    ///
+    /// #### Returns
+    ///
+    /// the drag to start, or null for none
+    protected NativeDragOperation createNativeDragOperation(int x, int y) {
+        return nativeDragOperation;
+    }
+
+    /// Returns true when this component accepts drops coming from the operating system.
+    public boolean isNativeDropTarget() {
+        return nativeDropTarget;
+    }
+
+    /// Lets this component receive drops from the operating system: from another application,
+    /// from a file manager, from the desktop, or from elsewhere in this application.
+    ///
+    /// The deepest component under the pointer that is a native drop target and accepts the
+    /// content wins, so a target nested inside another target takes precedence -- and a target
+    /// that refuses a particular payload lets an ancestor have it.
+    ///
+    /// This is independent of `#setDropTarget(boolean)`, which governs the lightweight drag and
+    /// drop inside the form.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nativeDropTarget`: true to accept operating system drops
+    public void setNativeDropTarget(boolean nativeDropTarget) {
+        this.nativeDropTarget = nativeDropTarget;
+        if (nativeDropTarget) {
+            // As with setNativeDragSource: the port attaches whatever the platform needs to
+            // receive drops only once an application says it wants them.
+            Display.impl.nativeDropTargetRegistered();
+        }
+    }
+
+    /// Returns the MIME types this component accepts, or null when it accepts anything.
+    public String[] getAcceptedDropMimeTypes() {
+        return acceptedDropMimeTypes == null ? null : acceptedDropMimeTypes.clone();
+    }
+
+    /// Restricts the drops this component accepts to drags offering at least one of these MIME
+    /// types, so a drag carrying anything else passes through to whatever is behind it.
+    ///
+    /// This filter is consulted on the platform's drag thread rather than the event dispatch
+    /// thread, which is what lets the answer be exact from the very first drag event; see
+    /// `NativeDragAndDrop#dragOver(int, int, int, com.codename1.ui.ClipboardContent, int)`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `acceptedDropMimeTypes`: the MIME types, for instance
+    ///   `ClipboardContent#MIME_FILE`, or null to accept anything
+    public void setAcceptedDropMimeTypes(String... acceptedDropMimeTypes) {
+        this.acceptedDropMimeTypes = acceptedDropMimeTypes == null || acceptedDropMimeTypes.length == 0
+                ? null : acceptedDropMimeTypes.clone();
+    }
+
+    /// Returns the bit set of actions this component is willing to perform on a drop.
+    public int getAcceptedDropActions() {
+        return acceptedDropActions;
+    }
+
+    /// Restricts what this component will do with a drop -- a target that can only copy should
+    /// not be offered a move, because the source deletes its data when a move completes.
+    ///
+    /// Settled before a drag begins. Narrowing this while one is already hovering is honoured
+    /// from whichever drag event next reaches the framework -- the hover answers the platform
+    /// on the platform's own thread -- so a target changing its mind mid-drag should reject
+    /// from its drag over callback, which is ordered against the drag rather than against the
+    /// component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `acceptedDropActions`: any combination of `NativeDragOperation#ACTION_COPY`,
+    ///   `NativeDragOperation#ACTION_MOVE` and `NativeDragOperation#ACTION_LINK`
+    public void setAcceptedDropActions(int acceptedDropActions) {
+        this.acceptedDropActions = acceptedDropActions;
+    }
+
+    /// Decides whether this component wants a drag carrying these representations at all.
+    ///
+    /// #### Threading
+    ///
+    /// Invoked on the platform's drag thread, not the event dispatch thread, because the
+    /// operating system needs the answer while the pointer is moving. Read the content and
+    /// this component's own configuration; do not touch the user interface, start animations
+    /// or block. Everything that needs the event dispatch thread belongs in
+    /// `#nativeDragEnter(com.codename1.ui.NativeDropEvent)` and its siblings.
+    ///
+    /// The default accepts anything unless
+    /// `#setAcceptedDropMimeTypes(java.lang.String...)` narrowed it.
+    ///
+    /// #### What the content holds here
+    ///
+    /// The MIME types the drag is offering, and not their values: decide on the types. A
+    /// drag in progress has not handed its data over yet, and on most platforms it cannot
+    /// be made to -- so `ClipboardContent#getData(java.lang.String)` answers null here even
+    /// for a representation the drop will produce. Reading it is not merely unhelpful
+    /// either: a representation a source can vend only once would be spent before the drop
+    /// could read it. `#nativeDrop(com.codename1.ui.NativeDropEvent)` is where the values
+    /// exist, and by then they are all there.
+    ///
+    /// #### Parameters
+    ///
+    /// - `content`: the representations the drag is offering, by name
+    ///
+    /// #### Returns
+    ///
+    /// true to be considered as the target
+    protected boolean canAcceptNativeDrop(ClipboardContent content) {
+        if (acceptedDropMimeTypes == null) {
+            return true;
+        }
+        if (content == null) {
+            return false;
+        }
+        return content.findPreferredMimeType(acceptedDropMimeTypes) != null;
+    }
+
+    /// Callback invoked on the event dispatch thread when a native drag enters this component.
+    /// Use it to highlight the drop location, and `NativeDropEvent#accept(int)` or
+    /// `NativeDropEvent#reject()` to change what the cursor tells the user.
+    ///
+    /// #### Parameters
+    ///
+    /// - `ev`: the drag
+    protected void nativeDragEnter(NativeDropEvent ev) {
+    }
+
+    /// Callback invoked on the event dispatch thread as a native drag moves over this
+    /// component. Delivered at most once at a time -- a new one is only queued after the
+    /// previous returned -- so a slow callback throttles itself instead of flooding the event
+    /// dispatch thread.
+    ///
+    /// #### Parameters
+    ///
+    /// - `ev`: the drag
+    protected void nativeDragOver(NativeDropEvent ev) {
+    }
+
+    /// Callback invoked on the event dispatch thread when a native drag leaves this component
+    /// without dropping. Clear whatever `#nativeDragEnter(com.codename1.ui.NativeDropEvent)`
+    /// highlighted. The event carries no content.
+    ///
+    /// #### Parameters
+    ///
+    /// - `ev`: the drag
+    protected void nativeDragExit(NativeDropEvent ev) {
+    }
+
+    /// Callback invoked on the event dispatch thread when a native drag is dropped on this
+    /// component. `NativeDropEvent#getContent()` names everything the drop carries, and its
+    /// values are readable from here on.
+    ///
+    /// #### Reading it later
+    ///
+    /// Read what the drop is for while handling it. A representation may be backed by the
+    /// platform's own transfer rather than by bytes this application owns -- Android hands
+    /// over a content URI readable under a permission granted to the activity, and iOS
+    /// copies a dropped file into temporary storage -- so a value first asked for long
+    /// afterwards, and particularly after the activity that received the drop has gone,
+    /// may no longer be there.
+    ///
+    /// A value once read is kept, so reading here and holding the result is always safe.
+    /// Deliberately not read for you: a drop of a large document on a component that only
+    /// wants its path would otherwise pay for every byte of it, on the very thread the
+    /// platform is waiting on.
+    ///
+    /// #### Parameters
+    ///
+    /// - `ev`: the drop
+    protected void nativeDrop(NativeDropEvent ev) {
+    }
+
+    /// Adds a listener invoked on the event dispatch thread when a native drag is dropped on
+    /// this component. The event is a `NativeDropEvent`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: the listener
+    public void addNativeDropListener(ActionListener l) {
+        if (nativeDropListeners == null) {
+            nativeDropListeners = new EventDispatcher();
+        }
+        nativeDropListeners.addListener(l);
+    }
+
+    /// Removes a listener added by
+    /// `#addNativeDropListener(com.codename1.ui.events.ActionListener)`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: the listener
+    public void removeNativeDropListener(ActionListener l) {
+        if (nativeDropListeners != null) {
+            nativeDropListeners.removeListener(l);
+            if (!nativeDropListeners.hasListeners()) {
+                nativeDropListeners = null;
+            }
+        }
+    }
+
+    /// Adds a listener invoked on the event dispatch thread as a native drag enters, moves over
+    /// and leaves this component. The event is a `NativeDropEvent`; its
+    /// `com.codename1.ui.events.ActionEvent#getEventType()` says which of the three it is.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: the listener
+    public void addNativeDragOverListener(ActionListener l) {
+        if (nativeDragOverListeners == null) {
+            nativeDragOverListeners = new EventDispatcher();
+        }
+        nativeDragOverListeners.addListener(l);
+    }
+
+    /// Removes a listener added by
+    /// `#addNativeDragOverListener(com.codename1.ui.events.ActionListener)`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: the listener
+    public void removeNativeDragOverListener(ActionListener l) {
+        if (nativeDragOverListeners != null) {
+            nativeDragOverListeners.removeListener(l);
+            if (!nativeDragOverListeners.hasListeners()) {
+                nativeDragOverListeners = null;
+            }
+        }
+    }
+
+    /// Routes one native drag callback to the override and then to the listeners. Invoked on
+    /// the event dispatch thread by `NativeDragAndDrop`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `ev`: the event
+    void dispatchNativeDropEvent(NativeDropEvent ev) {
+        switch (ev.getEventType()) {
+            case NativeDragEnter:
+                nativeDragEnter(ev);
+                fireNativeDragOver(ev);
+                break;
+            case NativeDragOver:
+                nativeDragOver(ev);
+                fireNativeDragOver(ev);
+                break;
+            case NativeDragExit:
+                nativeDragExit(ev);
+                fireNativeDragOver(ev);
+                break;
+            case NativeDrop:
+                nativeDrop(ev);
+                if (nativeDropListeners != null && nativeDropListeners.hasListeners()) {
+                    nativeDropListeners.fireActionEvent(ev);
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void fireNativeDragOver(NativeDropEvent ev) {
+        if (nativeDragOverListeners != null && nativeDragOverListeners.hasListeners()) {
+            nativeDragOverListeners.fireActionEvent(ev);
+        }
+    }
+
+    /// Callback indicating that the drag has finished either via drop or by releasing the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the x location
+    ///
+    /// - `y`: the y location
+    protected void dragFinished(int x, int y) {
+    }
+
+    void dragFinishedImpl(int x, int y) {
+        LeadUtil.leadParentImpl(this).dragFinishedImpl(this, x, y);
+    }
+
+    private void dragFinishedImpl(Component lead, int x, int y) {
+        if (dragAndDropInitialized && dragActivated) {
+            Container p = TopLevelSupport.rootOf(this);
+            if (p == null) {
+                //The component was removed from the form during the drag
+                dragActivated = false;
+                dragAndDropInitialized = false;
+                setVisible(true);
+                dragImage = null;
+                dropTargetComponent = null;
+                return;
+            }
+            p.setDraggedComponent(null);
+            Component dropTo = findDropTarget(this, x, y);
+            if (dropTargetComponent != dropTo) { //NOPMD CompareObjectsWithEquals
+                if (dropTargetComponent != null) {
+                    dropTargetComponent.dragExit(this);
+                }
+                dropTargetComponent = dropTo;
+                if (dropTargetComponent != null) {
+                    dropTargetComponent.dragEnter(this);
+                }
+            }
+            if (dropTargetComponent != null) {
+                p.repaint(x, y, getWidth(), getHeight());
+                getParent().scrollRectToVisible(getX(), getY(), getWidth(), getHeight(), getParent());
+                if (lead.dropListener != null) {
+                    ActionEvent ev = new ActionEvent(lead, ActionEvent.Type.PointerDrag, dropTargetComponent, x, y);
+                    lead.dropListener.fireActionEvent(ev);
+                    if (!ev.isConsumed()) {
+                        dropTargetComponent.drop(this, x, y);
+                    }
+                } else {
+                    dropTargetComponent.drop(this, x, y);
+                }
+            } else {
+                if (lead.dragOverListener != null) {
+                    ActionEvent ev = new ActionEvent(lead, ActionEvent.Type.PointerDrag, null, x, y);
+                    lead.dragOverListener.fireActionEvent(ev);
+                }
+                p.repaint();
+            }
+            setVisible(true);
+            dragImage = null;
+            dropTargetComponent = null;
+        }
+        if (getUIManager().getLookAndFeel().isFadeScrollBar() && isScrollable()) {
+            Container frm = TopLevelSupport.rootOf(this);
+            if (frm != null) {
+                frm.registerAnimatedInternal(this);
+            }
+        }
+        dragActivated = false;
+        dragAndDropInitialized = false;
+        if (lead.dragFinishedListeners != null && lead.dragFinishedListeners.hasListeners()) {
+            ActionEvent ev = new ActionEvent(lead, ActionEvent.Type.DragFinished, x, y);
+            lead.dragFinishedListeners.fireActionEvent(ev);
+            if (ev.isConsumed()) {
+                return;
+            }
+        }
+        lead.dragFinished(x, y);
+    }
+
+    /// Adds a listener to the dragFinished event
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to receive drag finished events events
+    public void addDragFinishedListener(ActionListener l) {
+        if (dragFinishedListeners == null) {
+            dragFinishedListeners = new EventDispatcher();
+        }
+        dragFinishedListeners.addListener(l);
+    }
+
+    /// Adds a listener to be notified when the state of this component is changed
+    /// to and from initialized.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: Listener to be subscribed.
+    ///
+    public void addStateChangeListener(ActionListener<ComponentStateChangeEvent> l) {
+        if (stateChangeListeners == null) {
+            stateChangeListeners = new EventDispatcher();
+        }
+        stateChangeListeners.addListener(l);
+    }
+
+    /// Removes a listener from being notified when the state of this component is
+    /// changed to and from initialized.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: Listener to be unsubscribed.
+    ///
+    public void removeStateChangeListener(ActionListener<ComponentStateChangeEvent> l) {
+        if (stateChangeListeners != null) {
+            stateChangeListeners.removeListener(l);
+        }
+    }
+
+    /// Adds a listener to the pointer event
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to receive pointer events
+    public void addPointerPressedListener(ActionListener l) {
+        if (pointerPressedListeners == null) {
+            pointerPressedListeners = new EventDispatcher();
+        }
+        pointerPressedListeners.addListener(l);
+    }
+
+    /// Adds a listener to the pointer event
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to receive pointer events
+    ///
+    public void addLongPressListener(ActionListener l) {
+        if (longPressListeners == null) {
+            longPressListeners = new EventDispatcher();
+        }
+        longPressListeners.addListener(l);
+    }
+
+    /// Adds a listener that is notified when the user requests a context menu on this component.
+    /// A context menu request is triggered by a secondary (right) mouse button click, a stylus
+    /// barrel button click or a long press, giving touch and desktop a single unified callback.
+    /// The delivered `com.codename1.ui.events.ActionEvent` carries the pointer location and, via
+    /// `com.codename1.ui.events.ActionEvent#getPointerEvent()`, the button and pointer type detail.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to receive context menu requests
+    public void addContextMenuListener(ActionListener l) {
+        if (contextMenuListeners == null) {
+            contextMenuListeners = new EventDispatcher();
+        }
+        contextMenuListeners.addListener(l);
+    }
+
+    /// Removes a context menu listener.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to remove
+    public void removeContextMenuListener(ActionListener l) {
+        if (contextMenuListeners != null) {
+            contextMenuListeners.removeListener(l);
+        }
+    }
+
+    /// Adds a listener that is notified when the mouse wheel (or a trackpad scroll gesture) is
+    /// moved while the pointer is over this component. The delivered event is a
+    /// `com.codename1.ui.events.WheelEvent` exposing the scroll deltas and modifiers. Consuming the
+    /// event with `com.codename1.ui.events.ActionEvent#consume()` prevents the default scrolling
+    /// behavior, which is useful for gestures such as control plus wheel to zoom.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to receive wheel events
+    public void addMouseWheelListener(ActionListener l) {
+        if (mouseWheelListeners == null) {
+            mouseWheelListeners = new EventDispatcher();
+        }
+        mouseWheelListeners.addListener(l);
+    }
+
+    /// Removes a mouse wheel listener.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to remove
+    public void removeMouseWheelListener(ActionListener l) {
+        if (mouseWheelListeners != null) {
+            mouseWheelListeners.removeListener(l);
+        }
+    }
+
+    /// Adds a listener that is notified for stylus and pen interactions (Apple Pencil, S-Pen,
+    /// Surface Pen and similar) on this component. The listener fires on press, drag and release
+    /// when the pointer type is a stylus or eraser. The delivered event carries the full pointer
+    /// detail via `com.codename1.ui.events.ActionEvent#getPointerEvent()` including pressure and tilt.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to receive stylus events
+    public void addStylusListener(ActionListener l) {
+        if (stylusListeners == null) {
+            stylusListeners = new EventDispatcher();
+        }
+        stylusListeners.addListener(l);
+    }
+
+    /// Removes a stylus listener.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to remove
+    public void removeStylusListener(ActionListener l) {
+        if (stylusListeners != null) {
+            stylusListeners.removeListener(l);
+        }
+    }
+
+    /// Fires a context menu request to the registered listeners walking up the component hierarchy
+    /// until a listener consumes the event. Returns true if a listener consumed the request.
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the pointer x coordinate
+    ///
+    /// - `y`: the pointer y coordinate
+    ///
+    /// #### Returns
+    ///
+    /// true if a listener consumed the context menu request
+    boolean fireContextMenu(int x, int y) {
+        Component c = this;
+        while (c != null) {
+            if (c.contextMenuListeners != null && c.contextMenuListeners.hasListeners()) {
+                ActionEvent ev = new ActionEvent(c, ActionEvent.Type.PointerReleased, x, y);
+                ev.setPointerEvent(Display.impl.buildPointerEvent(x, y, false));
+                c.contextMenuListeners.fireActionEvent(ev);
+                if (ev.isConsumed()) {
+                    return true;
+                }
+            }
+            // A listener that did not consume the event has not handled it, so the component's
+            // own commands still get to answer. Resolved in the same walk rather than in a
+            // second one, so the nearest ancestor with EITHER wins -- a row inside a table that
+            // has its own commands must not be overruled by the table's listener declining.
+            if (c.contextMenuCommands != null && c.contextMenuCommands.length > 0) {
+                ContextMenu.show(c, x, y, c.contextMenuCommands);
+                return true;
+            }
+            c = c.getParent();
+        }
+        return false;
+    }
+
+    /// Which component's commands a context-menu request at this point would open, or null
+    /// when it would open nothing.
+    ///
+    /// The same walk `#fireContextMenu(int, int)` performs, minus the showing. Split out
+    /// because the showing is a modal popup that parks the caller until the user dismisses
+    /// it: the routing is the part worth asserting, and asserting it through the showing
+    /// means a test with no user to dismiss the menu simply hangs.
+    ///
+    /// #### Returns
+    ///
+    /// the component whose commands would open, or null
+    Component resolveContextMenuOwner() {
+        Component c = this;
+        while (c != null) {
+            if (c.contextMenuCommands != null && c.contextMenuCommands.length > 0) {
+                return c;
+            }
+            c = c.getParent();
+        }
+        return null;
+    }
+
+    /// The commands a right click on this component offers.
+    ///
+    /// #### Returns
+    ///
+    /// the commands, or null when this component has no menu of its own
+    public Command[] getContextMenuCommands() {
+        if (contextMenuCommands == null) {
+            return null;
+        }
+        Command[] copy = new Command[contextMenuCommands.length];
+        System.arraycopy(contextMenuCommands, 0, copy, 0, contextMenuCommands.length);
+        return copy;
+    }
+
+    /// Gives this component a right-click menu.
+    ///
+    /// The menu opens by itself on a secondary mouse button, a stylus barrel button or a
+    /// long press, so nothing else is needed:
+    ///
+    /// ```java
+    /// label.setContextMenuCommands(cut, copy, paste);
+    /// ```
+    ///
+    /// The commands are fixed. When they depend on what was clicked -- which row, which
+    /// cell -- register a `#addContextMenuListener(ActionListener)` instead and call
+    /// `ContextMenu#show(Component, int, int, Command...)` from it.
+    ///
+    /// Passing null or an empty array removes the menu. It does not leave an empty one
+    /// behind: a menu with no items is a rectangle the user has to dismiss to learn it was
+    /// empty.
+    ///
+    /// #### Parameters
+    ///
+    /// - `commands`: the menu items in order, or null for none
+    public void setContextMenuCommands(Command... commands) {
+        if (commands == null || commands.length == 0) {
+            contextMenuCommands = null;
+            return;
+        }
+        // Nulls are dropped HERE rather than at every use, so `length > 0` keeps meaning "has a
+        // menu" wherever it is asked. It did not: an all-null array is nonempty, so the walk in
+        // fireContextMenu treated the component as having a menu, consumed the right click and
+        // opened nothing -- and an ancestor that did have a menu never got to answer.
+        int kept = 0;
+        for (Command cmd : commands) {
+            if (cmd != null) {
+                kept++;
+            }
+        }
+        if (kept == 0) {
+            contextMenuCommands = null;
+            return;
+        }
+        contextMenuCommands = new Command[kept];
+        int at = 0;
+        for (Command cmd : commands) {
+            if (cmd != null) {
+                contextMenuCommands[at++] = cmd;
+            }
+        }
+    }
+
+    private Command[] contextMenuCommands;
+
+    /// Dispatches a mouse wheel event to the registered listeners walking up the component
+    /// hierarchy until a listener consumes the event. Returns true if a listener consumed it,
+    /// in which case the default scrolling behavior should be skipped.
+    ///
+    /// #### Parameters
+    ///
+    /// - `ev`: the wheel event to dispatch
+    ///
+    /// #### Returns
+    ///
+    /// true if a listener consumed the wheel event
+    boolean fireMouseWheelEvent(com.codename1.ui.events.WheelEvent ev) {
+        return fireMouseWheelListeners(ev) || fireMouseWheelHandlers(ev);
+    }
+
+    /// The listener half of a wheel dispatch, walking up from this component.
+    ///
+    /// Separate from the handlers below because a listener can change the UI out from
+    /// under the gesture -- show a form, dispose a window, remove this component -- and
+    /// whoever called this has to be able to look again before anything else acts on a
+    /// tree that may no longer be on screen.
+    boolean fireMouseWheelListeners(com.codename1.ui.events.WheelEvent ev) {
+        // The whole chain, and before any built-in handling. Consuming is documented to
+        // prevent the DEFAULT behaviour, and a component that pans itself on a wheel is
+        // exactly that, so a listener anywhere above it has to be able to stop it: an
+        // application that binds control plus wheel to its own zoom on the form cannot be
+        // pre-empted by a viewer inside it.
+        Component c = this;
+        while (c != null) {
+            if (c.mouseWheelListeners != null && c.mouseWheelListeners.hasListeners()) {
+                c.mouseWheelListeners.fireActionEvent(ev);
+                if (ev.isConsumed()) {
+                    return true;
+                }
+            }
+            c = c.getParent();
+        }
+        return false;
+    }
+
+    /// The built-in half: the components that move content of their own.
+    boolean fireMouseWheelHandlers(com.codename1.ui.events.WheelEvent ev) {
+        Component c = this;
+        while (c != null) {
+            // Disabled components handle nothing, which is what the synthetic drag this
+            // replaced amounted to: Form.pointerDragged gated on isEnabled, so disabling a
+            // viewer or a map stopped the wheel panning it. The walk continues past it so
+            // an enabled ancestor still gets its turn.
+            if (c.isEnabled() && (c.mouseWheel(ev) || ev.isConsumed())) {
+                return true;
+            }
+            c = c.getParent();
+        }
+        return false;
+    }
+
+    /// Handles a scroll wheel or trackpad scroll over this component, before its listeners
+    /// and before anything above it in the hierarchy.
+    ///
+    /// A component that moves its own content -- an editor that scrolls itself, a viewer
+    /// that pans -- implements this. Everything else leaves it alone and the wheel scrolls
+    /// the nearest scrollable ancestor, which is what a wheel means.
+    ///
+    /// This exists because a wheel used to arrive as a synthetic press, drag and release
+    /// played into the component tree: a component that wanted the wheel got it by handling
+    /// pointer events, and so did every component that did not want it. The events are gone
+    /// and this is what replaces them, for the few components that have something of their
+    /// own to move.
+    ///
+    /// #### Parameters
+    ///
+    /// - `ev`: the wheel event, carrying the scroll deltas in display pixels
+    ///
+    /// #### Returns
+    ///
+    /// true when this component handled the wheel and nothing else should act on it
+    protected boolean mouseWheel(com.codename1.ui.events.WheelEvent ev) {
+        return false;
+    }
+
+    /// Fires a stylus event of the given type when this component (or a parent) has stylus
+    /// listeners and the current pointer is a stylus or eraser.
+    void fireStylusEvent(ActionEvent.Type type, int x, int y) {
+        if (!Display.getInstance().isStylusPointer()) {
+            return;
+        }
+        Component c = this;
+        while (c != null) {
+            if (c.stylusListeners != null && c.stylusListeners.hasListeners()) {
+                ActionEvent ev = new ActionEvent(c, type, x, y);
+                ev.setPointerEvent(Display.impl.buildPointerEvent(x, y, false));
+                c.stylusListeners.fireActionEvent(ev);
+                if (ev.isConsumed()) {
+                    return;
+                }
+            }
+            c = c.getParent();
+        }
+    }
+
+    /// Invoked to draw the ripple effect overlay in Android where the finger of the user causes a growing
+    /// circular overlay over time. This method is invoked after paintBackground and is invoked repeatedly until
+    /// the users finger is removed, it will only be invoked if isRippleEffect returns true
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: the graphics object for the component clipped to the background
+    ///
+    /// - `x`: the x position of the touch
+    ///
+    /// - `y`: the y position of the touch
+    ///
+    /// - `position`: @param position a value between 0 and 1000 with 0 indicating the beginning of the ripple effect and 1000
+    /// indicating the completion of it
+    public void paintRippleOverlay(Graphics g, int x, int y, int position) {
+        int a = g.getAlpha();
+        int c = g.getColor();
+        g.concatenateAlpha(20);
+        g.setColor(0);
+        if (position == 1000) {
+            g.fillRect(getX(), getY(), getWidth(), getHeight());
+        } else {
+            float ratio = ((float) position) / 1000.0f;
+            int w = (int) (((float) getWidth()) * ratio);
+            w = Math.max(w, Display.INSTANCE.convertToPixels(4));
+            g.fillArc(x - getParent().getAbsoluteX() - w / 2, y - getParent().getAbsoluteY() - w / 2, w, w, 0, 360);
+        }
+        g.setAlpha(a);
+        g.setColor(c);
+    }
+
+    /// Removes the listener from the pointer event
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to remove
+    public void removePointerPressedListener(ActionListener l) {
+        if (pointerPressedListeners != null) {
+            pointerPressedListeners.removeListener(l);
+        }
+    }
+
+    /// Removes the listener from the pointer event
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to remove
+    ///
+    public void removeLongPressListener(ActionListener l) {
+        if (longPressListeners != null) {
+            longPressListeners.removeListener(l);
+        }
+    }
+
+    /// Removes the listener from the drag finished event
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to remove
+    public void removeDragFinishedListener(ActionListener l) {
+        if (dragFinishedListeners != null) {
+            dragFinishedListeners.removeListener(l);
+        }
+    }
+
+    /// Adds a listener to the pointer event
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to receive pointer events
+    public void addPointerReleasedListener(ActionListener l) {
+        if (pointerReleasedListeners == null) {
+            pointerReleasedListeners = new EventDispatcher();
+        }
+        pointerReleasedListeners.addListener(l);
+    }
+
+    /// Removes the listener from the pointer event
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to remove
+    public void removePointerReleasedListener(ActionListener l) {
+        if (pointerReleasedListeners != null) {
+            pointerReleasedListeners.removeListener(l);
+        }
+    }
+
+    /// Adds a listener to the pointer event
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to receive pointer events
+    public void addPointerDraggedListener(ActionListener l) {
+        if (pointerDraggedListeners == null) {
+            pointerDraggedListeners = new EventDispatcher();
+        }
+        pointerDraggedListeners.addListener(l);
+    }
+
+    /// Removes the listener from the pointer event
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: callback to remove
+    public void removePointerDraggedListener(ActionListener l) {
+        if (pointerDraggedListeners != null) {
+            pointerDraggedListeners.removeListener(l);
+        }
+    }
+
+    private void pointerReleaseImpl(int x, int y) {
+        LeadUtil.leadParentImpl(this).pointerReleaseImplLead(x, y);
+    }
+
+    private void pointerReleaseImplLead(int x, int y) {
+        if (restoreDragPercentage > -1) {
+            Display.getInstance().setDragStartPercentage(restoreDragPercentage);
+        }
+        pinchDistance = -1;
+        if (dragActivated) {
+            dragActivated = false;
+            boolean startedTensileX = false;
+            boolean startedTensileY = false;
+            if (isScrollableX()) {
+                if (scrollX < 0) {
+                    startTensile(scrollX, 0, false);
+                    startedTensileX = true;
+                } else {
+                    if (scrollX > getScrollDimension().getWidth() - getWidth()) {
+                        startTensile(scrollX, Math.max(getScrollDimension().getWidth() - getWidth(), 0), false);
+                        startedTensileX = true;
+                    }
+                }
+            }
+            if (isScrollableY()) {
+                if (scrollY < 0) {
+                    if (refreshTask != null && !InfiniteProgress.isDefaultMaterialDesignMode()) {
+                        putClientProperty("$pullToRelease", "normal");
+                        if (scrollY < -getUIManager().getLookAndFeel().getPullToRefreshHeight()) {
+                            putClientProperty("$pullToRelease", "update");
+                            startTensile(scrollY, -getUIManager().getLookAndFeel().getPullToRefreshHeight(), true);
+                            startedTensileY = true;
+                        }
+                    } else {
+                        startTensile(scrollY, 0, true);
+                        startedTensileY = true;
+                    }
+                } else {
+                    int scrh = getScrollDimension().getHeight() - getHeight() + getInvisibleAreaUnderVKB();
+                    if (scrollY > scrh) {
+                        startTensile(scrollY, Math.max(scrh, 0), true);
+                        startedTensileY = true;
+                    }
+                }
+            }
+            boolean shouldScrollX = chooseScrollXOrY(x, y);
+            if (shouldScrollX && startedTensileX || !shouldScrollX && startedTensileY) {
+                return;
+            }
+
+            int scroll = shouldScrollX ? scrollX : scrollY;
+            float speed = getDragSpeed(!shouldScrollX);
+            int tl;
+            if (getTensileLength() > -1) {
+                tl = getTensileLength();
+            } else {
+                tl = getWidth() / 2;
+            }
+            if (!isTensileDragEnabled()) {
+                tl = 0;
+            }
+            if (!shouldScrollX) {
+                if (speed < 0) {
+                    if ("DECAY".equals(UIManager.getInstance().getThemeConstant("ScrollMotion", "DECAY"))) {
+                        int timeConstant = UIManager.getInstance().getThemeConstant("ScrollMotionTimeConstantInt", 500);
+
+                        draggedMotionY = Motion.createExponentialDecayMotion(scroll, -tl / 2, speed, timeConstant);
+                    } else {
+                        draggedMotionY = Motion.createFrictionMotion(scroll, -tl / 2, speed, 0.0007f);
+                    }
+                } else {
+                    if ("DECAY".equals(UIManager.getInstance().getThemeConstant("ScrollMotion", "DECAY"))) {
+                        int timeConstant = UIManager.getInstance().getThemeConstant("ScrollMotionTimeConstantInt", 500);
+                        draggedMotionY = Motion.createExponentialDecayMotion(scroll, getScrollDimension().getHeight() -
+                                getHeight() + getInvisibleAreaUnderVKB() + tl / 2, speed, timeConstant);
+                    } else {
+                        draggedMotionY = Motion.createFrictionMotion(scroll, getScrollDimension().getHeight() -
+                                getHeight() + getInvisibleAreaUnderVKB() + tl / 2, speed, 0.0007f);
+                    }
+                }
+            } else {
+                if (speed < 0) {
+                    draggedMotionX = Motion.createFrictionMotion(scroll, -tl / 2, speed, 0.0007f);
+                } else {
+                    draggedMotionX = Motion.createFrictionMotion(scroll, getScrollDimension().getWidth() -
+                            getWidth() + tl / 2, speed, 0.0007f);
+                }
+            }
+            if (draggedMotionX != null) {
+                draggedMotionX.start();
+            }
+            if (draggedMotionY != null) {
+                draggedMotionY.start();
+            }
+        }
+    }
+
+    /// This method returns the dragging speed based on the latest dragged
+    /// events
+    ///
+    /// #### Parameters
+    ///
+    /// - `vertical`: indicates what axis speed is required
+    ///
+    /// #### Returns
+    ///
+    /// the dragging speed
+    protected float getDragSpeed(boolean vertical) {
+        return Display.getInstance().getDragSpeed(vertical);
+    }
+
+    /// Returns the current Component Style allowing code to draw the current component, you
+    /// should normally use getUnselected/Pressed/DisabledStyle() and not this method since
+    /// it will return different values based on component state.
+    ///
+    /// #### Returns
+    ///
+    /// the component Style object
+    public Style getStyle() {
+        if (unSelectedStyle == null) {
+            initStyle();
+        }
+        isUnselectedStyle = false;
+
+        if (hasLead && !blockLead) {
+            Component lead = getLeadComponent();
+            if (lead != null) {
+                if (!lead.isEnabled()) {
+                    return getDisabledStyle();
+                }
+
+                if (lead.isPressedStyle()) {
+                    return getPressedStyle();
+                }
+
+                if (keepTextInputFocusStyle(lead)) {
+                    return getSelectedStyle();
+                }
+
+                // Hover follows the same text-input focus exception as the main path.
+                // The tracker marks the lead component; its parent and siblings paint
+                // the same state through this branch before the main path is reached.
+                if (lead.isHovered()) {
+                    Style hover = getHoverStyle();
+                    if (hover != null) {
+                        return hover;
+                    }
+                }
+
+                if (lead.hasFocus() && Display.getInstance().shouldRenderSelection(this)) {
+                    return getSelectedStyle();
+                }
+            }
+            isUnselectedStyle = true;
+            return unSelectedStyle;
+        }
+
+        if (!isEnabled()) {
+            return getDisabledStyle();
+        }
+
+        if (isPressedStyle()) {
+            return getPressedStyle();
+        }
+
+        // Text inputs encode the focus ring in their selected style. Keep the complete
+        // style (including its border padding and background) while the pointer remains;
+        // copying only its border onto hover would mix incompatible geometry. Buttons
+        // retain hover feedback while focused, since their selected state is not editing.
+        if (keepTextInputFocusStyle(this)) {
+            return getSelectedStyle();
+        }
+        // An undeclared hover state still falls through for legacy themes.
+        if (hovered) {
+            Style hover = getHoverStyle();
+            if (hover != null) {
+                return hover;
+            }
+        }
+
+        if (hasFocus() && Display.getInstance().shouldRenderSelection(this)) {
+            return getSelectedStyle();
+        }
+        isUnselectedStyle = true;
+        return unSelectedStyle;
+    }
+
+    private boolean keepTextInputFocusStyle(Component owner) {
+        return owner instanceof TextArea && owner.hasFocus()
+                && Display.getInstance().shouldRenderSelection(this);
+    }
+
+    boolean isPressedStyle() {
+        return false;
+    }
+
+    /// Returns the Component Style for the pressed state allowing us to manipulate
+    /// the look of the component when it is pressed
+    ///
+    /// #### Returns
+    ///
+    /// the component Style object
+    public Style getPressedStyle() {
+        if (pressedStyle == null) {
+            if (hasInlinePressedStyle()) {
+                pressedStyle = getUIManager().parseComponentCustomStyle(getInlineStylesTheme(), getUIID(), getInlineStylesUIID(), "press", getInlinePressedStyleStrings());
+            } else {
+                pressedStyle = getUIManager().getComponentCustomStyle(getUIID(), "press");
+            }
+            initPressedStyle(pressedStyle);
+            if (initialized && pressedStyle.getElevation() > 0) {
+                registerElevatedInternal(this);
+            }
+            if (initialized) {
+                setSurface(pressedStyle.isSurface());
+            }
+            pressedStyle.addStyleListener(this);
+            if (pressedStyle.getBgPainter() == null) {
+                pressedStyle.setBgPainter(new BGPainter());
+            }
+        }
+        return pressedStyle;
+    }
+
+    /// Returns the Component Style for the hover state, or `null` when the theme says
+    /// nothing about hovering this UIID.
+    ///
+    /// Hover is the one desktop state the mobile design languages never needed, and it is the
+    /// state a Fluent or Adwaita control is mostly made of. It is deliberately the only
+    /// per-state getter here that can return null, and the null is the whole point: a theme
+    /// authored before hover existed declares no `hover#` entries, and
+    /// {@link com.codename1.ui.plaf.UIManager#getComponentCustomStyle(String, String)} never
+    /// returns null -- asked for a type the theme does not define it hands back a copy of the
+    /// blank default style: white background, black foreground. Building one unconditionally would therefore
+    /// repaint every hovered component in an existing application the moment the pointer
+    /// crossed it. So the theme is asked first, and a theme with no opinion leaves
+    /// {@link #getStyle()} to fall through to the ordinary chain.
+    ///
+    /// #### Returns
+    ///
+    /// the component Style object for the hover state, or null when the theme defines none
+    public Style getHoverStyle() {
+        if (hoverStyle == null) {
+            if (!getUIManager().hasComponentCustomStyle(getUIID(), "hover")) {
+                return null;
+            }
+            hoverStyle = createHoverStyle(getUIManager(), getUIID());
+            if (initialized && hoverStyle.getElevation() > 0) {
+                registerElevatedInternal(this);
+            }
+            if (initialized) {
+                setSurface(hoverStyle.isSurface());
+            }
+            hoverStyle.addStyleListener(this);
+            if (hoverStyle.getBgPainter() == null) {
+                hoverStyle.setBgPainter(new BGPainter());
+            }
+            // UIID and inline-style changes rebuild this lazily while the pointer can
+            // remain stationary. Start the new background once the style is complete.
+            if (initialized && isEffectivelyHovered()) {
+                checkAnimation();
+            }
+        }
+        return hoverStyle;
+    }
+
+    private Style createHoverStyle(UIManager manager, String id) {
+        // Inline-all overlays an already declared hover state. Keep the same resource
+        // prerequisite as the other inline states, without inventing hover for old themes.
+        if (getInlineStylesTheme() != null && inlineAllStyles != null) {
+            return manager.parseComponentCustomStyle(getInlineStylesTheme(), id,
+                    getInlineStylesUIID(id), "hover", inlineAllStyles);
+        }
+        return manager.getComponentCustomStyle(id, "hover");
+    }
+
+    /// Sets the Component Style for the hover state allowing us to manipulate the look of the
+    /// component when the pointer is over it.
+    ///
+    /// #### Parameters
+    ///
+    /// - `style`: the component Style object
+    public void setHoverStyle(Style style) {
+        if (hoverStyle != null) {
+            hoverStyle.removeStyleListener(this);
+        }
+        hoverStyle = style;
+        if (initialized && hoverStyle.getElevation() > 0) {
+            registerElevatedInternal(this);
+        }
+        if (initialized) {
+            setSurface(hoverStyle.isSurface());
+        }
+        hoverStyle.addStyleListener(this);
+        if (hoverStyle.getBgPainter() == null) {
+            hoverStyle.setBgPainter(new BGPainter());
+        }
+        setShouldCalcPreferredSize(true);
+        checkAnimation();
+    }
+
+    /// True while the pointer is over this component. Only ever set on the desktop, by
+    /// {@link Form#pointerHover(int[], int[])}; a touch device has no hover to report.
+    ///
+    /// #### Returns
+    ///
+    /// true when the pointer is currently over this component
+    public boolean isHovered() {
+        return hovered;
+    }
+
+    /// Marks this component as hovered, repainting when the state actually changes AND the
+    /// theme has a hover style to show for it -- otherwise the repaint would be pure cost,
+    /// because nothing about the render depends on the flag.
+    ///
+    /// #### Parameters
+    ///
+    /// - `hovered`: true when the pointer is over this component
+    public void setHovered(boolean hovered) {
+        if (this.hovered == hovered) {
+            return;
+        }
+        this.hovered = hovered;
+        if (getHoverStyle() != null) {
+            repaint();
+        }
+        checkHoverAnimationHierarchy();
+    }
+
+    /// Sets the Component Style for the pressed state allowing us to manipulate
+    /// the look of the component when it is pressed
+    ///
+    /// #### Parameters
+    ///
+    /// - `style`: the component Style object
+    public void setPressedStyle(Style style) {
+        if (pressedStyle != null) {
+            pressedStyle.removeStyleListener(this);
+        }
+        pressedStyle = style;
+        initPressedStyle(style);
+        if (initialized && pressedStyle.getElevation() > 0) {
+            registerElevatedInternal(this);
+        }
+        if (initialized) {
+            setSurface(pressedStyle.isSurface());
+        }
+        pressedStyle.addStyleListener(this);
+        if (pressedStyle.getBgPainter() == null) {
+            pressedStyle.setBgPainter(new BGPainter());
+        }
+        setShouldCalcPreferredSize(true);
+        checkAnimation();
+    }
+
+    /// Can be overridden by subclasses to perform initialization when the unselected style is set to a new value.
+    ///
+    /// #### Parameters
+    ///
+    /// - `unselectedStyle`: The unselected style.
+    ///
+    protected void initUnselectedStyle(Style unselectedStyle) {
+
+    }
+
+    /// Can be overridden by subclasses to perform initialization when the pressed style is set to a new value.
+    ///
+    /// #### Parameters
+    ///
+    /// - `unselectedStyle`: The pressed style.
+    ///
+    protected void initPressedStyle(Style pressedStyle) {
+
+    }
+
+    /// Can be overridden by subclasses to perform initialization when the disabled style is set to a new value.
+    ///
+    /// #### Parameters
+    ///
+    /// - `unselectedStyle`: The disabled style.
+    ///
+    protected void initDisabledStyle(Style disabledStyle) {
+
+    }
+
+    /// Can be overridden by subclasses to perform initialization when the selected style is set to a new value.
+    ///
+    /// #### Parameters
+    ///
+    /// - `unselectedStyle`: The selected style.
+    ///
+    protected void initSelectedStyle(Style selectedStyle) {
+
+    }
+
+    /// Returns the Component Style for the unselected mode allowing us to manipulate
+    /// the look of the component
+    ///
+    /// #### Returns
+    ///
+    /// the component Style object
+    public final Style getUnselectedStyle() {
+        if (unSelectedStyle == null) {
+            initStyle();
+        }
+        return unSelectedStyle;
+    }
+
+    /// Changes the Component Style by replacing the Component Style with the given Style
+    ///
+    /// #### Parameters
+    ///
+    /// - `style`: the component Style object
+    public void setUnselectedStyle(Style style) {
+        if (this.unSelectedStyle != null) {
+            this.unSelectedStyle.removeStyleListener(this);
+        }
+        this.unSelectedStyle = style;
+        initUnselectedStyle(style);
+        if (initialized && unSelectedStyle.getElevation() > 0) {
+            registerElevatedInternal(this);
+        }
+        if (initialized) {
+            setSurface(unSelectedStyle.isSurface());
+        }
+        this.unSelectedStyle.addStyleListener(this);
+        if (this.unSelectedStyle.getBgPainter() == null) {
+            this.unSelectedStyle.setBgPainter(new BGPainter());
+        }
+        setShouldCalcPreferredSize(true);
+        checkAnimation();
+    }
+
+    /// Returns the Component Style for the selected state allowing us to manipulate
+    /// the look of the component when it owns focus
+    ///
+    /// #### Returns
+    ///
+    /// the component Style object
+    public Style getSelectedStyle() {
+        if (selectedStyle == null) {
+            if (hasInlineSelectedStyle()) {
+                selectedStyle = getUIManager().parseComponentSelectedStyle(getInlineStylesTheme(), getUIID(), getInlineStylesUIID(), getInlineSelectedStyleStrings());
+            } else {
+                selectedStyle = getUIManager().getComponentSelectedStyle(getUIID());
+            }
+            initSelectedStyle(selectedStyle);
+            if (initialized && selectedStyle.getElevation() > 0) {
+                registerElevatedInternal(this);
+            }
+            if (initialized) {
+                setSurface(selectedStyle.isSurface());
+            }
+            selectedStyle.addStyleListener(this);
+            if (selectedStyle.getBgPainter() == null) {
+                selectedStyle.setBgPainter(new BGPainter());
+            }
+            if (cellRenderer) {
+                selectedStyle.markAsRendererStyle();
+            }
+        }
+        return selectedStyle;
+    }
+
+    /// Changes the Component selected Style by replacing the Component Style with the given Style
+    ///
+    /// #### Parameters
+    ///
+    /// - `style`: the component Style object
+    public void setSelectedStyle(Style style) {
+        if (this.selectedStyle != null) {
+            this.selectedStyle.removeStyleListener(this);
+        }
+        this.selectedStyle = style;
+        initSelectedStyle(style);
+        if (initialized && selectedStyle.getElevation() > 0) {
+            registerElevatedInternal(this);
+        }
+        if (initialized) {
+            setSurface(selectedStyle.isSurface());
+        }
+        this.selectedStyle.addStyleListener(this);
+        if (this.selectedStyle.getBgPainter() == null) {
+            this.selectedStyle.setBgPainter(new BGPainter());
+        }
+        setShouldCalcPreferredSize(true);
+        checkAnimation();
+    }
+
+    /// Returns the Component Style for the disabled state allowing us to manipulate
+    /// the look of the component when its disabled
+    ///
+    /// #### Returns
+    ///
+    /// the component Style object
+    public Style getDisabledStyle() {
+        if (disabledStyle == null) {
+            if (hasInlineDisabledStyle()) {
+                disabledStyle = getUIManager().parseComponentCustomStyle(getInlineStylesTheme(), getUIID(), getInlineStylesUIID(), "dis", getInlineDisabledStyleStrings());
+            } else {
+                disabledStyle = getUIManager().getComponentCustomStyle(getUIID(), "dis");
+            }
+            initDisabledStyle(disabledStyle);
+            if (initialized && disabledStyle.getElevation() > 0) {
+                registerElevatedInternal(this);
+            }
+            if (initialized) {
+                setSurface(disabledStyle.isSurface());
+            }
+            disabledStyle.addStyleListener(this);
+            if (disabledStyle.getBgPainter() == null) {
+                disabledStyle.setBgPainter(new BGPainter());
+            }
+        }
+        return disabledStyle;
+    }
+
+    /// Changes the Component disalbed Style by replacing the Component Style with the given Style
+    ///
+    /// #### Parameters
+    ///
+    /// - `style`: the component Style object
+    public void setDisabledStyle(Style style) {
+        if (this.disabledStyle != null) {
+            this.disabledStyle.removeStyleListener(this);
+        }
+        this.disabledStyle = style;
+        initDisabledStyle(style);
+        if (initialized && disabledStyle.getElevation() > 0) {
+            registerElevatedInternal(this);
+        }
+        if (initialized) {
+            setSurface(disabledStyle.isSurface());
+        }
+        this.disabledStyle.addStyleListener(this);
+        if (this.disabledStyle.getBgPainter() == null) {
+            this.disabledStyle.setBgPainter(new BGPainter());
+        }
+        setShouldCalcPreferredSize(true);
+        checkAnimation();
+    }
+
+    /// Allows subclasses to create their own custom style types and install the background painter into them
+    ///
+    /// #### Parameters
+    ///
+    /// - `s`: the custom style
+    protected void installDefaultPainter(Style s) {
+        if (s.getBgPainter() == null) {
+            s.setBgPainter(new BGPainter(s));
+        }
+    }
+
+    /// Changes the current component to the focused component, will work only
+    /// for a component that belongs to a parent form.
+    public void requestFocus() {
+        Container rootForm = TopLevelSupport.rootOf(this);
+        if (rootForm != null) {
+            Component.setDisableSmoothScrolling(true);
+            rootForm.requestFocus(this);
+            Component.setDisableSmoothScrolling(false);
+        }
+    }
+
+    /// Finds all children (and self) that have negative scroll positions.
+    ///
+    /// This is primarily to solve https://github.com/codenameone/CodenameOne/issues/2476
+    ///
+    /// #### Parameters
+    ///
+    /// - `out`: A set to add found components to.
+    ///
+    /// #### Returns
+    ///
+    /// The set of found components (reference to the same set that is passed as an arg).
+    java.util.Set<Component> findNegativeScrolls(java.util.Set<Component> out) {
+        if (scrollableYFlag() && getScrollY() < 0) {
+            out.add(this);
+        }
+        if (this instanceof Container) {
+            for (Component child : (Container) this) {
+                child.findNegativeScrolls(out);
+            }
+        }
+        return out;
+    }
+
+    /// Overriden to return a useful value for debugging purposes
+    ///
+    /// #### Returns
+    ///
+    /// a string representation of this component
+    @Override
+    public String toString() {
+        String className = getClass().getName();
+        className = className.substring(className.lastIndexOf('.') + 1);
+        return className + "[" + paramString() + "]";
+    }
+
+    /// Returns a string representing the state of this component. This
+    /// method is intended to be used only for debugging purposes, and the
+    /// content and format of the returned string may vary between
+    /// implementations. The returned string may be empty but may not be
+    /// `null`.
+    ///
+    /// #### Returns
+    ///
+    /// a string representation of this component's state
+    protected String paramString() {
+        return "x=" + getX() + " y=" + getY() + " width=" + getWidth() + " height=" + getHeight() + " name=" + getName();
+    }
+
+    /// Makes sure the component is up to date with the current theme, ONLY INVOKE THIS METHOD IF YOU CHANGED THE THEME!
+    public void refreshTheme() {
+        refreshTheme(true);
+    }
+
+    /// Makes sure the component is up to date with the current theme, ONLY INVOKE THIS METHOD IF YOU CHANGED THE THEME!
+    ///
+    /// #### Parameters
+    ///
+    /// - `merge`: indicates if the current styles should be merged with the new styles
+    public void refreshTheme(boolean merge) {
+        refreshTheme(getUIID(), merge);
+        initLaf(getUIManager());
+    }
+
+    /// Makes sure the component is up to date with the given UIID
+    ///
+    /// #### Parameters
+    ///
+    /// - `id`: The Style Id to update the Component with
+    ///
+    /// - `merge`: indicates if the current styles should be merged with the new styles
+    protected void refreshTheme(String id, boolean merge) {
+        UIManager manager = getUIManager();
+
+        if (merge) {
+            Style unSelected = getUnselectedStyle();
+            if (hasInlineUnselectedStyle()) {
+                setUnselectedStyle(mergeStyle(unSelected, manager.parseComponentStyle(getInlineStylesTheme(), id, getInlineStylesUIID(id), getInlineUnselectedStyleStrings())));
+            } else {
+                setUnselectedStyle(mergeStyle(unSelected, manager.getComponentStyle(id)));
+            }
+            if (selectedStyle != null) {
+                if (hasInlineSelectedStyle()) {
+                    setSelectedStyle(mergeStyle(selectedStyle, manager.parseComponentSelectedStyle(getInlineStylesTheme(), id, getInlineStylesUIID(id), getInlineSelectedStyleStrings())));
+                } else {
+                    setSelectedStyle(mergeStyle(selectedStyle, manager.getComponentSelectedStyle(id)));
+                }
+            }
+            if (disabledStyle != null) {
+                if (hasInlineDisabledStyle()) {
+                    setDisabledStyle(mergeStyle(disabledStyle, manager.parseComponentCustomStyle(getInlineStylesTheme(), id, getInlineStylesUIID(id), "dis", getInlineDisabledStyleStrings())));
+                } else {
+                    setDisabledStyle(mergeStyle(disabledStyle, manager.getComponentCustomStyle(id, "dis")));
+                }
+            }
+            if (pressedStyle != null) {
+                if (hasInlinePressedStyle()) {
+                    setPressedStyle(mergeStyle(pressedStyle, manager.parseComponentCustomStyle(getInlineStylesTheme(), id, getInlineStylesUIID(id), "press", getInlinePressedStyleStrings())));
+                } else {
+                    setPressedStyle(mergeStyle(pressedStyle, manager.getComponentCustomStyle(id, "press")));
+                }
+            }
+            // Merge local overrides just like the other states. When a theme removes its
+            // hover rule, only application-modified properties survive; the remaining
+            // properties follow the refreshed normal style instead of the removed rule.
+            if (hoverStyle != null) {
+                if (manager.hasComponentCustomStyle(id, "hover")) {
+                    setHoverStyle(mergeStyle(hoverStyle, createHoverStyle(manager, id)));
+                } else if (hoverStyle.isModified()) {
+                    setHoverStyle(mergeStyle(hoverStyle, getUnselectedStyle()));
+                } else {
+                    // The refreshed theme dropped hover for this UIID. Unregister before
+                    // letting go: every other arm in this block goes through a setter that
+                    // removes the listener first, and a Style left holding a listener to a
+                    // component that no longer reads it is both a leak and a source of
+                    // spurious style callbacks.
+                    hoverStyle.removeStyleListener(this);
+                    hoverStyle = null;
+                }
+            }
+        } else {
+            unSelectedStyle = null;
+            getUnselectedStyle();
+            selectedStyle = null;
+            disabledStyle = null;
+            pressedStyle = null;
+            hoverStyle = null;
+            allStyles = null;
+
+        }
+        checkAnimation();
+        manager.getLookAndFeel().bind(this);
+    }
+
+    Style mergeStyle(Style toMerge, Style newStyle) {
+        if (toMerge.isModified()) {
+            toMerge.merge(newStyle);
+            return toMerge;
+        } else {
+            return newStyle;
+        }
+
+    }
+
+    /// Indicates whether we are in the middle of a drag operation, this method allows
+    /// developers overriding the pointer released events to know when this is a drag
+    /// operation.
+    ///
+    /// #### Returns
+    ///
+    /// true if we are in the middle of a drag; otherwise false
+    protected boolean isDragActivated() {
+        return dragActivated;
+    }
+
+    void setDragActivated(boolean dragActivated) {
+        this.dragActivated = dragActivated;
+    }
+
+    /// Brings a faded scrollbar back and restarts the fade, for a scroll that did not come
+    /// from a pointer.
+    ///
+    /// pointerPressed and pointerReleased both do this, which is how the wheel used to get
+    /// it: the gesture it was emulated with went through them. Scrolling with a wheel now
+    /// touches neither, so once the scrollbar had faded out the content moved with nothing
+    /// on screen to say where in it the reader was.
+    void restoreFadingScrollbar() {
+        // Registered again, not only made opaque. The fade deregisters itself: animate()
+        // returns true while the opacity is coming down and the tick after it reaches zero
+        // falls through to tryDeregisterAnimated. So a scrollbar that has finished fading
+        // has no animation left, and restoring the opacity alone would light it up for
+        // good. A press or a release gets away with setting the field because the pointer
+        // paths around them re-register through checkAnimation.
+        scrollOpacity = 0xff;
+        checkAnimation();
+    }
+
+    private Animation hoverBackgroundAnimation;
+    private TopLevelContainer hoverAnimationHost;
+
+    private boolean isEffectivelyHovered() {
+        if (hasLead && !blockLead) {
+            Component lead = getLeadComponent();
+            return lead != null && lead.isHovered();
+        }
+        return hovered;
+    }
+
+    void checkHoverAnimationHierarchy() {
+        checkAnimation();
+        Component leadParent = LeadUtil.leadParentImpl(this);
+        if (leadParent != null && leadParent != this) { // NOPMD CompareObjectsWithEquals
+            leadParent.checkLeadHoverAnimations(this);
+        }
+    }
+
+    private void checkLeadHoverAnimations(Component lead) {
+        // Only the lead owns the pointer flag, but its parent and siblings paint
+        // their own state styles. Each affected background owns its own registration.
+        if (this != lead && initialized && hasLead && !blockLead // NOPMD CompareObjectsWithEquals
+                && getLeadComponent() == lead) { // NOPMD CompareObjectsWithEquals
+            checkAnimation();
+        }
+        if (this instanceof Container) {
+            Container container = (Container) this;
+            for (int i = 0; i < container.getComponentCount(); i++) {
+                container.getComponentAt(i).checkLeadHoverAnimations(lead);
+            }
+        }
+    }
+
+    private boolean hasAnimatedHoverBackground() {
+        if (!isEffectivelyHovered() || !isVisible() || isHidden(true)) {
+            return false;
+        }
+        // Resolve first: an active UIID/inline change may have cleared hoverStyle.
+        Style active = getStyle();
+        if (hoverStyle == null || active != hoverStyle) { // NOPMD CompareObjectsWithEquals
+            return false;
+        }
+        Image image = hoverStyle.getBgImage();
+        Painter painter = hoverStyle.getBgPainter();
+        return (image != null && image.isAnimation())
+                || (painter instanceof Animation && !(painter instanceof BGPainter));
+    }
+
+    private void stopHoverBackgroundAnimation() {
+        if (hoverAnimationHost != null) {
+            hoverAnimationHost.deregisterAnimated(hoverBackgroundAnimation);
+            hoverAnimationHost = null;
+        }
+    }
+
+    private void registerHoverBackgroundAnimation() {
+        TopLevelContainer host = getTopLevelContainer();
+        if (host == null || host == hoverAnimationHost) { // NOPMD CompareObjectsWithEquals
+            return;
+        }
+        stopHoverBackgroundAnimation();
+        if (hoverBackgroundAnimation == null) {
+            // Own a separate registration: removing the Component itself on hover exit
+            // would also cancel an animation explicitly registered by application code.
+            hoverBackgroundAnimation = new Animation() {
+                @Override
+                public boolean animate() {
+                    if (!isInitialized() || !hasAnimatedHoverBackground()) {
+                        stopHoverBackgroundAnimation();
+                        return false;
+                    }
+                    Image image = hoverStyle.getBgImage();
+                    boolean changed = image != null && image.isAnimation() && image.animate();
+                    Painter painter = hoverStyle.getBgPainter();
+                    if (painter instanceof Animation && !(painter instanceof BGPainter)) {
+                        changed = ((Animation) painter).animate() || changed;
+                    }
+                    if (changed) {
+                        repaint();
+                    }
+                    return false;
+                }
+
+                @Override
+                public void paint(Graphics graphics) {
+                    // The component repaints itself when the background changes.
+                }
+            };
+        }
+        hoverAnimationHost = host;
+        host.registerAnimated(hoverBackgroundAnimation);
+    }
+
+    void checkAnimation() {
+        if (isEffectivelyHovered() && (!isVisible() || isHidden(true))) {
+            stopHoverBackgroundAnimation();
+            return;
+        }
+        if (hasAnimatedHoverBackground()) {
+            registerHoverBackgroundAnimation();
+            // The hover callback advances only the background. A restored scrollbar
+            // still needs Component.animate() in the independent internal registry.
+            checkScrollbarAnimation();
+            return;
+        }
+        stopHoverBackgroundAnimation();
+        Image bgImage = getStyle().getBgImage();
+        if (bgImage != null && bgImage.isAnimation()) {
+            registerForAnimation();
+        } else {
+            Painter p = getStyle().getBgPainter();
+            if (p != null && p.getClass() != BGPainter.class && p instanceof Animation) {
+                registerForAnimation();
+            } else {
+                checkScrollbarAnimation();
+            }
+        }
+    }
+
+    private void checkScrollbarAnimation() {
+        if (scrollOpacity == 0xff && isScrollable() && getUIManager().getLookAndFeel().isFadeScrollBar()) {
+            Container root = TopLevelSupport.rootOf(this);
+            if (root != null) {
+                root.registerAnimatedInternal(this);
+            }
+        }
+    }
+
+    void deregisterAnimatedInternal() {
+        if (!internalRegisteredAnimated) {
+            return;
+        }
+        Container f = TopLevelSupport.rootOf(this);
+        if (f != null) {
+            f.deregisterAnimatedInternal(this);
+        }
+    }
+
+    /// This method should be implemented correctly by subclasses to make snap to grid functionality work
+    /// as expected. Returns the ideal grid Y position closest to the current Y position.
+    ///
+    /// #### Returns
+    ///
+    /// a valid Y position in the grid
+    protected int getGridPosY() {
+        return getScrollY();
+    }
+
+    /// This method should be implemented correctly by subclasses to make snap to grid functionality work
+    /// as expected. Returns the ideal grid X position closest to the current X position.
+    ///
+    /// #### Returns
+    ///
+    /// a valid Y position in the grid
+    protected int getGridPosX() {
+        return getScrollX();
+    }
+
+    /// Where this component would settle on its grid if it were scrolled to `position`,
+    /// answered without it ever being at that position.
+    ///
+    /// getGridPosY reads getScrollY, so asking where a wheel notch settles used to mean
+    /// scrolling there and snapping back from it. Everything watching saw both positions,
+    /// and the raw one is off the grid: Spinner3D mirrors the scroll into SpinnerNode,
+    /// which derives its selected index from it by rounding down, so a notch far too small
+    /// to change the selection still fired a selection change to the previous row and a
+    /// second one back to where it started -- twice into application listeners and twice
+    /// into the list model.
+    ///
+    /// The field is set and restored directly rather than through setScrollY, so nothing is
+    /// notified of a position the component is never left at. What getGridPos* reads is the
+    /// scroll position and the children's own coordinates, and those do not move with it.
+    int gridPositionFor(boolean vertical, int position) {
+        if (vertical) {
+            int was = scrollY;
+            scrollY = position;
+            try {
+                return getGridPosY();
+            } finally {
+                scrollY = was;
+            }
+        }
+        int was = scrollX;
+        scrollX = position;
+        try {
+            return getGridPosX();
+        } finally {
+            scrollX = was;
+        }
+    }
+
+    boolean isTensileMotionInProgress() {
+        return draggedMotionY != null && !draggedMotionY.isFinished();
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public boolean animate() {
+        if (!visible) {
+            return false;
+        }
+        Image bgImage = getStyle().getBgImage();
+        // A separately registered hover background advances once even if the app also
+        // registered this Component (or its scrolling/ticker uses the internal list).
+        boolean hoverBackgroundScheduled = hoverAnimationHost != null && getStyle() == hoverStyle; // NOPMD CompareObjectsWithEquals
+        boolean animateBackground = !hoverBackgroundScheduled && bgImage != null
+                && bgImage.isAnimation() && bgImage.animate();
+        Motion m = getAnimationMotion();
+
+        // perform regular scrolling
+        if (m != null && destScrollY != -1 && destScrollY != getScrollY()) {
+            // change the variable directly for efficiency both in removing redundant
+            // repaints and scroll checks
+            setScrollY(m.getValue());
+            if (destScrollY == scrollY) {
+                destScrollY = -1;
+                deregisterAnimatedInternal();
+                updateTensileHighlightIntensity(0, 0, m != null);
+            }
+            return true;
+        }
+        boolean animateY = false;
+        boolean animateX = false;
+        // perform the dragging motion if exists
+        if (draggedMotionY != null) {
+            // change the variable directly for efficiency both in removing redundant
+            // repaints and scroll checks
+            int dragVal = draggedMotionY.getValue();
+            int iv = getInvisibleAreaUnderVKB();
+            int edge = (getScrollDimension().getHeight() - getHeight() + iv);
+            if (!draggedMotionY.isFinished()
+                    && draggedMotionY.isDecayMotion()
+                    && draggedMotionY.countAvailableVelocitySamplingPoints() > 1) {
+                final Motion origDraggedMotionY = draggedMotionY;
+                if (dragVal < 0) {
+                    // Once past 0, decay motion is too slow.  We need to hit it with heavy friction.
+                    draggedMotionY = Motion.createFrictionMotion(
+                            dragVal,
+                            -getTensileLength(),
+                            (int) origDraggedMotionY.getVelocity(),
+                            0.01f
+                    );
+                    draggedMotionY.start();
+                    origDraggedMotionY.finish();
+                } else if (snapToGrid
+                        && Math.abs(origDraggedMotionY.getVelocity()) * 1000 < CN.convertToPixels(5)) {
+                    // If snapToGrid is enabled, the grid snap should take precendent if the drag is slower
+                    // than some threshold.
+                    draggedMotionY = Motion.createFrictionMotion(
+                            dragVal,
+                            origDraggedMotionY.getDestinationValue(),
+                            (int) origDraggedMotionY.getVelocity(),
+                            0.1f
+                    );
+                    draggedMotionY.start();
+                    origDraggedMotionY.finish();
+                }
+            }
+            // this can't be a part of the parent if since we need the last value to arrive
+            if (draggedMotionY.isFinished()) {
+                if (dragVal < 0) {
+                    startTensile(dragVal, 0, true);
+                } else {
+                    if (dragVal > edge && edge > 0) {
+                        startTensile(dragVal, getScrollDimension().getHeight() - getHeight() + iv, true);
+                    } else {
+                        if (snapToGrid) {
+                            boolean tVal = tensileDragEnabled;
+                            tensileDragEnabled = true;
+                            int dest = getGridPosY();
+                            int scroll = getScrollY();
+                            if (Math.abs(dest - scroll) == 1) {
+                                // Fixes issue with exponential decay where it never actually reaches destination
+                                // so it creates infinite loop
+                                setScrollY(dest);
+                                draggedMotionY = null;
+                            } else if (dest != scroll) {
+                                startTensile(scroll, dest, true);
+                            } else {
+                                draggedMotionY = null;
+                            }
+                            tensileDragEnabled = tVal;
+                        } else {
+                            draggedMotionY = null;
+                        }
+                    }
+                }
+                // special callback to scroll Y to allow developers to override the setScrollY method effectively
+                setScrollY(dragVal);
+                updateTensileHighlightIntensity(dragVal, getScrollDimension().getHeight() - getHeight() + getInvisibleAreaUnderVKB(), false);
+            }
+
+            if (scrollListeners != null) {
+                scrollListeners.fireScrollEvent(this.scrollX, dragVal, this.scrollX, this.scrollY);
+            }
+            scrollY = dragVal;
+            onScrollY(scrollY);
+            updateTensileHighlightIntensity(0, 0, false);
+            animateY = true;
+        }
+        if (draggedMotionX != null) {
+            // change the variable directly for efficiency both in removing redundant
+            // repaints and scroll checks
+            int dragVal = draggedMotionX.getValue();
+
+            // this can't be a part of the parent if since we need the last value to arrive
+            if (draggedMotionX.isFinished()) {
+                if (dragVal < 0) {
+                    startTensile(dragVal, 0, false);
+                } else {
+                    int edge = (getScrollDimension().getWidth() - getWidth());
+                    if (dragVal > edge && edge > 0) {
+                        startTensile(dragVal, getScrollDimension().getWidth() - getWidth(), false);
+                    } else {
+                        if (snapToGrid && getScrollX() < edge && getScrollX() > 0) {
+                            boolean tVal = tensileDragEnabled;
+                            tensileDragEnabled = true;
+                            int dest = getGridPosX();
+                            int scroll = getScrollX();
+                            if (dest != scroll) {
+                                startTensile(scroll, dest, false);
+                            } else {
+                                draggedMotionX = null;
+                            }
+                            tensileDragEnabled = tVal;
+                        } else {
+                            draggedMotionX = null;
+                        }
+                    }
+                }
+
+                // special callback to scroll X to allow developers to override the setScrollY method effectively
+                setScrollX(dragVal);
+            }
+
+            if (scrollListeners != null) {
+                scrollListeners.fireScrollEvent(dragVal, this.scrollY, this.scrollX, this.scrollY);
+            }
+            scrollX = dragVal;
+            onScrollX(scrollX);
+            animateX = true;
+        }
+        if (animateY || animateX) {
+            return true;
+        }
+
+        if (getClientProperty("$pullToRelease") != null) {
+            return true;
+        }
+
+
+        Painter bgp = getStyle().getBgPainter();
+        boolean animateBackgroundB = !hoverBackgroundScheduled && bgp != null &&
+                !(bgp instanceof BGPainter) &&
+                bgp instanceof Animation &&
+                ((Animation) bgp).animate();
+        animateBackground = animateBackgroundB || animateBackground;
+
+        if (getUIManager().getLookAndFeel().isFadeScrollBar()) {
+            if (tensileHighlightIntensity > 0) {
+                tensileHighlightIntensity = Math.max(0, tensileHighlightIntensity - (scrollOpacityChangeSpeed * 2));
+            }
+            if (scrollOpacity > 0 && !dragActivated) {
+                scrollOpacity = Math.max(0, scrollOpacity - scrollOpacityChangeSpeed);
+                return true;
+            }
+        }
+
+        if (!animateBackground && (destScrollY == -1 || destScrollY == scrollY) &&
+                m == null && draggedMotionY == null &&
+                draggedMotionX == null && !dragActivated) {
+            tryDeregisterAnimated();
+        }
+
+        return animateBackground;
+    }
+
+    /// Removes the internal animation. This method may be overriden by sublcasses to block automatic removal
+    void tryDeregisterAnimated() {
+        deregisterAnimatedInternal();
+    }
+
+    /// Makes sure the component is visible in the scroll if this container
+    /// is scrollable
+    ///
+    /// #### Parameters
+    ///
+    /// - `rect`: the rectangle that need to be visible
+    ///
+    /// - `coordinateSpace`: @param coordinateSpace the component according to whose coordinates
+    /// rect is defined. Rect's x/y are relative to that component
+    /// (they are not absolute).
+    protected void scrollRectToVisible(Rectangle rect, Component coordinateSpace) {
+        scrollRectToVisible(rect.getX(), rect.getY(),
+                rect.getSize().getWidth(), rect.getSize().getHeight(), coordinateSpace);
+    }
+
+    /// Makes sure the component is visible in the scroll if this container
+    /// is scrollable
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`
+    ///
+    /// - `y`
+    ///
+    /// - `width`
+    ///
+    /// - `height`
+    ///
+    /// - `coordinateSpace`: @param coordinateSpace the component according to whose coordinates
+    /// rect is defined. Rect's x/y are relative to that component
+    /// (they are not absolute).
+    public void scrollRectToVisible(int x, int y, int width, int height, Component coordinateSpace) {
+        if (isScrollable()) {
+            int scrollPosition = getScrollY();
+            Style s = getStyle();
+            int w = getWidth() - s.getHorizontalPadding();
+            int h = getHeight() - s.getVerticalPadding();
+
+            Rectangle view;
+            int invisibleAreaUnderVKB = getInvisibleAreaUnderVKB();
+
+            if (isSmoothScrolling() && destScrollY > -1) {
+                view = new Rectangle(getScrollX(), destScrollY, w, h - invisibleAreaUnderVKB);
+
+            } else {
+                view = new Rectangle(getScrollX(), getScrollY(), w, h - invisibleAreaUnderVKB);
+            }
+
+            int relativeX = x;
+            int relativeY = y;
+
+            // component needs to be in absolute coordinates...
+            Container parent = null;
+            if (coordinateSpace != null) {
+                parent = coordinateSpace.getParent();
+            }
+            if (parent == this) { //NOPMD CompareObjectsWithEquals
+                if (view.contains(x, y, width, height)) {
+                    return;
+                }
+            } else {
+                while (parent != this) { //NOPMD CompareObjectsWithEquals
+                    // mostly a special case for list
+                    if (parent == null) {
+                        relativeX = x;
+                        relativeY = y;
+                        break;
+                    }
+                    relativeX += parent.getX();
+                    relativeY += parent.getY();
+                    parent = parent.getParent();
+                }
+                if (view.contains(relativeX, relativeY, width, height)) {
+                    return;
+                }
+            }
+            if (isScrollableX()) {
+                if (getScrollX() > relativeX) {
+                    setScrollX(relativeX);
+                }
+                int rightX = relativeX + width -
+                        s.getHorizontalPadding();
+                if (getScrollX() + w < rightX) {
+                    setScrollX(getScrollX() + (rightX - (getScrollX() + w)));
+                } else {
+                    if (getScrollX() > relativeX) {
+                        setScrollX(relativeX);
+                    }
+                }
+            }
+
+            if (isScrollableY()) {
+                if (getScrollY() > relativeY) {
+                    scrollPosition = relativeY;
+                }
+                int bottomY = relativeY + height -
+                        s.getVerticalPadding();
+                if (getScrollY() + h < bottomY + invisibleAreaUnderVKB) {
+                    scrollPosition = getScrollY() + (bottomY - (getScrollY() + h)) + invisibleAreaUnderVKB;
+                } else {
+                    if (getScrollY() > relativeY) {
+                        scrollPosition = relativeY;
+                    }
+                }
+                if (isSmoothScrolling() && isInitialized()) {
+                    initialScrollY = getScrollY();
+                    destScrollY = scrollPosition;
+                    initScrollMotion();
+                } else {
+                    setScrollY(scrollPosition);
+                }
+            }
+            repaint();
+        } else {
+            //try to move parent scroll if you are not scrollable
+            Container parent = getParent();
+            if (parent != null) {
+                parent.scrollRectToVisible(getAbsoluteX() - parent.getAbsoluteX() + x,
+                        getAbsoluteY() - parent.getAbsoluteY() + y,
+                        width, height, parent);
+            }
+        }
+    }
+
+    /// Indicates whether a border should be painted
+    ///
+    /// #### Returns
+    ///
+    /// if the border will be painted
+    ///
+    /// #### Deprecated
+    ///
+    /// use getStyle().getBorder() != null
+    private boolean isBorderPainted() {
+        return getStyle().getBorder() != null;
+    }
+
+    /// Draws the component border if such a border exists. The border unlike the content
+    /// of the component will not be affected by scrolling for a scrollable component.
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: graphics context on which the border is painted
+    protected void paintBorder(Graphics g) {
+        Border b = getBorder();
+        if (b != null) {
+            g.setColor(getStyle().getFgColor());
+            int alpha = g.concatenateAlpha(getStyle().getFgAlpha());
+            b.paint(g, this);
+            g.setAlpha(alpha);
+        }
+    }
+
+    /// Draws the component border background if such a border exists.
+    ///
+    /// #### Parameters
+    ///
+    /// - `g`: graphics context on which the border is painted
+    protected void paintBorderBackground(Graphics g) {
+        Border b = getBorder();
+        if (b != null) {
+            b.paintBorderBackground(g, this);
+        }
+    }
+
+    /// Used as an optimization to mark that this component is currently being
+    /// used as a cell renderer
+    ///
+    /// #### Returns
+    ///
+    /// true is this component is currently being used as a cell renderer
+    public boolean isCellRenderer() {
+        return cellRenderer;
+    }
+
+    /// Used as an optimization to mark that this component is currently being
+    /// used as a cell renderer
+    ///
+    /// #### Parameters
+    ///
+    /// - `cellRenderer`: @param cellRenderer indicate whether this component is currently being
+    /// used as a cell renderer
+    public void setCellRenderer(boolean cellRenderer) {
+        this.cellRenderer = cellRenderer;
+        if (cellRenderer) {
+            getUnselectedStyle().markAsRendererStyle();
+            getSelectedStyle().markAsRendererStyle();
+            getDisabledStyle().markAsRendererStyle();
+        }
+    }
+
+    /// Indicate whether this component scroll is visible
+    ///
+    /// #### Returns
+    ///
+    /// true is this component scroll is visible; otherwise false
+    public boolean isScrollVisible() {
+        return isScrollVisible;
+    }
+
+    /// Set whether this component scroll is visible
+    ///
+    /// #### Parameters
+    ///
+    /// - `isScrollVisible`: Indicate whether this component scroll is visible
+    public void setScrollVisible(boolean isScrollVisible) {
+        this.isScrollVisible = isScrollVisible;
+        lafOverrides |= LAF_SCROLL_VISIBLE;
+    }
+
+    /// Set whether this component scroll is visible
+    ///
+    /// #### Parameters
+    ///
+    /// - `isScrollVisible`: Indicate whether this component scroll is visible
+    ///
+    /// #### Deprecated
+    ///
+    /// replaced by setScrollVisible to match the JavaBeans spec
+    public void setIsScrollVisible(boolean isScrollVisible) {
+        // Straight through, so this stays a true alias. Setting the field alone
+        // left no override bit, and initLaf() then restored the look-and-feel
+        // default over it the next time the component was shown -- the two
+        // methods stopped behaving the same, which is the one thing a deprecated
+        // alias must not do.
+        setScrollVisible(isScrollVisible);
+    }
+
+    void lockStyleImages(Style stl) {
+        Image i = stl.getBgImage();
+        if (i != null) {
+            i.lock();
+        } else {
+            Border b = stl.getBorder();
+            if (b != null) {
+                b.lock();
+            }
+        }
+    }
+
+    /// Registers the given component with the nearest surface.  This will attempt to register
+    /// it with the parent container of "this", if it is a surface.  If not, it will walk up
+    /// the component hierarchy until it finds a surface to add it to.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cmp`: The component to register with the neares surface.
+    ///
+    /// #### See also
+    ///
+    /// - Container#addElevatedComponent(Component)
+    ///
+    /// - Container#removeElevatedComponent(Component)
+    void registerElevatedInternal(Component cmp) {
+        if (cmp._parentSurface != null) {
+            // It was already registered with a surface
+            cmp._parentSurface.removeElevatedComponent(cmp);
+            cmp._parentSurface = null;
+        }
+        Container parent = getParent();
+        if (parent == null) {
+            return;
+        }
+        if (parent.isSurface()) {
+            // Let's keep a reference to the surface so that we can remove it later.
+            parent.addElevatedComponent(cmp);
+            cmp._parentSurface = parent;
+        } else {
+            parent.registerElevatedInternal(cmp);
+        }
+    }
+
+    /// Invoked internally to initialize and bind the component
+    void initComponentImpl() {
+        if (!initialized) {
+            initialized = true;
+            UIManager manager = getUIManager();
+            Style stl = getStyle();
+            lockStyleImages(stl);
+            manager.getLookAndFeel().bind(this);
+            checkAnimation();
+            if (isRTL() && isScrollableX()) {
+                setScrollX(getScrollDimension().getWidth() - getWidth());
+            }
+
+            initComponent();
+            if (stl.getElevation() > 0) {
+                // This component is elevated, so we need to register it with the surface so that it can
+                // render its shadows.
+                registerElevatedInternal(this);
+            }
+            setSurface(stl.isSurface());
+            if (stateChangeListeners != null) {
+                stateChangeListeners.fireActionEvent(new ComponentStateChangeEvent(this, true));
+            }
+            showNativeOverlay();
+            if (refreshTask != null && InfiniteProgress.isDefaultMaterialDesignMode()) {
+                // The top level rather than the Form: a component inside a Window has
+                // no Form, and this ran listener methods on the result immediately, so
+                // showing such a window threw.
+                final TopLevelContainer p = getTopLevelContainer();
+                if (refreshTaskDragListener == null) {
+                    refreshTaskDragListener = new ActionListener() {
+                        @Override
+                        public void actionPerformed(ActionEvent evt) {
+                            if (evt.getEventType() == ActionEvent.Type.PointerDrag) {
+                                // Resolved when the drag happens rather than captured
+                                // when the listener was built. The listener is created
+                                // once and kept for the life of the component, while
+                                // the component can be moved to another top level -- it
+                                // is then re-registered on the new one while still
+                                // holding the old, so the overlay went up on the top
+                                // level the component had left and the release arriving
+                                // on the new one found nothing to finish. The refresh
+                                // task simply never ran.
+                                TopLevelContainer host = getTopLevelContainer();
+                                if (host != null && updateMaterialPullToRefresh(host,
+                                        evt.getY() - getAbsoluteY())) {
+                                    evt.consume();
+                                }
+                            } else {
+                                pullY = evt.getY() - getAbsoluteY();
+                            }
+                        }
+                    };
+                }
+                if (p != null) {
+                    p.asContainer().addPointerDraggedListener(refreshTaskDragListener);
+                    p.asContainer().addPointerPressedListener(refreshTaskDragListener);
+                }
+            }
+        }
+    }
+
+    /// Cleansup the initialization flags in the hierachy, notice that paint calls might
+    /// still occur after deinitilization mostly to perform transitions etc.
+    ///
+    /// However interactivity, animation and event tracking code can and probably
+    /// should be removed by this method.
+    void deinitializeImpl() {
+        if (isInitialized()) {
+            hideNativeOverlay();
+            paintLockRelease();
+            setInitialized(false);
+            setDirtyRegion(null);
+            Style stl = getStyle();
+            Image i = stl.getBgImage();
+            if (i != null) {
+                i.unlock();
+            } else {
+                Border b = stl.getBorder();
+                if (b != null) {
+                    b.unlock();
+                }
+            }
+            Painter p = stl.getBgPainter();
+            if (p instanceof BGPainter) {
+                ((BGPainter) p).radialCache = null;
+            }
+            clearHoverForInactiveSubtree();
+            if (stateChangeListeners != null) {
+                stateChangeListeners.fireActionEvent(new ComponentStateChangeEvent(this, false));
+            }
+            deregisterAnimatedInternal();
+            if (_parentSurface != null) {
+                _parentSurface.removeElevatedComponent(this);
+                _parentSurface = null;
+            }
+            deinitialize();
+            if (refreshTaskDragListener != null) {
+                Container f = TopLevelSupport.rootOf(this);
+                if (f != null) {
+                    f.removePointerDraggedListener(refreshTaskDragListener);
+                    f.removePointerPressedListener(refreshTaskDragListener);
+                }
+            }
+        } else {
+            clearHoverForInactiveSubtree();
+        }
+    }
+
+    private void clearHoverForInactiveSubtree() {
+        stopHoverBackgroundAnimation();
+        // Hiding or removal outside a pointer callback must release the owner's target.
+        // Reset directly: setHovered would register the newly active style for
+        // animation while this component is hidden or being torn down.
+        hovered = false;
+        clearInteractiveScrollHover();
+        Container root = TopLevelSupport.rootOf(this);
+        HoverTracker tracker = root == null ? null : root.getHoverTracker();
+        if (tracker != null) {
+            tracker.clearFor(this);
+        }
+        TooltipManager tooltip = TooltipManager.getInstance();
+        if (tooltip != null) {
+            tooltip.clearTooltipFor(this);
+        }
+    }
+
+    /// If the component `#isEditable()`, then this will start the editing
+    /// process.  For TextFields, this results in showing the keyboard and allowing
+    /// the user to edit the input.  For the Picker, this will display the popup.
+    ///
+    /// #### See also
+    ///
+    /// - #stopEditing(java.lang.Runnable)
+    ///
+    /// - #isEditing()
+    ///
+    /// - #isEditable()
+    ///
+    /// - #getEditingDelegate()
+    ///
+    /// - #setEditingDelegate(com.codename1.ui.Editable)
+    @Override
+    public void startEditingAsync() {
+        // Empty implementation overridden by subclass
+        if (editingDelegate != null) {
+            editingDelegate.startEditingAsync();
+        }
+    }
+
+    /// Stops the editing process.
+    ///
+    /// #### Parameters
+    ///
+    /// - `onFinish`: Callback called when the editing is complete.
+    ///
+    /// #### See also
+    ///
+    /// - #startEditingAsync()
+    ///
+    /// - #isEditing()
+    ///
+    /// - #isEditable()
+    ///
+    /// - #getEditingDelegate()
+    ///
+    /// - #setEditingDelegate(com.codename1.ui.Editable)
+    @Override
+    public void stopEditing(Runnable onFinish) {
+        if (editingDelegate != null) {
+            editingDelegate.stopEditing(onFinish);
+        }
+    }
+
+    /// Checks if the component is currently being edited.
+    ///
+    /// #### Returns
+    ///
+    /// True if the component is currently being edited.
+    ///
+    /// #### See also
+    ///
+    /// - #startEditingAsync()
+    ///
+    /// - #stopEditing(java.lang.Runnable)
+    ///
+    /// - #isEditable()
+    ///
+    /// - #getEditingDelegate()
+    ///
+    /// - #setEditingDelegate(com.codename1.ui.Editable)
+    @Override
+    public boolean isEditing() {
+        if (editingDelegate != null) {
+            return editingDelegate.isEditing();
+        }
+        return false;
+    }
+
+    /// Checks to see if the component is editable.   This is used for next/previous
+    /// focus traversal on forms.
+    ///
+    /// #### See also
+    ///
+    /// - #getEditingDelegate()
+    ///
+    /// - #setEditingDelegate(com.codename1.ui.Editable)
+    ///
+    /// - #isEditing()
+    ///
+    /// - #startEditingAsync()
+    ///
+    /// - #stopEditing(java.lang.Runnable)
+    @Override
+    public boolean isEditable() {
+        if (editingDelegate != null) {
+            return editingDelegate.isEditable();
+        }
+        return false;
+    }
+
+    /// This is a callback method to inform the Component when it's been laidout
+    /// on the parent Container
+    protected void laidOut() {
+        if (!isCellRenderer()) {
+            CodenameOneImplementation ci = Display.impl;
+            if (ci.isEditingText()) {
+                return;
+            }
+            int ivk = getInvisibleAreaUnderVKB();
+
+            if (isScrollableY() && getScrollY() > 0 && getScrollY() + getHeight() >
+                    getScrollDimension().getHeight() + ivk) {
+                setScrollY(getScrollDimension().getHeight() - getHeight() + ivk);
+            }
+            if (isScrollableX() && getScrollX() > 0 && getScrollX() + getWidth() >
+                    getScrollDimension().getWidth()) {
+                setScrollX(getScrollDimension().getWidth() - getWidth());
+            }
+            if (!isScrollableY() && getScrollY() > 0) {
+                setScrollY(0);
+            }
+            if (!isScrollableX() && getScrollX() > 0) {
+                setScrollX(0);
+            }
+            updateNativeOverlay();
+        }
+    }
+
+    /// Invoked to indicate that the component initialization is being reversed
+    /// since the component was detached from the container hierarchy. This allows
+    /// the component to deregister animators and cleanup after itself. This
+    /// method is the opposite of the initComponent() method.
+    protected void deinitialize() {
+    }
+
+    /// Allows subclasses to bind functionality that relies on fully initialized and
+    /// "ready for action" component state
+    protected void initComponent() {
+    }
+
+    /// Indicates if the component is in the initialized state, a component is initialized
+    /// when its initComponent() method was invoked. The initMethod is invoked before showing the
+    /// component to the user.
+    ///
+    /// #### Returns
+    ///
+    /// true if the component is in the initialized state
+    protected boolean isInitialized() {
+        return initialized;
+    }
+
+    /// Indicates if the component is in the initialized state, a component is initialized
+    /// when its initComponent() method was invoked. The initMethod is invoked before showing the
+    /// component to the user.
+    ///
+    /// #### Parameters
+    ///
+    /// - `initialized`: Indicates if the component is in the initialized state
+    protected void setInitialized(boolean initialized) {
+        this.initialized = initialized;
+    }
+
+    /// Invoked to indicate a change in a propertyName of a Style
+    ///
+    /// *NOTE* By default this will trigger a call to `Container#revalidate()` on the parent
+    /// container, which is expensive.  You can disable this behavior by calling `CN.setProperty("Component.revalidateOnStyleChange", "false")`.
+    /// The intention is to change this behavior so that the default is to "not" revalidate on style change, so we encourage you to
+    /// set this to "false" to ensure for future compatibility.
+    ///
+    /// #### Parameters
+    ///
+    /// - `propertyName`: the property name that was changed
+    ///
+    /// - `source`: The changed Style object
+    @Override
+    public void styleChanged(String propertyName, Style source) {
+        //changing the Font, Padding, Margin may casue the size of the Component to Change
+        //therefore we turn on the shouldCalcPreferredSize flag
+        if ((!shouldCalcPreferredSize &&
+                source == getStyle()) && //NOPMD CompareObjectsWithEquals
+                (Style.FONT.equals(propertyName) ||
+                        Style.MARGIN.equals(propertyName) ||
+                        Style.PADDING.equals(propertyName))) {
+            setShouldCalcPreferredSize(true);
+            Container parent = getParent();
+            if (parent != null && parent.getTopLevelContainer() != null) {
+                if (isRevalidateOnStyleChange()) {
+                    parent.revalidateLater();
+                }
+            }
+        } else if (Style.ELEVATION.equals(propertyName) && source.getElevation() > 0) {
+            Container surface = findSurface();
+            if (surface != null) {
+                surface.addElevatedComponent(this);
+            }
+        } else if (Style.SURFACE.equals(propertyName)) {
+            setSurface(source.isSurface());
+        }
+    }
+
+    /// Allows us to determine which component will receive focus next when traversing
+    /// with the down key
+    ///
+    /// #### Returns
+    ///
+    /// the next focus component
+    public Component getNextFocusDown() {
+        return nextFocusDown;
+    }
+
+    /// Allows us to determine which component will receive focus next when traversing
+    /// with the down key
+    ///
+    /// #### Parameters
+    ///
+    /// - `nextFocusDown`: the next focus component
+    public void setNextFocusDown(Component nextFocusDown) {
+        this.nextFocusDown = nextFocusDown;
+    }
+
+    /// Allows us to determine which component will receive focus next when traversing
+    /// with the up key.
+    ///
+    /// #### Returns
+    ///
+    /// the nxt focus component
+    public Component getNextFocusUp() {
+        return nextFocusUp;
+    }
+
+    /// Allows us to determine which component will receive focus next when traversing
+    /// with the up key, this method doesn't affect the general focus behavior.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nextFocusUp`: next focus component
+    public void setNextFocusUp(Component nextFocusUp) {
+        this.nextFocusUp = nextFocusUp;
+    }
+
+    /// Allows us to determine which component will receive focus next when traversing
+    /// with the left key.
+    ///
+    /// #### Returns
+    ///
+    /// the next focus component
+    public Component getNextFocusLeft() {
+        return nextFocusLeft;
+    }
+
+    /// Allows us to determine which component will receive focus next when traversing
+    /// with the left key, this method doesn't affect the general focus behavior.
+    ///
+    /// #### Parameters
+    ///
+    /// - `nextFocusLeft`: the next focus component
+    public void setNextFocusLeft(Component nextFocusLeft) {
+        this.nextFocusLeft = nextFocusLeft;
+    }
+
+    /// Allows us to determine which component will receive focus next when traversing
+    /// with the right key
+    ///
+    /// #### Returns
+    ///
+    /// the next focus component
+    public Component getNextFocusRight() {
+        return nextFocusRight;
+    }
+
+    /// Allows us to determine which component will receive focus next when traversing
+    /// with the right key
+    ///
+    /// #### Parameters
+    ///
+    /// - `nextFocusRight`: the next focus component
+    public void setNextFocusRight(Component nextFocusRight) {
+        this.nextFocusRight = nextFocusRight;
+    }
+
+    /// Indicates whether component is enabled or disabled thus allowing us to prevent
+    /// a component from receiving input events and indicate so visually
+    ///
+    /// #### Returns
+    ///
+    /// true if enabled
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    /// Indicates whether component is enabled or disabled thus allowing us to prevent
+    /// a component from receiving input events and indicate so visually
+    ///
+    /// #### Parameters
+    ///
+    /// - `enabled`: true to enable false to disable
+    public void setEnabled(boolean enabled) {
+        if (this.enabled == enabled) {
+            return;
+        }
+        this.enabled = enabled;
+        if (hovered) {
+            checkHoverAnimationHierarchy();
+        }
+        accessibilityChanged(AccessibilityManager.CHANGE_STATE);
+        repaint();
+    }
+
+    /// Used to reduce coupling between the `TextArea` component and display/implementation
+    /// classes thus reduce the size of the hello world
+    ///
+    /// #### Parameters
+    ///
+    /// - `text`: text after editing is completed
+    void onEditComplete(String text) {
+    }
+
+    /// A component name allows us to easily identify the component within a dynamic
+    /// UI.
+    ///
+    /// #### Returns
+    ///
+    /// name of the component
+    public String getName() {
+        return name;
+    }
+
+    /// A component name allows us to easily identify the component within a dynamic
+    /// UI.
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: a name for the component
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    /// Allows components to create a style of their own, this method binds the listener
+    /// to the style and installs a bg painter
+    ///
+    /// #### Parameters
+    ///
+    /// - `s`: style to initialize
+    protected void initCustomStyle(Style s) {
+        if (initialized && s.getElevation() > 0) {
+            registerElevatedInternal(this);
+        }
+        if (initialized) {
+            setSurface(s.isSurface());
+        }
+        s.addStyleListener(this);
+        if (s.getBgPainter() == null) {
+            s.setBgPainter(new BGPainter());
+        }
+    }
+
+    /// Allows components to create a style of their own, this method cleans up
+    /// state for the given style
+    ///
+    /// #### Parameters
+    ///
+    /// - `s`: style no longer used
+    protected void deinitializeCustomStyle(Style s) {
+        s.removeStyleListener(this);
+    }
+
+    /// Is the component a bidi RTL component
+    ///
+    /// #### Returns
+    ///
+    /// true if the component is working in a right to left mode
+    public final boolean isRTL() {
+        return rtl;
+    }
+
+    /// Is the component a bidi RTL component
+    ///
+    /// #### Parameters
+    ///
+    /// - `rtl`: true if the component should work in a right to left mode
+    public void setRTL(boolean rtl) {
+        this.rtl = rtl;
+    }
+
+    /// Elaborate components might not provide tactile feedback for all their areas (e.g. Lists)
+    /// this method defaults to returning the value of isTactileTouch
+    ///
+    /// #### Parameters
+    ///
+    /// - `x`: the x position
+    ///
+    /// - `y`: the y position
+    ///
+    /// #### Returns
+    ///
+    /// True if the device should vibrate
+    protected boolean isTactileTouch(int x, int y) {
+        return isTactileTouch();
+    }
+
+    /// Indicates whether the component should "trigger" tactile touch when pressed by the user
+    /// in a touch screen UI.
+    ///
+    /// #### Returns
+    ///
+    /// the tactileTouch
+    public boolean isTactileTouch() {
+        return tactileTouch;
+    }
+
+    /// Indicates whether the component should "trigger" tactile touch when pressed by the user
+    /// in a touch screen UI.
+    ///
+    /// #### Parameters
+    ///
+    /// - `tactileTouch`: true to trigger vibration when the component is pressed
+    public void setTactileTouch(boolean tactileTouch) {
+        this.tactileTouch = tactileTouch;
+    }
+
+    /// A component may expose mutable property names for a UI designer to manipulate, this
+    /// API is designed for usage internally by the GUI builder code
+    ///
+    /// #### Returns
+    ///
+    /// the property names allowing mutation
+    public String[] getPropertyNames() {
+        return null;
+    }
+
+    /// Matches the property names method (see that method for further details).
+    ///
+    /// #### Returns
+    ///
+    /// the types of the properties
+    public Class[] getPropertyTypes() {
+        return null;
+    }
+
+    /// This method is here to workaround an XMLVM array type bug where property types aren't
+    /// identified properly, it returns the names of the types using the following type names:
+    /// String,int,double,long,byte,short,char,String[],String[][],byte[],Image,Image[],Object[],ListModel,ListCellRenderer
+    ///
+    /// #### Returns
+    ///
+    /// Array of type names
+    public String[] getPropertyTypeNames() {
+        return null;
+    }
+
+    /// Returns the current value of the property name, this method is used by the GUI builder
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the name of the property
+    ///
+    /// #### Returns
+    ///
+    /// the value of said property
+    public Object getPropertyValue(String name) {
+        return null;
+    }
+
+    /// Sets a new value to the given property, returns an error message if failed
+    /// and null if successful. Notice that some builtin properties such as "$designMode" might be sent
+    /// to components to indicate application state.
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the name of the property
+    ///
+    /// - `value`: new value for the property
+    ///
+    /// #### Returns
+    ///
+    /// error message or null
+    public String setPropertyValue(String name, Object value) {
+        return "Unknown: " + name;
+    }
+
+    /// Releases the paint lock image to allow paint to work as usual, see paintLock(boolean)
+    /// for details
+    public void paintLockRelease() {
+        paintLockImage = null;
+    }
+
+    /// This method locks the component so it will always paint the given image
+    /// instead of running through its paint logic. This is useful when running
+    /// transitions that might be quite expensive on the device. A lock should
+    /// be released using paintLockRelease(), it is implicitly released when
+    /// a component is deinitialized although a component doesn't need to be initialized
+    /// to be locked!
+    ///
+    /// If the component is not opaque null is always returned!
+    ///
+    /// Duplicate calls to this method won't produce duplicate locks, in case of
+    /// a soft lock the return value will always be null.
+    ///
+    /// #### Parameters
+    ///
+    /// - `hardLock`: indicates whether the lock uses a hard or a soft reference to the image
+    ///
+    /// #### Returns
+    ///
+    /// the image in case of a hard lock
+    public Image paintLock(boolean hardLock) {
+        if (!paintLockEnableChecked) {
+            paintLockEnableChecked = true;
+            paintLockEnabled = "true".equals(Display.getInstance().getProperty("paintLockEnabled", "true"));
+        }
+        if (!paintLockEnabled || !Display.getInstance().areMutableImagesFast()) {
+            return null;
+        }
+        if ((getStyle().getBgTransparency() & 0xff) != 0xff) {
+            return null;
+        }
+        if (paintLockImage == null) {
+            paintLockImage = ImageFactory.createImage(this, getWidth(), getHeight(), 0);
+            int x = getX();
+            int y = getY();
+            setX(0);
+            setY(0);
+            paintInternalImpl(((Image) paintLockImage).getGraphics(), false);
+            setX(x);
+            setY(y);
+            if (!hardLock) {
+                paintLockImage = Display.getInstance().createSoftWeakRef(paintLockImage);
+            }
+        }
+        if (hardLock) {
+            return (Image) paintLockImage;
+        }
+        return null;
+    }
+
+    /// This is a callback method for the peer component class
+    void setLightweightMode(boolean l) {
+    }
+
+    /// Indicates whether scrolling this component should jump to a specific location
+    /// in a grid
+    ///
+    /// #### Returns
+    ///
+    /// the snapToGrid
+    public boolean isSnapToGrid() {
+        return snapToGrid;
+    }
+
+    /// Indicates whether scrolling this component should jump to a specific location
+    /// in a grid
+    ///
+    /// #### Parameters
+    ///
+    /// - `snapToGrid`: the snapToGrid to set
+    ///
+    /// #### Deprecated
+    ///
+    /// @deprecated this feature should work but it isn't maintained and isn't guaranteed to function properly.
+    /// There are issues covering this but at this time we can't dedicate resources to address them specifically:
+    /// [#2122](https://github.com/codenameone/CodenameOne/issues/2122),
+    /// [#1966](https://github.com/codenameone/CodenameOne/issues/1966) &
+    /// [#1947](https://github.com/codenameone/CodenameOne/issues/1947).
+    public void setSnapToGrid(boolean snapToGrid) {
+        this.snapToGrid = snapToGrid;
+        lafOverrides |= LAF_SNAP_TO_GRID;
+    }
+
+    /// A component that might need side swipe such as the slider
+    /// could block it from being used for some other purpose when
+    /// on top of said component.
+    protected boolean shouldBlockSideSwipe() {
+        return isScrollableX() || (parent != null && parent.shouldBlockSideSwipe());
+    }
+
+    /// A component that might need side swipe such as the tabs
+    /// could block it from being used for some other purpose when
+    /// on top of said component.
+    protected boolean shouldBlockSideSwipeLeft() {
+        return false;
+    }
+
+    /// A component that might need side swipe such as the tabs
+    /// could block it from being used for some other purpose when
+    /// on top of said component.
+    protected boolean shouldBlockSideSwipeRight() {
+        return false;
+    }
+
+    /// A component that might need side swipe such as the slider
+    /// could block it from being used for some other purpose when
+    /// on top of said component.
+    ///
+    /// This method is merely a public accessor for `#shouldBlockSideSwipe()`.
+    ///
+    public final boolean blocksSideSwipe() {
+        return shouldBlockSideSwipe();
+    }
+
+    /// Makes the component effectively opaque by blending the backgrounds into an image in memory so the layer of underlying components
+    /// is only drawn once when this component is repainted. This does have a significant memory overhead.
+    ///
+    /// #### Returns
+    ///
+    /// the flatten property
+    public boolean isFlatten() {
+        return flatten;
+    }
+
+    /// Makes the component effectively opaque by blending the backgrounds into an image in memory so the layer of underlying components
+    /// is only drawn once when this component is repainted. This does have a significant memory overhead.
+    ///
+    /// #### Parameters
+    ///
+    /// - `flatten`: the flatten value
+    public void setFlatten(boolean flatten) {
+        this.flatten = flatten;
+    }
+
+    /// Recommended length for the tensile, -1 for default
+    ///
+    /// #### Returns
+    ///
+    /// Recommended length for the tensile, -1 for default
+    public int getTensileLength() {
+        return tensileLength;
+    }
+
+    /// Recommended length for the tensile, -1 for default
+    ///
+    /// #### Parameters
+    ///
+    /// - `tensileLength`: length for tensile drag
+    public void setTensileLength(int tensileLength) {
+        this.tensileLength = tensileLength;
+        lafOverrides |= LAF_TENSILE_LENGTH;
+    }
+
+    Label getHintLabelImpl() {
+        return null;
+    }
+
+    void setHintLabelImpl(Label hintLabel) {
+    }
+
+    boolean shouldShowHint() {
+        return false;
+    }
+
+    void paintHint(Graphics g) {
+        Label hintLabel = getHintLabelImpl();
+        if (hintLabel != null && shouldShowHint()) {
+            switch (hintLabel.getVerticalAlignment()) {
+                case TOP:
+                    hintLabel.setHeight(hintLabel.getPreferredH());
+                    hintLabel.setY(getY());
+                    break;
+                default:
+                    hintLabel.setHeight(getHeight());
+                    hintLabel.setY(getY());
+                    break;
+            }
+            hintLabel.setX(getX());
+            hintLabel.setWidth(getWidth());
+            hintLabel.paint(g);
+        }
+    }
+
+    String getHint() {
+        Label hintLabel = getHintLabelImpl();
+        if (hintLabel != null) {
+            return hintLabel.getText();
+        }
+        return null;
+    }
+
+    /// Returns the hint icon
+    ///
+    /// #### Returns
+    ///
+    /// the hint icon
+    Image getHintIcon() {
+        Label hintLabel = getHintLabelImpl();
+        if (hintLabel != null) {
+            return hintLabel.getIcon();
+        }
+        return null;
+    }
+
+    /// Sets the hint text and Icon, the hint text and icon are
+    /// displayed on the component when it is empty
+    ///
+    /// The default UIID for the text hint is "TextHint"
+    ///
+    /// #### Parameters
+    ///
+    /// - `hint`: the hint text to display
+    ///
+    /// - `icon`: the hint icon to display
+    void setHint(String hint, Image icon) {
+        Label hintLabel = getHintLabelImpl();
+        if (hintLabel == null) {
+            hintLabel = new Label(hint);
+            hintLabel.setUIID("TextHint");
+            setHintLabelImpl(hintLabel);
+        } else {
+            hintLabel.setText(hint);
+        }
+        hintLabel.setIcon(icon);
+    }
+
+    /// This property is useful for blocking in z-order touch events, sometimes we might want to grab touch events in
+    /// a specific component without making it focusable.
+    ///
+    /// #### Returns
+    ///
+    /// the grabsPointerEvents
+    public boolean isGrabsPointerEvents() {
+        return grabsPointerEvents;
+    }
+
+    /// This property is useful for blocking in z-order touch events, sometimes we might want to grab touch events in
+    /// a specific component without making it focusable.
+    ///
+    /// #### Parameters
+    ///
+    /// - `grabsPointerEvents`: the grabsPointerEvents to set
+    public void setGrabsPointerEvents(boolean grabsPointerEvents) {
+        this.grabsPointerEvents = grabsPointerEvents;
+    }
+
+    /// Indicates the decrement units for the scroll opacity
+    ///
+    /// #### Returns
+    ///
+    /// the scrollOpacityChangeSpeed
+    public int getScrollOpacityChangeSpeed() {
+        return scrollOpacityChangeSpeed;
+    }
+
+    /// Indicates the decrement units for the scroll opacity
+    ///
+    /// #### Parameters
+    ///
+    /// - `scrollOpacityChangeSpeed`: the scrollOpacityChangeSpeed to set
+    public void setScrollOpacityChangeSpeed(int scrollOpacityChangeSpeed) {
+        this.scrollOpacityChangeSpeed = scrollOpacityChangeSpeed;
+    }
+
+    /// Grows or shrinks this component to its new preferred size, this method
+    /// essentially takes a component whose preferred size has changed and creates a "growing"
+    /// effect that lasts for the duration. Notice that some components (such as text areas)
+    /// don't report proper preferred size untill they are laid out once. Hence the first time
+    /// around a text area (or container containing a text area) will not produce the expected
+    /// effect. This can be solved by invoking revalidate before the call to this method only the
+    /// first time around!
+    ///
+    /// #### Parameters
+    ///
+    /// - `duration`: the duration in milliseconds for the grow/shrink animation
+    public void growShrink(int duration) {
+        Motion wMotion = Motion.createSplineMotion(getWidth(), getPreferredW(), duration);
+        Motion hMotion = Motion.createSplineMotion(getHeight(), getPreferredH(), duration);
+        wMotion.start();
+        hMotion.start();
+        setPreferredSize(new Dimension(getWidth(), getHeight()));
+        // we are using bgpainter just to save the cost of creating another class
+        TopLevelContainer top = getTopLevelContainer();
+        if (top != null) {
+            BGPainter growth = new BGPainter(wMotion, hMotion);
+            growth.animationHost = top;
+            top.registerAnimated(growth);
+            top.asContainer().revalidate();
+        }
+    }
+
+    /// Enable the tensile drag to work even when a component doesn't have a scroll showable (scrollable flag still needs to be set to true)
+    ///
+    /// #### Returns
+    ///
+    /// the alwaysTensile
+    public boolean isAlwaysTensile() {
+        return alwaysTensile && !isScrollableX() || (refreshTask != null && !InfiniteProgress.isDefaultMaterialDesignMode());
+    }
+
+    /// Raw view of the {@code alwaysTensile} flag, without the
+    /// {@link #isAlwaysTensile()} dependency on {@link #isScrollableX()}.
+    /// Used by {@link Container#isScrollableX()} so the X axis can honour
+    /// {@code setAlwaysTensile(true)} (matching {@link Container#isScrollableY()})
+    /// without recursing through {@code isAlwaysTensile()} -> {@code isScrollableX()}.
+    boolean alwaysTensileFlag() {
+        return alwaysTensile;
+    }
+
+    /// Enable the tensile drag to work even when a component doesn't have a scroll showable (scrollable flag still needs to be set to true)
+    ///
+    /// #### Parameters
+    ///
+    /// - `alwaysTensile`: the alwaysTensile to set
+    public void setAlwaysTensile(boolean alwaysTensile) {
+        this.alwaysTensile = alwaysTensile;
+        lafOverrides |= LAF_ALWAYS_TENSILE;
+    }
+
+    /// Indicates whether this component can be dragged in a drag and drop operation rather than scroll the parent
+    ///
+    /// #### Returns
+    ///
+    /// the draggable state
+    public boolean isDraggable() {
+        return draggable;
+    }
+
+    /// Indicates whether this component can be dragged in a drag and drop operation rather than scroll the parent
+    ///
+    /// #### Parameters
+    ///
+    /// - `draggable`: the draggable to set
+    public void setDraggable(boolean draggable) {
+        this.draggable = draggable;
+    }
+
+    /// Indicates whether this component can receive dropped components into it, notice that when dropping on a component
+    /// or container the parents will be checked recursively to find a valid drop target
+    ///
+    /// #### Returns
+    ///
+    /// the dropTarget state
+    public boolean isDropTarget() {
+        return dropTarget;
+    }
+
+    /// Indicates whether this component can receive dropped components into it, notice that when dropping on a component
+    /// or container the parents will be checked recursively to find a valid drop target
+    ///
+    /// #### Parameters
+    ///
+    /// - `dropTarget`: the dropTarget to set
+    public void setDropTarget(boolean dropTarget) {
+        this.dropTarget = dropTarget;
+    }
+
+    /// Searches the hierarchy of the component recursively to see if the given
+    /// Container is one of the parents of this component
+    ///
+    /// #### Parameters
+    ///
+    /// - `cnt`: a potential parent of this component
+    ///
+    /// #### Returns
+    ///
+    /// false if the container isn't one of our parent containers
+    public boolean isChildOf(Container cnt) {
+        if (cnt == parent) { //NOPMD CompareObjectsWithEquals
+            return true;
+        }
+        return parent != null && parent.isChildOf(cnt);
+    }
+
+    /// Indicates that this component and all its children should be hidden when the device is switched to portrait mode
+    ///
+    /// #### Returns
+    ///
+    /// the hideInPortrait
+    public boolean isHideInPortrait() {
+        return hideInPortrait;
+    }
+
+    /// Indicates that this component and all its children should be hidden when the device is switched to portrait mode
+    ///
+    /// #### Parameters
+    ///
+    /// - `hideInPortrait`: set to true in order to hide when in portrait
+    public void setHideInPortrait(boolean hideInPortrait) {
+        this.hideInPortrait = hideInPortrait;
+    }
+
+    /// remove this component from the painting queue
+    protected void cancelRepaints() {
+        Display.impl.cancelRepaint(this);
+    }
+
+    /// Returns the names of the properties within this component that can be bound for persistence,
+    /// the order of these names mean that the first one will be the first bound
+    ///
+    /// #### Returns
+    ///
+    /// a string array of property names or null
+    ///
+    /// #### Deprecated
+    ///
+    /// this mapped to an older iteration of properties that is no longer used
+    public String[] getBindablePropertyNames() {
+        return null;
+    }
+
+    /// Returns the types of the properties that are bindable within this component
+    ///
+    /// #### Returns
+    ///
+    /// the class for binding
+    ///
+    /// #### Deprecated
+    ///
+    /// this mapped to an older iteration of properties that is no longer used
+    public Class[] getBindablePropertyTypes() {
+        return null;
+    }
+
+    /// Binds the given property name to the given bind target
+    ///
+    /// #### Parameters
+    ///
+    /// - `prop`: the property name
+    ///
+    /// - `target`: the target binder
+    ///
+    /// #### Deprecated
+    ///
+    /// this mapped to an older iteration of properties that is no longer used
+    public void bindProperty(String prop, BindTarget target) {
+    }
+
+    /// Removes a bind target from the given property name
+    ///
+    /// #### Parameters
+    ///
+    /// - `prop`: the property names
+    ///
+    /// - `target`: the target binder
+    ///
+    /// #### Deprecated
+    ///
+    /// this mapped to an older iteration of properties that is no longer used
+    public void unbindProperty(String prop, BindTarget target) {
+    }
+
+    /// Allows the binding code to extract the value of the property
+    ///
+    /// #### Parameters
+    ///
+    /// - `prop`: the property
+    ///
+    /// #### Returns
+    ///
+    /// the value for the property
+    ///
+    /// #### Deprecated
+    ///
+    /// this mapped to an older iteration of properties that is no longer used
+    public Object getBoundPropertyValue(String prop) {
+        return null;
+    }
+
+    /// Sets the value of a bound property within this component, notice that this method MUST NOT fire
+    /// the property change event when invoked to prevent recursion!
+    ///
+    /// #### Parameters
+    ///
+    /// - `prop`: the property whose value should be set
+    ///
+    /// - `value`: the value
+    ///
+    /// #### Deprecated
+    ///
+    /// this mapped to an older iteration of properties that is no longer used
+    public void setBoundPropertyValue(String prop, Object value) {
+    }
+
+    /// Indicates the property within this component that should be bound to the cloud object
+    ///
+    /// #### Returns
+    ///
+    /// the cloudBoundProperty
+    ///
+    /// #### Deprecated
+    ///
+    /// this mapped to an older iteration of properties that is no longer used
+    public String getCloudBoundProperty() {
+        if (noBind && cloudBoundProperty == null) {
+            return null;
+        }
+        if (cloudBoundProperty == null) {
+            String[] props = getBindablePropertyNames();
+            if (props != null && props.length > 0) {
+                return props[0];
+            }
+        }
+        return cloudBoundProperty;
+    }
+
+    /// Indicates the property within this component that should be bound to the cloud object
+    ///
+    /// #### Parameters
+    ///
+    /// - `cloudBoundProperty`: the cloudBoundProperty to set
+    ///
+    /// #### Deprecated
+    ///
+    /// this mapped to an older iteration of properties that is no longer used
+    public void setCloudBoundProperty(String cloudBoundProperty) {
+        this.cloudBoundProperty = cloudBoundProperty;
+        if (cloudBoundProperty == null || this.cloudBoundProperty.length() == 0) {
+            noBind = true;
+            this.cloudBoundProperty = null;
+        }
+    }
+
+    /// The destination property of the CloudObject
+    ///
+    /// #### Returns
+    ///
+    /// the cloudDestinationProperty
+    ///
+    /// #### Deprecated
+    ///
+    /// this mapped to an older iteration of properties that is no longer used
+    public String getCloudDestinationProperty() {
+        if (cloudDestinationProperty == null || cloudDestinationProperty.length() == 0) {
+            return getName();
+        }
+        return cloudDestinationProperty;
+    }
+
+    /// The destination property of the CloudObject
+    ///
+    /// #### Parameters
+    ///
+    /// - `cloudDestinationProperty`: the cloudDestinationProperty to set
+    ///
+    /// #### Deprecated
+    ///
+    /// this mapped to an older iteration of properties that is no longer used
+    public void setCloudDestinationProperty(String cloudDestinationProperty) {
+        this.cloudDestinationProperty = cloudDestinationProperty;
+    }
+
+    /// Some components may optionally generate a state which can then be restored
+    /// using setCompnentState(). This method is used by the UIBuilder.
+    ///
+    /// #### Returns
+    ///
+    /// the component state or null for undefined state.
+    public Object getComponentState() {
+        return null;
+    }
+
+    /// If getComponentState returned a value the setter can update the value and restore
+    /// the prior state.
+    ///
+    /// #### Parameters
+    ///
+    /// - `state`: the non-null state
+    public void setComponentState(Object state) {
+    }
+
+    /// Makes the components preferred size equal 0 when hidden and restores it to the default size when not.
+    /// This method also optionally sets the margin to 0 so the component will be truly hidden. Notice that this might
+    /// not behave as expected with scrollable containers or layouts that ignore preferred size.
+    ///
+    /// #### Parameters
+    ///
+    /// - `b`: true to hide the component and false to show it
+    ///
+    /// - `changeMargin`: indicates margin should be set to 0
+    public void setHidden(boolean b, boolean changeMargin) {
+        if (b) {
+            if (!sizeRequestedByUser) {
+                if (changeMargin) {
+                    getAllStyles().cacheMargins(false); //if a margins cache already exists because the component is already hidden it would be kept else it would be created
+                    getAllStyles().setMargin(0, 0, 0, 0);
+                }
+                setPreferredSize(new Dimension());
+            }
+            if (isHidden()) {
+                // Collapsing does not change visible, but must release hover/tooltip ownership.
+                clearHoverForInactiveSubtree();
+            }
+        } else {
+            setPreferredSize(null);
+            if (changeMargin) {
+                getAllStyles().restoreCachedMargins(); //restore margins to the values they had before the component being hidden and flush the margins cache
+//                if(getUnselectedStyle().getMarginLeftNoRTL() == 0) {
+//                    setUIID(getUIID());
+//                }
+            }
+        }
+    }
+
+    /// Returns true if the component was explicitly hidden by the user.  This method doesn't check
+    /// if the parent component is hidden, so it is possible that the component would be hidden from
+    /// the UI, but that this would still return true.  Use `#isHidden(boolean)` with true
+    /// to check also if the parent is hidden.
+    ///
+    /// #### Returns
+    ///
+    /// true if the component is hidden, notice that the hidden property and visible property have different meanings in the API!
+    public boolean isHidden() {
+        return sizeRequestedByUser && preferredSize != null && preferredSize.getWidth() == 0 && preferredSize.getHeight() == 0;
+    }
+
+    /// Makes the components preferred size equal 0 when hidden and restores it to the default size when not.
+    /// Also toggles the UIID to "Container" and back to allow padding/margin to be removed. Since the visible flag
+    /// just hides the component without "removing" the space it occupies this is the flag that can be used to truly
+    /// hide a component within the UI. Notice that this might
+    /// not behave as expected with scrollable containers or layouts that ignore preferred size.
+    ///
+    /// #### Parameters
+    ///
+    /// - `b`: true to hide the component and false to show it
+    public void setHidden(boolean b) {
+        setHidden(b, true);
+    }
+
+    /// Checks if the component is hidden. If checkParent is true, this
+    /// also checks to see if the parent is hidden, and will return true if either this component
+    /// is hidden, or the parent is hidden.
+    ///
+    /// #### Parameters
+    ///
+    /// - `checkParent`: True to check if parent is hidden also.
+    ///
+    /// #### Returns
+    ///
+    /// Returns true if the component is hidden.
+    ///
+    public boolean isHidden(boolean checkParent) {
+        if (isHidden()) {
+            return true;
+        }
+        if (checkParent && parent != null) {
+            return parent.isHidden(true);
+        }
+        return false;
+    }
+
+    /// Manually announces text to native accessibility services, associating the announcement
+    /// with this component when possible. Screen readers normally announce a component
+    /// automatically when it gains focus; this helper is for additional announcements that
+    /// should occur outside of focus changes.
+    ///
+    /// #### Parameters
+    ///
+    /// - `text`: the message to announce
+    public void announceForAccessibility(String text) {
+        Display.getInstance().announceForAccessibility(this, text);
+    }
+
+    /// Returns the text that describes this component to assistive technologies.
+    /// If no text was set explicitly, this method attempts to derive a
+    /// description from the component's label or content.
+    ///
+    /// #### Returns
+    ///
+    /// accessibility description or `null` if none
+    public String getAccessibilityText() {
+        // A password field is excluded from the text fallback below. The
+        // fallback exists so that an unlabelled field still announces
+        // something, and the only thing an obscured field has to offer is the
+        // secret itself: focusGainedInternal() would have VoiceOver speak it
+        // aloud on every port with no accessibility tree, and
+        // AccessibilityManager would carry it into the snapshot as the node's
+        // label on every port that has one. An explicit label, an
+        // accessibilityText, or an associated componentLabel all still win --
+        // those are strings the developer chose.
+        if (semantics != null && semantics.getLabel() != null) {
+            return semantics.getLabel();
+        }
+        if (accessibilityText != null) {
+            return accessibilityText;
+        }
+        if (componentLabel != null) {
+            String t = componentLabel.getText();
+            if (t != null && t.length() > 0) {
+                return t;
+            }
+        }
+        if (this instanceof TextHolder && !isObscuredText()) {
+            String t = ((TextHolder) this).getText();
+            if (t != null && t.length() > 0) {
+                return t;
+            }
+        }
+        return null;
+    }
+
+    /// Whether this component's text is a secret the platform must not read out.
+    ///
+    /// The PASSWORD constraint, which is the same signal
+    /// `AccessibilityManager` already reports to a port as the node's obscured
+    /// state -- so the two cannot disagree about which fields are secret.
+    private boolean isObscuredText() {
+        return this instanceof TextArea
+                && (((TextArea) this).getConstraint() & TextArea.PASSWORD) != 0;
+    }
+
+    /// Sets the text that describes this component to assistive technologies.
+    /// When the component gains focus, this text will be announced
+    /// automatically.
+    ///
+    /// #### Parameters
+    ///
+    /// - `text`: accessibility description
+    public void setAccessibilityText(String text) {
+        this.accessibilityText = text;
+        if (semantics != null) {
+            semantics.setLabel(text);
+        } else {
+            accessibilityChanged(AccessibilityManager.CHANGE_CONTENT);
+        }
+    }
+
+    /// Returns the portable semantic configuration for this component. The same
+    /// instance is retained for the lifetime of the component. Mutating it updates
+    /// VoiceOver, TalkBack, UI Automation, AT-SPI, Java accessibility, and web ARIA
+    /// through the active platform adapter.
+    ///
+    /// #### Returns
+    ///
+    /// this component's semantic node
+    public AccessibilityNode getSemantics() {
+        if (semantics == null) {
+            semantics = new AccessibilityNode(this, accessibilityText);
+        }
+        return semantics;
+    }
+
+    /// Alias for {@link #getSemantics()} for APIs that use accessibility-node terminology.
+    public AccessibilityNode getAccessibilityNode() {
+        return getSemantics();
+    }
+
+    /// Marks this component's semantic representation dirty. Custom components
+    /// whose accessible value is computed dynamically can call this after state
+    /// changes that do not pass through a semantic setter.
+    public void accessibilityChanged() {
+        accessibilityChanged(AccessibilityManager.CHANGE_ALL);
+    }
+
+    /// Marks a specific portion of this component's semantic representation dirty.
+    public void accessibilityChanged(int changeType) {
+        AccessibilityManager.getInstance().invalidate(this, changeType);
+    }
+
+    /// #### Returns
+    ///
+    /// the tooltip
+    public String getTooltip() {
+        return tooltip;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `tooltip`: the tooltip to set
+    public void setTooltip(String tooltip) {
+        this.tooltip = tooltip;
+    }
+
+    class AnimationTransitionPainter implements Painter {
+        int alpha;
+        Style originalStyle;
+        Style destStyle;
+        Painter original;
+        Painter dest;
+
+        @Override
+        public void paint(Graphics g, Rectangle rect) {
+            int oAlpha = g.getAlpha();
+            if (alpha == 0) {
+                unSelectedStyle = originalStyle;
+                if (original != null) {
+                    original.paint(g, rect);
+                }
+                return;
+            }
+            if (alpha == 255) {
+                unSelectedStyle = destStyle;
+                if (dest != null) {
+                    dest.paint(g, rect);
+                }
+                unSelectedStyle = originalStyle;
+                return;
+            }
+            int opa = unSelectedStyle.getBgTransparency() & 0xff;
+            unSelectedStyle.setBgTransparency(255 - alpha);
+            g.setAlpha(255 - alpha);
+            if (original != null) {
+                original.paint(g, rect);
+            }
+            unSelectedStyle.setBgTransparency(opa);
+            unSelectedStyle = destStyle;
+            opa = unSelectedStyle.getBgTransparency() & 0xff;
+            g.setAlpha(alpha);
+            unSelectedStyle.setBgTransparency(alpha);
+            if (dest != null) {
+                dest.paint(g, rect);
+            }
+            unSelectedStyle.setBgTransparency(opa);
+            unSelectedStyle = originalStyle;
+            g.setAlpha(oAlpha);
+        }
+    }
+
+    final boolean isDefaultBackgroundPainter(Style style) {
+        Painter painter = style.getBgPainter();
+        if (painter == null) {
+            return true;
+        }
+        if (painter.getClass() != BGPainter.class) {
+            return false;
+        }
+        BGPainter background = (BGPainter) painter;
+        return background.painter == null && background.wMotion == null && background.hMotion == null
+                && background.previousTint == null
+                && (background.constantStyle == null || background.constantStyle == style); //NOPMD CompareObjectsWithEquals
+    }
+
+    class BGPainter implements Painter, Animation {
+        Image radialCache;
+        CodenameOneImplementation impl;
+        private Motion wMotion;
+        private Motion hMotion;
+        private Form previousTint;
+        private Painter painter;
+        private Style constantStyle;
+
+        public BGPainter(Motion wMotion, Motion hMotion) {
+            this.wMotion = wMotion;
+            this.hMotion = hMotion;
+            impl = Display.impl;
+        }
+
+        /// The top level this painter was registered on as an animation, so it comes
+        /// off that one rather than off whatever the component resolves to when the
+        /// motion ends. A component removed or reparented in between resolves to null
+        /// or somewhere else, and the original keeps the animation for good -- its
+        /// hasAnimations() stays true, so the event dispatch thread never sleeps and
+        /// this branch runs on every frame.
+        private TopLevelContainer animationHost;
+
+        public BGPainter() {
+            impl = Display.impl;
+        }
+
+        public BGPainter(Style s) {
+            constantStyle = s;
+            impl = Display.impl;
+        }
+
+        public BGPainter(Painter p) {
+            this.painter = p;
+            impl = Display.impl;
+        }
+
+        public Form getPreviousForm() {
+            return previousTint;
+        }
+
+        public void setPreviousForm(Form previous) {
+            previousTint = previous;
+        }
+
+        @Override
+        public void paint(Graphics g, Rectangle rect) {
+            if (painter != null) {
+                if (previousTint != null) {
+                    previousTint.paint(g);
+                }
+            } else {
+                Style s;
+                if (constantStyle != null) {
+                    s = constantStyle;
+                } else {
+                    s = getStyle();
+                }
+                int x = rect.getX() + g.getTranslateX();
+                int y = rect.getY() + g.getTranslateY();
+                int width = rect.getSize().getWidth();
+                int height = rect.getSize().getHeight();
+                Image img = s.getBgImage();
+                if (img != null && img.requiresDrawImage()) {
+                    // damn no native painting...
+                    int oldX = x;
+                    int oldY = y;
+                    x = rect.getX();
+                    y = rect.getY();
+                    int iW = img.getWidth();
+                    int iH = img.getHeight();
+                    switch (s.getBackgroundType()) { // NOPMD SwitchStmtsShouldHaveDefault
+                        case Style.BACKGROUND_IMAGE_SCALED:
+                            if (Display.impl.isScaledImageDrawingSupported()) {
+                                g.drawImage(img, x, y, width, height);
+                            } else {
+                                if (iW != width || iH != height) {
+                                    img = img.scaled(width, height);
+                                    s.setBgImage(img, true);
+                                }
+                                g.drawImage(img, x, y);
+                            }
+                            return;
+                        case Style.BACKGROUND_IMAGE_SCALED_FILL:
+                            float r = Math.max(((float) width) / ((float) iW), ((float) height) / ((float) iH));
+                            int bwidth = (int) (((float) iW) * r);
+                            int bheight = (int) (((float) iH) * r);
+                            if (Display.impl.isScaledImageDrawingSupported()) {
+                                g.drawImage(img, x + (width - bwidth) / 2, y + (height - bheight) / 2, bwidth, bheight);
+                            } else {
+                                if (iW != bwidth || iH != bheight) {
+                                    img = img.scaled(bwidth, bheight);
+                                    s.setBgImage(img, true);
+                                }
+                                g.drawImage(img, x + (width - bwidth) / 2, y + (height - bheight) / 2);
+                            }
+                            return;
+                        case Style.BACKGROUND_IMAGE_SCALED_FIT:
+                            if (s.getBgTransparency() != 0) {
+                                g.setColor(s.getBgColor());
+                                g.fillRect(x, y, width, height, s.getBgTransparency());
+                            }
+                            float r2 = Math.min(((float) width) / ((float) iW), ((float) height) / ((float) iH));
+                            int awidth = (int) (((float) iW) * r2);
+                            int aheight = (int) (((float) iH) * r2);
+                            if (Display.impl.isScaledImageDrawingSupported()) {
+                                g.drawImage(img, x + (width - awidth) / 2, y + (height - aheight) / 2, awidth, aheight);
+                            } else {
+                                if (iW != awidth || iH != aheight) {
+                                    img = img.scaled(awidth, aheight);
+                                    s.setBgImage(img, true);
+                                }
+                                g.drawImage(img, x + (width - awidth) / 2, y + (height - aheight) / 2, awidth, aheight);
+                            }
+                            return;
+                        case Style.BACKGROUND_IMAGE_TILE_BOTH:
+                            g.tileImage(img, x, y, width, height);
+                            return;
+                        case Style.BACKGROUND_IMAGE_TILE_HORIZONTAL_ALIGN_TOP:
+                            g.setColor(s.getBgColor());
+                            g.fillRect(x, y, width, height, s.getBgTransparency());
+                            g.tileImage(img, x, y, width, iH);
+                            return;
+                        case Style.BACKGROUND_IMAGE_TILE_HORIZONTAL_ALIGN_CENTER:
+                            g.setColor(s.getBgColor());
+                            g.fillRect(x, y, width, height, s.getBgTransparency());
+                            g.tileImage(img, x, y + (height / 2 - iH / 2), width, iH);
+                            return;
+                        case Style.BACKGROUND_IMAGE_TILE_HORIZONTAL_ALIGN_BOTTOM:
+                            g.setColor(s.getBgColor());
+                            g.fillRect(x, y, width, height, s.getBgTransparency());
+                            g.tileImage(img, x, y + (height - iH), width, iH);
+                            return;
+                        case Style.BACKGROUND_IMAGE_TILE_VERTICAL_ALIGN_LEFT:
+                            g.setColor(s.getBgColor());
+                            g.fillRect(x, y, width, height, s.getBgTransparency());
+                            for (int yPos = 0; yPos <= height; yPos += iH) {
+                                g.drawImage(img, x, y + yPos);
+                            }
+                            return;
+                        case Style.BACKGROUND_IMAGE_TILE_VERTICAL_ALIGN_CENTER:
+                            g.setColor(s.getBgColor());
+                            g.fillRect(x, y, width, height, s.getBgTransparency());
+                            for (int yPos = 0; yPos <= height; yPos += iH) {
+                                g.drawImage(img, x + (width / 2 - iW / 2), y + yPos);
+                            }
+                            return;
+                        case Style.BACKGROUND_IMAGE_TILE_VERTICAL_ALIGN_RIGHT:
+                            g.setColor(s.getBgColor());
+                            g.fillRect(x, y, width, height, s.getBgTransparency());
+                            for (int yPos = 0; yPos <= height; yPos += iH) {
+                                g.drawImage(img, x + width - iW, y + yPos);
+                            }
+                            return;
+                        case Style.BACKGROUND_IMAGE_ALIGNED_TOP:
+                            g.setColor(s.getBgColor());
+                            g.fillRect(x, y, width, height, s.getBgTransparency());
+                            g.drawImage(img, x + (width / 2 - iW / 2), y);
+                            return;
+                        case Style.BACKGROUND_IMAGE_ALIGNED_BOTTOM:
+                            g.setColor(s.getBgColor());
+                            g.fillRect(x, y, width, height, s.getBgTransparency());
+                            g.drawImage(img, x + (width / 2 - iW / 2), y + (height - iH));
+                            return;
+                        case Style.BACKGROUND_IMAGE_ALIGNED_LEFT:
+                            g.setColor(s.getBgColor());
+                            g.fillRect(x, y, width, height, s.getBgTransparency());
+                            g.drawImage(img, x, y + (height / 2 - iH / 2));
+                            return;
+                        case Style.BACKGROUND_IMAGE_ALIGNED_RIGHT:
+                            g.setColor(s.getBgColor());
+                            g.fillRect(x, y, width, height, s.getBgTransparency());
+                            g.drawImage(img, x + width - iW, y + (height / 2 - iH / 2));
+                            return;
+                        case Style.BACKGROUND_IMAGE_ALIGNED_CENTER:
+                            g.setColor(s.getBgColor());
+                            g.fillRect(x, y, width, height, s.getBgTransparency());
+                            g.drawImage(img, x + (width / 2 - iW / 2), y + (height / 2 - iH / 2));
+                            return;
+                        case Style.BACKGROUND_IMAGE_ALIGNED_TOP_LEFT:
+                            g.setColor(s.getBgColor());
+                            g.fillRect(x, y, width, height, s.getBgTransparency());
+                            g.drawImage(img, x, y);
+                            return;
+                        case Style.BACKGROUND_IMAGE_ALIGNED_TOP_RIGHT:
+                            g.setColor(s.getBgColor());
+                            g.fillRect(x, y, width, height, s.getBgTransparency());
+                            g.drawImage(img, x + width - iW, y);
+                            return;
+                        case Style.BACKGROUND_IMAGE_ALIGNED_BOTTOM_LEFT:
+                            g.setColor(s.getBgColor());
+                            g.fillRect(x, y, width, height, s.getBgTransparency());
+                            g.drawImage(img, x, y + (height - iH));
+                            return;
+                        case Style.BACKGROUND_IMAGE_ALIGNED_BOTTOM_RIGHT:
+                            g.setColor(s.getBgColor());
+                            g.fillRect(x, y, width, height, s.getBgTransparency());
+                            g.drawImage(img, x + width - iW, y + (height - iH));
+                            return;
+                    }
+                    x = oldX;
+                    y = oldY;
+                }
+
+                impl.paintComponentBackground(g.getGraphics(), x, y, width, height, s);
+            }
+        }
+
+        @Override
+        public boolean animate() {
+            TopLevelContainer top = getTopLevelContainer();
+            if (wMotion.isFinished() && hMotion.isFinished()) {
+                if (animationHost != null) {
+                    animationHost.deregisterAnimated(this);
+                    animationHost = null;
+                }
+                setPreferredSize(null);
+                if (top != null) {
+                    top.asContainer().revalidate();
+                }
+                return false;
+            }
+            setPreferredSize(new Dimension(wMotion.getValue(), hMotion.getValue()));
+            if (top != null) {
+                top.asContainer().revalidate();
+            }
+            return false;
+        }
+
+        @Override
+        public void paint(Graphics g) {
+        }
+    }
+}

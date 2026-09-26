@@ -1,0 +1,124 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+package com.codenameone.developerguide.screenshots;
+
+/// The figures this repository generates, and the file each one lands in.
+///
+/// This list is the manifest. The workflow compares the generated directory
+/// against `docs/developer-guide/img` without being told how many files to
+/// expect, so adding an entry here and referencing the image from a chapter is
+/// the whole of adding a figure.
+public final class GuideFigures {
+    private GuideFigures() {
+    }
+
+    public static FigureVariant[] variants() {
+        GuideFigure button = new ButtonFigure();
+        GuideFigure appearance = new AppearanceFigure();
+        return new FigureVariant[] {
+            // The Components chapter shows the platforms side by side.
+            new FigureVariant(button, FigureDevice.IOS, false, "components-button-ios.png"),
+            new FigureVariant(button, FigureDevice.ANDROID, false, "components-button-android.png"),
+            // The native themes chapter shows one platform in both appearances.
+            new FigureVariant(appearance, FigureDevice.ANDROID, false, "native-themes-appearance-light.png"),
+            new FigureVariant(appearance, FigureDevice.ANDROID, true, "native-themes-appearance-dark.png"),
+            // One canonical variant where the component, not the platform, is
+            // the subject -- and Android Material for it, because these render
+            // through the port's bundled Roboto, which is what Material 3
+            // actually specifies. An iOS Modern render is typographically wrong
+            // for the same reason: it comes out in Roboto rather than SF, so it
+            // is worth having only where the platform difference is the point.
+            new FigureVariant(new CheckBoxFigure(), FigureDevice.ANDROID, false,
+                    "components-radiobutton-checkbox.png"),
+            new FigureVariant(new MultiButtonFigure(), FigureDevice.ANDROID, false,
+                    "components-multibutton.png"),
+            new FigureVariant(new SpanLabelFigure(), FigureDevice.ANDROID, false,
+                    "components-spanlabel.png"),
+            new FigureVariant(new L10nBasicFigure(), FigureDevice.ANDROID, false, "l10n-basic.png"),
+            new FigureVariant(new ComponentsLabelTextPositionFigure(), FigureDevice.ANDROID, false, "components-label-text-position.png"),
+            new FigureVariant(new ComponentsLinkButtonFigure(), FigureDevice.ANDROID, false, "components-link-button.png"),
+            // Toggle styling leans on the same theme support as ComponentGroup: on
+            // Android Material the converted buttons come back as plain rows,
+            // indistinguishable from the ordinary checkbox and radio figure.
+            // ComponentGroup does nothing unless the theme sets ComponentGroupBool, which
+            // the iOS theme does by default and Android Material does not -- rendered on
+            // Android the sample comes out as plain separate rows, which is the opposite
+            // of what the section demonstrates.
+            new FigureVariant(new ComponentsSpanbuttonFigure(), FigureDevice.ANDROID, false, "components-spanbutton.png"),
+            new FigureVariant(new ComponentsTableFigure(), FigureDevice.ANDROID, false, "components-table.png"),
+            new FigureVariant(new ComponentsTableWithSpanningFigure(), FigureDevice.ANDROID, false, "components-table-with-spanning.png"),
+            new FigureVariant(new ComponentsTablePinstripeFigure(), FigureDevice.ANDROID, false, "components-table-pinstripe.png"),
+            new FigureVariant(new ComponentsToolbarFigure(), FigureDevice.ANDROID, false, "components-toolbar.png"),
+            new FigureVariant(new ComponentsTableMultilineFigure(), FigureDevice.ANDROID, false, "components-table-multiline-portrait.png"),
+            new FigureVariant(new ComponentsImageViewerFigure(), FigureDevice.ANDROID, false, "components-imageviewer.png"),
+            new FigureVariant(new ComponentsImageViewerZoomedFigure(), FigureDevice.ANDROID, false, "components-imageviewer-zoomed-in.png"),
+            new FigureVariant(new ComponentsImageViewerMultiFigure(), FigureDevice.ANDROID, false, "components-imageviewer-multi.png"),
+            new FigureVariant(new ComponentsToolbarSideMenuFigure(), FigureDevice.ANDROID, false, "components-toolbar-sidemenu.png"),
+            new FigureVariant(new ComponentsTextComponentFigure(), FigureDevice.ANDROID, false, "components-text-component.png"),
+            new FigureVariant(new ComponentsSwipeableContainerFigure(), FigureDevice.ANDROID, false, "components-swipablecontainer.png"),
+            new FigureVariant(new ComponentsTabsSwipeFigure(), FigureDevice.ANDROID, false, "components-tabs-swipe1.png"),
+            new FigureVariant(new ComponentsTabsSwipeSecondFigure(), FigureDevice.ANDROID, false, "components-tabs-swipe2.png"),
+            new FigureVariant(new AdvancedCenterLayoutFigure(), FigureDevice.ANDROID, false, "center-layout.png"),
+            new FigureVariant(new ComponentsToolbarSearchFigure(), FigureDevice.ANDROID, false, "components-toolbar-search.png"),
+            new FigureVariant(new ComponentsToolbarSearchOngoingFigure(), FigureDevice.ANDROID, false, "components-toolbar-search-ongoing.png"),
+            new FigureVariant(new ComponentsGenericRendererFigure(), FigureDevice.ANDROID, false, "components-generic-list-cell-renderer.png"),
+            new FigureVariant(new ComponentsMillionEntriesFigure(), FigureDevice.ANDROID, false, "components-millionbooks.png"),
+            new FigureVariant(new IoStorageListFigure(), FigureDevice.ANDROID, false, "storage-list.png"),
+            new FigureVariant(new ComponentsValidationFigure(), FigureDevice.ANDROID, false, "validation-regex-masking-1.png"),
+            new FigureVariant(new IoStorageContentFigure(), FigureDevice.ANDROID, false, "storage-content.png"),
+            new FigureVariant(new IoSqlEntryFigure(), FigureDevice.ANDROID, false, "sql-entry.png"),
+            new FigureVariant(new ComponentsTableMultilineLandscapeFigure(), FigureDevice.ANDROID, false, true, "components-table-multiline-landscape.png"),
+            new FigureVariant(new GraphicsShapedClippingFigure(), FigureDevice.ANDROID, false, true, "shaped-clipping.png"),
+            new FigureVariant(new IoJsonParsingFigure(), FigureDevice.ANDROID, false, "json-parsing.png"),
+            new FigureVariant(new IoSqlTableFigure(), FigureDevice.ANDROID, false, "sql-table.png"),
+            new FigureVariant(new ComponentsDialogModalSouthFigure(), FigureDevice.ANDROID, false, "components-dialog-modal-south.png"),
+            new FigureVariant(new ComponentsDialogBottomHalfFigure(), FigureDevice.ANDROID, false, "components-dialog-modal-bottom-half.png"),
+            new FigureVariant(new ComponentsDialogTintFigure(), FigureDevice.ANDROID, false, "components-dialog-tint.png"),
+            new FigureVariant(new ComponentsDialogGreenTintFigure(), FigureDevice.ANDROID, false, "components-dialog-green-tint.png"),
+            new FigureVariant(new ComponentsDialogBlurFigure(), FigureDevice.ANDROID, false, "components-dialog-blur.png"),
+            new FigureVariant(new ComponentsDialogBlurNoTintFigure(), FigureDevice.ANDROID, false, "components-dialog-blur-no-tint.png"),
+            new FigureVariant(new ComponentsInteractionDialogFigure(), FigureDevice.ANDROID, false, "components-interaction-dialog.png"),
+            new FigureVariant(new ComponentsTreeFigure(), FigureDevice.ANDROID, false, "tree.png"),
+            new FigureVariant(new ComponentsTreeXmlFigure(), FigureDevice.ANDROID, false, "components-tree-xml.png"),
+            new FigureVariant(new BadgeFloatingButtonFigure(), FigureDevice.ANDROID, false, "badge-floating-button.png"),
+            new FigureVariant(new GraphicsHiworldFigure(), FigureDevice.IOS, false, "graphics-hiworld.png"),
+            new FigureVariant(new GraphicsGlasspaneFigure(), FigureDevice.ANDROID, false, "graphics-glasspane.png"),
+            new FigureVariant(new GraphicsFontimageFixedFigure(), FigureDevice.ANDROID, false, "graphics-fontimage-fixed.png"),
+            new FigureVariant(new GraphicsFontimageStyleFigure(), FigureDevice.ANDROID, false, "graphics-fontimage-style.png"),
+            new FigureVariant(new GraphicsFontimageMaterialFigure(), FigureDevice.ANDROID, false, "graphics-fontimage-material.png"),
+            new FigureVariant(new CsvParsingFigure(), FigureDevice.ANDROID, false, "csv-parsing.png"),
+            new FigureVariant(new TabsFigure(), FigureDevice.ANDROID, false, "components-tabs.png"),
+            new FigureVariant(new CalendarFigure(), FigureDevice.ANDROID, false, "components-calendar.png"),
+            new FigureVariant(new MultiListFigure(), FigureDevice.ANDROID, false, "components-multilist.png"),
+            new FigureVariant(new PropertiesBindingFigure(), FigureDevice.ANDROID, false,
+                    "properties-demo-binding.png"),
+            new FigureVariant(new FloatingHintFigure(), FigureDevice.ANDROID, false,
+                    "components-floatinghint.png"),
+            new FigureVariant(new ToggleButtonFigure(), FigureDevice.ANDROID, false,
+                    "components-toggle-buttons-android.png"),
+            new FigureVariant(new ToggleButtonFigure(), FigureDevice.IOS, false,
+                    "components-toggle-buttons-ios.png"),
+        };
+    }
+}

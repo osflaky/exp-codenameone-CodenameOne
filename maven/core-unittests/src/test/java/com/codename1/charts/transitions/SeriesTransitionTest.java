@@ -1,0 +1,222 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.charts.transitions;
+
+import com.codename1.charts.ChartComponent;
+import com.codename1.charts.compat.Canvas;
+import com.codename1.charts.compat.Paint;
+import com.codename1.charts.renderers.SimpleSeriesRenderer;
+import com.codename1.charts.views.AbstractChart;
+import com.codename1.junit.UITestBase;
+import com.codename1.ui.Form;
+import com.codename1.ui.animations.Animation;
+import com.codename1.ui.animations.Motion;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class SeriesTransitionTest extends UITestBase {
+    private RecordingForm form;
+    private TestChartComponent chartComponent;
+
+    @BeforeEach
+    void setupChartComponent() {
+        form = new RecordingForm();
+        chartComponent = new TestChartComponent(new RecordingChart());
+        chartComponent.setWidth(100);
+        chartComponent.setHeight(100);
+        form.add(chartComponent);
+    }
+
+    @Test
+    void animateChartRegistersAnimationAndRunsToCompletion() throws Exception {
+        TestSeriesTransition transition = new TestSeriesTransition(chartComponent, SeriesTransition.EASING_LINEAR, 10);
+
+        transition.animateChart();
+        assertTrue(form.registeredAnimations.contains(transition));
+
+        Motion motion = getMotion(transition);
+        motion.finish();
+
+        // Iterate through animation frames until it completes or timeout
+        // This handles varying CPU load where the exact number of frames might differ
+        int maxFrames = 100;
+        boolean stillAnimating = true;
+        while (maxFrames-- > 0 && stillAnimating) {
+            stillAnimating = transition.animate();
+        }
+
+        assertFalse(stillAnimating, "Animation should have finished");
+        assertTrue(transition.cleanupCalled, "Cleanup should have been called");
+        assertTrue(form.deregisteredAnimations.contains(transition), "Animation should be deregistered");
+        assertEquals(100, transition.progressUpdates.get(transition.progressUpdates.size() - 1));
+    }
+
+    @Test
+    void updateChartForcesRepaint() {
+        TestSeriesTransition transition = new TestSeriesTransition(chartComponent, SeriesTransition.EASING_LINEAR, 10);
+
+        transition.updateChart();
+
+        assertTrue(chartComponent.repaintCalled);
+    }
+
+    @Test
+    void cleanupRunsOnceWhenAnImmediateUpdateEndsAnAnimation() {
+        // cleanup() is overridable and a subclass can release something in it.
+        // updateChart() ends the transition itself, and a frame already queued
+        // behind it reaches animate()'s terminal branch, which called cleanup()
+        // a second time on the same pass.
+        TestSeriesTransition transition = new TestSeriesTransition(chartComponent, SeriesTransition.EASING_LINEAR, 10000);
+
+        transition.animateChart();
+        transition.updateChart();
+        assertEquals(1, transition.cleanupCount, "the immediate update did not clean up");
+
+        assertFalse(transition.animate(), "the transition is still animating");
+        assertEquals(1, transition.cleanupCount, "a queued frame cleaned up a second time");
+    }
+
+    @Test
+    void settersUpdateConfiguration() {
+        TestSeriesTransition transition = new TestSeriesTransition(chartComponent, SeriesTransition.EASING_LINEAR, 10);
+        ChartComponent otherComponent = new TestChartComponent(new RecordingChart());
+
+        transition.setDuration(250);
+        assertEquals(250, transition.getDuration());
+
+        transition.setEasing(SeriesTransition.EASING_IN_OUT);
+        assertEquals(SeriesTransition.EASING_IN_OUT, transition.getEasing());
+
+        transition.setChart(otherComponent);
+        assertSame(otherComponent, transition.getChart());
+    }
+
+    @Test
+    void initTransitionUsesExpectedMotionForEachEasing() throws Exception {
+        Map<Integer, Integer> expectedMotionTypes = new HashMap<>();
+        expectedMotionTypes.put(SeriesTransition.EASING_LINEAR, getMotionType(Motion.createLinearMotion(0, 100, 1)));
+        expectedMotionTypes.put(SeriesTransition.EASING_IN, getMotionType(Motion.createEaseInMotion(0, 100, 1)));
+        expectedMotionTypes.put(SeriesTransition.EASING_OUT, getMotionType(Motion.createEaseOutMotion(0, 100, 1)));
+        expectedMotionTypes.put(SeriesTransition.EASING_IN_OUT, getMotionType(Motion.createEaseInOutMotion(0, 100, 1)));
+
+        for (Map.Entry<Integer, Integer> entry : expectedMotionTypes.entrySet()) {
+            TestSeriesTransition transition = new TestSeriesTransition(chartComponent, entry.getKey(), 10);
+            transition.animateChart();
+            Motion motion = getMotion(transition);
+            assertEquals(entry.getValue(), getMotionType(motion));
+            motion.setCurrentMotionTime(transition.getDuration() + 1);
+            transition.animate();
+            transition.animate();
+        }
+    }
+
+    private Motion getMotion(SeriesTransition transition) throws Exception {
+        Field motionField = SeriesTransition.class.getDeclaredField("motion");
+        motionField.setAccessible(true);
+        return (Motion) motionField.get(transition);
+    }
+
+    private int getMotionType(Motion motion) throws Exception {
+        Field typeField = Motion.class.getDeclaredField("motionType");
+        typeField.setAccessible(true);
+        return typeField.getInt(motion);
+    }
+
+    private static class RecordingForm extends Form {
+        private final List<Animation> registeredAnimations = new ArrayList<>();
+        private final List<Animation> deregisteredAnimations = new ArrayList<>();
+
+        @Override
+        public void onRegisterAnimated(Animation cmp) {
+            if (registeredAnimations != null) {
+                registeredAnimations.add(cmp);
+            }
+        }
+
+        @Override
+        public void deregisterAnimated(Animation cmp) {
+            if (deregisteredAnimations != null) {
+                deregisteredAnimations.add(cmp);
+            }
+            super.deregisterAnimated(cmp);
+        }
+    }
+
+    private static class RecordingChart extends AbstractChart {
+        @Override
+        public void draw(Canvas canvas, int x, int y, int width, int height, Paint paint) {
+        }
+
+        @Override
+        public int getLegendShapeWidth(int seriesIndex) {
+            return 0;
+        }
+
+        @Override
+        public void drawLegendShape(Canvas canvas, SimpleSeriesRenderer renderer, float x, float y, int seriesIndex, Paint paint) {
+        }
+    }
+
+    private static class TestChartComponent extends ChartComponent {
+        private boolean repaintCalled;
+
+        TestChartComponent(AbstractChart chart) {
+            super(chart);
+        }
+
+        @Override
+        public void repaint() {
+            repaintCalled = true;
+            super.repaint();
+        }
+    }
+
+    private static class TestSeriesTransition extends SeriesTransition {
+        private final List<Integer> progressUpdates = new ArrayList<>();
+        private boolean cleanupCalled;
+        private int cleanupCount;
+
+        TestSeriesTransition(ChartComponent chart, int easing, int duration) {
+            super(chart, easing, duration);
+        }
+
+        @Override
+        protected void update(int progress) {
+            progressUpdates.add(progress);
+        }
+
+        @Override
+        protected void cleanup() {
+            cleanupCalled = true;
+            cleanupCount++;
+        }
+    }
+}

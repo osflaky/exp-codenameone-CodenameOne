@@ -1,0 +1,97 @@
+[[working-with-codename-one-sources]]
+== Working with Codename One sources
+
+The Codename One SDK is published as a Maven multi-module project. Building the
+aggregator in the `/maven` directory compiles every module, installs the
+artifacts into your local Maven repository, and lets you depend on the exact
+snapshot you cloned from GitHub.
+
+=== Prerequisites
+
+Codename One uses multiple JDKs and Maven profiles during the build. Make sure
+your development machine includes the following tooling (see
+`BUILDING.md` for platform-specific installation tips):
+
+* JDK 8 (required for the core build of the framework itself)
+* JDK 11 through 25 (required at *runtime* to launch the simulator or
+  "Run as desktop app" target)
+* JDK 17 (required when compiling the Android port)
+* Apache Maven 3.6 or newer
+* macOS with Xcode (if you plan to build or test the iOS port)
+
+=== Preparing the Maven workspace
+
+Clone the repository and run the Maven aggregator from inside the `maven`
+subdirectory. This installs the complete SDK (core runtime, simulator, and
+ports) into your local Maven cache:
+
+[source,bash]
+----
+include::../demos/common/src/main/snippets/developer-guide/working-with-codenameone-sources.sh[tag=working-with-codenameone-sources-bash-001,indent=0]
+----
+
+The default build runs every module and its unit tests. Append `-DskipTests`
+if you want to skip the test phases to speed up local builds.
+
+The version printed by Maven will end with `-SNAPSHOT` when you build
+from the `master` branch. Published releases omit the suffix.
+
+=== Installing the Maven archetypes
+
+Codename One ships its project archetypes in a companion repository. Install
+them once so that `mvn archetype:generate` (and the Codename One Initializr)
+can reference your locally built SDK artifacts:
+
+[source,bash]
+----
+include::../demos/common/src/main/snippets/developer-guide/working-with-codenameone-sources.sh[tag=working-with-codenameone-sources-bash-002,indent=0]
+----
+
+=== Running tests selectively
+
+The Maven aggregator exposes modules for the different automated test suites.
+Run any of these from the `CodenameOne/maven` directory:
+
+* Core unit tests:
++
+[source,bash]
+----
+include::../demos/common/src/main/snippets/developer-guide/working-with-codenameone-sources.sh[tag=working-with-codenameone-sources-bash-003,indent=0]
+----
+
+* Integration tests (simulator and build client):
++
+[source,bash]
+----
+include::../demos/common/src/main/snippets/developer-guide/working-with-codenameone-sources.sh[tag=working-with-codenameone-sources-bash-004,indent=0]
+----
+
+Refer to the READMEs in `maven/core-unittests` and `maven/tests` for more
+configuration flags, platform requirements, and environment variables.
+
+=== Using your local build in application projects
+
+After running the `mvn install` commands above, the Codename One artifacts are
+available in your local Maven repository. To consume that build in an
+application generated from the Codename One Initializr (or any other Maven
+project), adjust the `pom.xml` properties to reference your snapshot version:
+
+[source,xml]
+----
+include::../demos/common/src/main/snippets/developer-guide/working-with-codenameone-sources.xml[tag=working-with-codenameone-sources-xml-001,indent=0]
+----
+
+Open the project in your IDE and build or run it. Maven will resolve the local
+snapshot instead of downloading the latest published release.
+
+=== Why build from source
+
+Building the SDK yourself gives you:
+
+* Immediate access to fixes and features before they reach a release.
+* The ability to inspect, debug, and change the framework when you need custom
+ behavior.
+
+Once you're comfortable with the baseline build, continue with the scripts in
+`scripts/` or the `BUILDING.md` guide to compile specific ports (Android or
+iOS) or to automate CI workflows.

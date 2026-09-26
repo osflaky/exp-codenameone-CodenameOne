@@ -1,0 +1,823 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *  
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ * 
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ * 
+ * Please contact Codename One through http://www.codenameone.com/ if you 
+ * need additional information or have any questions.
+ */
+package com.codename1.tools.translator.bytecodes;
+
+import com.codename1.tools.translator.ByteCodeClass;
+import com.codename1.tools.translator.ByteCodeMethodArg;
+import com.codename1.tools.translator.BytecodeMethod;
+import com.codename1.tools.translator.Parser;
+import com.codename1.tools.translator.SignatureSet;
+import com.codename1.tools.translator.Util;
+import java.util.ArrayList;
+import java.util.List;
+import org.objectweb.asm.Opcodes;
+
+/**
+ *
+ * @author shannah
+ */
+public class CustomInvoke extends Instruction {
+    private String owner;
+    private final String name;
+    private final String desc;
+    private final boolean itf;
+    private String[] literalArgs;
+    private final int origOpcode;
+    private String targetObjectLiteral;
+    private boolean noReturn;
+    
+    
+    
+    
+    public CustomInvoke(int opcode, String owner, String name, String desc, boolean itf) {
+        super(-1);
+        this.origOpcode = opcode;
+        this.owner = owner;
+        this.name = name;
+        this.desc = desc;
+        this.itf = itf;
+    }
+    
+    private String cMethodName;
+    private String getCMethodName() {
+        if (cMethodName == null) {
+            cMethodName = name.replace('-', '_');
+        }
+        return cMethodName;
+    }
+    
+    public void setTargetObjectLiteral(String lit) {
+        this.targetObjectLiteral = lit;
+        
+    }
+    
+    public String getTargetObjectLiteral() {
+        return targetObjectLiteral;
+    }
+    
+    public static CustomInvoke create(Invoke invoke) {
+        CustomInvoke ci = new CustomInvoke(invoke.getOpcode(), invoke.getOwner(), invoke.getName(), invoke.getDesc(), invoke.isItf());
+        // Preserve the init-before-publish marking across the literal-arg folding
+        // (memset elimination). The matching NEW is already deferred; if we lost
+        // the mark here the placeholder null would never be replaced.
+        if (invoke.isInitBeforePublish()) {
+            ci.initBeforePublish = true;
+        }
+        // Same for a FUSED construction (the deferred NEW's owner+children block).
+        ci.fusedPlan = invoke.getFusedPlan();
+        return ci;
+    }
+
+    public boolean isMethodUsed(String desc, String name) {
+        return this.desc.equals(desc) && this.name.equals(name);
+    }
+
+    public String getMethodUsed() {
+        return desc + "." + name;
+    }
+
+    public String getSignature() { return(desc); }
+    
+    @Override
+    public void addDependencies(List<String> dependencyList) {
+        String dependencyOwner = owner;
+        if (origOpcode == Opcodes.INVOKEVIRTUAL) {
+            ByteCodeClass bc = Parser.getClassObject(Util.mangle(owner));
+            String resolvedConcreteOwner = resolveConcreteInvokeOwner(bc, true);
+            if (resolvedConcreteOwner != null) {
+                dependencyOwner = resolvedConcreteOwner;
+            } else {
+                // keep in sync with the closed-world devirt in the emission paths
+                String devirt = Parser.resolveDevirtualizedOwner(bc, name, desc);
+                if (devirt != null) {
+                    dependencyOwner = devirt;
+                }
+            }
+        }
+        String t = owner.replace('.', '_').replace('/', '_').replace('$', '_');
+        t = unarray(t);
+        if(t != null && !dependencyList.contains(t)) {
+            dependencyList.add(t);
+        }
+        if (!owner.equals(dependencyOwner)) {
+            String concreteDependency = dependencyOwner.replace('.', '_').replace('/', '_').replace('$', '_');
+            concreteDependency = unarray(concreteDependency);
+            if (concreteDependency != null && !dependencyList.contains(concreteDependency)) {
+                dependencyList.add(concreteDependency);
+            }
+        }
+
+        StringBuilder bld = new StringBuilder();
+        if(origOpcode != Opcodes.INVOKEINTERFACE && origOpcode != Opcodes.INVOKEVIRTUAL) {
+            return;
+        }         
+        bld.append(Util.mangle(owner));
+        bld.append("_");
+        if(name.equals("<init>")) {
+            bld.append("__INIT__");
+        } else {
+            if(name.equals("<clinit>")) {
+                bld.append("__CLINIT__");
+            } else {
+                bld.append(getCMethodName());
+            }
+        }
+        bld.append("__");
+        ArrayList<String> args = new ArrayList<>();
+        BytecodeMethod.appendMethodSignatureSuffixFromDesc(desc, bld, args);
+        String str = bld.toString();
+        BytecodeMethod.addVirtualMethodsInvoked(str);
+    }
+    
+    private String findActualOwner(ByteCodeClass bc) {
+        if(bc == null) {
+            return owner;
+        }
+        List<BytecodeMethod> mtds = bc.getMethods();
+        if(mtds == null) {
+            return owner;
+        }
+        for(BytecodeMethod mtd : mtds) {
+            if(mtd.getMethodName().equals(name) && mtd.isStatic()) {
+                return bc.getClsName();
+            }
+        }
+        return findActualOwner(bc.getBaseClassObject());
+    }
+
+    private String resolveConcreteInvokeOwner(ByteCodeClass ownerClass, boolean allowMissingMethodContext) {
+        if (ownerClass == null || ownerClass.getConcreteClass() == null) {
+            return null;
+        }
+        String currentClass = getMethod() != null ? getMethod().getClsName() : null;
+        if (currentClass == null && !allowMissingMethodContext) {
+            return null;
+        }
+        String ownerName = ownerClass.getClsName();
+        if (currentClass != null && (ownerName.equals(currentClass) || currentClass.startsWith(ownerName + "_"))) {
+            return null;
+        }
+        ByteCodeClass concreteClass = Parser.getClassObject(Util.mangle(ownerClass.getConcreteClass()));
+        // The nearest class in the concrete type's own hierarchy that actually
+        // declares the method -- which is what the runtime would dispatch to for
+        // an instance of it. Resolving against concreteClass's declarations alone
+        // gave up on everything it inherits rather than overrides.
+        ByteCodeClass declaring = ByteCodeClass.findConcreteDeclaringClass(concreteClass, name, desc);
+        if (declaring != null) {
+            return declaring.getClsName();
+        }
+        return null;
+    }
+
+    public boolean methodHasReturnValue() {
+        return BytecodeMethod.appendMethodSignatureSuffixFromDesc(desc, new StringBuilder(), new ArrayList<>()) != null;
+    }
+    
+    public String getReturnValue() {
+        ArrayList<String> args = new ArrayList<>();
+        StringBuilder sb = new StringBuilder();
+        return BytecodeMethod.appendMethodSignatureSuffixFromDesc(desc, sb, args);
+    }
+
+    private String getSimdAllocaMacro() {
+        boolean simdOwner =
+                "com/codename1/util/Simd".equals(owner) ||
+                "com/codename1/impl/ios/IOSSimd".equals(owner) ||
+                "com/codename1/impl/javase/JavaSESimd".equals(owner);
+        if (!simdOwner) {
+            return null;
+        }
+        if (desc.equals("(I)[B") && name.equals("allocaByte")) {
+            return "CN1_SIMD_ALLOCA_BYTE";
+        }
+        if (desc.equals("(I)[I") && name.equals("allocaInt")) {
+            return "CN1_SIMD_ALLOCA_INT";
+        }
+        if (desc.equals("(I)[F") && name.equals("allocaFloat")) {
+            return "CN1_SIMD_ALLOCA_FLOAT";
+        }
+        if (desc.equals("(I)[B") && name.equals("allocaByteZeroed")) {
+            return "CN1_SIMD_ALLOCA_BYTE_ZEROED";
+        }
+        if (desc.equals("(I)[I") && name.equals("allocaIntZeroed")) {
+            return "CN1_SIMD_ALLOCA_INT_ZEROED";
+        }
+        if (desc.equals("(I)[F") && name.equals("allocaFloatZeroed")) {
+            return "CN1_SIMD_ALLOCA_FLOAT_ZEROED";
+        }
+        if (desc.equals("(IB)[B") && name.equals("allocaByteFilled")) {
+            return "CN1_SIMD_ALLOCA_BYTE_FILLED";
+        }
+        if (desc.equals("(II)[I") && name.equals("allocaIntFilled")) {
+            return "CN1_SIMD_ALLOCA_INT_FILLED";
+        }
+        if (desc.equals("(IF)[F") && name.equals("allocaFloatFilled")) {
+            return "CN1_SIMD_ALLOCA_FLOAT_FILLED";
+        }
+        return null;
+    }
+
+    private boolean appendSimdAllocaExpression(StringBuilder b) {
+        String macro = getSimdAllocaMacro();
+        if (macro == null) {
+            return false;
+        }
+        if (literalArgs == null || literalArgs.length == 0) {
+            return false;
+        }
+        b.append(macro).append("(");
+        for (int i = 0; i < literalArgs.length; i++) {
+            if (literalArgs[i] == null) {
+                return false;
+            }
+            if (i > 0) {
+                b.append(", ");
+            }
+            b.append(literalArgs[i]);
+        }
+        b.append(")");
+        return true;
+    }
+    
+    
+    public boolean appendExpression(StringBuilder b) {
+        if (appendSimdAllocaExpression(b)) {
+            return true;
+        }
+        // special case for clone on an array which isn't a real method invocation
+        if(name.equals("clone") && owner.indexOf('[') > -1) {
+            if (targetObjectLiteral != null) {
+                b.append("cloneArray(").append(targetObjectLiteral).append(")");
+            } else {
+                b.append("cloneArray(POP_OBJ(1))");
+            }
+            return true;
+        }
+        if (origOpcode == Opcodes.INVOKESPECIAL && !name.equals("<init>") && !name.equals("<clinit>")) {
+            owner = Util.resolveInvokeSpecialOwner(owner, name, desc);
+        }
+        
+        String invokeOwner = owner;
+        StringBuilder bld = new StringBuilder();
+        boolean isVirtualCall = false;
+        if(origOpcode == Opcodes.INVOKEINTERFACE || origOpcode == Opcodes.INVOKEVIRTUAL) {
+            b.append("    ");
+            
+            // Well, it is actually legal to call private methods with invoke virtual, and kotlin
+            // generates such calls.  But ParparVM strips out these virtual method definitions
+            // so we need to check 
+            boolean isVirtual = true;
+            if (origOpcode == Opcodes.INVOKEVIRTUAL) {
+                ByteCodeClass bc = Parser.getClassObject(Util.mangle(owner));
+                if (bc == null) {
+                    System.err.println("WARNING: Failed to find class object for owner "+owner+" when rendering virtual method "+name);
+                } else {
+                    if (bc.isMethodPrivate(name, desc)) {
+                        isVirtual = false;
+                    } else {
+                        String resolvedConcreteOwner = resolveConcreteInvokeOwner(bc, false);
+                        if (resolvedConcreteOwner != null) {
+                            invokeOwner = resolvedConcreteOwner;
+                            isVirtual = false;
+                        } else {
+                            // CLOSED-WORLD DEVIRT: no reachable override -> direct call
+                            String devirt = Parser.resolveDevirtualizedOwner(bc, name, desc);
+                            if (devirt != null) {
+                                invokeOwner = devirt;
+                                isVirtual = false;
+                            }
+                        }
+                    }
+                }
+                
+            }
+            if (isVirtual) {
+                bld.append("virtual_");
+                isVirtualCall = true;
+            }
+        } else {
+            b.append("    ");
+        }
+        
+        if(origOpcode == Opcodes.INVOKESTATIC) {
+            // find the actual class of the static method to work around javac not defining it correctly
+            ByteCodeClass bc = Parser.getClassObject(Util.mangle(owner));
+            invokeOwner = findActualOwner(bc);
+        }
+        if (invokeOwner.startsWith("[")) {
+            bld.append("java_lang_Object");
+        } else{
+            bld.append(Util.mangle(invokeOwner));
+        }
+        bld.append("_");
+        if(name.equals("<init>")) {
+            bld.append("__INIT__");
+        } else {
+            if(name.equals("<clinit>")) {
+                bld.append("__CLINIT__");
+            } else {
+                bld.append(getCMethodName());
+            }
+        }
+        bld.append("__");
+        ArrayList<String> args = new ArrayList<>();
+        String returnVal = BytecodeMethod.appendMethodSignatureSuffixFromDesc(desc, bld, args);
+        if (isVirtualCall) {
+            BytecodeMethod.addVirtualMethodsInvoked(bld.toString().substring("virtual_".length()));
+        } else {
+            // keep in sync with Invoke: direct/devirtualized calls of the mapped
+            // String/StringBuilder natives get the inlined fast path
+            String renamedIntr = com.codename1.tools.translator.InlineIntrinsics.rename(bld.toString());
+            if (!renamedIntr.contentEquals(bld)) {
+                bld.setLength(0);
+                bld.append(renamedIntr);
+            }
+        }
+        int numLiteralArgs = this.getNumLiteralArgs();
+        if (numLiteralArgs > 0) {
+            b.append("/* CustomInvoke */");
+        }
+        b.append(bld);
+        
+        b.append("(threadStateData");
+
+        if(origOpcode != Opcodes.INVOKESTATIC) {
+            if (targetObjectLiteral == null) {
+                return false;
+            } else {
+                b.append(", ").append(targetObjectLiteral);
+            }
+        }
+        int argIndex=0;
+        for(String ignored : args) {
+            b.append(", ");
+            if (literalArgs != null && literalArgs[argIndex] != null) {
+                b.append(literalArgs[argIndex]);
+            } else {
+                return false;
+            }
+            argIndex++;
+        }
+        if (returnVal == null) {
+            return false;
+        }
+        
+        b.append(")");
+        
+        return true;
+    }
+    
+    
+    // LEVER B (perf-tier1): re-entrancy guard. When emitting the #else branch of an
+    // inlined constructor we re-enter appendInstruction to emit the ordinary call;
+    // this flag stops it from inlining again (infinite recursion).
+    private boolean emittingInlineCtorElse = false;
+    private InlinableConstructor inlineCtorPlan;
+    private boolean inlineCtorAnalyzed = false;
+    // Copied from the source Invoke by create() -- this <init> allocates + builds
+    // + publishes its object (the matching NEW only pushed a placeholder).
+    private boolean initBeforePublish = false;
+
+    public boolean isInitBeforePublish() {
+        return initBeforePublish;
+    }
+
+    /**
+     * If this is a void INVOKESPECIAL {@code <init>} whose target ctor is inlinable
+     * (Lever B) and whose args are all folded literals, emit a
+     * {@code #ifdef CN1_INLINE_CTOR} block: the inlined field stores in the ON branch,
+     * the ordinary out-of-line ctor call (via re-entry) in the OFF branch. Both pop
+     * the identical stack slots, so the SAME translated C is A/B-able by the clang
+     * {@code -DCN1_INLINE_CTOR} flag. Returns true if handled.
+     */
+    private boolean tryAppendInlinedConstructor(StringBuilder b) {
+        if (origOpcode != Opcodes.INVOKESPECIAL || !"<init>".equals(name) || getReturnValue() != null) {
+            return false;
+        }
+        List<ByteCodeMethodArg> args = getArgs();
+        // Inline via CustomInvoke only when every argument is already a literal; the
+        // object may still be on the operand stack (the freshly-NEW'd ref).
+        if (getNumLiteralArgs() != args.size()) {
+            return false;
+        }
+        if (!inlineCtorAnalyzed) {
+            inlineCtorAnalyzed = true;
+            inlineCtorPlan = InlinableConstructor.analyze(owner, desc);
+        }
+        if (inlineCtorPlan == null) {
+            return false;
+        }
+        String objExpr = targetObjectLiteral != null ? targetObjectLiteral : "SP[-1].data.o";
+        String[] argExprs = literalArgs != null ? literalArgs : new String[0];
+        // FOLDED literal args are not always pure -- one can be a call expression
+        // or a throwing load. Hoist them into C temps in ARGUMENT ORDER (Java
+        // left-to-right semantics, single evaluation) before any store/alloc.
+        // See InlinableConstructor.appendArgTemps.
+        char[] argCats = new char[args.size()];
+        for (int j = 0; j < argCats.length; j++) {
+            argCats[j] = args.get(j).getQualifier();
+        }
+        int pop = targetObjectLiteral != null ? 0 : 1; // only the receiver may be on-stack
+        if (initBeforePublish && targetObjectLiteral == null) {
+            // Memset elimination: allocate into a temp, build fully, THEN publish.
+            // Literal-arg ctor with the receiver on-stack (from NEW;DUP): the
+            // survivor sits one slot below the receiver (SP[-2]); pop the receiver.
+            String cType = Util.mangle(owner);
+            inlineCtorPlan.appendInitBeforePublish(b, cType, argExprs, argCats, 2, 1);
+            return true;
+        }
+        b.append("\n#ifndef CN1_DISABLE_INLINE_CTOR\n"); // leading \n: the previous emission may not end a line, and a directive must start one
+        b.append("    {\n");
+        String[] argTemps = InlinableConstructor.appendArgTemps(b, argExprs, argCats);
+        inlineCtorPlan.appendStores(b, objExpr, argTemps);
+        if (pop > 0) {
+            b.append("    SP -= ").append(pop).append(";\n");
+        }
+        b.append("    }\n");
+        b.append("\n#else\n");
+        emittingInlineCtorElse = true;
+        appendInstruction(b);
+        emittingInlineCtorElse = false;
+        b.append("\n#endif\n");
+        return true;
+    }
+
+    // FUSED OBJECTS: see Invoke.fusedPlan; copied by create().
+    private FusedConstructor fusedPlan;
+
+    /**
+     * Fused allocation for the FOLDED path. Stack: [survivor(ph), receiver(ph)]
+     * (all args are literals). Literal args are hoisted into C temps first --
+     * one may be a call/throwing expression, and the length expressions plus the
+     * ctor call itself must observe each argument exactly once, in order -- then
+     * the temps replace literalArgs for the ordinary call emission that follows.
+     */
+    private void appendFusedAllocBlock(StringBuilder b) {
+        List<ByteCodeMethodArg> args = getArgs();
+        char[] argCats = new char[args.size()];
+        for (int j = 0; j < argCats.length; j++) {
+            argCats[j] = args.get(j).getQualifier();
+        }
+        b.append("    {\n");
+        String[] temps = InlinableConstructor.appendArgTemps(b,
+                literalArgs != null ? literalArgs : new String[0], argCats);
+        for (int j = 0; j < temps.length; j++) {
+            literalArgs[j] = temps[j];
+        }
+        List<FusedConstructor.Child> kids = fusedPlan.getChildren();
+        String[] lenExprs = new String[kids.size()];
+        for (int i = 0; i < kids.size(); i++) {
+            lenExprs[i] = kids.get(i).siteLengthExpr(temps);
+        }
+        String cType = Util.mangle(owner);
+        fusedPlan.appendFusedAlloc(b, cType, lenExprs, 1, 2);
+        // NOTE: the enclosing brace is closed AFTER the ordinary call emission by
+        // appendInstruction (the temps must stay in scope for the call).
+    }
+
+    @Override
+    public void appendInstruction(StringBuilder b) {
+        if (fusedPlan != null && targetObjectLiteral == null) {
+            appendFusedAllocBlock(b);
+            FusedConstructor plan = fusedPlan;
+            fusedPlan = null;              // recurse once into the ordinary emission
+            appendInstruction(b);
+            fusedPlan = plan;
+            b.append("    }\n");           // closes appendFusedAllocBlock's temp scope
+            return;
+        }
+        if (!emittingInlineCtorElse && tryAppendInlinedConstructor(b)) {
+            return;
+        }
+        if (getSimdAllocaMacro() != null) {
+            StringBuilder expr = new StringBuilder();
+            if (appendSimdAllocaExpression(expr)) {
+                b.append("    PUSH_OBJ(").append(expr).append(");\n");
+                return;
+            }
+        }
+        // special case for clone on an array which isn't a real method invocation
+        if(name.equals("clone") && owner.indexOf('[') > -1) {
+            if (targetObjectLiteral != null) {
+                b.append("    PUSH_OBJ(cloneArray(").append(targetObjectLiteral).append("));\n");
+            } else {
+                b.append("    POP_MANY_AND_PUSH_OBJ(cloneArray(PEEK_OBJ(1)), 1);\n");
+            }
+            return;
+        }
+        if (origOpcode == Opcodes.INVOKESPECIAL && !name.equals("<init>") && !name.equals("<clinit>")) {
+            owner = Util.resolveInvokeSpecialOwner(owner, name, desc);
+        }
+        
+        String invokeOwner = owner;
+        StringBuilder bld = new StringBuilder();
+        boolean isVirtualCall = false;
+        if(origOpcode == Opcodes.INVOKEINTERFACE || origOpcode == Opcodes.INVOKEVIRTUAL) {
+            b.append("    ");
+            
+            // Well, it is actually legal to call private methods with invoke virtual, and kotlin
+            // generates such calls.  But ParparVM strips out these virtual method definitions
+            // so we need to check 
+            boolean isVirtual = true;
+            if (origOpcode == Opcodes.INVOKEVIRTUAL) {
+                ByteCodeClass bc = Parser.getClassObject(Util.mangle(owner));
+                if (bc == null) {
+                    System.err.println("WARNING: Failed to find class object for owner "+owner+" when rendering virtual method "+name);
+                } else {
+                    if (bc.isMethodPrivate(name, desc)) {
+                        isVirtual = false;
+                    } else {
+                        String resolvedConcreteOwner = resolveConcreteInvokeOwner(bc, false);
+                        if (resolvedConcreteOwner != null) {
+                            invokeOwner = resolvedConcreteOwner;
+                            isVirtual = false;
+                        } else {
+                            // CLOSED-WORLD DEVIRT: no reachable override -> direct call
+                            String devirt = Parser.resolveDevirtualizedOwner(bc, name, desc);
+                            if (devirt != null) {
+                                invokeOwner = devirt;
+                                isVirtual = false;
+                            }
+                        }
+                    }
+                }
+                
+            }
+            if (isVirtual) {
+                bld.append("virtual_");
+                isVirtualCall = true;
+            }
+        } else {
+            b.append("    ");
+        }
+        
+        if(origOpcode == Opcodes.INVOKESTATIC) {
+            // find the actual class of the static method to work around javac not defining it correctly
+            ByteCodeClass bc = Parser.getClassObject(Util.mangle(owner));
+            invokeOwner = findActualOwner(bc);
+        }
+        if (invokeOwner.startsWith("[")) {
+            bld.append("java_lang_Object");
+        } else{
+            bld.append(Util.mangle(invokeOwner));
+        }
+        bld.append("_");
+        if(name.equals("<init>")) {
+            bld.append("__INIT__");
+        } else {
+            if(name.equals("<clinit>")) {
+                bld.append("__CLINIT__");
+            } else {
+                bld.append(getCMethodName());
+            }
+        }
+        bld.append("__");
+        ArrayList<String> args = new ArrayList<>();
+        String returnVal = BytecodeMethod.appendMethodSignatureSuffixFromDesc(desc, bld, args);
+        if (isVirtualCall) {
+            BytecodeMethod.addVirtualMethodsInvoked(bld.toString().substring("virtual_".length()));
+        } else {
+            // keep in sync with Invoke: direct/devirtualized calls of the mapped
+            // String/StringBuilder natives get the inlined fast path
+            String renamedIntr = com.codename1.tools.translator.InlineIntrinsics.rename(bld.toString());
+            if (!renamedIntr.contentEquals(bld)) {
+                bld.setLength(0);
+                bld.append(renamedIntr);
+            }
+        }
+        int numLiteralArgs = this.getNumLiteralArgs();
+        if (numLiteralArgs > 0) {
+            b.append("/* CustomInvoke */");
+        }
+        boolean noPop = false;
+        if(returnVal == null || noReturn) {
+            b.append(bld);
+        } else {
+            if(args.size() - numLiteralArgs == 0 && origOpcode == Opcodes.INVOKESTATIC) {
+                // special case for static method
+                if(returnVal.equals("JAVA_OBJECT")) {
+                    b.append("PUSH_OBJ");
+                } else {
+                    if(returnVal.equals("JAVA_INT")) {
+                        b.append("PUSH_INT");
+                    } else {
+                        if(returnVal.equals("JAVA_LONG")) {
+                            b.append("PUSH_LONG");
+                        } else {
+                            if(returnVal.equals("JAVA_DOUBLE")) {
+                                b.append("PUSH_DOUBLE");
+                            } else {
+                                if(returnVal.equals("JAVA_FLOAT")) {
+                                    b.append("PUSH_FLOAT");
+                                } else {
+                                    throw new UnsupportedOperationException("Unknown type: " + returnVal);
+                                }
+                            }
+                        }
+                    }
+                }
+                //b.append(returnVal);
+                noPop = true;
+                b.append("(");
+            } else {
+                b.append("{ ");
+                b.append(returnVal);
+                b.append(" tmpResult = ");
+            }
+            b.append(bld);
+        }
+        b.append("(threadStateData");
+        
+        
+        
+        if(origOpcode != Opcodes.INVOKESTATIC) {
+            if (targetObjectLiteral == null) {
+                b.append(", SP[-");
+                b.append(args.size() + 1 - numLiteralArgs);
+                b.append("].data.o");
+            } else {
+                b.append(", ").append(targetObjectLiteral);
+                numLiteralArgs++;
+            }
+        }
+        int offset = args.size();
+        //int numArgs = offset;
+        int argIndex=0;
+        for(String a : args) {
+            
+            b.append(", ");
+            if (literalArgs != null && literalArgs[argIndex] != null) {
+                b.append(literalArgs[argIndex]);
+            } else {
+                b.append("SP[-");
+                b.append(offset);
+                b.append("].data.");
+                b.append(a);
+                offset--;
+            }
+            argIndex++;
+        }
+        if(noPop) {
+            b.append("));\n");
+            return;
+        }
+        if(returnVal != null && !noReturn) {
+            b.append(");\n");
+            if(origOpcode != Opcodes.INVOKESTATIC) {
+                if(args.size() - numLiteralArgs > 0) {
+                    b.append("    SP -= ");
+                    b.append(args.size() - numLiteralArgs);
+                    b.append(";\n");
+                }
+            } else {
+                if(args.size() - numLiteralArgs > 1) {
+                    b.append("    SP -= ");
+                    b.append(args.size() - numLiteralArgs - 1);
+                    b.append(";\n");
+                }
+            }
+            if (targetObjectLiteral == null) {
+                // TYPE-BEFORE-DATA discipline -- see the identical block in
+                // Invoke.appendInstruction: a signal-stopped thread must never
+                // expose (type=OBJECT, data=<primitive>) to the stack scan.
+                if(returnVal.equals("JAVA_OBJECT")) {
+                    b.append("    SP[-1].type = CN1_TYPE_INVALID; SP[-1].data.o = tmpResult; SP[-1].type = CN1_TYPE_OBJECT; }\n");
+                } else {
+                    if(returnVal.equals("JAVA_INT")) {
+                        b.append("    SP[-1].type = CN1_TYPE_INT; SP[-1].data.i = tmpResult; }\n");
+                    } else {
+                        if(returnVal.equals("JAVA_LONG")) {
+                            b.append("    SP[-1].type = CN1_TYPE_LONG; SP[-1].data.l = tmpResult; }\n");
+                        } else {
+                            if(returnVal.equals("JAVA_DOUBLE")) {
+                                b.append("    SP[-1].type = CN1_TYPE_DOUBLE; SP[-1].data.d = tmpResult; }\n");
+                            } else {
+                                if(returnVal.equals("JAVA_FLOAT")) {
+                                    b.append("    SP[-1].type = CN1_TYPE_FLOAT; SP[-1].data.f = tmpResult; }\n");
+                                } else {
+                                    throw new UnsupportedOperationException("Unknown type: " + returnVal);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                if(returnVal.equals("JAVA_OBJECT")) {
+                    b.append("    PUSH_OBJ(tmpResult); }\n");
+                } else {
+                    if(returnVal.equals("JAVA_INT")) {
+                        b.append("    PUSH_INT(tmpResult); }\n");
+                    } else {
+                        if(returnVal.equals("JAVA_LONG")) {
+                            b.append("    PUSH_LONG(tmpResult); }\n");
+                        } else {
+                            if(returnVal.equals("JAVA_DOUBLE")) {
+                                b.append("    PUSH_DOUBLE(tmpResult); }\n");
+                            } else {
+                                if(returnVal.equals("JAVA_FLOAT")) {
+                                    b.append("    PUSH_FLOAT(tmpResult); }\n");
+                                } else {
+                                    throw new UnsupportedOperationException("Unknown type: " + returnVal);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            
+            return;
+        }
+        b.append("); ");
+        int val; 
+        if(origOpcode != Opcodes.INVOKESTATIC) {
+            val = args.size() + 1 - numLiteralArgs;
+        } else {
+            val = args.size() - numLiteralArgs;
+        }
+        if(val > 0) {
+            b.append("    SP -= ");
+            b.append(val);
+            b.append(";\n");
+        } else {
+            b.append("\n");            
+        }
+    }
+    
+    
+    public List<ByteCodeMethodArg> getArgs() {
+        return Util.getMethodArgs(desc);
+    }
+    
+    public void setLiteralArg(int index, String arg) {
+        if (literalArgs == null) {
+            literalArgs = new String[getArgs().size()];
+        }
+        if (index >= literalArgs.length) {
+            throw new RuntimeException("Attempt to set literal arg "+index+" on method invocation that only takes "+literalArgs.length+" args.  Method: "+owner+"."+name+" "+desc);
+        }
+        literalArgs[index] = arg;
+    }
+
+    public String[] getLiteralArgs() {
+        return literalArgs;
+    }
+    
+    private int getNumLiteralArgs() {
+        if (literalArgs == null) {
+            return 0;
+        }
+        int count = 0;
+        for (int i=0; i < literalArgs.length; i++) {
+            if (literalArgs[i] != null) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * @return the noReturn
+     */
+    public boolean isNoReturn() {
+        return noReturn;
+    }
+
+    /**
+     * @param noReturn the noReturn to set
+     */
+    public void setNoReturn(boolean noReturn) {
+        this.noReturn = noReturn;
+    }
+
+    public boolean containsSignature(SignatureSet sig) {
+            return desc.equals(sig.getSignature());
+    }
+    public String getMethodName() {
+            return(name);
+    }
+    
+    
+    
+    
+}

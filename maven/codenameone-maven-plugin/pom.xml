@@ -1,0 +1,566 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.codenameone</groupId>
+        <artifactId>codenameone</artifactId>
+        <version>8.0-SNAPSHOT</version>
+    </parent>
+    <groupId>com.codenameone</groupId>
+    <artifactId>codenameone-maven-plugin</artifactId>
+    <version>8.0-SNAPSHOT</version>
+    <packaging>maven-plugin</packaging>
+    <name>codenameone-maven-plugin</name>
+  
+    <url>https://www.codenameone.com</url>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>1.7</maven.compiler.source>
+        <maven.compiler.target>1.7</maven.compiler.target>
+    </properties>
+
+    <profiles>
+        <profile>
+            <id>local-dev-plugin</id>
+            <activation>
+                <file>
+                    <exists>${cn1.build.client.path}</exists>
+                </file>
+            </activation>
+        </profile>
+    </profiles>
+
+    <dependencies>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>codenameone-platform-feature-catalog</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>codenameone-build-hint-catalog</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Reads the annotations with ASM. Build-time only; never inside an app. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>codenameone-build-hint-tools</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jdom</groupId>
+            <artifactId>jdom2</artifactId>
+            <version>2.0.6.1</version>
+        </dependency>
+        <!--
+            Test scope only, and only so RestControllerAnnotationProcessorTest can
+            compile and RUN the router it generates. The generated code names
+            HttpServer and Json, so a test that merely inspected the source text
+            would pass while the router failed to compile in a real project.
+        -->
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>codenameone-backend</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- JUnit 4 tests in this module run through Surefire 3.x's JUnit
+             Platform provider, which needs the Vintage engine to discover
+             org.junit.Test classes. Without this engine Surefire silently
+             reports zero tests. See pluginManagement comment on
+             maven-surefire-plugin above. -->
+        <dependency>
+            <groupId>org.junit.vintage</groupId>
+            <artifactId>junit-vintage-engine</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- RouteAnnotationProcessorTest compiles @Route-annotated fixtures
+             with the in-test JavaSourceCompiler; the fixtures reference the
+             real com.codename1.annotations.Route + com.codename1.ui.Form
+             types from cn1-core. Pull it in directly so the test classpath
+             (and therefore JavaSourceCompiler's resolved classpath) has the
+             package layout. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>codenameone-core</artifactId>
+            <version>${project.version}</version>
+            <!-- compile scope (was test) so the OpenAPI codegen mojo can use
+                 com.codename1.io.JSONParser to parse spec documents. -->
+        </dependency>
+        <!-- The headless CSS compiler CLI that CompileCSSMojo forks. A thin jar:
+             we resolve it transitively and launch with `java -cp`, so the plugin
+             does not need the 43MB codenameone-designer jar-with-dependencies
+             (the Swing resource editor) to compile a stylesheet. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>codenameone-css-cli</artifactId>
+        </dependency>
+        <!-- codenameone-designer is deliberately NOT a dependency. The Resource Editor
+             is deprecated and frozen, and only the cn1:designer goal needs it, so
+             AbstractCN1Mojo.getDesignerJar resolves it on demand at
+             ${cn1.designer.version} the way OpenGameBuilderMojo resolves the game
+             builder. Declaring it here made every build download ~43MB of Swing
+             editor, and would now also drag a stale codenameone-core onto the
+             plugin classpath. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>codenameone-svg-transcoder</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>codenameone-lottie-transcoder</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.maven</groupId>
+            <artifactId>maven-plugin-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.maven.plugin-tools</groupId>
+            <artifactId>maven-plugin-annotations</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.maven.surefire</groupId>
+            <artifactId>surefire-api</artifactId>
+
+        </dependency>
+        <dependency>
+            <groupId>org.apache.maven</groupId>
+            <artifactId>maven-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.maven</groupId>
+            <artifactId>maven-artifact</artifactId>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/org.apache.ant/ant -->
+        <dependency>
+            <groupId>org.apache.ant</groupId>
+            <artifactId>ant</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>java-runtime</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>codenameone-javase</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>cn1-debug-proxy</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/org.codehaus.mojo/exec-maven-plugin -->
+        <dependency>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>exec-maven-plugin</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.twdata.maven</groupId>
+            <artifactId>mojo-executor</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-invoker-plugin</artifactId>
+                
+        </dependency>            
+        <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-io -->
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+    
+        </dependency>
+        <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-text</artifactId>
+                
+            </dependency>
+        <dependency>
+            <groupId>com.guardsquare</groupId>
+            <artifactId>proguard-base</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>cn1-binaries-javase</artifactId>
+            <type>pom</type>
+        </dependency>
+
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-vfs2 -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-vfs2</artifactId>
+
+        </dependency>
+        <dependency>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpclient</artifactId>
+
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/org.ow2.asm/asm -->
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm</artifactId>
+
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/org.ow2.asm/asm-util -->
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-util</artifactId>
+
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/org.ow2.asm/asm-commons -->
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-commons</artifactId>
+
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/javassist/javassist -->
+        <dependency>
+            <groupId>javassist</groupId>
+            <artifactId>javassist</artifactId>
+
+        </dependency>
+
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>cn1-builder-resources-common</artifactId>
+            <scope>runtime</scope>
+
+        </dependency>
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>cn1-builder-resources-android</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>codenameone-android</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>codenameone-ios</artifactId>
+            <classifier>bundle</classifier>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>codenameone-parparvm</artifactId>
+            <classifier>bundle</classifier>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- App-hardening engine 'standalone' (shaded ProGuard + ASM). Declared at runtime
+             scope purely to force the reactor to build cn1-hardening before this module, so
+             the generate-resources step can embed its jar as /cn1-hardening.jar. It is never
+             on the compile classpath and is run as a forked process, like the parparvm bundle
+             above; the engine carries its own ProGuard/ASM. -->
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>cn1-hardening</artifactId>
+            <version>${project.version}</version>
+            <!-- Unclassified (not the 'standalone' classifier) purely to force the reactor to build
+                 cn1-hardening before this module: maven resolves an unclassified reactor artifact
+                 from the module's target/classes even in a test-only reactor build, whereas the
+                 'standalone' classifier is not attached until cn1-hardening's package/shade. The
+                 shaded jar itself is pulled by maven-dependency-plugin at prepare-package (below).
+                 provided + optional + a wildcard exclusion keep cn1-hardening's classes and its
+                 ProGuard/ASM off this plugin's classpath (the engine is only ever forked). -->
+            <scope>provided</scope>
+            <optional>true</optional>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- WindowsPort 'bundle' (WindowsPort.jar + nativewindows.jar) supplies the
+             native Windows platform classes and C/C++ sources to WindowsNativeBuilder
+             as classpath resources, the same way the parparvm bundle does. -->
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>codenameone-windows</artifactId>
+            <classifier>bundle</classifier>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- MacPort 'bundle' (MacPort.jar + nativemac.jar) supplies the native macOS
+             platform classes and Objective-C sources to MacOSNativeBuilder. nativemac.jar
+             is the materialised set (MacPort's own sources plus the shared iOSPort ones
+             the exclusion manifest keeps), so what the builder stages is exactly what
+             clang compiles, and exactly what the offline signature gate verifies. -->
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>codenameone-mac</artifactId>
+            <classifier>bundle</classifier>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- LinuxPort 'bundle' (LinuxPort.jar + nativelinux.jar) supplies the native
+             Linux platform classes and C sources to LinuxNativeBuilder as classpath
+             resources, the same way the WindowsPort bundle does. -->
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>codenameone-linux</artifactId>
+            <classifier>bundle</classifier>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>net.lingala.zip4j</groupId>
+            <artifactId>zip4j</artifactId>
+            <version>2.11.3</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.maven</groupId>
+            <artifactId>maven-model</artifactId>
+
+        </dependency>
+    </dependencies>
+
+    <build>
+        <pluginManagement><!-- lock down plugins versions to avoid using Maven defaults (may be moved to parent pom) -->
+            <plugins>
+                <!-- clean lifecycle, see https://maven.apache.org/ref/current/maven-core/lifecycles.html#clean_Lifecycle -->
+                <plugin>
+                    <artifactId>maven-clean-plugin</artifactId>
+                    <version>3.1.0</version>
+                </plugin>
+                <!-- default lifecycle, jar packaging: see https://maven.apache.org/ref/current/maven-core/default-bindings.html#Plugin_bindings_for_jar_packaging -->
+                <plugin>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>3.0.2</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.8.0</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <!-- Matches the version pinned in the parent reactor pom (3.2.5).
+                         Bumped from 2.22.1 because the older release silently
+                         skipped all JUnit tests in this module under JDK 8, and the
+                         router/annotation-processing tests need to actually run. -->
+                    <version>3.2.5</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>3.0.2</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-install-plugin</artifactId>
+                    <version>2.5.2</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>2.8.2</version>
+                </plugin>
+                <!-- site lifecycle, see https://maven.apache.org/ref/current/maven-core/lifecycles.html#site_Lifecycle -->
+                <plugin>
+                    <artifactId>maven-site-plugin</artifactId>
+                    <version>3.7.1</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-project-info-reports-plugin</artifactId>
+                    <version>3.0.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-plugin-plugin</artifactId>
+                    <version>3.6.0</version>
+                    <configuration>
+                        <goalPrefix>cn1</goalPrefix>
+                        <skipErrorNoDescriptorsFound>true</skipErrorNoDescriptorsFound>
+                    </configuration>
+						
+                </plugin>
+                                        
+            </plugins>
+        </pluginManagement>
+        <plugins>
+            <!-- The build hint data file, rendered from the annotations in
+                 CodenameOne/src into this module's own classes. Generated rather
+                 than checked in, because a committed generated file conflicts on
+                 every merge and there is nothing for a hand edit to survive in.
+                 classpathScope=compile so that build-hint-tools resolves from the
+                 reactor: a plugin level dependency would have to come from the
+                 repository, which is a chicken and egg on a clean checkout. -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.0.0</version>
+                <executions>
+                    <execution>
+                        <id>cn1-generate-build-hint-data</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>com.codename1.build.shared.BuildHintCodeGenerator</mainClass>
+                            <classpathScope>compile</classpathScope>
+                            <!-- combine.self=override so a plugin level
+                                 configuration cannot merge into this one. The
+                                 Settings module's javase profile declares this
+                                 same plugin with its own <arguments> holding a
+                                 <classpath/> element, and Maven merged that
+                                 Object into this String array: "can not cast one
+                                 of the elements of java.lang.Object[]". Only
+                                 with -Dcodename1.platform=javase, which is why a
+                                 plain local build never saw it. -->
+                            <arguments combine.self="override">
+                                <argument>${project.basedir}/../../CodenameOne/src</argument>
+                                <argument>${project.build.outputDirectory}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <!-- See pluginManagement above for why this is on 3.2.5. -->
+                <version>3.2.5</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <!-- Embed the forked app-hardening engine as a classpath resource
+                         (/cn1-hardening.jar), run as a separate process by Executor. Resolved from
+                         the reactor/local repo (the runtime dependency above forces cn1-hardening
+                         to build first), which works for full and partial/plugin-only builds alike,
+                         unlike copying from a sibling target/ directory. -->
+                    <execution>
+                        <id>embed-hardening-engine</id>
+                        <!-- prepare-package, not generate-resources: the shaded 'standalone' classifier
+                             is attached by cn1-hardening at its package phase, which a partial test-only
+                             reactor build ("-pl codenameone-maven-plugin -am ... test") never reaches for
+                             the upstream module. Copying at prepare-package keeps the plugin-test job
+                             green (it stops at test) while package/install still embed the engine. -->
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>copy</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>com.codenameone</groupId>
+                                    <artifactId>cn1-hardening</artifactId>
+                                    <version>${project.version}</version>
+                                    <classifier>standalone</classifier>
+                                    <type>jar</type>
+                                    <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+                                    <destFileName>cn1-hardening.jar</destFileName>
+                                </artifactItem>
+                            </artifactItems>
+                            <overWriteReleases>true</overWriteReleases>
+                            <overWriteSnapshots>true</overWriteSnapshots>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>add-stubber-jar</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <mkdir dir="${project.build.outputDirectory}"/>
+                                <mkdir dir="${project.build.outputDirectory}/com/codename1/maven"/>
+                                <copy file="${cn1.binaries}/Stubber.jar" todir="${project.build.outputDirectory}"/>
+                                <copy file="${maven.multiModuleProjectDirectory}/UpdateCodenameOne.jar"
+                                      todir="${project.build.outputDirectory}/com/codename1/maven"/>
+                            </target>
+                        </configuration>
+
+                    </execution>
+                    <execution>
+                        <id>add-javascript-proxy-test-resources</id>
+                        <phase>generate-test-resources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <copy file="${maven.multiModuleProjectDirectory}/parparvm/target/bundle/javascript-proxy-javax.jar"
+                                      todir="${project.build.testOutputDirectory}"/>
+                                <copy file="${maven.multiModuleProjectDirectory}/parparvm/target/bundle/javascript-proxy-jakarta.jar"
+                                      todir="${project.build.testOutputDirectory}"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>4.7.3.4</version>
+                <configuration>
+                    <effort>Max</effort>
+                    <threshold>Low</threshold>
+                    <failOnError>false</failOnError>
+                    <xmlOutput>true</xmlOutput>
+                    <xmlOutputDirectory>${project.build.directory}</xmlOutputDirectory>
+                    <excludeFilterFile>${project.basedir}/spotbugs-exclude.xml</excludeFilterFile>
+                    <!-- The plugin grew an ASM bytecode-instrumentation pass for
+                         BindingAnnotationProcessor; with effort=Max the
+                         FindOpenStream dataflow detector blew the default 512m
+                         heap on CI ("GC overhead limit exceeded"). Bump the
+                         forked JVM's max heap so SpotBugs has room to finish. -->
+                    <maxHeap>1536</maxHeap>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>spotbugs</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>spotbugs</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

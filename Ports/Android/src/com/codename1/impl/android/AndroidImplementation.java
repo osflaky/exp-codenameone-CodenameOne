@@ -1,0 +1,18805 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+package com.codename1.impl.android;
+
+import android.Manifest;
+import android.annotation.TargetApi;
+import com.codename1.impl.android.permissions.DevicePermission;
+import com.codename1.impl.android.permissions.PermissionsHelper;
+import com.codename1.location.AndroidLocationManager;
+import android.app.*;
+import android.content.pm.PackageManager.NameNotFoundException;
+import android.media.AudioTimestamp;
+import android.support.v4.content.ContextCompat;
+import android.view.MotionEvent;
+import com.codename1.codescan.ScanResult;
+import com.codename1.media.Media;
+import com.codename1.ui.geom.Dimension;
+
+
+import android.webkit.CookieSyncManager;
+import android.content.*;
+import android.content.pm.*;
+import android.content.res.AssetFileDescriptor;
+import android.content.res.Configuration;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import android.graphics.Typeface;
+import android.graphics.Path;
+import android.graphics.drawable.Drawable;
+import android.media.AudioManager;
+import android.net.Uri;
+import android.os.Vibrator;
+import android.os.PowerManager;
+import android.provider.Settings;
+import android.telephony.TelephonyManager;
+import android.util.DisplayMetrics;
+import android.util.Log;
+import android.util.TypedValue;
+import android.view.KeyEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityManager;
+import android.view.Window;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.RelativeLayout;
+import android.widget.TextView;
+import com.codename1.ui.BrowserComponent;
+import com.codename1.ui.AccessibilityColorVisionDeficiency;
+
+import com.codename1.ui.Component;
+import com.codename1.ui.Font;
+import com.codename1.ui.Image;
+import com.codename1.ui.PeerComponent;
+import com.codename1.ui.ClipboardContent;
+import com.codename1.ui.ClipboardDataProvider;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.impl.CodenameOneImplementation;
+import com.codename1.impl.VirtualKeyboardInterface;
+import com.codename1.ui.plaf.UIManager;
+import com.codename1.ui.util.Resources;
+import java.lang.ref.SoftReference;
+import java.lang.reflect.Method;
+import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.util.Vector;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import android.graphics.Matrix;
+import android.graphics.drawable.BitmapDrawable;
+import android.hardware.Camera;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
+import android.media.ExifInterface;
+import android.media.MediaPlayer;
+import android.media.MediaRecorder;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.PersistableBundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.IBinder;
+import android.os.Looper;
+import android.os.RemoteException;
+import android.provider.MediaStore;
+import android.provider.Settings;
+import android.provider.Settings.Secure;
+import android.renderscript.Allocation;
+import android.renderscript.Element;
+import android.renderscript.RenderScript;
+import android.renderscript.ScriptIntrinsicBlur;
+import android.support.v4.app.NotificationCompat;
+import android.support.v4.content.FileProvider;
+import android.support.v4.media.MediaBrowserCompat;
+import android.support.v4.media.session.MediaControllerCompat;
+import android.support.v4.media.session.PlaybackStateCompat;
+import android.telephony.SmsManager;
+import android.telephony.gsm.GsmCellLocation;
+import android.text.Html;
+import android.view.*;
+import android.view.View.MeasureSpec;
+import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityManager;
+import android.webkit.*;
+import android.widget.*;
+import com.codename1.background.BackgroundFetch;
+import com.codename1.capture.VideoCaptureConstraints;
+import com.codename1.codescan.CodeScanner;
+import com.codename1.contacts.Contact;
+import com.codename1.db.Database;
+import com.codename1.impl.android.compat.app.NotificationCompatWrapper;
+import com.codename1.impl.android.compat.app.NotificationCompatWrapper.ActionWrapper;
+import com.codename1.impl.android.compat.app.RemoteInputWrapper;
+import com.codename1.io.BufferedInputStream;
+import com.codename1.io.BufferedOutputStream;
+import com.codename1.io.*;
+import com.codename1.l10n.L10NManager;
+import com.codename1.location.LocationManager;
+import com.codename1.media.AbstractMedia;
+import com.codename1.media.AsyncMedia;
+import com.codename1.media.AsyncMedia.MediaErrorType;
+import com.codename1.media.AsyncMedia.MediaException;
+import com.codename1.media.Audio;
+import com.codename1.media.AudioService;
+import com.codename1.media.BackgroundAudioService;
+import com.codename1.media.MediaProxy;
+import com.codename1.media.MediaRecorderBuilder;
+import com.codename1.messaging.Message;
+import com.codename1.notifications.LocalNotification;
+import com.codename1.notifications.NotificationChannelBuilder;
+import com.codename1.notifications.NotificationPermissionCallback;
+import com.codename1.notifications.NotificationPermissionRequest;
+import com.codename1.notifications.NotificationPermissionResult;
+import com.codename1.background.ForegroundService;
+import com.codename1.background.WorkRequest;
+import com.codename1.share.SharedContent;
+import com.codename1.payment.Purchase;
+import com.codename1.push.PushAction;
+import com.codename1.push.PushActionCategory;
+import com.codename1.push.PushActionsProvider;
+import com.codename1.push.PushCallback;
+import com.codename1.push.PushContent;
+import com.codename1.ui.*;
+import com.codename1.ui.Dialog;
+import com.codename1.ui.Display;
+import com.codename1.ui.animations.Animation;
+import com.codename1.ui.animations.CommonTransitions;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.geom.GeneralPath;
+import com.codename1.ui.geom.Rectangle;
+import com.codename1.ui.geom.Shape;
+import com.codename1.ui.layouts.BorderLayout;
+import com.codename1.ui.plaf.Style;
+import com.codename1.ui.util.EventDispatcher;
+import com.codename1.util.AsyncResource;
+import com.codename1.util.Callback;
+import java.io.File;
+import java.io.BufferedReader;
+import java.io.FileDescriptor;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
+import java.io.RandomAccessFile;
+import java.nio.channels.FileLock;
+import java.io.Writer;
+import java.lang.reflect.Constructor;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
+import java.net.URLConnection;
+import java.text.DateFormat;
+import java.text.NumberFormat;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.Hashtable;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import com.codename1.util.StringUtil;
+import com.codename1.util.SuccessCallback;
+import java.io.*;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Modifier;
+import java.net.CookieHandler;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
+import java.net.ServerSocket;
+import java.security.MessageDigest;
+import java.text.ParseException;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
+import javax.net.ssl.HttpsURLConnection;
+import javax.xml.parsers.ParserConfigurationException;
+
+import org.json.JSONException;
+import org.json.JSONObject;
+import org.json.JSONStringer;
+import org.xml.sax.SAXException;
+//import android.webkit.JavascriptInterface;
+
+public class AndroidImplementation extends CodenameOneImplementation implements IntentResultListener {
+    private AndroidCalendarSource calendarSource;
+    private static final AtomicLong V3_NOTIFICATION_SEQUENCE = new AtomicLong();
+
+    public static final Thread.UncaughtExceptionHandler exceptionHandler = new Thread.UncaughtExceptionHandler() {
+        @Override
+        public void uncaughtException(Thread t, Throwable e) {
+            try {
+                com.codename1.crash.CrashProtection.capture(e);
+            } catch (Throwable ignore) {
+            }
+        }
+    };
+
+    public static final int FLAG_ONE_SHOT = 0x40000000;
+    public static final int FLAG_MUTABLE = 0x02000000;
+
+    public static final int FLAG_IMMUTABLE = 0x04000000;
+
+    /**
+     * make sure these important keys have a negative value when passed to
+     * Codename One or they might be interpreted as characters.
+     */
+    static final int DROID_IMPL_KEY_LEFT = -23446;
+    static final int DROID_IMPL_KEY_RIGHT = -23447;
+    static final int DROID_IMPL_KEY_UP = -23448;
+    static final int DROID_IMPL_KEY_DOWN = -23449;
+    static final int DROID_IMPL_KEY_FIRE = -23450;
+    static final int DROID_IMPL_KEY_MENU = -23451;
+    static final int DROID_IMPL_KEY_BACK = -23452;
+    static final int DROID_IMPL_KEY_BACKSPACE = -23453;
+    static final int DROID_IMPL_KEY_CLEAR = -23454;
+    static final int DROID_IMPL_KEY_SEARCH = -23455;
+    static final int DROID_IMPL_KEY_CALL = -23456;
+    static final int DROID_IMPL_KEY_VOLUME_UP = -23457;
+    static final int DROID_IMPL_KEY_VOLUME_DOWN = -23458;
+    static final int DROID_IMPL_KEY_MUTE = -23459;
+    static final int DROID_IMPL_KEY_ENTER = -23460;
+    static final int DROID_IMPL_KEY_TAB = -23461;
+    static final int DROID_IMPL_KEY_ESCAPE = -23462;
+    static final int DROID_IMPL_KEY_HOME = -23463;
+    static final int DROID_IMPL_KEY_END = -23464;
+    static final int DROID_IMPL_KEY_PAGE_UP = -23465;
+    static final int DROID_IMPL_KEY_PAGE_DOWN = -23466;
+    static final int DROID_IMPL_KEY_INSERT = -23467;
+    static final int DROID_IMPL_KEY_FORWARD_DEL = -23468;
+    static final int DROID_IMPL_KEY_F1 = -23469;
+    static final int DROID_IMPL_KEY_F2 = -23470;
+    static final int DROID_IMPL_KEY_F3 = -23471;
+    static final int DROID_IMPL_KEY_F4 = -23472;
+    static final int DROID_IMPL_KEY_F5 = -23473;
+    static final int DROID_IMPL_KEY_F6 = -23474;
+    static final int DROID_IMPL_KEY_F7 = -23475;
+    static final int DROID_IMPL_KEY_F8 = -23476;
+    static final int DROID_IMPL_KEY_F9 = -23477;
+    static final int DROID_IMPL_KEY_F10 = -23478;
+    static final int DROID_IMPL_KEY_F11 = -23479;
+    static final int DROID_IMPL_KEY_F12 = -23480;
+    static int[] leftSK = new int[]{DROID_IMPL_KEY_MENU};
+
+    /**
+     * @return the activity
+     */
+    public static CodenameOneActivity getActivity() {
+        return activity;
+    }
+
+    // ---- low level text input source (pure Codename One editors) ----
+
+    private static volatile com.codename1.ui.TextInputClient activeInputClient;
+    private static volatile com.codename1.ui.TextInputState activeInputState;
+    private static volatile com.codename1.ui.TextInputConfig activeInputConfig;
+    /// Synchronous mirror of edits the input connection has posted but the EDT has not yet
+    /// applied and echoed back. IMEs (notably Gboard) commit text and immediately re-read the
+    /// surrounding text; without this mirror they would see pre-commit text and desync their
+    /// suggestion model. Cleared when the authoritative state from the EDT has caught up with
+    /// every posted edit (the seq pair below).
+    private static volatile com.codename1.ui.TextInputState pendingInputState;
+    /// Generation of the last edit the input connection posted (written on the IME thread).
+    private static volatile int pendingPostedSeq;
+    /// Generation of the last posted edit the EDT applied (written on the EDT).
+    private static volatile int pendingAppliedSeq;
+
+    /// Returns the editing state as the IME must see it right now: the pending synchronous
+    /// mirror when an edit is in flight, otherwise the last state pushed from the EDT.
+    static com.codename1.ui.TextInputState currentInputState() {
+        com.codename1.ui.TextInputState pending = pendingInputState;
+        return pending != null ? pending : activeInputState;
+    }
+
+    /// Records the input connection's synchronous mirror of an in-flight edit and returns the
+    /// edit's generation; the connection marks it applied from the EDT runnable that delivers
+    /// the edit to the client.
+    static int setPendingInputState(com.codename1.ui.TextInputState state) {
+        pendingInputState = state;
+        return ++pendingPostedSeq;
+    }
+
+    /// Marks a posted edit as applied on the EDT (called right before the client mutation whose
+    /// state push may then retire the mirror).
+    static void markPendingApplied(int seq) {
+        pendingAppliedSeq = seq;
+    }
+
+    /// Routes a hardware (Bluetooth / Chromebook) key event to the bound text input client.
+    /// Hardware keys bypass the IME entirely, and the pure editor's raw key path is disabled
+    /// while a platform session is active, so without this they would be silently dropped.
+    /// Returns true when the event was consumed for the client (including the matching key-up
+    /// of a consumed key-down); false leaves the event to the regular Codename One pipeline
+    /// (BACK, D-pad game keys on non-editor forms, ...).
+    static boolean routeHardwareKeyToActiveClient(boolean down, android.view.KeyEvent event) {
+        com.codename1.ui.TextInputClient client = activeInputClient;
+        if (client == null || event == null) {
+            return false;
+        }
+        return CN1TextInputConnection.deliverHardwareKey(client, event, down);
+    }
+
+    /// Re-requests the soft keyboard for the bound text input client. Called on every tap so a
+    /// keyboard the user dismissed (back gesture) returns when the editor is tapped again, the
+    /// same behavior a native EditText has. No-op when no client is bound.
+    static void showSoftInputForActiveClient() {
+        if (activeInputClient == null) {
+            return;
+        }
+        final CodenameOneActivity a = getActivity();
+        final CodenameOneSurface view = instance != null ? instance.myView : null;
+        if (a == null || view == null) {
+            return;
+        }
+        a.runOnUiThread(new Runnable() {
+            public void run() {
+                if (activeInputClient == null) {
+                    return;
+                }
+                android.view.View v = view.getAndroidView();
+                v.requestFocus();
+                android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
+                        a.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                if (imm != null) {
+                    imm.showSoftInput(v, 0);
+                }
+            }
+        });
+    }
+
+    static com.codename1.ui.TextInputConfig currentInputConfig() {
+        return activeInputConfig;
+    }
+
+    /// Called by the rendering view's `onCreateInputConnection` to supply the custom input connection
+    /// when a pure editor is bound. Returns null when no client is active so the view keeps its default
+    /// behavior.
+    static android.view.inputmethod.InputConnection createEditorInputConnection(android.view.View view, android.view.inputmethod.EditorInfo editorInfo) {
+        com.codename1.ui.TextInputClient client = activeInputClient;
+        if (client == null) {
+            return null;
+        }
+        configureEditorInfo(editorInfo, activeInputConfig);
+        return new CN1TextInputConnection(view, client);
+    }
+
+    /// True when a pure editor text input client is currently bound.
+    static boolean hasActiveInputClient() {
+        return activeInputClient != null;
+    }
+
+    /// The Android autofill hint for a one-time code, spelled out rather than referenced as
+    /// `View.AUTOFILL_HINT_SMS_OTP` because the constant is newer than the SDK this port
+    /// compiles against. The string is the contract: it is what an autofill service matches on.
+    private static final String AUTOFILL_HINT_SMS_OTP = "smsOTPCode";
+
+    /// What the platform may fill into the currently bound field, or null when it is not a field
+    /// the platform can fill.
+    ///
+    /// Only the one-time code is offered. The rendering surface is a single view standing in for
+    /// whichever field is being edited, so claiming a hint puts the whole surface forward as that
+    /// kind of field -- true only while the code field holds the session, which is why the hint is
+    /// applied when a session starts and dropped when it ends.
+    private static String[] editorAutofillHints() {
+        com.codename1.ui.TextInputConfig cfg = activeInputConfig;
+        if (cfg != null && (cfg.getConstraint() & com.codename1.ui.TextArea.ONE_TIME_CODE) != 0) {
+            return new String[]{AUTOFILL_HINT_SMS_OTP};
+        }
+        return null;
+    }
+
+    /// Puts the surface forward as an autofillable field, or withdraws it, to match the field the
+    /// input session is bound to. Called on the UI thread as a session starts and stops.
+    ///
+    /// #### Parameters
+    ///
+    /// - `v`: the rendering view
+    ///
+    /// - `sessionActive`: true while a client is bound
+    static void updateEditorAutofill(android.view.View v, boolean sessionActive) {
+        if (v == null || android.os.Build.VERSION.SDK_INT < 26) {
+            return;
+        }
+        android.view.autofill.AutofillManager afm =
+                (android.view.autofill.AutofillManager) v.getContext()
+                        .getSystemService(android.view.autofill.AutofillManager.class);
+        String[] hints = sessionActive ? editorAutofillHints() : null;
+        if (hints == null) {
+            v.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO);
+            v.setAutofillHints((String[]) null);
+            if (afm != null) {
+                afm.notifyViewExited(v);
+            }
+            return;
+        }
+        v.setAutofillHints(hints);
+        v.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_YES);
+        if (afm != null) {
+            // the session only starts once the framework is told the view was entered; a view
+            // that merely carries hints is never offered anything
+            afm.notifyViewEntered(v);
+        }
+    }
+
+    /// Applies a value the platform filled in, replacing whatever the field held. Called by the
+    /// rendering view on the UI thread; the edit itself belongs to the EDT.
+    ///
+    /// #### Parameters
+    ///
+    /// - `value`: the value the autofill service supplied
+    ///
+    /// #### Returns
+    ///
+    /// true when the value was taken
+    static boolean autofillEditor(android.view.autofill.AutofillValue value) {
+        final com.codename1.ui.TextInputClient client = activeInputClient;
+        if (client == null || value == null || !value.isText()) {
+            return false;
+        }
+        // Only into a field that asked for this. The hint lives on the surface and is put
+        // there and taken away on Android's UI thread, while the session it describes changes
+        // on the EDT, so for a moment after the user moves from a code field to an ordinary
+        // one the view still advertises smsOTPCode while the session behind it is something
+        // else. A fill delivered in that gap would otherwise land a code in whatever the user
+        // tapped into. Asking what the CURRENT session advertises closes it: the answer is
+        // read from the same field the identity check below uses.
+        if (editorAutofillHints() == null) {
+            return false;
+        }
+        com.codename1.ui.Display.getInstance().callSerially(
+                new ApplyAutofilledText(client, value.getTextValue().toString()));
+        return true;
+    }
+
+    private static final class ApplyAutofilledText implements Runnable {
+        private final com.codename1.ui.TextInputClient client;
+        private final String text;
+
+        ApplyAutofilledText(com.codename1.ui.TextInputClient client, String text) {
+            this.client = client;
+            this.text = text;
+        }
+
+        public void run() {
+            // The session may be gone: the platform fills on the UI thread and this runs a hop
+            // later on the EDT, and in between the user can have moved to another field or left
+            // the screen. Applying it then would edit a field nothing is bound to any more and
+            // fire its listeners -- and an OtpField's completion listener submits a code, so a
+            // late fill would verify one for a flow the user has already left. The rest of this
+            // bridge guards its callbacks the same way.
+            if (client != activeInputClient || editorAutofillHints() == null) {
+                return;
+            }
+            // A filled value replaces the field rather than being inserted at the caret: the
+            // platform is answering "the value is this", not typing into what is there. It
+            // still arrives as a commit rather than a raw range replacement, because a field
+            // filters what it accepts and a filled value has no more right to bypass that
+            // than a typed one -- an OTP field asked for six digits and can be handed
+            // "123-456" by an autofill service that kept the separator, and a replacement
+            // would leave the field holding a value it would never have let anyone type,
+            // never reaching the length that completes it.
+            // Ending any composition first. A commit replaces the composed range in
+            // preference to the selection, so selecting the whole field is not enough to
+            // replace the whole field while an input method is mid-word: the filled value
+            // would land inside the composition and leave whatever surrounded it, which
+            // for a code field means a full-length wrong code that submits itself.
+            client.finishComposing();
+            client.setSelectionRange(0, client.getTextLength());
+            client.commitText(text);
+        }
+    }
+
+    /// The value the platform should see for the bound field, or null when nothing is bound.
+    ///
+    /// Answered from the state snapshot rather than the editor itself. This runs on Android's UI
+    /// thread whenever an autofill service asks what the field holds, while the document belongs
+    /// to the EDT, and reading a length and then a range out of a document another thread is
+    /// editing is two reads of something that can change in between. Clamped offsets would not
+    /// rescue it either, since the buffer underneath can be restructured mid-read. The snapshot
+    /// is immutable and is what the rest of this bridge already uses to answer the platform
+    /// across that boundary; a value one edit out of date is the correct trade against a crash
+    /// inside somebody else's autofill query.
+    static android.view.autofill.AutofillValue editorAutofillValue() {
+        // Read the state AFTER the guards and confirm the session did not move under it.
+        // The three fields are assigned separately on the EDT, so taking the state first
+        // and validating afterwards can pair one field's text with the next field's
+        // configuration -- and the pairing that matters is a password field's text with a
+        // code field's hint. One session snapshot would express this better than three
+        // fields and a re-check, but that is the whole input bridge's shape rather than
+        // this method's, and the property needed here is only that nothing is returned
+        // for a session other than the one that was checked.
+        //
+        // Gated the same way the write path is, and for a sharper reason: between the EDT
+        // moving to another field and the UI thread taking the hint off the view, the
+        // surface still looks like a code field over a session that is something else --
+        // and answering this query then would hand that field's text to an SMS autofill
+        // service. The field after a code field is as likely to be a password as anything.
+        com.codename1.ui.TextInputClient client = activeInputClient;
+        if (client == null || editorAutofillHints() == null) {
+            return null;
+        }
+        com.codename1.ui.TextInputState state = activeInputState;
+        if (state == null || client != activeInputClient) {
+            return null;
+        }
+        String text = state.getText();
+        return android.view.autofill.AutofillValue.forText(text == null ? "" : text);
+    }
+
+    private static void configureEditorInfo(android.view.inputmethod.EditorInfo editorInfo, com.codename1.ui.TextInputConfig cfg) {
+        int constraint = cfg == null ? 0 : cfg.getConstraint();
+        int inputType;
+        switch (constraint & 0xffff) {
+            case com.codename1.ui.TextArea.NUMERIC:
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                        | android.text.InputType.TYPE_NUMBER_FLAG_SIGNED;
+                break;
+            case com.codename1.ui.TextArea.DECIMAL:
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                        | android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
+                        | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL;
+                break;
+            case com.codename1.ui.TextArea.PHONENUMBER:
+                inputType = android.text.InputType.TYPE_CLASS_PHONE;
+                break;
+            case com.codename1.ui.TextArea.EMAILADDR:
+                inputType = android.text.InputType.TYPE_CLASS_TEXT
+                        | android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS;
+                break;
+            case com.codename1.ui.TextArea.URL:
+                inputType = android.text.InputType.TYPE_CLASS_TEXT
+                        | android.text.InputType.TYPE_TEXT_VARIATION_URI;
+                break;
+            default:
+                inputType = android.text.InputType.TYPE_CLASS_TEXT;
+                break;
+        }
+        boolean text = (inputType & android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_TEXT;
+        boolean password = (constraint & com.codename1.ui.TextArea.PASSWORD) != 0;
+        if (password) {
+            inputType = text
+                    ? inputType | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    : android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD;
+            text = (inputType & android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_TEXT;
+        }
+        boolean multiline = cfg == null || cfg.isMultiline();
+        if (text) {
+            if (multiline) {
+                inputType |= android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE;
+            }
+            if (password || (cfg != null && !cfg.isAutoCorrect())) {
+                inputType |= android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+            }
+            if (!password && cfg != null && cfg.isAutoCapitalize()) {
+                inputType |= android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES;
+            }
+        }
+        if ((constraint & com.codename1.ui.TextArea.ONE_TIME_CODE) != 0 && text) {
+            // a code is not a word: prediction would offer completions for it and, worse, learn it
+            inputType |= android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+        }
+        editorInfo.inputType = inputType;
+        editorInfo.imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI;
+        if (multiline) {
+            editorInfo.imeOptions |= android.view.inputmethod.EditorInfo.IME_ACTION_NONE;
+        } else {
+            editorInfo.imeOptions |= imeActionFor(cfg == null
+                    ? com.codename1.ui.TextInputConfig.ACTION_DEFAULT : cfg.getActionType());
+        }
+        editorInfo.initialSelStart = activeInputState != null ? activeInputState.getSelectionStart() : 0;
+        editorInfo.initialSelEnd = activeInputState != null ? activeInputState.getSelectionEnd() : 0;
+    }
+
+    private static int imeActionFor(int actionType) {
+        switch (actionType) {
+            case com.codename1.ui.TextInputConfig.ACTION_NEXT:
+                return android.view.inputmethod.EditorInfo.IME_ACTION_NEXT;
+            case com.codename1.ui.TextInputConfig.ACTION_SEARCH:
+                return android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH;
+            case com.codename1.ui.TextInputConfig.ACTION_SEND:
+                return android.view.inputmethod.EditorInfo.IME_ACTION_SEND;
+            case com.codename1.ui.TextInputConfig.ACTION_DONE:
+            default:
+                return android.view.inputmethod.EditorInfo.IME_ACTION_DONE;
+        }
+    }
+
+    /// Maps an Android `EditorInfo.IME_ACTION_*` code back to the `TextInputConfig` action constant
+    /// delivered to `TextInputClient.onEditorAction`.
+    static int textInputActionFor(int imeActionCode) {
+        switch (imeActionCode) {
+            case android.view.inputmethod.EditorInfo.IME_ACTION_NEXT:
+                return com.codename1.ui.TextInputConfig.ACTION_NEXT;
+            case android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH:
+                return com.codename1.ui.TextInputConfig.ACTION_SEARCH;
+            case android.view.inputmethod.EditorInfo.IME_ACTION_SEND:
+                return com.codename1.ui.TextInputConfig.ACTION_SEND;
+            case android.view.inputmethod.EditorInfo.IME_ACTION_DONE:
+                return com.codename1.ui.TextInputConfig.ACTION_DONE;
+            default:
+                return com.codename1.ui.TextInputConfig.ACTION_DEFAULT;
+        }
+    }
+
+    @Override
+    public boolean isTextInputSupported() {
+        return true;
+    }
+
+    @Override
+    public Object startTextInput(com.codename1.ui.TextInputClient client, com.codename1.ui.TextInputConfig config) {
+        activeInputClient = client;
+        activeInputConfig = config;
+        activeInputState = client.getEditingState();
+        pendingInputState = null;
+        final CodenameOneActivity a = getActivity();
+        final CodenameOneSurface view = myView;
+        if (a == null || view == null) {
+            return client;
+        }
+        a.runOnUiThread(new Runnable() {
+            public void run() {
+                android.view.View v = view.getAndroidView();
+                v.setFocusable(true);
+                v.setFocusableInTouchMode(true);
+                v.requestFocus();
+                android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
+                        a.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                if (imm != null) {
+                    imm.restartInput(v);
+                    imm.showSoftInput(v, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+                }
+                updateEditorAutofill(v, true);
+            }
+        });
+        return client;
+    }
+
+    @Override
+    public void updateTextInputState(Object handle, com.codename1.ui.TextInputState state) {
+        if (handle == null || handle != activeInputClient || state == null) {
+            // a stale handle (an unbalanced session that was already replaced) must not
+            // disturb the currently bound client
+            return;
+        }
+        activeInputState = state;
+        // retire the connection's synchronous mirror only when this push reflects every posted
+        // edit; clearing early would hide an in-flight edit from the IME's immediate re-reads
+        if (pendingAppliedSeq == pendingPostedSeq) {
+            pendingInputState = null;
+        }
+        final CodenameOneActivity a = getActivity();
+        final CodenameOneSurface view = myView;
+        if (a == null || view == null) {
+            return;
+        }
+        a.runOnUiThread(new Runnable() {
+            public void run() {
+                android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
+                        a.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                if (imm != null && activeInputClient != null) {
+                    com.codename1.ui.TextInputState s = activeInputState;
+                    imm.updateSelection(view.getAndroidView(), s.getSelectionStart(), s.getSelectionEnd(),
+                            s.getComposingStart(), s.getComposingEnd());
+                }
+            }
+        });
+    }
+
+    @Override
+    public void stopTextInput(Object handle) {
+        if (handle == null || handle != activeInputClient) {
+            return;
+        }
+        activeInputClient = null;
+        activeInputState = null;
+        activeInputConfig = null;
+        pendingInputState = null;
+        final CodenameOneActivity a = getActivity();
+        final CodenameOneSurface view = myView;
+        if (a == null || view == null) {
+            return;
+        }
+        a.runOnUiThread(new Runnable() {
+            public void run() {
+                android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
+                        a.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                if (imm != null) {
+                    imm.hideSoftInputFromWindow(view.getAndroidView().getWindowToken(), 0);
+                    imm.restartInput(view.getAndroidView());
+                }
+                updateEditorAutofill(view.getAndroidView(), false);
+            }
+        });
+    }
+
+
+    @Override
+    public void setDisableScreenshots(final boolean disable) {
+        final CodenameOneActivity a = getActivity();
+        if (a == null || a.getWindow() == null) {
+            return;
+        }
+        a.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (disable) {
+                    a.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+                } else {
+                    a.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+                }
+            }
+        });
+    }
+
+    /**
+     * @param aActivity the activity to set
+     */
+    public static void setActivity(CodenameOneActivity aActivity) {
+        activity = aActivity;
+        if (activity != null) {
+            activityComponentName = activity.getComponentName();
+        }
+        
+    }
+    CodenameOneSurface myView = null;
+    private AndroidAccessibilityProvider accessibilityProvider;
+    private volatile boolean accessibilityTreeUpdateRequired;
+    CodenameOneTextPaint defaultFont;
+    private final char[] tmpchar = new char[1];
+    private final Rect tmprect = new Rect();
+    protected int defaultFontHeight;
+    private Vibrator v = null;
+    private boolean vibrateInitialized = false;
+    private int displayWidth;
+    private int displayHeight;
+    static CodenameOneActivity activity;
+    static ComponentName activityComponentName;
+    private static PowerManager.WakeLock pushWakeLock;
+    public static synchronized void acquirePushWakeLock(long timeout) {
+        if (getContext() == null) return;
+        try {
+            if (pushWakeLock == null) {
+                PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+                pushWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "CN1:PushWakeLock");
+            }
+            pushWakeLock.acquire(timeout);
+        } catch (Exception ex) {
+            com.codename1.io.Log.e(ex);
+        }
+    }
+    
+    private static Context context;
+    private static PermissionPromptCallback permissionPromptCallback;
+    RelativeLayout relativeLayout;
+    final Vector nativePeers = new Vector();
+    int lastDirectionalKeyEventReceivedByWrapper;
+    private EventDispatcher callback;
+    private int timeout = -1;
+    private CodeScannerImpl scannerInstance;
+    private HashMap apIds;
+    private static View viewBelow;
+    private static View viewAbove;
+    private static int aboveSpacing;
+    private static int belowSpacing;
+    public static boolean asyncView = false;
+    public static boolean textureView = false;
+    private AudioService background;
+    private boolean asyncEditMode = false;
+    private boolean compatPaintMode;
+    private MediaRecorder recorder = null;
+
+    private boolean statusBarHidden;
+    private boolean superPeerMode = true;
+    
+    
+    private ValueCallback<Uri> mUploadMessage;
+    public ValueCallback<Uri[]> uploadMessage;
+
+    /**
+     * Keeps track of running contexts.
+     * @see #startContext(Context)
+     * @see #stopContext(Context)
+     */
+    private static HashSet<Context> activeContexts = new HashSet<Context>();
+
+    /**
+     * A method to be called when a Context begins its execution.  This adds the
+     * context to the context set.  When the contenxt's execution completes, it should
+     * call {@link #stopContext} to clear up resources.
+     * @param ctx The context that is starting.
+     * @see #stopContext(Context)
+     */
+    public static void startContext(Context ctx) {
+
+        while (deinitializingEdt) {
+            // It is possible that deinitialize was called just before the
+            // last context was destroyed so there is a pending deinitialize
+            // working its way through the system.  Give it some time
+            // before forcing the deinitialize
+            System.out.println("Waiting for deinitializing to complete before starting a new initialization");
+            Util.sleep(30);
+        }
+        if (deinitializing && instance != null) {
+            instance.deinitialize();
+        }
+        synchronized(activeContexts) {
+            activeContexts.add(ctx);
+            if (instance == null) {
+                // If this is our first rodeo, just call Display.init() as that should
+                // be sufficient to set everything up.
+                Display.init(ctx);
+            } else {
+                // If we've initialized before, we should "re-initialize" the implementation
+                // Reinitializing will force views to be created even if the EDT was already
+                // running in background mode.
+                reinit(ctx);
+            }
+        }
+    }
+
+    /**
+     * Cleans up resources in the given context.  This method should be called by
+     * any Activity or Service that called startContext() when it started.
+     * @param ctx The context to stop.
+     *
+     * @see #startContext(Context)
+     */
+    public static void stopContext(Context ctx) {
+        synchronized(activeContexts) {
+            activeContexts.remove(ctx);
+            if (activeContexts.isEmpty()) {
+                // If we are the last context, we should deinitialize
+                syncDeinitialize();
+            } else {
+                if (instance != null && getActivity() != null) {
+                    // if this is an activity, then we should clean up
+                    // our UI resources anyways because the last context
+                    // to be cleaned up might not have access to the UI thread.
+                    instance.deinitialize();
+                }
+            }
+        }
+    }
+
+    @Override
+    public void screenshot(SuccessCallback<Image> callback) {
+        final Activity activity = (Activity) getContext();
+        final AndroidScreenshotTask task = new AndroidScreenshotTask(myView, activity, callback);
+        activity.runOnUiThread(task);
+    }
+
+    @Override
+    public void setPlatformHint(String key, String value) {
+        if(key.equals("platformHint.compatPaintMode")) {
+            compatPaintMode = value.equalsIgnoreCase("true");
+            return;
+        }
+        if(key.equals("platformHint.legacyPaint")) {
+            AndroidAsyncView.legacyPaintLogic = value.equalsIgnoreCase("true");;
+        }
+    }
+
+
+    /**
+     * This method in used internally for ads
+     * @param above shown above the view
+     * @param below shown below the view
+     */
+    public static void setViewAboveBelow(View above, View below, int spacingAbove, int spacingBelow) {
+        viewBelow = below;
+        viewAbove = above;
+        aboveSpacing = spacingAbove;
+        belowSpacing = spacingBelow;
+    }
+
+    static boolean hasViewAboveBelow(){
+        return viewBelow != null || viewAbove != null;
+    }
+
+    /**
+     * Copy the input stream into the output stream, closes both streams when finishing or in
+     * a case of an exception
+     *
+     * @param i source
+     * @param o destination
+     */
+    private static void copy(InputStream i, OutputStream o) throws IOException {
+        copy(i, o, 8192);
+    }
+
+    /**
+     * Copy the input stream into the output stream, closes both streams when finishing or in
+     * a case of an exception
+     *
+     * @param i source
+     * @param o destination
+     * @param bufferSize the size of the buffer, which should be a power of 2 large enoguh
+     */
+    private static void copy(InputStream i, OutputStream o, int bufferSize) throws IOException {
+        try {
+            byte[] buffer = new byte[bufferSize];
+            int size = i.read(buffer);
+            while(size > -1) {
+                o.write(buffer, 0, size);
+                size = i.read(buffer);
+            }
+        } finally {
+            sCleanup(o);
+            sCleanup(i);
+        }
+    }
+
+    private static void sCleanup(Object o) {
+        try {
+            if(o != null) {
+                if(o instanceof InputStream) {
+                    ((InputStream)o).close();
+                    return;
+                }
+                if(o instanceof OutputStream) {
+                    ((OutputStream)o).close();
+                    return;
+                }
+            }
+        } catch(Throwable t) {}
+    }
+
+    /**
+     * Copied here since the cleanup method in util would crash append notification that runs when the app isn't in the foreground
+     */
+    private static byte[] readInputStream(InputStream i) throws IOException {
+        ByteArrayOutputStream b = new ByteArrayOutputStream();
+        copy(i, b);
+        return b.toByteArray();
+    }
+
+
+    public static void appendNotification(String type, String body, Context a) {
+        appendNotification(type, body, null, null, a);
+    }
+
+    /** Receives the managed typed envelope from FCM without applying legacy push decoding. */
+    public static void handleV3Push(final String envelope, Context context,
+            boolean appRunning, Class appStubClass) {
+        if (appRunning && Display.isInitialized()
+                && com.codename1.push.PushClient.hasActiveClient()) {
+            Display.getInstance().callSerially(new Runnable() {
+                public void run() {
+                    com.codename1.push.PushClient.dispatch(envelope);
+                }
+            });
+            return;
+        }
+        try {
+            org.json.JSONObject message = new org.json.JSONObject(envelope);
+            // The pending-push file explicitly encodes whether a legacy type is present.
+            // A missing type is the sentinel for a typed V3 envelope and is replayed intact.
+            appendNotification(null, envelope, context);
+            if (message.optBoolean("silent", false)) {
+                return;
+            }
+            String title = message.optString("title", "");
+            String body = message.optString("body", "");
+            String image = message.optString("image", "");
+            if (title.length() == 0 && body.length() == 0 && image.length() == 0) {
+                return;
+            }
+            if (title.length() == 0) {
+                title = context.getApplicationInfo().loadLabel(context.getPackageManager()).toString();
+            }
+            Intent intent = new Intent(context, appStubClass);
+            PendingIntent contentIntent = createPendingIntent(context, 0, intent);
+            int smallIcon = context.getResources().getIdentifier("ic_stat_notify", "drawable",
+                    context.getPackageName());
+            if (smallIcon == 0) {
+                smallIcon = context.getApplicationInfo().icon;
+            }
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(context)
+                    .setContentTitle(title)
+                    .setContentText(body)
+                    .setSmallIcon(smallIcon)
+                    .setContentIntent(contentIntent)
+                    .setAutoCancel(true)
+                    .setWhen(System.currentTimeMillis());
+            NotificationManager manager = (NotificationManager)
+                    context.getSystemService(Context.NOTIFICATION_SERVICE);
+            setNotificationChannel(manager, builder, context);
+            String collapseKey = message.optString("collapseKey", null);
+            String messageId = message.optString("id", null);
+            String notificationTag;
+            if (collapseKey != null && collapseKey.length() > 0) {
+                notificationTag = v3NotificationTag("CN1_PUSH_V3_COLLAPSE:", collapseKey);
+            } else if (messageId != null && messageId.length() > 0) {
+                notificationTag = v3NotificationTag("CN1_PUSH_V3_MESSAGE:", messageId);
+            } else {
+                notificationTag = "CN1_PUSH_V3_EPHEMERAL:" + System.currentTimeMillis()
+                        + ":" + V3_NOTIFICATION_SEQUENCE.incrementAndGet();
+            }
+            manager.notify(notificationTag, 0, builder.build());
+        } catch (Exception error) {
+            Log.e("Codename One", "Failed to handle a Push V3 envelope", error);
+        }
+    }
+
+    private static String v3NotificationTag(String prefix, String value) {
+        if (prefix.length() + value.length() <= 128) {
+            return prefix + value;
+        }
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder out = new StringBuilder(prefix.length() + digest.length * 2);
+            out.append(prefix);
+            for (byte item : digest) {
+                int unsigned = item & 0xff;
+                if (unsigned < 0x10) {
+                    out.append('0');
+                }
+                out.append(Integer.toHexString(unsigned));
+            }
+            return out.toString();
+        } catch (Exception error) {
+            return prefix + Integer.toHexString(value.hashCode());
+        }
+    }
+    
+    public static void appendNotification(String type, String body, String image, String category, Context a) {
+        try {
+            String[] fileList = a.fileList();
+            byte[] data = null;
+            for (int iter = 0; iter < fileList.length; iter++) {
+                if (fileList[iter].equals("CN1$AndroidPendingNotifications")) {
+                    InputStream is = a.openFileInput("CN1$AndroidPendingNotifications");
+                    if(is != null) {
+                        data = readInputStream(is);
+                        sCleanup(a);
+                        break;
+                    }
+                }
+            }
+            DataOutputStream os = new DataOutputStream(a.openFileOutput("CN1$AndroidPendingNotifications", 0));
+            if(data != null) {
+                data[0]++;
+                os.write(data);
+            } else {
+                os.writeByte(1);
+            }
+            String bodyType = type;
+            if (image != null || category != null) {
+                type = "99";
+            }
+            if(type != null) {
+                os.writeBoolean(true);
+                os.writeUTF(type);
+            } else {
+                os.writeBoolean(false);
+            }
+            if ("99".equals(type)) {
+                String msg = "body="+java.net.URLEncoder.encode(body, "UTF-8")
+                        +"&type="+java.net.URLEncoder.encode(bodyType, "UTF-8");
+                if (category != null) {
+                    msg += "&category="+java.net.URLEncoder.encode(category, "UTF-8");
+                }
+                if (image != null) {
+                    msg += "&image="+java.net.URLEncoder.encode(image, "UTF-8");
+                }
+                os.writeUTF(msg);
+                        
+            } else {
+                os.writeUTF(body);
+            }
+            os.writeLong(System.currentTimeMillis());
+        } catch(IOException err) {
+            err.printStackTrace();
+        }
+    }
+
+    private static Map<String,String> splitQuery(String urlencodeQueryString) {
+        String[] parts = urlencodeQueryString.split("&");
+        Map<String,String> out = new HashMap<String,String>();
+        for (String part : parts) {
+            int pos = part.indexOf("=");
+            String k,v;
+            if (pos > 0) {
+                k = part.substring(0, pos);
+                v = part.substring(pos+1);
+            } else {
+                k = part;
+                v = "";
+            }
+            try {
+                k = java.net.URLDecoder.decode(k, "UTF-8");
+                v = java.net.URLDecoder.decode(v, "UTF-8");
+            } catch (UnsupportedEncodingException ex) {
+                // won't happen
+                com.codename1.io.Log.e(ex);
+            }
+            out.put(k, v);
+        }
+        return out;
+    }
+
+    public String getStackTrace(Thread parentThread, Throwable t) {
+        System.out.println("CN1SS:ERR:Invoking getStackTrace in AndroidImplementation");
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        PrintWriter w = new PrintWriter(new OutputStreamWriter(bos, StandardCharsets.UTF_8));
+        t.printStackTrace(w);
+        w.close();
+        System.out.println("CN1SS:ERR:AndroidImplementation getStackTrace completed");
+        return new String(bos.toByteArray(), StandardCharsets.UTF_8);
+    }
+
+    public static void initPushContent(String message, String image, String messageType, String category, Context context) {
+        com.codename1.push.PushContent.reset();
+        
+        int iMessageType = 1;
+        try {iMessageType = Integer.parseInt(messageType);}catch(Throwable t){}
+        
+        String actionId = null;
+        String reply = null;
+        boolean cancel = true;
+        if (context instanceof Activity) {
+            Activity activity = (Activity)context;
+            Bundle extras = activity.getIntent().getExtras();
+            if (extras != null) {
+                actionId = extras.getString("pushActionId");
+                extras.remove("pushActionId");
+
+                if (actionId != null && RemoteInputWrapper.isSupported()) {
+                    Bundle textExtras = RemoteInputWrapper.getResultsFromIntent(activity.getIntent());
+                    if (textExtras != null) {
+                        CharSequence cs  = textExtras.getCharSequence(actionId + "$Result");
+                        if (cs != null) {
+                            reply = cs.toString();
+                        }
+                    }
+
+                    
+                }
+            }
+            
+        }
+        if (cancel) {
+            PushNotificationService.cancelNotification(context);
+        }
+        com.codename1.push.PushContent.setType(iMessageType);
+        com.codename1.push.PushContent.setCategory(category);
+        if (actionId != null) {
+            com.codename1.push.PushContent.setActionId(actionId);
+        }
+        if (reply != null) {
+            com.codename1.push.PushContent.setTextResponse(reply);
+        }
+        switch (iMessageType) {
+            case 1:
+            case 5:
+                com.codename1.push.PushContent.setBody(message);break;
+            case 2: com.codename1.push.PushContent.setMetaData(message);break;
+            case 3: {
+                String[] parts = message.split(";");
+                com.codename1.push.PushContent.setMetaData(parts[1]);
+                com.codename1.push.PushContent.setBody(parts[0]);
+                break;
+            }
+            case 4: {
+                String[] parts = message.split(";");
+                com.codename1.push.PushContent.setTitle(parts[0]);
+                com.codename1.push.PushContent.setBody(parts[1]);
+                break;
+            }
+            case 101: {
+                com.codename1.push.PushContent.setBody(message.substring(message.indexOf(" ") + 1));
+                com.codename1.push.PushContent.setType(1);
+                break;
+            }
+            case 102: {
+                String[] parts = message.split(";");
+                com.codename1.push.PushContent.setTitle(parts[1]);
+                com.codename1.push.PushContent.setBody(parts[2]);
+                com.codename1.push.PushContent.setType(2);
+                break;
+            }
+        }
+    }
+    
+    // Name of file where we install the push notification categories as an XML file
+    // if the main class implements PushActiosProvider
+    private static String FILE_NAME_NOTIFICATION_CATEGORIES = "CN1$AndroidNotificationCategories";
+    
+    
+    
+    /**
+     * Action categories are defined on the Main class by implementing the PushActionsProvider, however
+     * the main class may not be available to the push receiver, so we need to save these categories
+     * to the file system when the app is installed, then the push receiver can load these actions
+     * when it sends a push while the app isn't running.
+     * @param provider A reference to the App's main class 
+     * @throws IOException 
+     */
+    public static void installNotificationActionCategories(PushActionsProvider provider) throws IOException {
+        // Assume that CN1 is running... this will run when the app starts
+        // up
+        Context context = getContext();
+        boolean requiresUpdate = false;
+        
+        File categoriesFile = new File(activity.getFilesDir().getAbsolutePath() + "/" + FILE_NAME_NOTIFICATION_CATEGORIES);
+        if (!categoriesFile.exists()) {
+            requiresUpdate = true;
+        }
+        if (!requiresUpdate) {
+            try {
+                PackageInfo packageInfo = context.getPackageManager().getPackageInfo(context.getApplicationContext().getPackageName(), PackageManager.GET_PERMISSIONS);
+                if (packageInfo.lastUpdateTime > categoriesFile.lastModified()) {
+                    requiresUpdate = true;
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        }
+        
+        if (!requiresUpdate) {
+            return;
+        }
+        
+        OutputStream os = getContext().openFileOutput(FILE_NAME_NOTIFICATION_CATEGORIES, 0);
+        PushActionCategory[] categories = provider.getPushActionCategories();
+        javax.xml.parsers.DocumentBuilderFactory docFactory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        javax.xml.parsers.DocumentBuilder docBuilder;
+        try {
+            docBuilder = docFactory.newDocumentBuilder();
+        } catch (ParserConfigurationException ex) {
+            Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+            throw new IOException("Faield to create document builder for creating notification categories XML document", ex);
+        }
+
+        // root elements
+        org.w3c.dom.Document doc = docBuilder.newDocument();
+        org.w3c.dom.Element root = (org.w3c.dom.Element)doc.createElement("categories");
+        doc.appendChild(root);
+        for (PushActionCategory category : categories) {
+            org.w3c.dom.Element categoryEl = (org.w3c.dom.Element)doc.createElement("category");
+            org.w3c.dom.Attr idAttr = doc.createAttribute("id");
+            idAttr.setValue(category.getId());
+            categoryEl.setAttributeNode(idAttr);
+            
+            for (PushAction action : category.getActions()) {
+                org.w3c.dom.Element actionEl = (org.w3c.dom.Element)doc.createElement("action");
+                org.w3c.dom.Attr actionIdAttr = doc.createAttribute("id");
+                actionIdAttr.setValue(action.getId());
+                actionEl.setAttributeNode(actionIdAttr);
+                
+                
+                org.w3c.dom.Attr actionTitleAttr = doc.createAttribute("title");
+                if (action.getTitle() != null) {
+                    actionTitleAttr.setValue(action.getTitle());
+                } else {
+                    actionTitleAttr.setValue(action.getId());
+                }
+                actionEl.setAttributeNode(actionTitleAttr);
+                
+                if (action.getIcon() != null) {
+                    org.w3c.dom.Attr actionIconAttr = doc.createAttribute("icon");
+                    String iconVal = action.getIcon();
+                    try {
+                        // We'll store the resource IDs for the icon
+                        // rather than the icon name because that is what
+                        // the push notifications require.
+                        iconVal = ""+context.getResources().getIdentifier(iconVal, "drawable", context.getPackageName());
+                        actionIconAttr.setValue(iconVal);
+                        actionEl.setAttributeNode(actionIconAttr);
+                    } catch (Exception ex) {
+                        ex.printStackTrace();
+                        
+                    }
+                    
+                }
+                
+                if (action.getTextInputPlaceholder() != null) {
+                    org.w3c.dom.Attr textInputPlaceholderAttr = doc.createAttribute("textInputPlaceholder");
+                    textInputPlaceholderAttr.setValue(action.getTextInputPlaceholder());
+                    actionEl.setAttributeNode(textInputPlaceholderAttr);
+                }
+                if (action.getTextInputButtonText() != null) {
+                    org.w3c.dom.Attr textInputButtonTextAttr = doc.createAttribute("textInputButtonText");
+                    textInputButtonTextAttr.setValue(action.getTextInputButtonText());
+                    actionEl.setAttributeNode(textInputButtonTextAttr);
+                }
+                categoryEl.appendChild(actionEl);
+            }
+            root.appendChild(categoryEl);
+            
+        }
+        try {
+            javax.xml.transform.TransformerFactory transformerFactory = javax.xml.transform.TransformerFactory.newInstance();
+            javax.xml.transform.Transformer transformer = transformerFactory.newTransformer();
+            javax.xml.transform.dom.DOMSource source = new javax.xml.transform.dom.DOMSource(doc);
+            javax.xml.transform.stream.StreamResult result = new javax.xml.transform.stream.StreamResult(os);
+            transformer.transform(source, result);
+            
+        } catch (Exception ex) {
+            throw new IOException("Failed to save notification categories as XML.", ex);
+        }
+        
+    }
+    
+    /**
+     * Retrieves the app's available push action categories from the XML file in which they
+     * should have been installed on the first load.
+     * @param context
+     * @return
+     * @throws IOException 
+     */
+    private static PushActionCategory[] getInstalledPushActionCategories(Context context) throws IOException {
+        // NOTE:  This method may be called from the PushReceiver when the app isn't running so we can't access
+        // the main activity context, display properties, or any CN1 stuff.  Just native android
+        
+        File categoriesFile = new File(context.getFilesDir().getAbsolutePath() + "/" + FILE_NAME_NOTIFICATION_CATEGORIES);
+        if (!categoriesFile.exists()) {
+            return new PushActionCategory[0];
+        }
+        javax.xml.parsers.DocumentBuilderFactory docFactory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        javax.xml.parsers.DocumentBuilder docBuilder;
+        try {
+            docBuilder = docFactory.newDocumentBuilder();
+        } catch (ParserConfigurationException ex) {
+            Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+            throw new IOException("Faield to create document builder for creating notification categories XML document", ex);
+        }
+        org.w3c.dom.Document doc;
+        try {
+            doc = docBuilder.parse(context.openFileInput(FILE_NAME_NOTIFICATION_CATEGORIES));
+        } catch (SAXException ex) {
+            Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+            throw new IOException("Failed to parse instaled push action categories", ex);
+        }
+        org.w3c.dom.Element root = doc.getDocumentElement();
+        java.util.List<PushActionCategory> out = new ArrayList<PushActionCategory>();
+        org.w3c.dom.NodeList l = root.getElementsByTagName("category");
+        int len = l.getLength();
+        for (int i=0; i<len; i++) {
+            org.w3c.dom.Element el = (org.w3c.dom.Element)l.item(i);
+            java.util.List<PushAction> actions = new ArrayList<PushAction>();
+            org.w3c.dom.NodeList al = el.getElementsByTagName("action");
+            int alen = al.getLength();
+            for (int j=0; j<alen; j++) {
+                org.w3c.dom.Element actionEl = (org.w3c.dom.Element)al.item(j);
+                String textInputPlaceholder = actionEl.hasAttribute("textInputPlaceholder") ? actionEl.getAttribute("textInputPlaceholder") : null;
+                String textInputButtonText = actionEl.hasAttribute("textInputButtonText") ? actionEl.getAttribute("textInputButtonText") : null;
+                PushAction action = new PushAction(actionEl.getAttribute("id"), actionEl.getAttribute("title"), actionEl.getAttribute("icon"), textInputPlaceholder, textInputButtonText);
+                actions.add(action);
+            }
+            
+            PushActionCategory cat = new PushActionCategory((String)el.getAttribute("id"), actions.toArray(new PushAction[actions.size()]));
+            out.add(cat);
+            
+        }
+        return out.toArray(new PushActionCategory[out.size()]);
+    }
+
+    public static PendingIntent createPendingIntent(Context ctx, int value, Intent intent) {
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            return PendingIntent.getActivity(ctx, value, intent, FLAG_IMMUTABLE);
+        } else {
+            return PendingIntent.getActivity(ctx, value, intent, PendingIntent.FLAG_CANCEL_CURRENT);
+        }
+    }
+
+    public static PendingIntent createMutablePendingIntent(Context ctx, int value, Intent intent) {
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            return PendingIntent.getActivity(ctx, value, intent, FLAG_MUTABLE);
+        } else {
+            return PendingIntent.getActivity(ctx, value, intent, PendingIntent.FLAG_CANCEL_CURRENT);
+        }
+    }
+
+    public static PendingIntent getPendingIntent(Context ctx, int value, Intent intent) {
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            return PendingIntent.getService(ctx, value, intent, FLAG_IMMUTABLE);
+        } else {
+            return PendingIntent.getService(ctx, value, intent, PendingIntent.FLAG_CANCEL_CURRENT);
+        }
+    }
+
+    public static PendingIntent getBroadcastPendingIntent(Context ctx, int value, Intent intent) {
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            // PendingIntent.FLAG_IMMUTABLE
+            return PendingIntent.getBroadcast(ctx, value, intent, 67108864);
+        } else {
+            return PendingIntent.getBroadcast(ctx, value, intent, PendingIntent.FLAG_CANCEL_CURRENT);
+        }
+    }
+
+    /**
+     * Adds actions to a push notification.  This is called by the Push broadcast receiver probably before 
+     * Codename One is initialized
+     * @param provider Reference to the app's main class which implements PushActionsProvider
+     * @param categoryId The category ID of the push notification.
+     * @param builder The builder for the push notification.
+     * @param targetIntent The target intent... this should go to the app's main Activity.
+     * @param context The current context (inside the Broadcast receiver).
+     * @throws IOException 
+     */
+    public static void addActionsToNotification(PushActionsProvider provider, String categoryId, NotificationCompat.Builder builder, Intent targetIntent, Context context) throws IOException {
+        // NOTE:  THis will likely run when the main activity isn't running so we won't have
+        // access to any display properties... just native Android APIs will be accessible.
+        
+        PushActionCategory category = null;
+        PushActionCategory[] categories;
+        if (provider != null) {
+            categories = provider.getPushActionCategories();
+        } else {
+            categories = getInstalledPushActionCategories(context);
+        }
+        for (PushActionCategory candidateCategory : categories) {
+            if (categoryId.equals(candidateCategory.getId())) {
+                category = candidateCategory;
+                break;
+            }
+        }
+        if (category == null) {
+            return;
+        }
+        
+        int requestCode = 1;
+        for (PushAction action : category.getActions()) {
+            Intent newIntent = (Intent)targetIntent.clone();
+            newIntent.putExtra("pushActionId", action.getId());
+            PendingIntent contentIntent = createMutablePendingIntent(context, requestCode++, newIntent);
+            try {
+                int iconId;
+                try {
+                    iconId = Integer.parseInt(action.getIcon());
+                } catch (NumberFormatException ex) {
+                    iconId = 0;
+                }
+                if (ActionWrapper.BuilderWrapper.isSupported()) {
+                    // We need to take this abstracted "wrapper" approach because the Action.Builder class, and RemoteInput class
+                    // aren't available until API 22.
+                    // These classes use reflection to provide support for these classes safely.
+                    ActionWrapper.BuilderWrapper actionBuilder = new ActionWrapper.BuilderWrapper(iconId, action.getTitle(), contentIntent);
+                    if (action.getTextInputPlaceholder() != null && RemoteInputWrapper.isSupported()) {
+                        RemoteInputWrapper.BuilderWrapper remoteInputBuilder = new RemoteInputWrapper.BuilderWrapper(action.getId()+"$Result");
+                        remoteInputBuilder.setLabel(action.getTextInputPlaceholder());
+
+                        RemoteInputWrapper remoteInput = remoteInputBuilder.build();
+                        actionBuilder.addRemoteInput(remoteInput);
+                    }
+                    ActionWrapper actionWrapper = actionBuilder.build();
+                    new NotificationCompatWrapper.BuilderWrapper(builder).addAction(actionWrapper);
+                } else {
+                    builder.addAction(iconId, action.getTitle(), contentIntent);
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        }
+        
+    }
+    
+    public static void firePendingPushes(final PushCallback c, final Context a) {
+        try {
+            if(c != null) {
+                InputStream i = a.openFileInput("CN1$AndroidPendingNotifications");
+                if(i == null) {
+                    return;
+                }
+                DataInputStream is = new DataInputStream(i);
+                int count = is.readByte();
+                for(int iter = 0 ; iter < count ; iter++) {
+                    boolean hasType = is.readBoolean();
+                    String actualType = null;
+                    if(hasType) {
+                        actualType = is.readUTF();
+                    }
+                    final String t;
+                    final String b;
+                    final String category;
+                    final String image;
+                    if ("99".equals(actualType)) {
+                        // This was a rich push
+                        Map<String,String> vals = splitQuery(is.readUTF());
+                        t = vals.get("type");
+                        b = vals.get("body");
+                        category = vals.get("category");
+                        image = vals.get("image");
+                    } else {
+                        t = actualType;
+                        b = is.readUTF();
+                        category = null;
+                        image = null;
+                    }
+                    long s = is.readLong();
+                    Display.getInstance().callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            Display.getInstance().setProperty("pendingPush", "true");
+                            Display.getInstance().setProperty("pushType", t);
+                            initPushContent(b, image, t, category, a);
+                            if(t != null && ("3".equals(t) || "6".equals(t))) {
+                                String[] a = b.split(";");
+                                c.push(a[0]);
+                                c.push(a[1]);
+                            } else if (t != null && ("101".equals(t))) {
+                                c.push(b.substring(b.indexOf(" ")+1));
+                            } else {
+                                c.push(b);
+                            }
+                            Display.getInstance().setProperty("pendingPush", null);
+                        }
+                    });
+                }
+                a.deleteFile("CN1$AndroidPendingNotifications");
+            }
+        } catch(IOException err) {
+        }
+    }
+
+    public static String[] getPendingPush(String type, Context a) {
+        InputStream i = null;
+        try {
+            i = a.openFileInput("CN1$AndroidPendingNotifications");
+            if (i == null) {
+                return null;
+            }
+            DataInputStream is = new DataInputStream(i);
+            int count = is.readByte();
+            Vector v = new Vector<String>();
+            for (int iter = 0; iter < count; iter++) {
+                boolean hasType = is.readBoolean();
+                String actualType = null;
+                if (hasType) {
+                    actualType = is.readUTF();
+                }
+                
+                final String t;
+                final String b;
+                if ("99".equals(actualType)) {
+                    // This was a rich push
+                    Map<String,String> vals = splitQuery(is.readUTF());
+                    t = vals.get("type");
+                    b = vals.get("body");
+                    //category = vals.get("category");
+                    //image = vals.get("image");
+                } else {
+                    t = actualType;
+                    b = is.readUTF();
+                    //category = null;
+                    //image = null;
+                }
+                long s = is.readLong();
+                if(t != null && ("3".equals(t) || "6".equals(t))) {
+                    String[] m = b.split(";");
+                    v.add(m[0]);
+                } else if(t != null && "4".equals(t)){
+                    String[] m = b.split(";");
+                    v.add(m[1]);
+                } else if(t != null && "2".equals(t)){
+                    continue;
+                }else if (t != null && "101".equals(t)) {
+                    v.add(b.substring(b.indexOf(" ")+1));
+                }else{
+                    v.add(b);
+                }
+            }
+            String [] retVal = new String[v.size()];
+            for (int j = 0; j < retVal.length; j++) {
+                retVal[j] = (String)v.get(j);
+            }
+            return retVal;
+
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        } finally {
+            try {
+                if(i != null){
+                    i.close();
+                }
+            } catch (IOException ex) {
+            }
+        }
+        return null;
+    }
+
+    private static AndroidImplementation instance;
+    private static final String INTENT_PROPERTY_PREFIX = "android.intent.";
+    private static final String INTENT_EXTRA_PROPERTY_PREFIX = "android.intent.extra.";
+    private static final Set<String> intentPropertyKeys = new HashSet<String>();
+    private static final Object intentPropertyLock = new Object();
+    private static Intent lastPublishedIntent;
+
+    public static AndroidImplementation getInstance() {
+        return instance;
+    }
+
+    public static void clearAppArg() {
+        if (instance != null) {
+            instance.setAppArg(null);
+            clearIntentProperties();
+        }
+    }
+
+    /// Delivers a link that arrived at an already-running activity, so the
+    /// router sees it on Android as it already does on iOS.
+    ///
+    /// The two ports were asymmetric here, and silently so. iOS routes every
+    /// deep link through `Display.setProperty("AppArg", url)`, which fires
+    /// [com.codename1.router.Navigation#dispatchExternalUrl]. Android's
+    /// `onNewIntent` only stored the intent, and [#getAppArg] then derived
+    /// the value lazily through the implementation's own setter -- so
+    /// `setProperty` never ran and the router never fired. Anything built on
+    /// `@Route` therefore worked on iOS and did nothing on Android, which
+    /// reads as a feature that "just doesn't convert" on the platform rather
+    /// than as a bug.
+    ///
+    /// Deliberately narrow. Only `ACTION_VIEW` with an http or https scheme
+    /// goes through here; `EXTRA_TEXT` shares, `content://` attachments and
+    /// `EXTRA_STREAM` payloads keep their existing lazy path. Dispatching for
+    /// every intent would double-fire against the `setAppArg` inside
+    /// [#getAppArg] and would change behaviour for every share-target
+    /// application in the field.
+    ///
+    /// #### Parameters
+    ///
+    /// - `intent`: the intent delivered to the running activity
+    static void dispatchNewIntentUrl(Intent intent) {
+        if (intent == null || instance == null || !Display.isInitialized()) {
+            return;
+        }
+        try {
+            if (!Intent.ACTION_VIEW.equals(intent.getAction())) {
+                return;
+            }
+            android.net.Uri data = intent.getData();
+            if (data == null) {
+                return;
+            }
+            String scheme = data.getScheme();
+            if (!"http".equals(scheme) && !"https".equals(scheme)) {
+                return;
+            }
+            // Cleared first so the value below is what getAppArg() reports,
+            // rather than whatever the previous intent left cached.
+            instance.setAppArg(null);
+            clearIntentProperties();
+            // The intent is stored UNMODIFIED, and the url is marked as delivered by
+            // remembering the intent's identity instead of by erasing its data.
+            //
+            // Two earlier shapes were both wrong. Clearing the data on the intent
+            // passed in broke the ordinary way to extend onNewIntent() --
+            // super.onNewIntent(intent) followed by the subclass reading
+            // intent.getData(), which had just been nulled underneath it. Storing a
+            // data-less COPY fixed that one and broke two more readers: the
+            // documented `android.intent.data` property is published from whatever
+            // the activity has stored, and native integrations read
+            // getActivity().getIntent().getData() after onNewIntent(). Both saw a
+            // warm deep link as no deep link at all while cold links still carried
+            // it -- an asymmetry an application has no way to work around.
+            //
+            // What actually has to be suppressed is narrower than the data: only
+            // getAppArg()'s rebuilding of the url from the stored intent, because
+            // CodenameOneActivity.onStop() clears the app arg and the next read
+            // after a resume would otherwise report the same deep link a second
+            // time and open one tapped invite twice.
+            getActivity().setIntent(intent);
+            markAppArgDelivered(intent);
+            // Published here rather than left to getAppArg(), since the properties
+            // for the previous intent were just cleared and the reader that used to
+            // repopulate them lazily is exactly the one now suppressed.
+            publishIntentProperties(getActivity(), intent);
+            Display.getInstance().setProperty("AppArg", data.toString());
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+    }
+
+    /// Identity of the intent whose url [#dispatchNewIntentUrl] already delivered as
+    /// the app arg. Weak because it needs to outlive nothing: the activity holds the
+    /// intent, and once it stores a different one this reference is free to go.
+    private static java.lang.ref.WeakReference<Intent> deliveredAppArgIntent;
+
+    private static void markAppArgDelivered(Intent intent) {
+        synchronized (intentPropertyLock) {
+            deliveredAppArgIntent = new java.lang.ref.WeakReference<Intent>(intent);
+        }
+    }
+
+    private static boolean isAppArgDelivered(Intent intent) {
+        synchronized (intentPropertyLock) {
+            return deliveredAppArgIntent != null && deliveredAppArgIntent.get() == intent;
+        }
+    }
+
+    private static void clearIntentProperties() {
+        synchronized (intentPropertyLock) {
+            if (Display.isInitialized()) {
+                for (String key : new ArrayList<String>(intentPropertyKeys)) {
+                    Display.getInstance().setProperty(key, null);
+                }
+            }
+            intentPropertyKeys.clear();
+            lastPublishedIntent = null;
+        }
+    }
+
+    private static void publishIntentProperties(Activity activity, Intent intent) {
+        if (intent == null) {
+            return;
+        }
+
+        synchronized (intentPropertyLock) {
+            if (intent == lastPublishedIntent) {
+                return;
+            }
+
+            Map<String, String> nextProperties = new HashMap<String, String>();
+            nextProperties.put(INTENT_PROPERTY_PREFIX + "action", intent.getAction());
+            nextProperties.put(INTENT_PROPERTY_PREFIX + "data", intent.getDataString());
+            nextProperties.put(INTENT_PROPERTY_PREFIX + "type", intent.getType());
+
+            // Only getCallingPackage() is a verified caller identity.  Referrer values are caller-controlled.
+            String callerPackage = activity.getCallingPackage();
+            nextProperties.put(INTENT_PROPERTY_PREFIX + "caller", callerPackage);
+            nextProperties.put(INTENT_PROPERTY_PREFIX + "caller.verified", callerPackage != null ? "true" : "false");
+
+            Bundle extras = intent.getExtras();
+            if (extras != null) {
+                for (String key : extras.keySet()) {
+                    Object value = extras.get(key);
+                    String propertyKey = key.startsWith(INTENT_EXTRA_PROPERTY_PREFIX) ? key : INTENT_EXTRA_PROPERTY_PREFIX + key;
+                    nextProperties.put(propertyKey, value == null ? null : String.valueOf(value));
+                }
+            }
+
+            if (Display.isInitialized()) {
+                ArrayList<String> keysToRemove = new ArrayList<String>();
+                for (String key : intentPropertyKeys) {
+                    if (!nextProperties.containsKey(key)) {
+                        keysToRemove.add(key);
+                    }
+                }
+                for (String key : keysToRemove) {
+                    Display.getInstance().setProperty(key, null);
+                    intentPropertyKeys.remove(key);
+                }
+                for (Map.Entry<String, String> entry : nextProperties.entrySet()) {
+                    Display.getInstance().setProperty(entry.getKey(), entry.getValue());
+                    intentPropertyKeys.add(entry.getKey());
+                }
+            } else {
+                intentPropertyKeys.clear();
+                intentPropertyKeys.addAll(nextProperties.keySet());
+            }
+
+            lastPublishedIntent = intent;
+        }
+    }
+
+    public static Context getContext() {
+        Context out = getActivity();
+        if (out != null) {
+            return out;
+        }
+        return context;
+    }
+
+    public void setContext(Context c) {
+        context = c;
+    }
+
+    @Override
+    public void init(Object m) {
+        // NOTE:  Do not explicitly set the PlayServices instance to anything other than
+        // an instance of the base PlayServices class.  The Build Server will automatically
+        // swap this for the appropriate subclass depending on the playServicesVersion of 
+        // the build.
+        PlayServices.setInstance(new PlayServices()); // <---- DO NOT CHANGE - Build server will replace with appropriate subclass instance
+        if (m instanceof CodenameOneActivity) {
+            setContext(null);
+            setActivity((CodenameOneActivity) m);
+        } else {
+            setActivity(null);
+            setContext((Context)m);
+        }
+        // The nearby bridge is cached for the life of the process while
+        // Android recreates the activity freely -- a configuration change,
+        // or "Don't keep activities". An association chooser opened by the
+        // old activity delivers its result to the NEW one, where the
+        // backend's result listener is not installed, so the association
+        // resource never settled and every later association answered BUSY.
+        // Told here because this is the one place that knows it changed.
+        if (nearbyBridge != null) {
+            nearbyBridge.onActivityChanged();
+        }
+
+        instance = this;
+        if(getActivity() != null && getActivity().hasUI()){
+            if (!hasActionBar()) {
+                try {
+                    getActivity().requestWindowFeature(Window.FEATURE_NO_TITLE);
+                } catch (Exception e) {
+                    com.codename1.io.Log.p("requestWindowFeature FEATURE_NO_TITLE threw exception: " + e.toString());
+                }
+            } else {
+                getActivity().invalidateOptionsMenu();
+                try {
+                    getActivity().requestWindowFeature(Window.FEATURE_ACTION_BAR);
+                    getActivity().requestWindowFeature(Window.FEATURE_PROGRESS);
+
+                    if(android.os.Build.VERSION.SDK_INT >= 21){
+                        //WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
+                        getActivity().getWindow().addFlags(-2147483648);
+                    }
+                } catch (Exception e) {
+                    //Log.d("Codename One", "No idea why this throws a Runtime Error", e);
+                }
+                NotifyActionBar notify = new NotifyActionBar(getActivity(), false);
+                notify.run();
+            }
+
+            if(statusBarHidden) {
+                getActivity().getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
+                getActivity().getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
+            }
+
+            if(Display.getInstance().getProperty("StatusbarHidden", "").equals("true")){
+                getActivity().getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            }
+
+            if(Display.getInstance().getProperty("KeepScreenOn", "").equals("true")){
+                getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
+
+            if(Display.getInstance().getProperty("DisableScreenshots", "").equals("true")){
+                getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+            }
+
+            if (m instanceof CodenameOneActivity) {
+                ((CodenameOneActivity) m).setDefaultIntentResultListener(this);
+                ((CodenameOneActivity) m).setIntentResultListener(this);
+            }
+
+            /**
+             * translate our default font height depending on the screen density.
+             * this is required for new high resolution devices. otherwise
+             * everything looks awfully small.
+             *
+             * we use our default font height value of 16 and go from there. i
+             * thought about using new Paint().getTextSize() for this value but if
+             * some new version of android suddenly returns values already tranlated
+             * to the screen then we might end up with too large fonts. the
+             * documentation is not very precise on that.
+             */
+            final int defaultFontPixelHeight = 16;
+            this.defaultFontHeight = this.translatePixelForDPI(defaultFontPixelHeight);
+
+
+            this.defaultFont = (CodenameOneTextPaint) ((NativeFont) this.createFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_MEDIUM)).font;
+            Display.getInstance().setTransitionYield(-1);
+
+            initSurface();
+            /**
+             * devices are extremely sensitive so dragging should start a little
+             * later than suggested by default implementation.
+             */
+            this.setDragStartPercentage(1);
+            VirtualKeyboardInterface vkb = new AndroidKeyboard(this);
+            Display.getInstance().registerVirtualKeyboard(vkb);
+            Display.getInstance().setDefaultVirtualKeyboard(vkb);
+
+            InPlaceEditView.endEdit();
+
+            getActivity().getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+
+            if (nativePeers.size() > 0) {
+                for (int i = 0; i < nativePeers.size(); i++) {
+                    ((AndroidImplementation.AndroidPeer) nativePeers.elementAt(i)).init();
+                }
+            }
+        } else {
+            /**
+             * translate our default font height depending on the screen density.
+             * this is required for new high resolution devices. otherwise
+             * everything looks awfully small.
+             *
+             * we use our default font height value of 16 and go from there. i
+             * thought about using new Paint().getTextSize() for this value but if
+             * some new version of android suddenly returns values already tranlated
+             * to the screen then we might end up with too large fonts. the
+             * documentation is not very precise on that.
+             */
+            final int defaultFontPixelHeight = 16;
+            this.defaultFontHeight = this.translatePixelForDPI(defaultFontPixelHeight);
+
+
+            this.defaultFont = (CodenameOneTextPaint) ((NativeFont) this.createFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_MEDIUM)).font;
+        }
+        HttpURLConnection.setFollowRedirects(false);
+        CookieHandler.setDefault(null);
+        VideoCaptureConstraints.init(new AndroidVideoCaptureConstraintsCompiler());
+    }
+
+
+
+    @Override
+    public boolean isInitialized(){
+// Removing the check for null view to prevent strange things from happening when
+// calling from a Service context.
+//        if(getActivity() != null && myView == null){
+//            //if the view is null deinitialize the Display
+//            if(super.isInitialized()){
+//                syncDeinitialize();
+//            }
+//            return false;
+//        }
+        return super.isInitialized();
+    }
+
+    /**
+     * Reinitializes CN1.
+     * @param i Context to initialize it with.
+     *
+     * @see #startContext(Context)
+     */
+    private static void reinit(Object i) {
+        if (instance != null && ((i instanceof CodenameOneActivity) || instance.myView == null)) {
+            instance.init(i);
+        }
+        Display.init(i);
+
+        // This is a hack to fix an issue that caused the screen to appear blank when
+        // the app is loaded from memory after being unloaded.
+
+        // This issue only seems to occur when the Activity had been unloaded
+        // so to test this you'll need to check the "Don't keep activities" checkbox under/
+        // Developer options.
+        // Developer options.
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                Display.getInstance().invokeAndBlock(new Runnable(){ public void run(){
+                    Util.sleep(50);
+                }});
+                if (!Display.isInitialized() || Display.getInstance().isMinimized()) {
+                    return;
+                }
+                Form cur = Display.getInstance().getCurrent();
+                if (cur != null) {
+                    cur.forceRevalidate();
+                }
+            }
+
+        });
+    }
+
+    private static class InvalidateOptionsMenuImpl implements Runnable {
+        private Activity activity;
+
+        public InvalidateOptionsMenuImpl(Activity activity) {
+            this.activity = activity;
+        }
+
+        @Override
+        public void run() {
+            activity.invalidateOptionsMenu();
+        }
+    }
+
+    @Override
+    public Boolean isDarkMode() {
+        try {
+            int nightModeFlags = getActivity().getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK; 
+            switch (nightModeFlags) { 
+                case Configuration.UI_MODE_NIGHT_YES: 
+                    return true;
+                case Configuration.UI_MODE_NIGHT_NO: 
+                    return false;
+                default: 
+                    return null;
+            } 
+        } catch(Throwable t) {
+            return null;
+        }
+    }
+
+    @Override
+    public boolean isLargerTextEnabled() {
+        return getLargerTextScale() > 1.0f;
+    }
+
+    @Override
+    public float getLargerTextScale() {
+        try {
+            Configuration configuration;
+            if (getActivity() != null) {
+                configuration = getActivity().getResources().getConfiguration();
+            } else {
+                configuration = getContext().getResources().getConfiguration();
+            }
+            return configuration.fontScale;
+        } catch (Throwable t) {
+            return 1.0f;
+        }
+    }
+
+    
+    private boolean hasActionBar() {
+        return android.os.Build.VERSION.SDK_INT >= 11;
+    }
+
+    public int translatePixelForDPI(int pixel) {
+        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, pixel,
+                getContext().getResources().getDisplayMetrics());
+    }
+
+    /**
+     * Returns the platform EDT thread priority
+     */
+    public int getEDTThreadPriority(){
+        return Thread.NORM_PRIORITY;
+    }
+
+    /// Android reports this directly as DisplayMetrics.density, so there is no
+    /// need to make callers derive it from the density bucket -- the bucket is a
+    /// coarse DPI band and rounds to a different number than the scale the
+    /// platform itself lays out with.
+    ///
+    /// Read the same way getDeviceDensity does, preferring the activity's own
+    /// display, because a multi-display device can have a different scale per
+    /// display and the resources copy is the default one.
+    @Override
+    public float getDevicePixelRatio() {
+        DisplayMetrics metrics = new DisplayMetrics();
+        if (getActivity() != null) {
+            getActivity().getWindowManager().getDefaultDisplay().getMetrics(metrics);
+        } else if (getContext() != null) {
+            metrics = getContext().getResources().getDisplayMetrics();
+        } else {
+            return super.getDevicePixelRatio();
+        }
+        // 0 means "not reported", which is what the portable contract expects.
+        return metrics.density > 0 ? metrics.density : super.getDevicePixelRatio();
+    }
+
+    @Override
+    public int getDeviceDensity() {
+        DisplayMetrics metrics = new DisplayMetrics();
+        if (getActivity() != null) {
+            getActivity().getWindowManager().getDefaultDisplay().getMetrics(metrics);
+        } else {
+            metrics = getContext().getResources().getDisplayMetrics();
+        }
+
+        int dpi = metrics.densityDpi;
+        if (dpi < DisplayMetrics.DENSITY_MEDIUM) {
+            return Display.DENSITY_LOW;
+        }
+        if (dpi < 213) {
+            return Display.DENSITY_MEDIUM;
+        }
+        // 213 == TV
+        if (dpi <= DisplayMetrics.DENSITY_HIGH) {
+            return Display.DENSITY_HIGH;
+        }
+        if (dpi < 400) {
+            return Display.DENSITY_VERY_HIGH;
+        }
+        if (dpi < 560) {
+            return Display.DENSITY_HD;
+        }
+        if (dpi <= 640) {
+            return Display.DENSITY_2HD;
+        }
+        return Display.DENSITY_4K;
+    }
+
+    public static boolean isImmersive() {
+        if (getActivity() == null) {
+            return false;
+        }
+        return isImmersive(getActivity().getWindow());
+    }
+    public static boolean isImmersive(Window window) {
+        if (Build.VERSION.SDK_INT >= 35) {
+            // Android 15+ is always immersive (overlay mode by default)
+            return true;
+        }
+        // On Android 34 and below, we can't detect decorFitsSystemWindows
+        // reliably at runtime. So the app must make the decision explicitly.
+        return false;
+    }
+    public static Rect getSystemBarInsets(final View rootView) {
+        final Rect result = new Rect(0, 0, 0, 0);
+        try {
+            Object insets = View.class
+                    .getMethod("getRootWindowInsets")
+                    .invoke(rootView);
+            if (insets == null) return result;
+            // Get android.view.WindowInsets$Type.systemBars()
+            Class typeClass = Class.forName("android.view.WindowInsets$Type");
+            int systemBarsMask = ((Integer) typeClass
+                    .getMethod("systemBars")
+                    .invoke(null)).intValue();
+            // Call insets.getInsets(int)
+            Object insetsObject = insets.getClass()
+                    .getMethod("getInsets", new Class[]{int.class})
+                    .invoke(insets, new Object[]{systemBarsMask});
+            if (insetsObject == null) return result;
+            Class insetsClass = insetsObject.getClass();
+            int left = ((Integer) insetsClass.getField("left").get(insetsObject)).intValue();
+            int top = ((Integer) insetsClass.getField("top").get(insetsObject)).intValue();
+            int right = ((Integer) insetsClass.getField("right").get(insetsObject)).intValue();
+            int bottom = ((Integer) insetsClass.getField("bottom").get(insetsObject)).intValue();
+            // Include mandatory gesture insets (e.g. gesture navigation handle area).
+            // Some devices expose a larger interaction-protected bottom region here
+            // than in plain system bar insets.
+            try {
+                int mandatoryGesturesMask = ((Integer) typeClass
+                        .getMethod("mandatorySystemGestures")
+                        .invoke(null)).intValue();
+                Object mandatoryInsetsObject = insets.getClass()
+                        .getMethod("getInsets", new Class[]{int.class})
+                        .invoke(insets, new Object[]{mandatoryGesturesMask});
+                if (mandatoryInsetsObject != null) {
+                    Class mandatoryInsetsClass = mandatoryInsetsObject.getClass();
+                    left = Math.max(left, ((Integer) mandatoryInsetsClass.getField("left").get(mandatoryInsetsObject)).intValue());
+                    top = Math.max(top, ((Integer) mandatoryInsetsClass.getField("top").get(mandatoryInsetsObject)).intValue());
+                    right = Math.max(right, ((Integer) mandatoryInsetsClass.getField("right").get(mandatoryInsetsObject)).intValue());
+                    bottom = Math.max(bottom, ((Integer) mandatoryInsetsClass.getField("bottom").get(mandatoryInsetsObject)).intValue());
+                }
+            } catch (Throwable t) {
+                // Ignore if mandatory gesture insets are unavailable.
+            }
+            result.set(left, top, right, bottom);
+        } catch (Throwable t) {
+            t.printStackTrace();  // Optional: log this or suppress if expected
+        }
+        return result;
+    }
+
+
+    public Rectangle getDisplaySafeArea(Rectangle rect) {
+        if (rect == null) {
+            rect = new Rectangle();
+        }
+        if (getProperty("android.useSafeAreaInsets", "true").equals("false")) {
+            return super.getDisplaySafeArea(rect);
+        }
+        if (this.myView != null) {
+            rect.setBounds(
+                    this.myView.getSafeAreaInsets().left,
+                    this.myView.getSafeAreaInsets().top,
+                    getDisplayWidth() - this.myView.getSafeAreaInsets().right - this.myView.getSafeAreaInsets().left,
+                    getDisplayHeight() - this.myView.getSafeAreaInsets().top - this.myView.getSafeAreaInsets().bottom
+            );
+            return rect;
+        }
+
+        return super.getDisplaySafeArea(rect);
+    }
+
+    /**
+     * A status flag to indicate that CN1 is in the process of deinitializing.
+     */
+    private static boolean deinitializing;
+    private static boolean deinitializingEdt;
+
+    public static void syncDeinitialize() {
+        if (deinitializingEdt){
+            return;
+        }
+        deinitializingEdt = true; // This will get unset in {@link #deinitialize()}
+        deinitializing = true;
+        Display.getInstance().callSerially(new Runnable() {
+            @Override
+            public void run() {
+                Display.deinitialize();
+                deinitializingEdt = false;
+            }
+        });
+    }
+
+    public void deinitialize() {
+        //activity.getWindowManager().removeView(relativeLayout);
+        super.deinitialize();
+        if (getActivity() != null) {
+
+            Runnable r = new Runnable() {
+                public void run() {
+                    synchronized (AndroidImplementation.this) {
+                        if (!deinitializing) {
+                            return;
+                        }
+                        deinitializing = false;
+                    }
+                    if (nativePeers.size() > 0) {
+                        for (int i = 0; i < nativePeers.size(); i++) {
+                            ((AndroidImplementation.AndroidPeer) nativePeers.elementAt(i)).deinit();
+                        }
+                    }
+                    if (accessibilityProvider != null) {
+                        accessibilityProvider.dispose();
+                        accessibilityProvider = null;
+                    }
+                    if (relativeLayout != null) {
+                        relativeLayout.removeAllViews();
+                    }
+                    relativeLayout = null;
+                    myView = null;
+                }
+            };
+
+            if (Looper.getMainLooper().getThread() == Thread.currentThread()) {
+                deinitializing = true;
+                r.run();
+            } else {
+                deinitializing = true;
+                getActivity().runOnUiThread(r);
+            }
+        } else {
+            deinitializing = false;
+        }
+    }
+
+    /**
+     * init view. a lot of back and forth between this thread and the UI thread.
+     */
+    private void initSurface() {
+        if (getActivity() != null && myView == null) {
+            relativeLayout=  new RelativeLayout(getActivity());
+            relativeLayout.setLayoutParams(new RelativeLayout.LayoutParams(
+                    RelativeLayout.LayoutParams.FILL_PARENT,
+                    RelativeLayout.LayoutParams.FILL_PARENT));
+            relativeLayout.setFocusable(false);
+
+            getActivity().getWindow().setBackgroundDrawable(null);
+            if(asyncView) {
+                if(android.os.Build.VERSION.SDK_INT < 14){
+                    myView = new AndroidSurfaceView(getActivity(), AndroidImplementation.this);
+                } else {
+                    int hardwareAcceleration = 16777216;
+                    getActivity().getWindow().setFlags(hardwareAcceleration, hardwareAcceleration);
+                    myView = new AndroidAsyncView(getActivity(), AndroidImplementation.this);
+                }
+            } else {
+                int hardwareAcceleration = 16777216;
+                getActivity().getWindow().setFlags(hardwareAcceleration, hardwareAcceleration);
+                superPeerMode = true;
+                myView = new AndroidAsyncView(getActivity(), AndroidImplementation.this);
+            }
+            myView.getAndroidView().setVisibility(View.VISIBLE);
+            // Makes the surface an Android drop target, so a drag from another application --
+            // or from elsewhere in this one -- reaches the components that asked for it.
+            AndroidNativeDragAndDrop.install(this, myView.getAndroidView());
+
+            if (hideOverlayWindowsRequested) {
+                setHideOverlayWindows(true);
+            }
+
+            if (Build.VERSION.SDK_INT >= 16) {
+                final View semanticHost = myView.getAndroidView();
+                accessibilityProvider = new AndroidAccessibilityProvider(semanticHost, this);
+                semanticHost.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+                    @Override
+                    public android.view.accessibility.AccessibilityNodeProvider getAccessibilityNodeProvider(View host) {
+                        return accessibilityProvider;
+                    }
+                });
+            }
+
+            relativeLayout.addView(myView.getAndroidView());
+            myView.getAndroidView().setVisibility(View.VISIBLE);
+
+            int id = getActivity().getResources().getIdentifier("main", "layout", getActivity().getApplicationInfo().packageName);
+            RelativeLayout root = (RelativeLayout) LayoutInflater.from(getActivity()).inflate(id, null);
+            if(viewAbove != null) {
+                RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+                lp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+                lp.addRule(RelativeLayout.CENTER_HORIZONTAL);
+
+                RelativeLayout.LayoutParams lp2 = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT);
+                lp2.setMargins(0, 0, aboveSpacing, 0);
+                relativeLayout.setLayoutParams(lp2);
+                root.addView(viewAbove, lp);
+            }
+            root.addView(relativeLayout);
+            if(viewBelow != null) {
+                RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+                lp.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+                lp.addRule(RelativeLayout.CENTER_HORIZONTAL);
+
+                RelativeLayout.LayoutParams lp2 = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT);
+                lp2.setMargins(0, 0, 0, belowSpacing);
+                relativeLayout.setLayoutParams(lp2);
+                root.addView(viewBelow, lp);
+            }
+            getActivity().setContentView(root);
+            if (!myView.getAndroidView().hasFocus()) {
+                myView.getAndroidView().requestFocus();
+            }
+        }
+    }
+
+    @Override
+    public void confirmControlView() {
+        if(myView == null){
+            return;
+        }
+        myView.getAndroidView().setVisibility(View.VISIBLE);
+        //ugly workaround for a bug where on some android versions the async view
+        //came back black from the background.
+        if(myView instanceof AndroidAsyncView){
+            final AndroidAsyncView finalView = (AndroidAsyncView)myView;
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    Util.sleep(1000);
+                    finalView.setPaintViewOnBuffer(false);
+                }
+            }).start();
+        }
+    }
+
+    public void hideNotifyPublic() {
+        super.hideNotify();
+        saveTextEditingState();
+    }
+
+    public void showNotifyPublic() {
+        super.showNotify();
+    }
+
+    @Override
+    public boolean isMinimized() {
+        return getActivity() == null || ((CodenameOneActivity)getActivity()).isBackground();
+    }
+
+    @Override
+    public boolean minimizeApplication() {
+        Activity activity = getActivity();
+        if (activity != null) {
+            // Move the app task to background instead of explicitly launching HOME.
+            // Some OEM launchers are no longer exported and can throw SecurityException
+            // when invoked via an ACTION_MAIN/CATEGORY_HOME intent.
+            if (activity.moveTaskToBack(true)) {
+                return true;
+            }
+        }
+
+        // Fallback for edge-cases where there is no active activity/task.
+        Intent startMain = new Intent(Intent.ACTION_MAIN);
+        startMain.addCategory(Intent.CATEGORY_HOME);
+        startMain.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startMain.putExtra("WaitForResult", Boolean.FALSE);
+        try {
+            getContext().startActivity(startMain);
+            return true;
+        } catch (SecurityException ex) {
+            Log.e("Codename One", "Unable to minimize application", ex);
+            return false;
+        }
+    }
+
+    @Override
+    public void restoreMinimizedApplication() {
+        if (getActivity() != null) {
+            Intent i = new Intent(getActivity(), getActivity().getClass());
+            i.setAction(Intent.ACTION_MAIN);
+            i.addCategory(Intent.CATEGORY_LAUNCHER);
+            getContext().startActivity(i);
+        }
+    }
+
+    @Override
+    public boolean isNativeInputImmediate() {
+        return true;
+    }
+
+    public void editString(final Component cmp, int maxSize, final int constraint, String text, int keyCode) {
+        InPlaceEditView.edit(this, cmp, constraint);
+    }
+
+    protected boolean editInProgress() {
+        return InPlaceEditView.isEditing();
+    }
+
+    @Override
+    public boolean isAsyncEditMode() {
+        return asyncEditMode;
+    }
+
+    void setAsyncEditMode(boolean async) {
+        asyncEditMode = async;
+    }
+
+    void callHideTextEditor() {
+        super.hideTextEditor();
+    }
+
+    @Override
+    public void hideTextEditor() {
+        InPlaceEditView.hideActiveTextEditor();
+    }
+
+    @Override
+    public boolean isNativeEditorVisible(Component c) {
+        return super.isNativeEditorVisible(c) && !InPlaceEditView.isActiveTextEditorHidden();
+    }
+
+    public static void stopEditing() {
+        stopEditing(false);
+    }
+
+    public static void stopEditing(final boolean forceVKBClose){
+        if (getActivity() == null) {
+            return;
+        }
+        final boolean[] flag = new boolean[]{false};
+
+        // InPlaceEditView.endEdit must be called from the UI thread.
+        // We must wait for this call to be over, otherwise Codename One's painting
+        // of the next form will be garbled.
+        getActivity().runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                // Must be called from the UI thread
+                InPlaceEditView.stopEdit(forceVKBClose);
+
+                synchronized (flag) {
+                    flag[0] = true;
+                    flag.notify();
+                }
+            }
+        });
+
+        if (!flag[0]) {
+            // Wait (if necessary) for the asynchronous runOnUiThread to do its work
+            synchronized (flag) {
+
+                try {
+                    flag.wait();
+                } catch (InterruptedException e) {
+                }
+            }
+        }
+    }
+
+    @Override
+    public void saveTextEditingState() {
+        stopEditing(true);
+    }
+
+    @Override
+    public void stopTextEditing() {
+        saveTextEditingState();
+    }
+
+    @Override
+    public void stopTextEditing(final Runnable onFinish) {
+        final Form f = Display.getInstance().getCurrent();
+        f.addSizeChangedListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent evt) {
+                f.removeSizeChangedListener(this);
+                Display.getInstance().callSerially(new Runnable() {
+                    @Override
+                    public void run() {
+                        onFinish.run();
+                    }
+                });
+            }
+        });
+        stopEditing(true);
+    }
+
+
+    protected void setLastSizeChangedWH(int w, int h) {
+        // not used?
+        //this.lastSizeChangeW = w;
+        //this.lastSizeChangeH = h;
+    }
+
+    /*@Override
+    public boolean handleEDTException(final Throwable err) {
+
+        final boolean[] messageComplete = new boolean[]{false};
+
+        Log.e("Codename One", "Err on EDT", err);
+
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                UIManager m = UIManager.getInstance();
+                final FrameLayout frameLayout = new FrameLayout(
+                        activity);
+                final TextView textView = new TextView(
+                        activity);
+                textView.setGravity(Gravity.CENTER);
+                frameLayout.addView(textView, new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.FILL_PARENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT));
+                textView.setText("An internal application error occurred: " + err.toString());
+                AlertDialog.Builder bob = new AlertDialog.Builder(
+                        activity);
+                bob.setView(frameLayout);
+                bob.setTitle("");
+                bob.setPositiveButton(m.localize("ok", "OK"),
+                        new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface d, int which) {
+                                d.dismiss();
+                                synchronized (messageComplete) {
+                                    messageComplete[0] = true;
+                                    messageComplete.notify();
+                                }
+                            }
+                        });
+                AlertDialog editDialog = bob.create();
+                editDialog.show();
+            }
+        });
+
+        synchronized (messageComplete) {
+            if (messageComplete[0]) {
+                return true;
+            }
+            try {
+                messageComplete.wait();
+            } catch (Exception ignored) {
+                ;
+            }
+        }
+        return true;
+    }*/
+
+    @Override
+    public InputStream getResourceAsStream(Class cls, String resource) {
+        try {
+            if (resource.startsWith("/")) {
+                resource = resource.substring(1);
+            }
+            return getContext().getAssets().open(resource);
+        } catch (IOException ex) {
+            Log.i("Codename One", "Resource not found: " + resource);
+            return null;
+        }
+    }
+
+    @Override
+    protected void pointerPressed(final int x, final int y) {
+        super.pointerPressed(x, y);
+    }
+
+    @Override
+    protected void pointerPressed(final int[] x, final int[] y) {
+        super.pointerPressed(x, y);
+    }
+
+    @Override
+    protected void pointerReleased(final int x, final int y) {
+        super.pointerReleased(x, y);
+    }
+
+    @Override
+    protected void pointerReleased(final int[] x, final int[] y) {
+        super.pointerReleased(x, y);
+    }
+
+    @Override
+    protected void pointerDragged(int x, int y) {
+        super.pointerDragged(x, y);
+    }
+
+    @Override
+    protected void pointerDragged(int[] x, int[] y) {
+        super.pointerDragged(x, y);
+    }
+
+    @Override
+    protected void pointerHover(int x, int y) {
+        super.pointerHover(x, y);
+    }
+
+    @Override
+    protected void pointerHover(int[] x, int[] y) {
+        super.pointerHover(x, y);
+    }
+
+    @Override
+    protected void pointerHoverPressed(int x, int y) {
+        super.pointerHoverPressed(x, y);
+    }
+
+    @Override
+    protected void pointerHoverPressed(int[] x, int[] y) {
+        super.pointerHoverPressed(x, y);
+    }
+
+    @Override
+    protected void pointerHoverReleased(int x, int y) {
+        super.pointerHoverReleased(x, y);
+    }
+
+    @Override
+    protected void pointerHoverReleased(int[] x, int[] y) {
+        super.pointerHoverReleased(x, y);
+    }
+
+    @Override
+    protected int getDragAutoActivationThreshold() {
+        return 1000000;
+    }
+
+    @Override
+    public void flushGraphics() {
+        if (myView != null) {
+            myView.flushGraphics();
+        }
+
+    }
+
+    @Override
+    public void flushGraphics(int x, int y, int width, int height) {
+        this.tmprect.set(x, y, x + width, y + height);
+        if (myView != null) {
+            myView.flushGraphics(this.tmprect);
+        }
+    }
+
+    @Override
+    public int charWidth(Object nativeFont, char ch) {
+        this.tmpchar[0] = ch;
+        float w = (nativeFont == null ? this.defaultFont
+                : (Paint) ((NativeFont) nativeFont).font).measureText(this.tmpchar, 0, 1);
+        if (w - (int) w > 0) {
+            return (int) (w + 1);
+        }
+        return (int) w;
+    }
+
+    @Override
+    public int charsWidth(Object nativeFont, char[] ch, int offset, int length) {
+        float w = (nativeFont == null ? this.defaultFont
+                : (Paint) ((NativeFont) nativeFont).font).measureText(ch, offset, length);
+        if (w - (int) w > 0) {
+            return (int) (w + 1);
+        }
+        return (int) w;
+    }
+
+    @Override
+    public int stringWidth(Object nativeFont, String str) {
+        float w = (nativeFont == null ? this.defaultFont
+                : (Paint) ((NativeFont) nativeFont).font).measureText(str);
+        if (w - (int) w > 0) {
+            return (int) (w + 1);
+        }
+        return (int) w;
+    }
+
+    @Override
+    public void setNativeFont(Object graphics, Object font) {
+        if (font == null) {
+            font = this.defaultFont;
+        }
+        if (font instanceof NativeFont) {
+            ((AndroidGraphics) graphics).setFont((CodenameOneTextPaint) ((NativeFont) font).font);
+        } else {
+            ((AndroidGraphics) graphics).setFont((CodenameOneTextPaint) font);
+        }
+    }
+
+    @Override
+    public int getHeight(Object nativeFont) {
+        CodenameOneTextPaint font = (nativeFont == null ? this.defaultFont
+                : (CodenameOneTextPaint) ((NativeFont) nativeFont).font);
+        if(font.fontHeight < 0) {
+            Paint.FontMetrics fm = font.getFontMetrics();
+            font.fontHeight = (int)Math.ceil(fm.bottom - fm.top);
+        }
+        return font.fontHeight;
+    }
+
+    @Override
+    public int getFontAscent(Object nativeFont) {
+        Paint font = (nativeFont == null ? this.defaultFont
+                : (Paint) ((NativeFont) nativeFont).font);
+        return -Math.round(font.getFontMetrics().ascent);
+    }
+
+    @Override
+    public int getFontDescent(Object nativeFont) {
+        Paint font = (nativeFont == null ? this.defaultFont
+                : (Paint) ((NativeFont) nativeFont).font);
+        return Math.abs(Math.round(font.getFontMetrics().descent));
+    }
+
+    @Override
+    public boolean isBaselineTextSupported() {
+        return true;
+    }
+
+
+
+
+
+
+    public int getFace(Object nativeFont) {
+        if (nativeFont == null) {
+            return Font.FACE_SYSTEM;
+        }
+        return ((NativeFont) nativeFont).face;
+    }
+
+    public int getStyle(Object nativeFont) {
+        if (nativeFont == null) {
+            return Font.STYLE_PLAIN;
+        }
+        return ((NativeFont) nativeFont).style;
+    }
+
+    @Override
+    public int getSize(Object nativeFont) {
+        if (nativeFont == null) {
+            return Font.SIZE_MEDIUM;
+        }
+        return ((NativeFont) nativeFont).size;
+    }
+
+    @Override
+    public boolean isTrueTypeSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isNativeFontSchemeSupported() {
+        return true;
+    }
+
+    private Typeface fontToRoboto(String fontName) {
+        if("native:MainThin".equals(fontName)) {
+            return Typeface.create("sans-serif-thin", Typeface.NORMAL);
+        }
+        if("native:MainLight".equals(fontName)) {
+            return Typeface.create("sans-serif-light", Typeface.NORMAL);
+        }
+        if("native:MainRegular".equals(fontName)) {
+            return Typeface.create("sans-serif", Typeface.NORMAL);
+        }
+
+        if("native:MainBold".equals(fontName)) {
+            return Typeface.create("sans-serif-condensed", Typeface.BOLD);
+        }
+
+        if("native:MainBlack".equals(fontName)) {
+            return Typeface.create("sans-serif-black", Typeface.BOLD);
+        }
+
+        if("native:ItalicThin".equals(fontName)) {
+            return Typeface.create("sans-serif-thin", Typeface.ITALIC);
+        }
+
+        if("native:ItalicLight".equals(fontName)) {
+            return Typeface.create("sans-serif-thin", Typeface.ITALIC);
+        }
+
+        if("native:ItalicRegular".equals(fontName)) {
+            return Typeface.create("sans-serif", Typeface.ITALIC);
+        }
+
+        if("native:ItalicBold".equals(fontName)) {
+            return Typeface.create("sans-serif-condensed", Typeface.BOLD_ITALIC);
+        }
+
+        if("native:ItalicBlack".equals(fontName)) {
+            return Typeface.create("sans-serif-black", Typeface.BOLD_ITALIC);
+        }
+
+        throw new IllegalArgumentException("Unsupported native font type: " + fontName);
+    }
+
+    @Override
+    public Object loadTrueTypeFont(String fontName, String fileName) {
+        if(fontName.startsWith("native:")) {
+            Typeface t = fontToRoboto(fontName);
+            int fontStyle = com.codename1.ui.Font.STYLE_PLAIN;
+            if(t.isBold()) {
+                fontStyle |= com.codename1.ui.Font.STYLE_BOLD;
+            }
+            if(t.isItalic()) {
+                fontStyle |= com.codename1.ui.Font.STYLE_ITALIC;
+            }
+            CodenameOneTextPaint newPaint = new CodenameOneTextPaint(t);
+            newPaint.setAntiAlias(true);
+            newPaint.setSubpixelText(true);
+            return new NativeFont(com.codename1.ui.Font.FACE_SYSTEM, fontStyle,
+                    com.codename1.ui.Font.SIZE_MEDIUM, newPaint, fileName, 0, 0);
+        }
+        Typeface t = Typeface.createFromAsset(getContext().getAssets(), fileName);
+        if(t == null) {
+            throw new RuntimeException("Font not found: " + fileName);
+        }
+        CodenameOneTextPaint newPaint = new CodenameOneTextPaint(t);
+        newPaint.setAntiAlias(true);
+        newPaint.setSubpixelText(true);
+        return new NativeFont(com.codename1.ui.Font.FACE_SYSTEM,
+                com.codename1.ui.Font.STYLE_PLAIN, com.codename1.ui.Font.SIZE_MEDIUM, newPaint, fileName, 0, 0);
+    }
+
+    public static class NativeFont {
+        int face;
+        int style;
+        int size;
+        public Object font;
+        String fileName;
+        float height;
+        int weight;
+
+        public NativeFont(int face, int style, int size, Object font, String fileName, float height, int weight) {
+            this(face, style, size, font);
+            this.fileName = fileName;
+            this.height = height;
+            this.weight = weight;
+        }
+
+        public NativeFont(int face, int style, int size, Object font) {
+            this.face = face;
+            this.style = style;
+            this.size = size;
+            this.font = font;
+        }
+
+        public boolean equals(Object o) {
+            if(o == null) {
+                return false;
+            }
+            NativeFont n = ((NativeFont)o);
+            if(fileName != null) {
+                return n.fileName != null && fileName.equals(n.fileName) && n.height == height && n.weight == weight;
+            }
+            return n.face == face && n.style == style && n.size == size && font.equals(n.font);
+        }
+
+        public int hashCode() {
+            return face | style | size;
+        }
+    }
+
+    /// Returns a copy of the given native font with its paint's letter spacing set
+    /// to the supplied value (Android letter spacing is in EM units, independent of
+    /// font size). Used by Style.letterSpacing so a per-UIID spacing -- matching the
+    /// Material text-appearance for each component -- is baked into the SAME paint
+    /// that does both measureText (layout) and drawText (render), keeping advances
+    /// consistent. Other ports get the default no-op.
+    @Override
+    public Object deriveTrueTypeFontWithLetterSpacing(Object font, float letterSpacing) {
+        NativeFont fnt = (NativeFont) font;
+        CodenameOneTextPaint copy = new CodenameOneTextPaint((CodenameOneTextPaint) fnt.font);
+        copy.setLetterSpacing(letterSpacing);
+        return new NativeFont(fnt.face, fnt.style, fnt.size, copy, fnt.fileName, fnt.height, fnt.weight);
+    }
+
+    @Override
+    public Object deriveTrueTypeFont(Object font, float size, int weight) {
+        NativeFont fnt = (NativeFont)font;
+        CodenameOneTextPaint paint = (CodenameOneTextPaint)fnt.font;
+        paint.setAntiAlias(true);
+        Typeface type = paint.getTypeface();
+        int fontstyle = Typeface.NORMAL;
+        if ((weight & Font.STYLE_BOLD) != 0 || type.isBold()) {
+            fontstyle |= Typeface.BOLD;
+        }
+        if ((weight & Font.STYLE_ITALIC) != 0 || type.isItalic()) {
+            fontstyle |= Typeface.ITALIC;
+        }
+        type = Typeface.create(type, fontstyle);
+        CodenameOneTextPaint newPaint = new CodenameOneTextPaint(type);
+        newPaint.setTextSize(size);
+        newPaint.setAntiAlias(true);
+        // preserve any letter spacing already configured on the source paint
+        newPaint.setLetterSpacing(paint.getLetterSpacing());
+        NativeFont n = new NativeFont(com.codename1.ui.Font.FACE_SYSTEM, weight, com.codename1.ui.Font.SIZE_MEDIUM, newPaint, fnt.fileName, size, weight);
+        return n;
+    }
+
+    @Override
+    public Object createFont(int face, int style, int size) {
+        Typeface typeface = null;
+        switch (face) {
+            case Font.FACE_MONOSPACE:
+                typeface = Typeface.MONOSPACE;
+                break;
+            default:
+                typeface = Typeface.DEFAULT;
+                break;
+        }
+
+        int fontstyle = Typeface.NORMAL;
+        if ((style & Font.STYLE_BOLD) != 0) {
+            fontstyle |= Typeface.BOLD;
+        }
+        if ((style & Font.STYLE_ITALIC) != 0) {
+            fontstyle |= Typeface.ITALIC;
+        }
+
+
+        int height = this.defaultFontHeight;
+        int diff = height / 3;
+
+        switch (size) {
+            case Font.SIZE_SMALL:
+                height -= diff;
+                break;
+            case Font.SIZE_LARGE:
+                height += diff;
+                break;
+        }
+
+        Paint font = new CodenameOneTextPaint(Typeface.create(typeface, fontstyle));
+        font.setAntiAlias(true);
+        font.setUnderlineText((style & Font.STYLE_UNDERLINED) != 0);
+        font.setTextSize(height);
+        return new NativeFont(face, style, size, font);
+
+    }
+
+    /**
+     * Loads a native font based on a lookup for a font name and attributes.
+     * Font lookup values can be separated by commas and thus allow fallback if
+     * the primary font isn't supported by the platform.
+     *
+     * @param lookup string describing the font
+     * @return the native font object
+     */
+    public Object loadNativeFont(String lookup) {
+        try {
+            lookup = lookup.split(";")[0];
+            int typeface = Typeface.NORMAL;
+            String familyName = lookup.substring(0, lookup.indexOf("-"));
+            String style = lookup.substring(lookup.indexOf("-") + 1, lookup.lastIndexOf("-"));
+            String size = lookup.substring(lookup.lastIndexOf("-") + 1, lookup.length());
+
+            if (style.equals("bolditalic")) {
+                typeface = Typeface.BOLD_ITALIC;
+            } else if (style.equals("italic")) {
+                typeface = Typeface.ITALIC;
+            } else if (style.equals("bold")) {
+                typeface = Typeface.BOLD;
+            }
+            Paint font = new CodenameOneTextPaint(Typeface.create(familyName, typeface));
+            font.setAntiAlias(true);
+            font.setTextSize(Integer.parseInt(size));
+            return new NativeFont(0, 0, 0, font);
+        } catch (Exception err) {
+            return null;
+        }
+    }
+
+    /**
+     * Indicates whether loading a font by a string is supported by the platform
+     *
+     * @return true if the platform supports font lookup
+     */
+    @Override
+    public boolean isLookupFontSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isAntiAliasedTextSupported() {
+        return true;
+    }
+
+    @Override
+    public void setAntiAliasedText(Object graphics, boolean a) {
+        android.graphics.Paint p  = ((AndroidGraphics) graphics).getFont();
+        if(p != null) {
+            p.setAntiAlias(a);
+        }
+    }
+
+    @Override
+    public Object getDefaultFont() {
+        CodenameOneTextPaint paint = new CodenameOneTextPaint(this.defaultFont);
+        return new NativeFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_MEDIUM, paint);
+    }
+
+
+    private AndroidGraphics nullGraphics;
+
+    private AndroidGraphics getNullGraphics() {
+        if (nullGraphics == null) {
+            Bitmap bitmap = Bitmap.createBitmap(getDisplayWidth()==0?100:getDisplayWidth(), getDisplayHeight()==0?100:getDisplayHeight(),
+                    Bitmap.Config.ARGB_8888);
+            nullGraphics = (AndroidGraphics) this.getNativeGraphics(bitmap);
+        }
+        return nullGraphics;
+    }
+
+
+    @Override
+    public Object getNativeGraphics() {
+        if(myView != null){
+            nullGraphics = null;
+            return myView.getGraphics();
+        }else{
+            return getNullGraphics();
+        }
+    }
+
+    @Override
+    public Object getNativeGraphics(Object image) {
+        AndroidGraphics g =  new AndroidGraphics(this, new Canvas((Bitmap) image), true);
+        g.underlyingBitmap = (Bitmap) image;
+        g.setClip(0, 0, ((Bitmap)image).getWidth(), ((Bitmap)image).getHeight());
+        return g;
+    }
+
+    @Override
+    public void getRGB(Object nativeImage, int[] arr, int offset, int x, int y,
+                       int width, int height) {
+        ((Bitmap) nativeImage).getPixels(arr, offset, width, x, y, width,
+                height);
+    }
+
+    private int sampleSizeOverride = -1;
+
+    @Override
+    public Object createImage(String path) throws IOException {
+        int IMAGE_MAX_SIZE = getDisplayHeight();
+        if (exists(path)) {
+            Bitmap b = null;
+            try {
+                //Decode image size
+                BitmapFactory.Options o = new BitmapFactory.Options();
+                o.inJustDecodeBounds = true;
+                o.inPreferredConfig = Bitmap.Config.ARGB_8888;
+
+                InputStream fis = createFileInputStream(path);
+                BitmapFactory.decodeStream(fis, null, o);
+                fis.close();
+
+                int scale = 1;
+                if (o.outHeight > IMAGE_MAX_SIZE || o.outWidth > IMAGE_MAX_SIZE) {
+                    scale = (int) Math.pow(2, (int) Math.round(Math.log(IMAGE_MAX_SIZE / (double) Math.max(o.outHeight, o.outWidth)) / Math.log(0.5)));
+                }
+
+                //Decode with inSampleSize
+                BitmapFactory.Options o2 = new BitmapFactory.Options();
+                o2.inPreferredConfig = Bitmap.Config.ARGB_8888;
+
+                if(sampleSizeOverride != -1) {
+                    o2.inSampleSize = sampleSizeOverride;
+                } else {
+                    String sampleSize = Display.getInstance().getProperty("android.sampleSize", null);
+                    if(sampleSize != null) {
+                        o2.inSampleSize = Integer.parseInt(sampleSize);
+                    } else {
+                        o2.inSampleSize = scale;
+                    }
+                }
+                o2.inPurgeable = true;
+                o2.inInputShareable = true;
+                fis = createFileInputStream(path);
+                b = BitmapFactory.decodeStream(fis, null, o2);
+                fis.close();
+
+                //fix rotation
+                ExifInterface exif = new ExifInterface(removeFilePrefix(path));
+                int orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+
+                int angle = 0;
+                switch (orientation) {
+                    case ExifInterface.ORIENTATION_ROTATE_90:
+                        angle = 90;
+                        break;
+                    case ExifInterface.ORIENTATION_ROTATE_180:
+                        angle = 180;
+                        break;
+                    case ExifInterface.ORIENTATION_ROTATE_270:
+                        angle = 270;
+                        break;
+                }
+
+                if (sampleSizeOverride < 0 && angle != 0) {
+                    Matrix mat = new Matrix();
+                    mat.postRotate(angle);
+                    Bitmap correctBmp = Bitmap.createBitmap(b, 0, 0, b.getWidth(), b.getHeight(), mat, true);
+                    b.recycle();
+                    b = correctBmp;
+                }
+            } catch (IOException e) {
+            }
+            return b;
+        } else {
+            InputStream in = this.getResourceAsStream(getClass(), path);
+            if (in == null) {
+                throw new IOException("Resource not found. " + path);
+            }
+            try {
+                return this.createImage(in);
+            } finally {
+                if (in != null) {
+                    try {
+                        in.close();
+                    } catch (Exception ignored) {
+                        ;
+                    }
+                }
+            }
+        }
+    }
+
+    @Override
+    public boolean areMutableImagesFast() {
+        if (myView == null) return false;
+        return !myView.alwaysRepaintAll();
+    }
+
+    @Override
+    public void repaint(Animation cmp) {
+        if(myView != null && myView.alwaysRepaintAll()) {
+            if(cmp instanceof Component) {
+                Component c = (Component)cmp;
+                c.setDirtyRegion(null);
+                if(c.getParent() != null) {
+                    cmp = c.getComponentForm();
+                } else {
+                    Form f = getCurrentForm();
+                    if(f != null) {
+                        cmp = f;
+                    }
+                }
+            } else {
+                // make sure the form is repainted for standalone anims e.g. in the case
+                // of replace animation
+                Form f = getCurrentForm();
+                if(f != null) {
+                    super.repaint(f);
+                }
+            }
+        }
+        super.repaint(cmp);
+    }
+
+    @Override
+    public Object createImage(InputStream i) throws IOException {
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
+        return BitmapFactory.decodeStream(i, null, opts);
+    }
+
+    @Override
+    public void releaseImage(Object image) {
+        Bitmap i = (Bitmap) image;
+        i.recycle();
+    }
+
+    @Override
+    public Object createImage(byte[] bytes, int offset, int len) {
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
+        return BitmapFactory.decodeByteArray(bytes, offset, len, opts);
+    }
+
+    @Override
+    public Object createImage(int[] rgb, int width, int height) {
+        return Bitmap.createBitmap(rgb, width, height, Bitmap.Config.ARGB_8888);
+    }
+
+    @Override
+    public boolean isAlphaMutableImageSupported() {
+        return true;
+    }
+
+    @Override
+    public Object scale(Object nativeImage, int width, int height) {
+        return Bitmap.createScaledBitmap((Bitmap) nativeImage, width, height,
+                false);
+    }
+
+    //    @Override
+//    public Object rotate(Object image, int degrees) {
+//        Matrix matrix = new Matrix();
+//        matrix.postRotate(degrees);
+//        return Bitmap.createBitmap((Bitmap) image, 0, 0, ((Bitmap) image).getWidth(), ((Bitmap) image).getHeight(), matrix, true);
+//    }
+    @Override
+    public boolean isRotationDrawingSupported() {
+        return false;
+    }
+
+    @Override
+    protected boolean cacheLinearGradients() {
+        return false;
+    }
+
+    @Override
+    public boolean isNativeInputSupported() {
+        return true;
+    }
+
+    /**
+     * Returns true if the underlying OS supports opening the native navigation
+     * application
+     * @return true if the underlying OS supports launch of native navigation app
+     */
+    public boolean isOpenNativeNavigationAppSupported(){
+        return true;
+    }
+
+    /**
+     * Opens the native navigation app in the given coordinate.
+     * @param latitude
+     * @param longitude
+     */
+    public void openNativeNavigationApp(double latitude, double longitude){
+        execute("google.navigation:ll=" + latitude+ "," + longitude);
+    }
+
+
+    @Override
+    public void openNativeNavigationApp(String location) {
+        execute("google.navigation:q=" + Util.encodeUrl(location));
+    }
+
+    @Override
+    public Object createMutableImage(int width, int height, int fillColor) {
+        Bitmap bitmap = Bitmap.createBitmap(width, height,
+                Bitmap.Config.ARGB_8888);
+        AndroidGraphics graphics = (AndroidGraphics) this.getNativeGraphics(bitmap);
+        graphics.fillBitmap(fillColor);
+        return bitmap;
+    }
+
+    @Override
+    public int getImageHeight(Object i) {
+        return ((Bitmap) i).getHeight();
+    }
+
+    @Override
+    public int getImageWidth(Object i) {
+        return ((Bitmap) i).getWidth();
+    }
+
+    @Override
+    public void drawImage(Object graphics, Object img, int x, int y) {
+        ((AndroidGraphics) graphics).drawImage(img, x, y);
+    }
+
+    @Override
+    public void tileImage(Object graphics, Object img, int x, int y, int w, int h) {
+        ((AndroidGraphics) graphics).tileImage(img, x, y, w, h);
+    }
+
+    public boolean isScaledImageDrawingSupported() {
+        return true;
+    }
+
+    public void drawImage(Object graphics, Object img, int x, int y, int w, int h) {
+        ((AndroidGraphics) graphics).drawImage(img, x, y, w, h);
+    }
+
+    @Override
+    public void drawLine(Object graphics, int x1, int y1, int x2, int y2) {
+        ((AndroidGraphics) graphics).drawLine(x1, y1, x2, y2);
+    }
+
+    @Override
+    public boolean isAntiAliasingSupported() {
+        return true;
+    }
+
+    @Override
+    public void setAntiAliased(Object graphics, boolean a) {
+        ((AndroidGraphics) graphics).getPaint().setAntiAlias(a);
+    }
+
+    @Override
+    public void drawPolygon(Object graphics, int[] xPoints, int[] yPoints, int nPoints) {
+        ((AndroidGraphics) graphics).drawPolygon(xPoints, yPoints, nPoints);
+    }
+
+    @Override
+    public void fillPolygon(Object graphics, int[] xPoints, int[] yPoints, int nPoints) {
+        ((AndroidGraphics) graphics).fillPolygon(xPoints, yPoints, nPoints);
+    }
+
+    @Override
+    public void drawRGB(Object graphics, int[] rgbData, int offset, int x,
+                        int y, int w, int h, boolean processAlpha) {
+        ((AndroidGraphics) graphics).drawRGB(rgbData, offset, x, y, w, h, processAlpha);
+    }
+
+    @Override
+    public void drawRect(Object graphics, int x, int y, int width, int height) {
+        ((AndroidGraphics) graphics).drawRect(x, y, width, height);
+    }
+
+    @Override
+    public void drawRoundRect(Object graphics, int x, int y, int width,
+                              int height, int arcWidth, int arcHeight) {
+        ((AndroidGraphics) graphics).drawRoundRect(x, y, width, height, arcWidth, arcHeight);
+    }
+
+    @Override
+    public void drawString(Object graphics, String str, int x, int y) {
+        ((AndroidGraphics) graphics).drawString(str, x, y);
+    }
+
+    @Override
+    public void drawArc(Object graphics, int x, int y, int width, int height,
+                        int startAngle, int arcAngle) {
+        ((AndroidGraphics) graphics).drawArc(x, y, width, height, startAngle, arcAngle);
+    }
+
+    @Override
+    public void fillArc(Object graphics, int x, int y, int width, int height,
+                        int startAngle, int arcAngle) {
+        ((AndroidGraphics) graphics).fillArc(x, y, width, height, startAngle, arcAngle);
+    }
+
+    @Override
+    public void fillRect(Object graphics, int x, int y, int width, int height) {
+        ((AndroidGraphics) graphics).fillRect(x, y, width, height);
+    }
+
+    @Override
+    public void fillRect(Object graphics, int x, int y, int w, int h, byte alpha) {
+        ((AndroidGraphics) graphics).fillRect(x, y, w, h, alpha);
+    }
+
+    @Override
+    public void paintComponentBackground(Object graphics, int x, int y, int width, int height, Style s) {
+        if((!asyncView) || compatPaintMode ) {
+            super.paintComponentBackground(graphics, x, y, width, height, s);
+            return;
+        }
+        ((AndroidGraphics) graphics).paintComponentBackground(x, y, width, height, s);
+    }
+
+    @Override
+    public void fillLinearGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height, boolean horizontal) {
+        if(!asyncView) {
+            super.fillLinearGradient(graphics, startColor, endColor, x, y, width, height, horizontal);
+            return;
+        }
+        ((AndroidGraphics)graphics).fillLinearGradient(startColor, endColor, x, y, width, height, horizontal);
+    }
+
+    @Override
+    public void fillRectRadialGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height, float relativeX, float relativeY, float relativeSize) {
+        if(!asyncView) {
+            super.fillRectRadialGradient(graphics, startColor, endColor, x, y, width, height, relativeX, relativeY, relativeSize);
+            return;
+        }
+        ((AndroidGraphics)graphics).fillRectRadialGradient(startColor, endColor, x, y, width, height, relativeX, relativeY, relativeSize);
+    }
+
+    @Override
+    public void fillRadialGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height) {
+        ((AndroidGraphics)graphics).fillRadialGradient(startColor, endColor, x, y, width, height);
+    }
+
+    @Override
+    public void fillRadialGradient(Object graphics, int startColor, int endColor, int x, int y, int width, int height, int startAngle, int arcAngle) {
+        ((AndroidGraphics)graphics).fillRadialGradient(startColor, endColor, x, y, width, height, startAngle, arcAngle);
+    }
+
+    @Override
+    public void fillGradient(Object graphics, com.codename1.ui.Gradient gradient,
+            int x, int y, int width, int height) {
+        // Always route Android multi-stop gradients through the native Shader
+        // path - the software rasterizer in the base impl would otherwise
+        // allocate a per-call ARGB buffer on the Bitmap-graphics path used by
+        // mutable images, which on Android emulator hardware GCs heavily for
+        // conic / large fills (the case that hung the instrumentation suite).
+        ((AndroidGraphics) graphics).fillGradient(gradient, x, y, width, height);
+    }
+
+    @Override
+    public void drawLabelComponent(Object nativeGraphics, int cmpX, int cmpY, int cmpHeight, int cmpWidth, Style style, String text, Object icon, Object stateIcon, int preserveSpaceForState, int gap, boolean rtl, boolean isOppositeSide, int textPosition, int stringWidth, boolean isTickerRunning, int tickerShiftText, boolean endsWith3Points, int valign) {
+        if(AndroidAsyncView.legacyPaintLogic) {
+            super.drawLabelComponent(nativeGraphics, cmpX, cmpY, cmpHeight, cmpWidth, style, text, icon, stateIcon, preserveSpaceForState, gap, rtl, isOppositeSide, textPosition, stringWidth, isTickerRunning, tickerShiftText, endsWith3Points, valign);
+            return;
+        }
+        ((AndroidGraphics)nativeGraphics).drawLabelComponent(cmpX, cmpY, cmpHeight, cmpWidth, style, text,
+                (Bitmap)icon, (Bitmap)stateIcon, preserveSpaceForState, gap, rtl, isOppositeSide, textPosition, stringWidth,
+                isTickerRunning, tickerShiftText, endsWith3Points, valign);
+    }
+
+
+    @Override
+    public void fillRoundRect(Object graphics, int x, int y, int width,
+                              int height, int arcWidth, int arcHeight) {
+        ((AndroidGraphics) graphics).fillRoundRect(x, y, width, height, arcWidth, arcHeight);
+    }
+
+    @Override
+    public int getAlpha(Object graphics) {
+        return ((AndroidGraphics) graphics).getAlpha();
+    }
+
+    @Override
+    public void setAlpha(Object graphics, int alpha) {
+        ((AndroidGraphics) graphics).setAlpha(alpha);
+    }
+
+    @Override
+    public boolean isAlphaGlobal() {
+        return true;
+    }
+
+    @Override
+    public void setColor(Object graphics, int RGB) {
+        ((AndroidGraphics) graphics).setColor((getColor(graphics) & 0xff000000) | RGB);
+    }
+
+    @Override
+    public int getBackKeyCode() {
+        return DROID_IMPL_KEY_BACK;
+    }
+
+    @Override
+    public int getBackspaceKeyCode() {
+        return DROID_IMPL_KEY_BACKSPACE;
+    }
+
+    @Override
+    public int getClearKeyCode() {
+        return DROID_IMPL_KEY_CLEAR;
+    }
+
+    @Override
+    public int getClipHeight(Object graphics) {
+        return ((AndroidGraphics) graphics).getClipHeight();
+    }
+
+    @Override
+    public int getClipWidth(Object graphics) {
+        return ((AndroidGraphics) graphics).getClipWidth();
+    }
+
+    @Override
+    public int getClipX(Object graphics) {
+        return ((AndroidGraphics) graphics).getClipX();
+    }
+
+    @Override
+    public int getClipY(Object graphics) {
+        return ((AndroidGraphics) graphics).getClipY();
+    }
+
+    @Override
+    public void setClip(Object graphics, int x, int y, int width, int height) {
+        ((AndroidGraphics) graphics).setClip(x, y, width, height);
+    }
+
+    @Override
+    public boolean isShapeClipSupported(Object graphics){
+        return Build.VERSION.SDK_INT > Build.VERSION_CODES.HONEYCOMB;
+    }
+
+    @Override
+    public void setClip(Object graphics, Shape shape) {
+        //Path p = cn1ShapeToAndroidPath(shape);
+        ((AndroidGraphics) graphics).setClip(shape);
+    }
+
+
+    @Override
+    public void clipRect(Object graphics, int x, int y, int width, int height) {
+        ((AndroidGraphics) graphics).clipRect(x, y, width, height);
+    }
+
+    @Override
+    public int getColor(Object graphics) {
+        return ((AndroidGraphics) graphics).getColor();
+    }
+
+    @Override
+    public int getDisplayHeight() {
+        if (this.myView != null) {
+            int h = this.myView.getViewHeight();
+            displayHeight = h;
+            return h;
+        }
+        return displayHeight;
+    }
+
+    @Override
+    public int getDisplayWidth() {
+        if (this.myView != null) {
+            int w = this.myView.getViewWidth();
+            displayWidth = w;
+            return w;
+        }
+        return displayWidth;
+    }
+
+    @Override
+    public int getActualDisplayHeight() {
+        DisplayMetrics dm = getContext().getResources().getDisplayMetrics();
+        return dm.heightPixels;
+    }
+
+    @Override
+    public int getGameAction(int keyCode) {
+        switch (keyCode) {
+            case DROID_IMPL_KEY_DOWN:
+                return Display.GAME_DOWN;
+            case DROID_IMPL_KEY_UP:
+                return Display.GAME_UP;
+            case DROID_IMPL_KEY_LEFT:
+                return Display.GAME_LEFT;
+            case DROID_IMPL_KEY_RIGHT:
+                return Display.GAME_RIGHT;
+            case DROID_IMPL_KEY_FIRE:
+                return Display.GAME_FIRE;
+            default:
+                return 0;
+        }
+    }
+
+    @Override
+    public int getKeyCode(int gameAction) {
+        switch (gameAction) {
+            case Display.GAME_DOWN:
+                return DROID_IMPL_KEY_DOWN;
+            case Display.GAME_UP:
+                return DROID_IMPL_KEY_UP;
+            case Display.GAME_LEFT:
+                return DROID_IMPL_KEY_LEFT;
+            case Display.GAME_RIGHT:
+                return DROID_IMPL_KEY_RIGHT;
+            case Display.GAME_FIRE:
+                return DROID_IMPL_KEY_FIRE;
+            default:
+                return 0;
+        }
+    }
+
+    @Override
+    public int[] getSoftkeyCode(int index) {
+        if (index == 0) {
+            return leftSK;
+        }
+        return null;
+    }
+
+    @Override
+    public int getSoftkeyCount() {
+        /**
+         * one menu button only. we may have to stuff some code here as soon as
+         * there are devices that no longer have only a single menu button.
+         */
+        return 1;
+    }
+
+    @Override
+    public void vibrate(int duration) {
+        if (!this.vibrateInitialized) {
+            try {
+                v = (Vibrator) getContext().getSystemService(Context.VIBRATOR_SERVICE);
+            } catch (Throwable e) {
+                Log.e("Codename One", "problem with virbrator(0)", e);
+            } finally {
+                this.vibrateInitialized = true;
+            }
+        }
+        if (v != null) {
+            try {
+                v.vibrate(duration);
+            } catch (Throwable e) {
+                Log.e("Codename One", "problem with virbrator(1)", e);
+            }
+        }
+    }
+
+    @Override
+    public boolean isTouchDevice() {
+        return getContext().getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN);
+    }
+
+    @Override
+    public boolean hasPendingPaints() {
+        //if the view is not visible make sure the edt won't wait.
+        if (myView != null && myView.getAndroidView().getVisibility() != View.VISIBLE) {
+            return true;
+        } else {
+            return super.hasPendingPaints();
+        }
+    }
+
+    public void revalidate() {
+        if (myView != null) {
+            myView.getAndroidView().setVisibility(View.VISIBLE);
+            Form form = getCurrentForm();
+            if (form != null) {
+                form.revalidate();
+            }
+            flushGraphics();
+        }
+
+    }
+
+    @Override
+    public int getKeyboardType() {
+        if (Display.getInstance().getDefaultVirtualKeyboard().isVirtualKeyboardShowing()) {
+            return Display.KEYBOARD_TYPE_VIRTUAL;
+        }
+        /**
+         * can we detect this? but even if we could i think it is best to have
+         * this fixed to qwerty. we pass unicode values to Codename One in any
+         * case. check AndroidView.onKeyUpDown() method. and read comment below.
+         */
+        return Display.KEYBOARD_TYPE_QWERTY;
+        /**
+         * some info from the MIDP docs about keycodes:
+         *
+         * "Applications receive keystroke events in which the individual keys
+         * are named within a space of key codes. Every key for which events are
+         * reported to MIDP applications is assigned a key code. The key code
+         * values are unique for each hardware key unless two keys are obvious
+         * synonyms for each other. MIDP defines the following key codes:
+         * KEY_NUM0, KEY_NUM1, KEY_NUM2, KEY_NUM3, KEY_NUM4, KEY_NUM5, KEY_NUM6,
+         * KEY_NUM7, KEY_NUM8, KEY_NUM9, KEY_STAR, and KEY_POUND. (These key
+         * codes correspond to keys on a ITU-T standard telephone keypad.) Other
+         * keys may be present on the keyboard, and they will generally have key
+         * codes distinct from those list above. In order to guarantee
+         * portability, applications should use only the standard key codes.
+         *
+         * The standard key codes values are equal to the Unicode encoding for
+         * the character that represents the key. If the device includes any
+         * other keys that have an obvious correspondence to a Unicode
+         * character, their key code values should equal the Unicode encoding
+         * for that character. For keys that have no corresponding Unicode
+         * character, the implementation must use negative values. Zero is
+         * defined to be an invalid key code."
+         *
+         * Because the MIDP implementation is our reference and that
+         * implementation does not interpret the given keycodes we behave alike
+         * and pass on the unicode values.
+         */
+    }
+
+    /**
+     * Exits the application...
+     */
+    public void exitApplication() {
+        android.os.Process.killProcess(android.os.Process.myPid());
+    }
+
+    /**
+     * finishAndRemoveTask() arrived in Lollipop, and there is nothing to remove without an
+     * activity -- a push or background service process owns no task of its own.
+     */
+    @Override
+    public boolean isExitAndClearTaskSupported() {
+        return Build.VERSION.SDK_INT >= 21 && getActivity() != null;
+    }
+
+    @Override
+    public void exitApplicationAndClearTask() {
+        final CodenameOneActivity a = getActivity();
+        if (a == null || Build.VERSION.SDK_INT < 21) {
+            exitApplication();
+            return;
+        }
+        Runnable finishAndKill = new Runnable() {
+            public void run() {
+                try {
+                    a.finishAndRemoveTask();
+                } catch (Throwable t) {
+                    // A task we failed to remove is still a task we must exit, so log and fall
+                    // through to the kill rather than leaving the application running.
+                    com.codename1.io.Log.e(t);
+                }
+                // Killing here is what makes this behave like exitApplication(), which never
+                // returns to its caller either. It does not race the removal: finishAndRemoveTask()
+                // is a blocking binder call into the activity manager, so the task is already off
+                // the recents list when it returns. Measured on an API 36 emulator with a probe
+                // that ran this exact sequence 29 times -- the task was gone from
+                // "dumpsys activity recents" every time, while the control that only killed the
+                // process (what exitApplication() does) left it there every time.
+                android.os.Process.killProcess(android.os.Process.myPid());
+            }
+        };
+        if (Looper.getMainLooper().getThread() == Thread.currentThread()) {
+            finishAndKill.run();
+        } else {
+            a.runOnUiThread(finishAndKill);
+        }
+    }
+
+    @Override
+    public void notifyPushCompletion() {
+        if (pushWakeLock != null && pushWakeLock.isHeld()) {
+            try {
+                pushWakeLock.release();
+            } catch (Exception ex) {
+                com.codename1.io.Log.e(ex);
+            }
+        }
+    }
+
+    @Override
+    public void notifyCommandBehavior(int commandBehavior) {
+        if (commandBehavior == Display.COMMAND_BEHAVIOR_NATIVE) {
+            if (getActivity() instanceof CodenameOneActivity) {
+                ((CodenameOneActivity) getActivity()).enableNativeMenu(true);
+            }
+        }
+    }
+
+    private static class NotifyActionBar implements Runnable {
+        private Activity activity;
+        private boolean show;
+
+        public NotifyActionBar(Activity activity, int commandBehavior) {
+            this.activity = activity;
+            show = commandBehavior == Display.COMMAND_BEHAVIOR_NATIVE;
+        }
+
+        public NotifyActionBar(Activity activity, boolean show) {
+            this.activity = activity;
+            this.show = show;
+        }
+
+        @Override
+        public void run() {
+            activity.invalidateOptionsMenu();
+            if (activity.getActionBar() == null) {
+                return;
+            }
+            if (show) {
+                activity.getActionBar().show();
+            } else {
+                activity.getActionBar().hide();
+            }
+        }
+    }
+
+    @Override
+    public String getAppArg() {
+        if (super.getAppArg() != null) {
+            // This just maintains backward compatibility in case people are manually
+            // setting the AppArg in their properties.  It reproduces the general
+            // behaviour the existed when AppArg was just another Display property.
+            return super.getAppArg();
+        }
+        if (getActivity() == null) {
+            return null;
+        }
+
+        android.content.Intent intent = getActivity().getIntent();
+        if (intent != null) {
+            publishIntentProperties(getActivity(), intent);
+            String sharedText = intent.getStringExtra(Intent.EXTRA_TEXT);
+            intent.removeExtra(Intent.EXTRA_TEXT);
+            Uri u = intent.getData();
+            String scheme = intent.getScheme();
+            if (u != null && isAppArgDelivered(intent)) {
+                // dispatchNewIntentUrl() already handed this url over as the app arg
+                // on the warm path. The data stays on the intent for the readers that
+                // want it -- `android.intent.data` above, and native code asking the
+                // activity for its intent -- and only the second delivery is dropped.
+                u = null;
+            }
+            if (u == null && intent.getExtras() != null) {
+                if (intent.getExtras().keySet().contains("android.intent.extra.STREAM")) {
+                    try {
+                        u = (Uri)intent.getParcelableExtra("android.intent.extra.STREAM");
+                        scheme = u.getScheme();
+                        System.out.println("u="+u);
+                    } catch (Exception ex) {
+                        Log.d("Codename One", "Failed to load parcelable extra from intent: "+ex.getMessage());
+                    }
+                }
+
+            }
+            if (u != null) {
+                //String scheme = intent.getScheme();
+                intent.setData(null);
+                if ("content".equals(scheme)) {
+                    try {
+                        InputStream attachment = getActivity().getContentResolver().openInputStream(u);
+                        if (attachment != null) {
+                            String name = getContentName(getActivity().getContentResolver(), u);
+                            if (name != null) {
+                                String filePath = getAppHomePath()
+                                        + getFileSystemSeparator() + name;
+                                if(filePath.startsWith("file:")) {
+                                    filePath = filePath.substring(5);
+                                }
+                                File f = new File(filePath);
+                                OutputStream tmp = createFileOuputStream(f);
+                                byte[] buffer = new byte[1024];
+                                int read = -1;
+                                while ((read = attachment.read(buffer)) > -1) {
+                                    tmp.write(buffer, 0, read);
+                                }
+                                tmp.close();
+                                attachment.close();
+                                setAppArg(addFile(filePath));
+                                return addFile(filePath);
+                            }
+                        }
+                    } catch (FileNotFoundException e) {
+                        e.printStackTrace();
+                        return null;
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                        return null;
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        return null;
+                    }
+                } else {
+
+                    /*
+                    // Why do we need this special case?  u.toString()
+                    // will include the full URL including query string.
+                    // This special case causes urls like myscheme://part1/part2
+                    // to only return "/part2" which is obviously problematic and
+                    // is inconsistent with iOS.  Is this special case necessary
+                    // in some versions of Android?
+                    String encodedPath = u.getEncodedPath();
+                    if (encodedPath != null && encodedPath.length() > 0) {
+                        String query = u.getQuery();
+                        if(query != null && query.length() > 0){
+                            encodedPath += "?" + query;
+                        }
+                        setAppArg(encodedPath);
+                        return encodedPath;
+                    }
+                    */
+                    if (sharedText != null) {
+                        setAppArg(sharedText);
+                        return sharedText;
+                    } else {
+                        setAppArg(u.toString());
+                        return u.toString();
+                    }
+
+                }
+            } else if (sharedText != null) {
+                setAppArg(sharedText);
+                return sharedText;
+            }
+        }
+        return null;
+    }
+    
+    // taken from https://stackoverflow.com/a/70380413/756809
+    private boolean isRunningOnAndroidStudioEmulator() {
+        return Build.FINGERPRINT.startsWith("google/sdk_gphone")
+                && Build.FINGERPRINT.endsWith(":user/release-keys")
+                && "Google".equals(Build.MANUFACTURER) && Build.PRODUCT.startsWith("sdk_gphone") && "google".equals(Build.BRAND)
+                && Build.MODEL.startsWith("sdk_gphone");
+    }
+
+    // taken from https://stackoverflow.com/a/57960169/756809
+    private boolean isEmulator() {
+        return isRunningOnAndroidStudioEmulator() ||
+                ((Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
+                || Build.FINGERPRINT.startsWith("generic")
+                || Build.FINGERPRINT.startsWith("unknown")
+                || Build.HARDWARE.contains("goldfish")
+                || Build.HARDWARE.contains("ranchu")
+                || Build.MODEL.contains("google_sdk")
+                || Build.MODEL.contains("Emulator")
+                || Build.MODEL.contains("Android SDK built for x86")
+                || Build.MODEL.contains("VirtualBox")
+                || Build.MANUFACTURER.contains("Genymotion")
+                || Build.PRODUCT.contains("sdk_google")
+                || Build.PRODUCT.contains("google_sdk")
+                || Build.PRODUCT.contains("sdk")
+                || Build.PRODUCT.contains("sdk_x86")
+                || Build.PRODUCT.contains("vbox86p")
+                || Build.PRODUCT.contains("emulator")
+                || Build.PRODUCT.contains("simulator"));
+    }
+
+
+    /**
+     * @inheritDoc
+     */
+    @Override
+    public boolean canDial() {
+        return getContext().getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEPHONY);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    private static String cn1DistributionChannel;
+    private static boolean cn1DistributionChannelResolved;
+    /** Codename One channel id-value pair id in the APK Signing Block ('c','n','1','C'). */
+    private static final int CN1_CHANNEL_PAIR_ID = 0x636E3143;
+
+    /**
+     * The distribution channel (app store) stamped into this APK's Signing Block by
+     * the build server's channel packages, or null for a normal build. Read once and
+     * cached. Mirrors the daemon's {@code ApkChannelWriter}: locate the signing block
+     * before the central directory and return the Codename One channel pair's value.
+     */
+    private String readDistributionChannel() {
+        if (cn1DistributionChannelResolved) {
+            return cn1DistributionChannel;
+        }
+        cn1DistributionChannelResolved = true;
+        try {
+            cn1DistributionChannel = cn1ReadChannelFromApk(getContext().getApplicationInfo().sourceDir);
+        } catch (Throwable t) {
+            cn1DistributionChannel = null;
+        }
+        return cn1DistributionChannel;
+    }
+
+    private static String cn1ReadChannelFromApk(String path) throws java.io.IOException {
+        java.io.RandomAccessFile f = new java.io.RandomAccessFile(path, "r");
+        try {
+            long len = f.length();
+            long eocd = -1;
+            long maxBack = Math.min(len, 22 + 0xFFFF);
+            for (long i = len - 22; i >= len - maxBack && i >= 0; i--) {
+                if (cn1U32(f, i) == 0x06054b50L) {
+                    eocd = i;
+                    break;
+                }
+            }
+            if (eocd < 0) {
+                return null;
+            }
+            long cdOffset = cn1U32(f, eocd + 16);
+            if (cdOffset < 24 || cdOffset == 0xFFFFFFFFL) {
+                return null;
+            }
+            byte[] magic = "APK Sig Block 42".getBytes("US-ASCII");
+            byte[] m = new byte[magic.length];
+            f.seek(cdOffset - 16);
+            f.readFully(m);
+            for (int i = 0; i < magic.length; i++) {
+                if (m[i] != magic[i]) {
+                    return null;
+                }
+            }
+            long sizeOfBlock = cn1U64(f, cdOffset - 24);
+            long blockStart = cdOffset - 8 - sizeOfBlock;
+            if (blockStart < 0) {
+                return null;
+            }
+            long p = blockStart + 8, to = cdOffset - 24;
+            while (p < to) {
+                long pairLen = cn1U64(f, p);
+                p += 8;
+                if (pairLen < 4 || p + pairLen > to + 8) {
+                    break;
+                }
+                if ((int) cn1U32(f, p) == CN1_CHANNEL_PAIR_ID) {
+                    byte[] v = new byte[(int) (pairLen - 4)];
+                    f.seek(p + 4);
+                    f.readFully(v);
+                    return new String(v, "UTF-8");
+                }
+                p += pairLen;
+            }
+            return null;
+        } finally {
+            f.close();
+        }
+    }
+
+    private static long cn1U32(java.io.RandomAccessFile f, long at) throws java.io.IOException {
+        f.seek(at);
+        int b0 = f.read(), b1 = f.read(), b2 = f.read(), b3 = f.read();
+        return (b0 & 0xFFL) | ((b1 & 0xFFL) << 8) | ((b2 & 0xFFL) << 16) | ((b3 & 0xFFL) << 24);
+    }
+
+    private static long cn1U64(java.io.RandomAccessFile f, long at) throws java.io.IOException {
+        f.seek(at);
+        long v = 0;
+        for (int i = 0; i < 8; i++) {
+            v |= (f.read() & 0xFFL) << (8 * i);
+        }
+        return v;
+    }
+
+    public String getProperty(String key, String defaultValue) {
+        if(key.equalsIgnoreCase("cn1_push_prefix")) {
+            /*if(!checkForPermission(Manifest.permission.READ_PHONE_STATE, "This is required to get notifications")){
+                return "";
+            }*/
+            boolean has = hasAndroidMarket();
+            if(has) {
+                return "gcm";
+            }
+            return defaultValue;
+        }
+        if ("OS".equals(key)) {
+            return "Android";
+        }
+        if ("DistributionChannel".equalsIgnoreCase(key) || "cn1.channel".equalsIgnoreCase(key)) {
+            // The app store this build was distributed through, stamped into the APK
+            // Signing Block by the Codename One build server's channel packages
+            // (android.distributionChannels). Empty for a normal Google Play build.
+            String ch = readDistributionChannel();
+            return ch != null ? ch : defaultValue;
+        }
+
+        // It's possible that this is triggering a Google Play data collection verification error
+        /*if ("androidId".equals(key)) {
+            return Settings.Secure.getString(getContext().getContentResolver(), Settings.Secure.ANDROID_ID);
+        }*/
+
+        /*if ("cellId".equals(key)) {
+            try {
+                if(!checkForPermission(Manifest.permission.READ_PHONE_STATE, "This is required to get the cellId")){
+                    return defaultValue;
+                }
+                String serviceName = Context.TELEPHONY_SERVICE;
+                TelephonyManager telephonyManager = (TelephonyManager) getContext().getSystemService(serviceName);
+                int cellId = ((GsmCellLocation) telephonyManager.getCellLocation()).getCid();
+                return "" + cellId;
+            } catch (Throwable t) {
+                return defaultValue;
+            }
+        }*/
+        if ("AppName".equals(key)) {
+
+            final PackageManager pm = getContext().getPackageManager();
+            ApplicationInfo ai;
+            try {
+                ai = pm.getApplicationInfo(getContext().getPackageName(), 0);
+            } catch (NameNotFoundException e) {
+                ai = null;
+            }
+            String applicationName = (String) (ai != null ? pm.getApplicationLabel(ai) : null);
+            if(applicationName == null){
+                return defaultValue;
+            }
+            return applicationName;
+        }
+        if ("AppVersion".equals(key)) {
+            try {
+                PackageInfo i = getContext().getPackageManager().getPackageInfo(getContext().getApplicationInfo().packageName, 0);
+                return i.versionName;
+            } catch (NameNotFoundException ex) {
+                ex.printStackTrace();
+            }
+            return defaultValue;
+        }
+        if ("Platform".equals(key)) {
+            String p = System.getProperty("platform");
+            if(p == null) {
+                return defaultValue;
+            }
+            return p;
+        }
+        if ("User-Agent".equals(key)) {
+            String ua = getUserAgent();
+            if(ua == null) {
+                return defaultValue;
+            }
+            return ua;
+        }
+        if("OSVer".equals(key)) {
+            return "" + android.os.Build.VERSION.RELEASE;
+        }
+        if("DeviceName".equals(key)) {
+            return "" + android.os.Build.MODEL;
+        }
+        if("DeviceHardwareModel".equals(key)) {
+            return "" + android.os.Build.MODEL;
+        }
+        if("DeviceManufacturer".equals(key)) {
+            return "" + android.os.Build.MANUFACTURER;
+        }
+        if("Emulator".equals(key)) {
+            return "" + isEmulator();
+        }
+        /*try {
+            if ("IMEI".equals(key) || "UDID".equals(key)) {
+                if(!checkForPermission(Manifest.permission.READ_PHONE_STATE, "This is required to get the device ID")){
+                    return "";
+                }
+                TelephonyManager tm = (TelephonyManager) getContext().getSystemService(Context.TELEPHONY_SERVICE);
+                String imei = null;
+                if (tm!=null && tm.getDeviceId() != null) {
+                    // for phones or 3g tablets
+                    imei = tm.getDeviceId();
+                } else {
+                    try {
+                        imei = Secure.getString(getContext().getContentResolver(), Secure.ANDROID_ID);
+                    } catch(Throwable t) {
+                        com.codename1.io.Log.e(t);
+                    }
+                }
+                return imei;
+            }
+            if ("MSISDN".equals(key)) {
+                if(!checkForPermission(Manifest.permission.READ_PHONE_STATE, "This is required to get the device ID")){
+                    return "";
+                }
+                TelephonyManager tm = (TelephonyManager) getContext().getSystemService(Context.TELEPHONY_SERVICE);
+                return tm.getLine1Number();
+            }
+        } catch(Throwable t) {
+            // will be caused by no permissions.
+            return defaultValue;
+        }*/
+
+        if (getActivity() != null) {
+            android.content.Intent intent = getActivity().getIntent();
+            if(intent != null){
+                Bundle extras = intent.getExtras();
+                if (extras != null) {
+                    String value = extras.getString(key);
+                    if(value != null) {
+                        return value;
+                    }
+                }
+            }
+        }
+
+        if(!key.startsWith("android.permission")) {
+            //these keys/values are from the Application Resources (strings values)
+            try {
+                int id = getContext().getResources().getIdentifier(key, "string", getContext().getApplicationInfo().packageName);
+                if (id != 0) {
+                    String val = getContext().getResources().getString(id);
+                    return val;
+                }
+            } catch (Exception e) {
+            }
+        }
+        return System.getProperty(key, super.getProperty(key, defaultValue));
+    }
+
+    private String getContentName(ContentResolver resolver, Uri uri) {
+        Cursor cursor = resolver.query(uri, null, null, null, null);
+        cursor.moveToFirst();
+        int nameIndex = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME);
+        if (nameIndex >= 0) {
+            String name = cursor.getString(nameIndex);
+            cursor.close();
+            return name;
+        }
+        return null;
+    }
+
+    private String getUserAgent() {
+        try {
+            String userAgent = System.getProperty("http.agent");
+            if(userAgent != null){
+                return userAgent;
+            }
+        } catch (Exception e) {
+        }
+        if (getActivity() == null) {
+            return "Android-CN1";
+        }
+        try {
+            Constructor<WebSettings> constructor = WebSettings.class.getDeclaredConstructor(Context.class, WebView.class);
+            constructor.setAccessible(true);
+            try {
+                WebSettings settings = constructor.newInstance(getActivity(), null);
+                return settings.getUserAgentString();
+            } finally {
+                constructor.setAccessible(false);
+            }
+        } catch (Exception e) {
+            final StringBuffer ua = new StringBuffer();
+            if (Thread.currentThread().getName().equalsIgnoreCase("main")) {
+                WebView m_webview = new WebView(getActivity());
+                ua.append(m_webview.getSettings().getUserAgentString());
+                m_webview.destroy();
+            } else {
+                final boolean[] flag = new boolean[1];
+                Thread thread = new Thread() {
+                    public void run() {
+                        Looper.prepare();
+                        WebView m_webview = new WebView(getActivity());
+                        ua.append(m_webview.getSettings().getUserAgentString());
+                        m_webview.destroy();
+                        Looper.loop();
+                        flag[0] = true;
+                        synchronized (flag) {
+                            flag.notify();
+                        }
+                    }
+                };
+                thread.setUncaughtExceptionHandler(AndroidImplementation.exceptionHandler);
+                thread.start();
+                while (!flag[0]) {
+                    synchronized (flag) {
+                        try {
+                            flag.wait(100);
+                        } catch (InterruptedException ex) {
+                        }
+                    }
+                }
+            }
+            return ua.toString();
+        }
+    }
+
+    private String getMimeType(String url){
+        String type = null;
+        String extension = MimeTypeMap.getFileExtensionFromUrl(url);
+        if (extension != null) {
+            MimeTypeMap mime = MimeTypeMap.getSingleton();
+
+            type = mime.getMimeTypeFromExtension(extension);
+        }
+        if (type == null) {
+            try {
+                Uri uri = Uri.parse(url);
+                ContentResolver cr = getContext().getContentResolver();
+                type = cr.getType(uri);
+            } catch (Throwable t) {
+                t.printStackTrace();
+            }
+        }
+        return type;
+    }
+
+    public static void copy(File src, File dst) throws IOException {
+        InputStream in = new FileInputStream(src);
+        try {
+            OutputStream out = new FileOutputStream(dst);
+            try {
+                // Transfer bytes from in to out
+                byte[] buf = new byte[8096];
+                int len;
+                while ((len = in.read(buf)) > 0) {
+                    out.write(buf, 0, len);
+                }
+            } finally {
+                out.close();
+            }
+        } finally {
+            in.close();
+        }
+    }
+
+    private static File makeTempCacheCopy(File file) throws IOException {
+        File cacheDir = new File(getContext().getCacheDir(), "intent_files");
+
+        // Create the storage directory if it does not exist
+        if (!cacheDir.exists()) {
+            if (!cacheDir.mkdirs()) {
+                Log.d(Display.getInstance().getProperty("AppName", "CodenameOne"), "failed to create directory");
+                return null;
+            }
+        }
+
+        File copy = new File(cacheDir, "tmp-"+System.currentTimeMillis()+file.getName());
+        copy(file, copy);
+        return copy;
+
+    }
+
+
+
+    private Intent createIntentForURL(String url) {
+        Intent intent;
+        Uri uri;
+        try {
+            if (url.startsWith("intent")) {
+                intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+            } else {
+                if(url.startsWith("/") || url.startsWith("file:")) {
+                    if (PermissionsHelper.requiresExternalStoragePermissionForMediaAccess()) {
+                        if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to open the file")){
+                            return null;
+                        }
+                    }
+
+                }
+                intent = new Intent();
+                intent.setAction(Intent.ACTION_VIEW);
+                if (url.startsWith("/")) {
+                    File f = new File(url);
+                    Uri furi = null;
+                    try {
+                        furi = FileProvider.getUriForFile(getContext(), getContext().getPackageName()+".provider", f);
+                    } catch (Exception ex) {
+                        f = makeTempCacheCopy(f);
+                        furi = FileProvider.getUriForFile(getContext(), getContext().getPackageName()+".provider", f);
+                    }
+        
+        
+                    if (Build.VERSION.SDK_INT < 21) {
+                        List<ResolveInfo> resInfoList = getContext().getPackageManager().queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY);
+                        for (ResolveInfo resolveInfo : resInfoList) {
+                            String packageName = resolveInfo.activityInfo.packageName;
+                            getContext().grantUriPermission(packageName, furi, Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        }
+                    }
+                    
+                    uri = furi;
+                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                }else{
+
+                    if (url.startsWith("file:")) {
+                        File f = new File(removeFilePrefix(url));
+                        System.out.println("File size: "+f.length());
+
+                        Uri furi = null;
+                        try {
+                            furi = FileProvider.getUriForFile(getContext(), getContext().getPackageName()+".provider", f);
+                        } catch (Exception ex) {
+                            f = makeTempCacheCopy(f);
+                            furi = FileProvider.getUriForFile(getContext(), getContext().getPackageName()+".provider", f);
+                        }
+
+
+                        if (Build.VERSION.SDK_INT < 21) {
+                            List<ResolveInfo> resInfoList = getContext().getPackageManager().queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY);
+                            for (ResolveInfo resolveInfo : resInfoList) {
+                                String packageName = resolveInfo.activityInfo.packageName;
+                                getContext().grantUriPermission(packageName, furi, Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            }
+                        }
+                        uri = furi;
+                        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+
+                    } else {
+                        uri = Uri.parse(url);
+                    }
+                }
+                String mimeType = getMimeType(url);
+                if(mimeType != null){
+                    intent.setDataAndType(uri, mimeType);
+                }else{
+                    intent.setData(uri);
+                }
+            }
+
+            return intent;
+        } catch(Exception err) {
+            com.codename1.io.Log.e(err);
+            return null;
+        }
+    }
+
+    @Override
+    public Boolean canExecute(String url) {
+        try {
+            Intent it = createIntentForURL(url);
+            if(it == null) {
+                return false;
+            }
+            final PackageManager mgr = getContext().getPackageManager();
+            List<ResolveInfo> list = mgr.queryIntentActivities(it, PackageManager.MATCH_DEFAULT_ONLY);
+            return list.size() > 0;
+        } catch(Exception err) {
+            com.codename1.io.Log.e(err);
+            return false;
+        }
+    }
+
+
+    public void execute(String url, ActionListener response) {
+        if (response != null) {
+            callback = new EventDispatcher();
+            callback.addListener(response);
+        }
+
+        try {
+            Intent intent = createIntentForURL(url);
+            if(intent == null) {
+                return;
+            }
+            if(response != null && getActivity() != null){
+                getActivity().startActivityForResult(intent, IntentResultListener.URI_SCHEME);
+            }else {
+                getContext().startActivity(intent);
+            }
+            return;
+        } catch (Exception ex) {
+            com.codename1.io.Log.e(ex);
+        }
+
+        try {
+            if(editInProgress()) {
+                stopEditing(true);
+            }
+            getContext().startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+
+    /**
+     * @inheritDoc
+     */
+    @Override
+    public void execute(String url) {
+        execute(url, null);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void playBuiltinSound(String soundIdentifier) {
+        if (getActivity() != null && Display.SOUND_TYPE_BUTTON_PRESS.equals(soundIdentifier)) {
+            getActivity().runOnUiThread(new Runnable() {
+                public void run() {
+                    if (myView != null) {
+                        myView.getAndroidView().playSoundEffect(AudioManager.FX_KEY_CLICK);
+                    }
+                }
+            });
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    protected void playNativeBuiltinSound(Object data) {
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public boolean isBuiltinSoundAvailable(String soundIdentifier) {
+        return false;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    @Override
+    public boolean isNativeVideoPlayerControlsIncluded() {
+        return true;
+    }
+    
+    private static final int STATE_PAUSED = 0;
+    private static final int STATE_PLAYING = 1;
+
+    private int mCurrentState;
+
+    private MediaBrowserCompat mMediaBrowserCompat;
+    private android.support.v4.media.session.MediaControllerCompat mMediaControllerCompat;
+    
+    private android.support.v4.media.session.MediaControllerCompat.Callback mMediaControllerCompatCallback = new android.support.v4.media.session.MediaControllerCompat.Callback() {
+
+        @Override
+        public void onPlaybackStateChanged(PlaybackStateCompat state) {
+            super.onPlaybackStateChanged(state);
+            if( state == null ) {
+                return;
+            }
+
+            switch( state.getState() ) {
+                case PlaybackStateCompat.STATE_PLAYING: {
+                    mCurrentState = STATE_PLAYING;
+                    break;
+                }
+                case PlaybackStateCompat.STATE_PAUSED: {
+                    mCurrentState = STATE_PAUSED;
+                    break;
+                }
+            }
+        }
+    };
+    
+    private MediaBrowserCompat.ConnectionCallback mMediaBrowserCompatConnectionCallback = new MediaBrowserCompat.ConnectionCallback() {
+
+        @Override
+        public void onConnected() {
+            super.onConnected();
+            try {
+                mMediaControllerCompat = new MediaControllerCompat(getActivity(), mMediaBrowserCompat.getSessionToken());
+                mMediaControllerCompat.registerCallback(mMediaControllerCompatCallback);
+                MediaControllerCompat.setMediaController(getActivity(), mMediaControllerCompat);
+                MediaControllerCompat.getMediaController(getActivity()).getTransportControls().play();
+
+            } catch( RemoteException e ) {
+                e.printStackTrace();
+            }
+        }
+    };
+
+    //BackgroundAudioService remoteControl;
+
+    @Override
+    public void startRemoteControl() {
+        super.startRemoteControl();
+        getActivity().runOnUiThread(new Runnable() {
+            public void run() {
+                mMediaBrowserCompat = new MediaBrowserCompat(getActivity(), new ComponentName(getActivity(), BackgroundAudioService.class),
+                mMediaBrowserCompatConnectionCallback, getActivity().getIntent().getExtras());
+
+                mMediaBrowserCompat.connect();
+                AndroidNativeUtil.addLifecycleListener(new LifecycleListener() {
+                    @Override
+                    public void onCreate(Bundle savedInstanceState) {
+
+                    }
+
+                    @Override
+                    public void onResume() {
+
+                    }
+
+                    @Override
+                    public void onPause() {
+
+                    }
+
+                    @Override
+                    public void onDestroy() {
+                        if (mMediaBrowserCompat != null) {
+                            if( MediaControllerCompat.getMediaController(getActivity()).getPlaybackState().getState() == PlaybackStateCompat.STATE_PLAYING ) {
+                                MediaControllerCompat.getMediaController(getActivity()).getTransportControls().pause();
+                            }
+
+                            mMediaBrowserCompat.disconnect();
+                            mMediaBrowserCompat = null;
+                        }
+                    }
+
+                    @Override
+                    public void onSaveInstanceState(Bundle b) {
+
+                    }
+
+                    @Override
+                    public void onLowMemory() {
+
+                    }
+                });
+            }
+            
+        });
+        
+    }
+
+    @Override
+    public void stopRemoteControl() {
+        super.stopRemoteControl(); 
+        if (mMediaBrowserCompat != null) {
+            if( MediaControllerCompat.getMediaController(getActivity()).getPlaybackState().getState() == PlaybackStateCompat.STATE_PLAYING ) {
+                MediaControllerCompat.getMediaController(getActivity()).getTransportControls().pause();
+            }
+
+            mMediaBrowserCompat.disconnect();
+            mMediaBrowserCompat = null;
+        }
+    }
+
+
+    @Override
+    public AsyncResource<Media> createBackgroundMediaAsync(final String uri) {
+        final AsyncResource<Media> out = new AsyncResource<Media>();
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    out.complete(createBackgroundMedia(uri));
+                } catch (IOException ex) {
+                    out.error(ex);
+                }
+            }
+        }).start();
+
+        return out;
+    }
+
+    private int nextMediaId;
+    private int backgroundMediaCount;
+    private ServiceConnection backgroundMediaServiceConnection;
+    @Override
+    public Media createBackgroundMedia(final String uri) throws IOException {
+        int mediaId = nextMediaId++;
+        backgroundMediaCount++;
+
+        Intent serviceIntent = new Intent(getContext(), AudioService.class);
+        serviceIntent.putExtra("mediaLink", uri);
+        serviceIntent.putExtra("mediaId", mediaId);
+        if (background == null) {
+            ServiceConnection mConnection = new ServiceConnection() {
+
+                public void onServiceDisconnected(ComponentName name) {
+
+                    background = null;
+                    backgroundMediaServiceConnection = null;
+                }
+
+                public void onServiceConnected(ComponentName name, IBinder service) {
+                    AudioService.LocalBinder mLocalBinder = (AudioService.LocalBinder) service;
+                    AudioService svc = (AudioService)mLocalBinder.getService();
+                    background = svc;
+                }
+            };
+            backgroundMediaServiceConnection = mConnection;
+            // Context.BIND_AUTO_CREATE, not getContext().BIND_AUTO_CREATE: it is a static
+            // constant, so reading it through an instance calls getContext() only to throw the
+            // result away -- which is what SpotBugs reports as
+            // RV_RETURN_VALUE_IGNORED_NO_SIDE_EFFECT.
+            boolean boundSuccess = getContext().bindService(serviceIntent, mConnection,
+                    Context.BIND_AUTO_CREATE);
+            if (!boundSuccess) {
+                throw new RuntimeException("Failed to bind background media service for uri "+uri);
+            }
+            ContextCompat.startForegroundService(getContext(), serviceIntent);
+            while (background == null) {
+                Display.getInstance().invokeAndBlock(new Runnable() {
+                    @Override
+                    public void run() {
+                        Util.sleep(200);
+                    }
+                });
+            }
+        } else {
+            ContextCompat.startForegroundService(getContext(), serviceIntent);
+        }
+
+        while (background.getMedia(mediaId) == null) {
+            Display.getInstance().invokeAndBlock(new Runnable() {
+                public void run() {
+                    Util.sleep(200);
+                }
+
+            });
+        }
+        Media ret = new MediaProxy(background.getMedia(mediaId)) {
+
+            
+            @Override
+            public void cleanup() {
+                super.cleanup();
+                if (--backgroundMediaCount <= 0) {
+                    if (backgroundMediaServiceConnection != null) {
+                        try {
+                            getContext().unbindService(backgroundMediaServiceConnection);
+                        } catch (IllegalArgumentException ex) {
+                            // This is thrown sometimes if the service has already been unbound
+                        }
+                    }
+                }
+            }
+        };
+        
+        return ret;
+
+    }
+
+
+    /**
+     * @inheritDoc
+     */
+    @Override
+    public Media createMedia(final String uri, boolean isVideo, final Runnable onCompletion) throws IOException {
+        if (getActivity() == null) {
+            return null;
+        }
+        if (uri.startsWith("file://")) {
+            return createMedia(removeFilePrefix(uri), isVideo, onCompletion);
+        }
+        File file = null;
+        if (uri.indexOf(':') < 0) {
+            // use a file object to play to try and workaround this issue:
+            // http://code.google.com/p/android/issues/detail?id=4124
+            file = new File(uri);
+        }
+
+        Uri parsedUri = null;
+        boolean isContentUri = false;
+        if (file == null) {
+            parsedUri = Uri.parse(uri);
+            isContentUri = parsedUri != null && "content".equalsIgnoreCase(parsedUri.getScheme());
+        }
+
+        // The document picker grants temporary permissions for content URIs. Requesting
+        // READ_EXTERNAL_STORAGE again would surface a redundant prompt on Android 13+, so we only
+        // ask for classic file paths that require the legacy permission. MediaStore URIs still
+        // require an explicit permission grant, so they remain subject to the legacy check even
+        // though they also use the content:// scheme.
+        boolean requiresLegacyPermission = !uri.startsWith(FileSystemStorage.getInstance().getAppHomePath());
+        if (isContentUri && parsedUri != null) {
+            String authority = parsedUri.getAuthority();
+            if (authority != null) {
+                authority = authority.toLowerCase();
+                if (!"media".equals(authority) && !authority.startsWith("media.")) {
+                    if (!"com.android.providers.media.documents".equals(authority)) {
+                        requiresLegacyPermission = false;
+                    }
+                }
+            } else {
+                requiresLegacyPermission = false;
+            }
+        }
+
+        if(requiresLegacyPermission) {
+            if(!PermissionsHelper.checkForPermission(isVideo ? DevicePermission.PERMISSION_READ_VIDEO : DevicePermission.PERMISSION_READ_AUDIO, "This is required to play media")){
+                return null;
+            }
+        }
+
+        Media retVal;
+
+        if (isVideo) {
+            final AndroidImplementation.Video[] video = new AndroidImplementation.Video[1];
+            final boolean[] flag = new boolean[1];
+            final File f = file;
+            final Uri videoUri = parsedUri;
+            getActivity().runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    VideoView v = new VideoView(getActivity());
+                    v.setZOrderMediaOverlay(true);
+                    if (f != null) {
+                        v.setVideoURI(Uri.fromFile(f));
+                    } else {
+                        v.setVideoURI(videoUri != null ? videoUri : Uri.parse(uri));
+                    }
+                    video[0] = new AndroidImplementation.Video(v, getActivity(), onCompletion);
+                    flag[0] = true;
+                    synchronized (flag) {
+                        flag.notify();
+                    }
+                }
+            });
+            while (!flag[0]) {
+                synchronized (flag) {
+                    try {
+                        flag.wait(100);
+                    } catch (InterruptedException ex) {
+                    }
+                }
+            }
+            return video[0];
+        } else {
+            MediaPlayer player;
+            if (file != null) {
+                FileInputStream is = new FileInputStream(file);
+                player = new MediaPlayer();
+                player.setDataSource(is.getFD());
+                player.prepare();
+            } else {
+                player = MediaPlayer.create(getActivity(), parsedUri != null ? parsedUri : Uri.parse(uri));
+                if (player == null && isContentUri) {
+                    // Android 13+ introduces stricter access rules for content:// URIs returned
+                    // from the system document picker. The picker grants our activity a
+                    // persistable read permission, but some OEM builds still reject the URI when it
+                    // is passed directly to MediaPlayer. Opening the descriptor ourselves keeps the
+                    // same permission grant while avoiding the OEM bug.
+                    ContentResolver resolver = getContext().getContentResolver();
+                    if (resolver != null && parsedUri != null) {
+                        AssetFileDescriptor afd = null;
+                        try {
+                            afd = resolver.openAssetFileDescriptor(parsedUri, "r");
+                            if (afd != null) {
+                                player = new MediaPlayer();
+                                player.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
+                                player.prepare();
+                            }
+                        } finally {
+                            if (afd != null) {
+                                try {
+                                    afd.close();
+                                } catch (IOException ignore) {
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (player == null) {
+                throw new IOException("Unable to create media player for uri " + uri);
+            }
+            retVal = new Audio(getActivity(), player, null, onCompletion);
+        }
+        return retVal;
+    }
+
+    @Override
+    public void addCompletionHandler(Media media, Runnable onCompletion) {
+        super.addCompletionHandler(media, onCompletion);
+        if (media instanceof Video) {
+            ((Video)media).addCompletionHandler(onCompletion);
+        } else if (media instanceof Audio) {
+            ((Audio)media).addCompletionHandler(onCompletion);
+        } else if (media instanceof MediaProxy) {
+            ((MediaProxy)media).addCompletionHandler(onCompletion);
+        }
+    }
+
+    @Override
+    public void removeCompletionHandler(Media media, Runnable onCompletion) {
+        super.removeCompletionHandler(media, onCompletion);
+        if (media instanceof Video) {
+            ((Video)media).removeCompletionHandler(onCompletion);
+        } else if (media instanceof Audio) {
+            ((Audio)media).removeCompletionHandler(onCompletion);
+        } else if (media instanceof MediaProxy) {
+            ((MediaProxy)media).removeCompletionHandler(onCompletion);
+        }
+    }
+
+    
+    
+    /**
+     * @inheritDoc
+     */
+    @Override
+    public Media createMedia(InputStream stream, String mimeType, final Runnable onCompletion) throws IOException {
+        if (getActivity() == null) {
+            return null;
+        }
+        /*if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to play media")){
+            return null;
+        }*/
+        boolean isVideo = mimeType.contains("video");
+
+        if (!isVideo && stream instanceof FileInputStream) {
+            MediaPlayer player = new MediaPlayer();
+            player.setDataSource(((FileInputStream) stream).getFD());
+            player.prepare();
+            return new Audio(getActivity(), player, stream, onCompletion);
+        }
+        String extension = MimeTypeMap.getFileExtensionFromUrl(mimeType);
+        final File temp = File.createTempFile("mtmp", extension == null ? "dat" : extension);
+        temp.deleteOnExit();
+        OutputStream out = createFileOuputStream(temp);
+
+        byte buf[] = new byte[256];
+        int len = 0;
+        while ((len = stream.read(buf, 0, buf.length)) > -1) {
+            out.write(buf, 0, len);
+        }
+        out.close();
+        stream.close();
+
+        final Runnable finish = new Runnable() {
+
+            @Override
+            public void run() {
+                if(onCompletion != null){
+                    Display.getInstance().callSerially(onCompletion);
+
+                    // makes sure the file is only deleted after the onCompletion was invoked
+                    Display.getInstance().callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            temp.delete();
+                        }
+                    });
+                    return;
+                }
+                temp.delete();
+            }
+        };
+
+        if (isVideo) {
+            final AndroidImplementation.Video[] retVal = new AndroidImplementation.Video[1];
+            final boolean[] flag = new boolean[1];
+
+            getActivity().runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    VideoView v = new VideoView(getActivity());
+                    v.setZOrderMediaOverlay(true);
+                    v.setVideoURI(Uri.fromFile(temp));
+                    retVal[0] = new AndroidImplementation.Video(v, getActivity(), finish);
+                    flag[0] = true;
+                    synchronized (flag) {
+                        flag.notify();
+                    }
+                }
+            });
+            while (!flag[0]) {
+                synchronized (flag) {
+                    try {
+                        flag.wait(100);
+                    } catch (InterruptedException ex) {
+                    }
+                }
+            }
+
+            return retVal[0];
+        } else {
+            return createMedia(createFileInputStream(temp), mimeType, finish);
+        }
+
+    }
+
+    @Override
+    public boolean isSoundPoolSupported() {
+        return getContext() != null;
+    }
+
+    @Override
+    public com.codename1.media.SoundPoolPeer createSoundPool(int maxStreams) {
+        if (getContext() == null) {
+            return null;
+        }
+        return new com.codename1.media.GameSoundPool(this, maxStreams);
+    }
+
+    @Override
+    public Media createMediaRecorder(MediaRecorderBuilder builder) throws IOException {
+        return createMediaRecorder(builder.getPath(), builder.getMimeType(), builder.getSamplingRate(), builder.getBitRate(), builder.getAudioChannels(), 0, builder.isRedirectToAudioBuffer());
+    }
+
+    @Override
+    public Media createMediaRecorder(final String path, final String mimeType) throws IOException {
+        MediaRecorderBuilder builder = new MediaRecorderBuilder()
+                .path(path)
+                .mimeType(mimeType);
+        return createMediaRecorder(builder);
+    }
+    
+   
+    
+    private  Media createMediaRecorder(final String path, final String mimeType, final int sampleRate, final int bitRate, final int audioChannels, final int maxDuration, final boolean redirectToAudioBuffer) throws IOException {
+        if (getActivity() == null) {
+            return null;
+        }
+        if(!checkForPermission(Manifest.permission.RECORD_AUDIO, "This is required to record audio")){
+            return null;
+        }
+        final Media[] record = new Media[1];
+        final IOException[] error = new IOException[1];
+
+        final Object lock = new Object();
+        synchronized (lock) {
+            getActivity().runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    synchronized (lock) {
+                        if (redirectToAudioBuffer) {
+                            final int channelConfig =audioChannels == 1 ? android.media.AudioFormat.CHANNEL_IN_MONO
+                                            : audioChannels == 2 ? android.media.AudioFormat.CHANNEL_IN_STEREO
+                                                    : android.media.AudioFormat.CHANNEL_IN_MONO;
+                            final AudioRecord recorder = new AudioRecord(
+                                    MediaRecorder.AudioSource.MIC, 
+                                    sampleRate, 
+                                    channelConfig,
+                                    AudioFormat.ENCODING_PCM_16BIT,
+                                    AudioRecord.getMinBufferSize(sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT)
+                            );
+                            
+                            final com.codename1.media.AudioBuffer audioBuffer = com.codename1.media.MediaManager.getAudioBuffer(path, true, 64);
+
+                            record[0] = new AbstractMedia() {
+                                private int lastTime;
+                                private boolean isRecording;
+                                @Override
+                                protected void playImpl() {
+                                    if (isRecording) {
+                                        return;
+                                    }
+                                    isRecording = true;
+                                    recorder.startRecording();
+                                    fireMediaStateChange(State.Playing);
+                                    new Thread(new Runnable() {
+                                        public void run() {
+                                            float[] audioData = new float[audioBuffer.getMaxSize()];
+                                            short[] buffer = new short[AudioRecord.getMinBufferSize(recorder.getSampleRate(), recorder.getChannelCount(), AudioFormat.ENCODING_PCM_16BIT)];
+                                            int read = -1;
+                                            int index = 0;
+                                            
+                                            while (isRecording && (read = recorder.read(buffer, 0, buffer.length)) >= 0) {
+                                                if (read > 0) {
+                                                    for (int i=0; i<read; i++) {
+                                                        audioData[index] = ((float)buffer[i]) / 0x8000;
+                                                        index++;
+                                                        if (index >= audioData.length) {
+                                                            audioBuffer.copyFrom(sampleRate, audioChannels, audioData, 0, index);
+                                                            index = 0;
+                                                        }
+                                                    }
+                                                    if (index > 0) {
+                                                        audioBuffer.copyFrom(sampleRate, audioChannels, audioData, 0, index);
+                                                        index = 0;
+                                                    }
+                                                }
+                                            }
+
+                                        }
+
+                                    }).start();
+                                }
+
+                                @Override
+                                protected void pauseImpl() {
+                                    if (!isRecording) {
+                                        return;
+                                    }
+                                    isRecording = false;
+                                    recorder.stop();
+
+
+                                    fireMediaStateChange(State.Paused);
+                                }
+
+                                @Override
+                                public void prepare() {
+                                    
+                                }
+
+                                @Override
+                                public void cleanup() {
+                                    pauseImpl();
+                                    recorder.release();
+                                    com.codename1.media.MediaManager.releaseAudioBuffer(path);
+                                    
+                                }
+
+                                @Override
+                                public int getTime() {
+                                    if (isRecording) {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                                            AudioTimestamp ts = new AudioTimestamp();
+                                            recorder.getTimestamp(ts, AudioTimestamp.TIMEBASE_MONOTONIC);
+                                            lastTime = (int) (ts.framePosition / ((float) sampleRate / 1000f));
+                                        }
+                                    }
+                                    return lastTime;
+                                }
+
+                                @Override
+                                public void setTime(int time) {
+                                    
+                                }
+
+                                @Override
+                                public int getDuration() {
+                                    return getTime();
+                                }
+
+                                @Override
+                                public void setVolume(int vol) {
+                                    
+                                }
+
+                                @Override
+                                public int getVolume() {
+                                    return 0;
+                                }
+
+                                @Override
+                                public boolean isPlaying() {
+                                    return recorder.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING;
+                                }
+
+                                @Override
+                                public Component getVideoComponent() {
+                                    return null;
+                                }
+
+                                @Override
+                                public boolean isVideo() {
+                                    return false;
+                                }
+
+                                @Override
+                                public boolean isFullScreen() {
+                                    return false;
+                                }
+
+                                @Override
+                                public void setFullScreen(boolean fullScreen) {
+                                    
+                                }
+
+                                @Override
+                                public void setNativePlayerMode(boolean nativePlayer) {
+                                    
+                                }
+
+                                @Override
+                                public boolean isNativePlayerMode() {
+                                    return false;
+                                }
+
+                                @Override
+                                public void setVariable(String key, Object value) {
+                                    
+                                }
+
+                                @Override
+                                public Object getVariable(String key) {
+                                    return null;
+                                }
+                                
+                            };
+                            lock.notify();
+                        } else {
+                            MediaRecorder recorder = new MediaRecorder();
+                            recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+                        
+                            if(mimeType.contains("amr")){
+                            recorder.setOutputFormat(MediaRecorder.OutputFormat.AMR_NB);
+                            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB);
+                            }else{
+                                recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+                                recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+                                recorder.setAudioSamplingRate(sampleRate);
+                                recorder.setAudioEncodingBitRate(bitRate);
+                            }
+                            if (audioChannels > 0) {
+                                recorder.setAudioChannels(audioChannels);
+                            }
+                            if (maxDuration > 0) {
+                                recorder.setMaxDuration(maxDuration);
+                            }
+                            recorder.setOutputFile(removeFilePrefix(path));
+                            try {
+                                recorder.prepare();
+                                record[0] = new AndroidRecorder(recorder);
+                            } catch (IllegalStateException ex) {
+                                Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+                            } catch (IOException ex) {
+                                error[0] = ex;
+                            } finally {
+                                lock.notify();
+                            }
+                        }
+                        
+
+
+                    }
+                }
+            });
+
+            try {
+                lock.wait();
+            } catch (InterruptedException ex) {
+                ex.printStackTrace();
+            }
+
+            if (error[0] != null) {
+                throw error[0];
+            }
+
+            return record[0];
+        }
+    }
+
+    public String [] getAvailableRecordingMimeTypes(){
+        // audio/aac and audio/mp4 result in the same thing
+        // AAC are wrapped in an mp4 container.
+        return new String[]{"audio/amr", "audio/aac", "audio/mp4"};
+    }
+
+
+    /**
+     * @inheritDoc
+     */
+    public Object createSoftWeakRef(Object o) {
+        return new SoftReference(o);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public Object extractHardRef(Object o) {
+        SoftReference w = (SoftReference) o;
+        if (w != null) {
+            return w.get();
+        }
+        return null;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public PeerComponent createNativePeer(Object nativeComponent) {
+        if (!(nativeComponent instanceof View)) {
+            throw new IllegalArgumentException(nativeComponent.getClass().getName());
+        }
+        return new AndroidImplementation.AndroidPeer((View) nativeComponent);
+    }
+
+    private final java.util.Map<PeerComponent, AndroidGLSurface> glSurfaces =
+            new java.util.IdentityHashMap<PeerComponent, AndroidGLSurface>();
+
+    private final com.codename1.impl.gpu.GpuImplementation gpuImpl =
+            new com.codename1.impl.gpu.GpuImplementation() {
+        @Override
+        public PeerComponent createPeer(final com.codename1.gpu.RenderView view) {
+            final CodenameOneActivity a = getActivity();
+            if (a == null) {
+                return null;
+            }
+            // The GLSurfaceView must be constructed on the UI thread; block until
+            // it exists so we can wrap and return its peer to the caller.
+            final AndroidGLSurface[] holder = new AndroidGLSurface[1];
+            final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+            a.runOnUiThread(new Runnable() {
+                public void run() {
+                    try {
+                        holder[0] = new AndroidGLSurface(a, view);
+                    } catch (Throwable t) {
+                        t.printStackTrace();
+                    } finally {
+                        latch.countDown();
+                    }
+                }
+            });
+            try {
+                latch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            AndroidGLSurface surface = holder[0];
+            if (surface == null) {
+                return null;
+            }
+            PeerComponent peer = createNativePeer(surface);
+            if (peer != null) {
+                glSurfaces.put(peer, surface);
+            }
+            return peer;
+        }
+
+        @Override
+        public void setContinuous(PeerComponent peer, final boolean continuous) {
+            final AndroidGLSurface surface = glSurfaces.get(peer);
+            if (surface == null) {
+                return;
+            }
+            final CodenameOneActivity a = getActivity();
+            if (a == null) {
+                return;
+            }
+            a.runOnUiThread(new Runnable() {
+                public void run() {
+                    surface.setRenderMode(continuous
+                            ? android.opengl.GLSurfaceView.RENDERMODE_CONTINUOUSLY
+                            : android.opengl.GLSurfaceView.RENDERMODE_WHEN_DIRTY);
+                }
+            });
+        }
+
+        @Override
+        public void requestRender(PeerComponent peer) {
+            AndroidGLSurface surface = glSurfaces.get(peer);
+            if (surface != null) {
+                surface.requestRender();
+            }
+        }
+    };
+
+    @Override
+    public com.codename1.impl.gpu.GpuImplementation getGpuImplementation() {
+        return gpuImpl;
+    }
+
+    private void blockNativeFocusAll(boolean block) {
+        synchronized (this.nativePeers) {
+            final int size = this.nativePeers.size();
+            for (int i = 0; i < size; i++) {
+                AndroidImplementation.AndroidPeer next = (AndroidImplementation.AndroidPeer) this.nativePeers.get(i);
+                next.blockNativeFocus(block);
+            }
+        }
+    }
+
+    public void onFocusChange(View view, boolean bln) {
+
+        if (bln) {
+            /**
+             * whenever the base view receives focus we automatically block
+             * possible native subviews from gaining focus.
+             */
+            blockNativeFocusAll(true);
+            if (this.lastDirectionalKeyEventReceivedByWrapper != 0) {
+                /**
+                 * because we also consume any key event in the OnKeyListener of
+                 * the native wrappers, we have to simulate key events to make
+                 * Codename One move the focus to the next component.
+                 */
+                if (myView == null) {
+                    return;
+                }
+                if (!myView.getAndroidView().isInTouchMode()) {
+                    switch (lastDirectionalKeyEventReceivedByWrapper) {
+                        case AndroidImplementation.DROID_IMPL_KEY_LEFT:
+                        case AndroidImplementation.DROID_IMPL_KEY_RIGHT:
+                        case AndroidImplementation.DROID_IMPL_KEY_UP:
+                        case AndroidImplementation.DROID_IMPL_KEY_DOWN:
+                            Display.getInstance().keyPressed(lastDirectionalKeyEventReceivedByWrapper);
+                            Display.getInstance().keyReleased(lastDirectionalKeyEventReceivedByWrapper);
+                            break;
+                        default:
+                            Log.d("Codename One", "unexpected keycode: " + lastDirectionalKeyEventReceivedByWrapper);
+                            break;
+                    }
+                } else {
+                    Log.d("Codename One", "base view gained focus but no key event to process.");
+                }
+                lastDirectionalKeyEventReceivedByWrapper = 0;
+            }
+        }
+
+    }
+
+    @Override
+    public void edtIdle(boolean enter) {
+        super.edtIdle(enter);
+        if(enter) {
+            // check if we have peers waiting for resize...
+            if(myView instanceof AndroidAsyncView) {
+                ((AndroidAsyncView)myView).resizeViews();
+            }
+        }
+    }
+
+    static final Map<View,AndroidPeer> activePeers = new HashMap<View,AndroidPeer>();
+
+
+    /**
+     * wrapper component that capsules a native view object in a Codename One
+     * component. this involves A LOT of back and forth between the Codename One
+     * EDT and the Android UI thread.
+     *
+     *
+     * To use it you would:
+     *
+     * 1) create your native Android view(s). Make sure to work on the Android
+     * UI thread when constructing and modifying them. 2) create a Codename One
+     * peer component by calling:
+     *
+     * com.codename1.ui.PeerComponent.create(myAndroidView);
+     *
+     * 3) currently the view's size is not automatically calculated from the
+     * native view. so you should set the preferred size of the Codename One
+     * component manually.
+     *
+     *
+     */
+    class AndroidPeer extends PeerComponent {
+
+        private View v;
+        private AndroidImplementation.AndroidRelativeLayout layoutWrapper = null;
+        private int currentVisible = View.INVISIBLE;
+        private boolean lightweightMode;
+
+        public AndroidPeer(View vv) {
+            super(vv);
+            this.v = vv;
+            if(!superPeerMode) {
+                v.measure(MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+                        MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+            }
+        }
+
+        @Override
+        protected Image generatePeerImage() {
+            try {
+                Bitmap bmp = AndroidNativeUtil.renderViewOnBitmap(v, getWidth(), getHeight());
+                if(bmp == null) {
+                    return Image.createImage(5, 5);
+                }
+                Image image = new AndroidImplementation.NativeImage(bmp);
+                return image;
+            } catch(Throwable t) {
+                t.printStackTrace();
+                return Image.createImage(5, 5);
+            }
+        }
+
+        protected boolean shouldRenderPeerImage() {
+            return !superPeerMode && (lightweightMode || !isInitialized());
+        }
+
+        protected void setLightweightMode(boolean l) {
+            if(superPeerMode) {
+                if (l != lightweightMode) {
+                    lightweightMode = l;
+                    if (lightweightMode) {
+                        Image img = generatePeerImage();
+                        if (img != null) {
+                            peerImage = img;
+                        }
+                    }
+
+                }
+                return;
+            }
+            doSetVisibility(!l);
+            if (lightweightMode == l) {
+                return;
+            }
+            lightweightMode = l;
+        }
+
+        @Override
+        public void setVisible(boolean visible) {
+            super.setVisible(visible);
+            this.doSetVisibility(visible);
+        }
+
+        void doSetVisibility(final boolean visible) {
+            if (getActivity() == null) {
+                return;
+            }
+            getActivity().runOnUiThread(new Runnable() {
+                public void run() {
+                    currentVisible = visible ? View.VISIBLE : View.INVISIBLE;
+                    v.setVisibility(currentVisible);
+                    if (visible) {
+                        v.bringToFront();
+                    }
+                }
+            });
+            if(visible){
+                layoutPeer();
+            }
+        }
+
+        private void doSetVisibilityInternal(final boolean visible) {
+            if (getActivity() == null) {
+                return;
+            }
+            getActivity().runOnUiThread(new Runnable() {
+                public void run() {
+                    currentVisible = visible ? View.VISIBLE : View.INVISIBLE;
+                    v.setVisibility(currentVisible);
+                    if (visible) {
+                        v.bringToFront();
+                    }
+                }
+            });
+        }
+
+        protected void deinitialize() {
+            if(!superPeerMode) {
+                Image i = generatePeerImage();
+                setPeerImage(i);
+                super.deinitialize();
+                synchronized (nativePeers) {
+                    nativePeers.remove(this);
+                }
+                deinit();
+            }else{
+                Image img = generatePeerImage();
+                if (img != null) {
+                    peerImage = img;
+                }
+
+                if(myView instanceof AndroidAsyncView){
+                    ((AndroidAsyncView)myView).removePeerView(v);
+                }
+                super.deinitialize();
+            }
+        }
+
+        public void deinit(){
+            if (getActivity() == null) {
+                return;
+            }
+            if (peerImage == null) {
+                peerImage = generatePeerImage();
+            }
+            final boolean [] removed = new boolean[1];
+            getActivity().runOnUiThread(new Runnable() {
+                public void run() {
+                    try {
+                        if (layoutWrapper != null && AndroidImplementation.this.relativeLayout != null) {
+                            AndroidImplementation.this.relativeLayout.removeView(layoutWrapper);
+                            AndroidImplementation.this.relativeLayout.requestLayout();
+                            layoutWrapper = null;
+                        }
+                    } finally {
+                        removed[0] = true;
+                    }
+                }
+            });
+            while (!removed[0]) {
+                Display.getInstance().invokeAndBlock(new Runnable() {
+                    public void run() {
+                        if (!removed[0]) {
+                            try {
+                                Thread.sleep(5);
+                            } catch(InterruptedException er) {}
+                        }
+                    }
+                });
+            }
+        }
+
+        protected void initComponent() {
+            super.initComponent();
+            if(!superPeerMode) {
+                synchronized (nativePeers) {
+                    nativePeers.add(this);
+                }
+                init();
+                setPeerImage(null);
+            }
+        }
+
+        public void init(){
+            if(superPeerMode || getActivity() == null) {
+                return;
+            }
+            runOnUiThreadAndBlock(new Runnable() {
+                public void run() {
+                    if (layoutWrapper == null) {
+                        /**
+                         * wrap the native item in a layout that we can move
+                         * around on the surface view as we like.
+                         */
+                        layoutWrapper = new AndroidImplementation.AndroidRelativeLayout(activity, AndroidImplementation.AndroidPeer.this, v);
+                        layoutWrapper.setBackgroundDrawable(null);
+                        v.setVisibility(currentVisible);
+                        v.setFocusable(AndroidImplementation.AndroidPeer.this.isFocusable());
+                        v.setFocusableInTouchMode(true);
+                        ArrayList<View> viewList = new ArrayList<View>();
+                        viewList.add(layoutWrapper);
+                        v.addFocusables(viewList, View.FOCUS_DOWN);
+                        v.addFocusables(viewList, View.FOCUS_UP);
+                        v.addFocusables(viewList, View.FOCUS_LEFT);
+                        v.addFocusables(viewList, View.FOCUS_RIGHT);
+                        if (v.isFocusable() || v.isFocusableInTouchMode()) {
+                            if (AndroidImplementation.AndroidPeer.super.hasFocus()) {
+                                AndroidImplementation.this.blockNativeFocusAll(true);
+                                blockNativeFocus(false);
+                                if (!v.hasFocus()) {
+                                    v.requestFocus();
+                                }
+
+                            } else {
+                                blockNativeFocus(true);
+                            }
+                            layoutWrapper.setOnKeyListener(new View.OnKeyListener() {
+                                public boolean onKey(View view, int i, KeyEvent ke) {
+                                    lastDirectionalKeyEventReceivedByWrapper = CodenameOneView.internalKeyCodeTranslate(ke.getKeyCode());
+
+                                    // move focus back to base view.
+                                    if (AndroidImplementation.this.myView == null) return false;
+                                    AndroidImplementation.this.myView.getAndroidView().requestFocus();
+
+                                    /**
+                                     * if the wrapper has focus, then only because
+                                     * the wrapped native component just lost focus.
+                                     * we consume whatever key events we receive,
+                                     * just to make sure no half press/release
+                                     * sequence reaches the base view (and therefore
+                                     * Codename One).
+                                     */
+                                    return true;
+                                }
+                            });
+                            layoutWrapper.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+                                public void onFocusChange(View view, boolean bln) {
+                                    Log.d("Codename One", "on focus change. " + view.toString() + " focus:" + bln + " touchmode: " + v.isInTouchMode());
+                                }
+                            });
+                            layoutWrapper.setOnTouchListener(new View.OnTouchListener() {
+                                public boolean onTouch(View v, MotionEvent me) {
+                                    if (myView == null) return false;
+                                    return myView.getAndroidView().onTouchEvent(me);
+                                }
+                            });
+                        }
+                        if(AndroidImplementation.this.relativeLayout != null){
+                            // not sure why this happens but we got an exception where add view was called with
+                            // a layout that was already added...
+                            if(layoutWrapper.getParent() != null) {
+                                ((ViewGroup)layoutWrapper.getParent()).removeView(layoutWrapper);
+                            }
+                            AndroidImplementation.this.relativeLayout.addView(layoutWrapper);
+                        }
+                    }
+                }
+            });
+        }
+        private Image peerImage;
+        public void paint(final Graphics g) {
+            if(superPeerMode) {
+                Object nativeGraphics = com.codename1.ui.Accessor.getNativeGraphics(g);
+
+                Object o = v.getLayoutParams();
+                AndroidAsyncView.LayoutParams lp;
+                if(o instanceof AndroidAsyncView.LayoutParams) {
+                    lp = (AndroidAsyncView.LayoutParams) o;
+                    if (lp == null) {
+                        lp = new AndroidAsyncView.LayoutParams(
+                                getX() + g.getTranslateX(),
+                                getY() + g.getTranslateY(),
+                                getWidth(),
+                                getHeight(), AndroidPeer.this);
+                        final AndroidAsyncView.LayoutParams finalLp = lp;
+                        activity.runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                v.setLayoutParams(finalLp);
+                            }
+                        });
+                        lp.dirty = true;
+                    } else {
+                        int x = getX() + g.getTranslateX();
+                        int y = getY() + g.getTranslateY();
+                        int w = getWidth();
+                        int h = getHeight();
+                        if (x != lp.x || y != lp.y || w != lp.w || h != lp.h) {
+                            lp.dirty = true;
+                            lp.x = x;
+                            lp.y = y;
+                            lp.w = w;
+                            lp.h = h;
+                        }
+                    }
+                } else {
+                    final AndroidAsyncView.LayoutParams finalLp = new AndroidAsyncView.LayoutParams(
+                            getX() + g.getTranslateX(),
+                            getY() + g.getTranslateY(),
+                            getWidth(),
+                            getHeight(), AndroidPeer.this);
+                    activity.runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            v.setLayoutParams(finalLp);
+                        }
+                    });
+                    finalLp.dirty = true;
+                    lp = finalLp;
+                }
+
+                // this is a mutable image or side menu etc. where the peer is drawn on a different form...
+                // Special case...
+                if(nativeGraphics.getClass() == AndroidGraphics.class) {
+                    if(peerImage == null) {
+                        peerImage = generatePeerImage();
+                    }
+                    //systemOut("Drawing native image");
+                    g.drawImage(peerImage, getX(), getY());
+                    return;
+                }
+                synchronized(activePeers) {
+                    activePeers.put(v, this);
+                }
+                ((AndroidGraphics) nativeGraphics).drawView(v, lp);
+                if (lightweightMode && peerImage != null) {
+                    g.drawImage(peerImage, getX(), getY(), getWidth(), getHeight());
+                }
+            } else {
+                super.paint(g);
+            }
+        }
+
+        boolean _initialized() {
+            return isInitialized();
+        }
+
+        @Override
+        protected void onPositionSizeChange() {
+            if(!superPeerMode) {
+                Form f = getComponentForm();
+                if (v.getVisibility() == View.INVISIBLE
+                        && f != null
+                        && Display.getInstance().getCurrent() == f) {
+                    doSetVisibilityInternal(true);
+                    return;
+                }
+                layoutPeer();
+            }
+        }
+
+        protected void layoutPeer(){
+            if (getActivity() == null) {
+                return;
+            }
+            if(!superPeerMode) {
+                // called by Codename One EDT to position the native component.
+                activity.runOnUiThread(new Runnable() {
+                    public void run() {
+                        if (layoutWrapper != null) {
+                            if (v.getVisibility() == View.VISIBLE) {
+
+                                RelativeLayout.LayoutParams layoutParams = layoutWrapper.createMyLayoutParams(
+                                        AndroidImplementation.AndroidPeer.this.getAbsoluteX(),
+                                        AndroidImplementation.AndroidPeer.this.getAbsoluteY(),
+                                        AndroidImplementation.AndroidPeer.this.getWidth(),
+                                        AndroidImplementation.AndroidPeer.this.getHeight());
+                                layoutWrapper.setLayoutParams(layoutParams);
+                                if (AndroidImplementation.this.relativeLayout != null) {
+                                    AndroidImplementation.this.relativeLayout.requestLayout();
+                                }
+
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        void blockNativeFocus(boolean block) {
+            if (layoutWrapper != null) {
+                layoutWrapper.setDescendantFocusability(block
+                        ? ViewGroup.FOCUS_BLOCK_DESCENDANTS : ViewGroup.FOCUS_AFTER_DESCENDANTS);
+            }
+        }
+
+        @Override
+        public boolean isFocusable() {
+            // EDT
+            if (v != null) {
+                return v.isFocusableInTouchMode() || v.isFocusable();
+            } else {
+                return super.isFocusable();
+            }
+        }
+
+        @Override
+        public void onSetFocusable(final boolean focusable) {
+            // EDT
+            if (getActivity() == null) {
+                return;
+            }
+            getActivity().runOnUiThread(new Runnable() {
+                public void run() {
+                    v.setFocusable(focusable);
+                }
+            });
+        }
+
+        @Override
+        protected void focusGained() {
+            Log.d("Codename One", "native focus gain");
+            // EDT
+            super.focusGained();
+            if (getActivity() == null) {
+                return;
+            }
+            getActivity().runOnUiThread(new Runnable() {
+                public void run() {
+                    // allow this one to gain focus
+                    blockNativeFocus(false);
+                    if (!v.hasFocus()) {
+                        if (v.isInTouchMode()) {
+                            v.requestFocusFromTouch();
+                        } else {
+                            v.requestFocus();
+                        }
+                    }
+                }
+            });
+        }
+
+        @Override
+        protected void focusLost() {
+            Log.d("Codename One", "native focus loss");
+            // EDT
+            super.focusLost();
+            if (layoutWrapper != null && getActivity() != null) {
+                getActivity().runOnUiThread(new Runnable() {
+                    public void run() {
+                        if(isInitialized()) {
+                            // request focus of the wrapper. that will trigger the
+                            // android focus listener and move focus back to the
+                            // base view.
+                            layoutWrapper.requestFocus();
+                        }
+                    }
+                });
+            }
+        }
+
+        public void release() {
+            deinitialize();
+        }
+
+        @Override
+        protected Dimension calcPreferredSize() {
+            int w = 1;
+            int h = 1;
+            Drawable d = v.getBackground();
+            if (d != null) {
+                w = d.getMinimumWidth();
+                h = d.getMinimumHeight();
+            }
+            w = Math.max(v.getMeasuredWidth(), w);
+            h = Math.max(v.getMeasuredHeight(), h);
+            if (v instanceof TextView) {
+                TextView tv = (TextView)v;
+                w = (int) android.text.Layout.getDesiredWidth(((TextView) v).getText(), ((TextView) v).getPaint());
+                int heightMeasureSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
+                tv.measure(w, heightMeasureSpec);
+                h = (int)Math.max(h, tv.getMeasuredHeight());
+
+
+            }
+            return new Dimension(w, h);
+        }
+    }
+
+    /**
+     * inner class that wraps the native components. this is a useful thingy to
+     * handle focus stuff and buffering.
+     */
+    class AndroidRelativeLayout extends RelativeLayout {
+
+        private AndroidImplementation.AndroidPeer peer;
+
+        public AndroidRelativeLayout(Context activity, AndroidImplementation.AndroidPeer peer, View v) {
+            super(activity);
+
+            this.peer = peer;
+            this.setLayoutParams(createMyLayoutParams(peer.getAbsoluteX(), peer.getAbsoluteY(),
+                    peer.getWidth(), peer.getHeight()));
+            if (v.getParent() != null) {
+                ((ViewGroup)v.getParent()).removeView(v);
+            }
+            this.addView(v, new RelativeLayout.LayoutParams(
+                    RelativeLayout.LayoutParams.FILL_PARENT,
+                    RelativeLayout.LayoutParams.FILL_PARENT));
+            this.setDrawingCacheEnabled(false);
+            this.setAlwaysDrawnWithCacheEnabled(false);
+            this.setFocusable(true);
+            this.setFocusableInTouchMode(false);
+            this.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+
+        }
+
+        /**
+         * create a layout parameter object that holds the native component's
+         * position.
+         *
+         * @return
+         */
+        private RelativeLayout.LayoutParams createMyLayoutParams(int x, int y, int width, int height) {
+            RelativeLayout.LayoutParams layoutParams = new RelativeLayout.LayoutParams(
+                    RelativeLayout.LayoutParams.WRAP_CONTENT,
+                    RelativeLayout.LayoutParams.WRAP_CONTENT);
+            layoutParams.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+            layoutParams.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+            layoutParams.width = width;
+            layoutParams.height = height;
+            layoutParams.leftMargin = x;
+            layoutParams.topMargin = y;
+            return layoutParams;
+        }
+
+        @Override
+        public boolean dispatchKeyEvent(KeyEvent event) {
+
+            int keycode = event.getKeyCode();
+            keycode = CodenameOneView.internalKeyCodeTranslate(keycode);
+            if (keycode == AndroidImplementation.DROID_IMPL_KEY_BACK) {
+                switch (event.getAction()) {
+                    case KeyEvent.ACTION_DOWN:
+                        // Claim the gesture so the activity's
+                        // OnBackInvokedCallback stands down; on Android 16 the
+                        // platform can deliver both for one press. See
+                        // PredictiveBackBridge.
+                        PredictiveBackBridge.keyEventBackStarted();
+                        Display.getInstance().keyPressed(keycode);
+                        break;
+                    case KeyEvent.ACTION_UP:
+                        PredictiveBackBridge.keyEventBackFinished();
+                        Display.getInstance().keyReleased(keycode);
+                        break;
+                }
+                return true;
+            } else {
+                return super.dispatchKeyEvent(event);
+            }
+        }
+
+
+    }
+
+    private boolean testedNativeTheme;
+    private boolean nativeThemeAvailable;
+
+    public boolean hasNativeTheme() {
+        if (!testedNativeTheme) {
+            testedNativeTheme = true;
+            try {
+                InputStream is;
+                if (android.os.Build.VERSION.SDK_INT < 14 && !isTablet()) {
+                    is = getResourceAsStream(getClass(), "/androidTheme.res");
+                } else {
+                    is = getResourceAsStream(getClass(), "/android_holo_light.res");
+                }
+                nativeThemeAvailable = is != null;
+                if (is != null) {
+                    is.close();
+                }
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
+        }
+        return nativeThemeAvailable;
+    }
+
+    /**
+     * Installs the native theme, this is only applicable if hasNativeTheme()
+     * returned true. Notice that this method might replace the
+     * DefaultLookAndFeel instance and the default transitions.
+     */
+    public void installNativeTheme() {
+        hasNativeTheme();
+        if (!nativeThemeAvailable) {
+            return;
+        }
+        try {
+            // Resolve desired theme flavor. and.themeMode is the per-platform
+            // hint (auto | modern | material | hololight | legacy); the legacy
+            // name cn1.androidTheme is still honored for back-compat. The
+            // cross-platform shortcut nativeTheme=modern/legacy (deprecated
+            // alias: cn1.nativeTheme) feeds in when no platform-specific hint
+            // is set. Default stays on android_holo_light - what master
+            // shipped and what existing screenshot goldens are anchored
+            // against. The ancient pre-Holo androidTheme.res is only reached
+            // via explicit and.hololight=true (historical back-compat) or
+            // and.themeMode=legacy.
+            Display d = Display.getInstance();
+            String mode = d.getProperty("and.themeMode",
+                    d.getProperty("cn1.androidTheme", null));
+            if (mode == null) {
+                String shared = d.getProperty("nativeTheme",
+                        d.getProperty("cn1.nativeTheme", null));
+                // "native" is "modern plus the desktop": the desktop half belongs to
+                // the JavaSE port, and Android's own answer to "the platform's own
+                // look" is Material either way. Without it the value fell through to
+                // the hololight default below, so asking for the native look got the
+                // legacy one.
+                if ("modern".equalsIgnoreCase(shared) || "native".equalsIgnoreCase(shared)) {
+                    mode = "material";
+                } else if ("legacy".equalsIgnoreCase(shared)) {
+                    mode = "hololight";
+                } else if ("true".equalsIgnoreCase(d.getProperty("and.hololight", "false"))) {
+                    mode = "legacy";
+                } else {
+                    mode = "hololight";
+                }
+            } else {
+                mode = mode.toLowerCase();
+            }
+
+            String resPath;
+            if ("material".equals(mode) || "modern".equals(mode) || "auto".equals(mode)) {
+                resPath = "/AndroidMaterialTheme.res";
+            } else if ("hololight".equals(mode) || "holo".equals(mode)) {
+                resPath = "/android_holo_light.res";
+            } else {
+                resPath = "/androidTheme.res";
+            }
+
+            InputStream is = getResourceAsStream(getClass(), resPath);
+            if (is == null) {
+                // Modern theme may not be in the apk if the framework build
+                // skipped native-themes generation. Fall back to Holo Light
+                // (master's default) so the app still boots with a known look.
+                is = getResourceAsStream(getClass(), "/android_holo_light.res");
+            }
+            Resources r = Resources.open(is);
+            Hashtable h = r.getTheme(r.getThemeResourceNames()[0]);
+            h.put("@commandBehavior", "Native");
+            UIManager.getInstance().setThemeProps(h);
+            is.close();
+            Display.getInstance().setCommandBehavior(Display.COMMAND_BEHAVIOR_NATIVE);
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
+    }
+
+    public boolean isNativeBrowserComponentSupported() {
+        return true;
+    }
+
+    @Override
+    public void setNativeBrowserScrollingEnabled(final PeerComponent browserPeer, final boolean e) {
+        super.setNativeBrowserScrollingEnabled(browserPeer, e);
+        if (getActivity() == null) {
+            return;
+        }
+        getActivity().runOnUiThread(new Runnable() {
+            public void run() {
+                AndroidBrowserComponent bc = (AndroidBrowserComponent)browserPeer;
+                bc.setScrollingEnabled(e);
+            }
+        });
+    }
+
+    @Override
+    public void setPinchToZoomEnabled(final PeerComponent browserPeer, final boolean e) {
+        super.setPinchToZoomEnabled(browserPeer, e);
+        if (getActivity() == null) {
+            return;
+        }
+        getActivity().runOnUiThread(new Runnable() {
+            public void run() {
+                AndroidBrowserComponent bc = (AndroidBrowserComponent)browserPeer;
+                bc.setPinchZoomEnabled(e);
+            }
+        });
+    }
+
+    public PeerComponent createBrowserComponent(final Object parent) {
+        if (getActivity() == null) {
+            return null;
+        }
+        final AndroidImplementation.AndroidBrowserComponent[] bc = new AndroidImplementation.AndroidBrowserComponent[1];
+        final Throwable[] error = new Throwable[1];
+        final Object lock = new Object();
+
+        getActivity().runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+
+                synchronized (lock) {
+                    try {
+                        WebView wv = new WebView(getActivity()) {
+
+                            @Override
+                            public boolean dispatchKeyEvent(KeyEvent event) {
+
+                                int keycode = event.getKeyCode();
+                                keycode = CodenameOneView.internalKeyCodeTranslate(keycode);
+                                if (keycode == AndroidImplementation.DROID_IMPL_KEY_BACK || 
+                                    (keycode == KeyEvent.KEYCODE_MENU && 
+                                        Display.getInstance().getCommandBehavior() != Display.COMMAND_BEHAVIOR_NATIVE)) {
+                                    boolean backKey =
+                                            keycode == AndroidImplementation.DROID_IMPL_KEY_BACK;
+                                    switch (event.getAction()) {
+                                        case KeyEvent.ACTION_DOWN:
+                                            // Claim the gesture so the
+                                            // activity's OnBackInvokedCallback
+                                            // stands down; on Android 16 the
+                                            // platform can deliver both for one
+                                            // press. See PredictiveBackBridge.
+                                            if (backKey) {
+                                                PredictiveBackBridge.keyEventBackStarted();
+                                            }
+                                            Display.getInstance().keyPressed(keycode);
+                                            break;
+                                        case KeyEvent.ACTION_UP:
+                                            if (backKey) {
+                                                PredictiveBackBridge.keyEventBackFinished();
+                                            }
+                                            Display.getInstance().keyReleased(keycode);
+                                            break;
+                                    }
+                                    return true;
+                                } else {
+                                    if(Display.getInstance().getProperty(
+                                        "android.propogateKeyEvents", "false").
+                                            equalsIgnoreCase("true") && 
+                                        myView instanceof AndroidAsyncView) {
+                                        switch (event.getAction()) {
+                                            case KeyEvent.ACTION_DOWN:
+                                                Display.getInstance().keyPressed(keycode);
+                                                break;
+                                            case KeyEvent.ACTION_UP:
+                                                Display.getInstance().keyReleased(keycode);
+                                                break;
+                                        }
+                                        return true;
+                                    }                                    
+                                                                        
+                                    return super.dispatchKeyEvent(event);
+                                }
+                            }
+                        };
+                        wv.setOnTouchListener(new View.OnTouchListener() {
+
+                            @Override
+                            public boolean onTouch(View v, MotionEvent event) {
+                                switch (event.getAction()) {
+                                    case MotionEvent.ACTION_DOWN:
+                                    case MotionEvent.ACTION_UP:
+                                        if (!v.hasFocus()) {
+                                            v.requestFocus();
+                                        }
+                                        break;
+                                }
+                                return false;
+                            }
+                        });
+                        
+                        if (android.os.Build.VERSION.SDK_INT >= 19) {
+                            if ("true".equals(Display.getInstance().getProperty("android.webContentsDebuggingEnabled", "false"))) {
+                                wv.setWebContentsDebuggingEnabled(true);
+                            }
+                        }
+                        wv.getSettings().setDomStorageEnabled(true);
+                        wv.getSettings().setAllowFileAccess(true);
+                        wv.getSettings().setAllowContentAccess(true);
+                        wv.requestFocus(View.FOCUS_DOWN);
+                        wv.setFocusableInTouchMode(true);
+                        if (android.os.Build.VERSION.SDK_INT >= 17) {
+                            wv.getSettings().setMediaPlaybackRequiresUserGesture(false);
+                        }
+                        bc[0] = new AndroidImplementation.AndroidBrowserComponent(wv, getActivity(), parent);
+                        lock.notify();
+                    } catch (Throwable t) {
+                        error[0] = t;
+                        lock.notify();
+                    }
+                }
+            }
+        });
+        while (bc[0] == null && error[0] == null) {
+            Display.getInstance().invokeAndBlock(new Runnable() {
+                public void run() {
+                    synchronized (lock) {
+                        if (bc[0] == null && error[0] == null) {
+                            try {
+                                lock.wait(20);
+                            } catch (InterruptedException ex) {
+                                ex.printStackTrace();
+                            }
+                        }
+                    }
+                }
+
+            });
+        }
+        if (error[0] != null) {
+            throw new RuntimeException(error[0]);
+        }
+        return bc[0];
+    }
+
+    public void setBrowserProperty(PeerComponent browserPeer, String key, Object value) {
+        ((AndroidImplementation.AndroidBrowserComponent) browserPeer).setProperty(key, value);
+    }
+
+    public String getBrowserTitle(PeerComponent browserPeer) {
+        return ((AndroidImplementation.AndroidBrowserComponent) browserPeer).getTitle();
+    }
+
+    public String getBrowserURL(PeerComponent browserPeer) {
+        return ((AndroidImplementation.AndroidBrowserComponent) browserPeer).getURL();
+    }
+
+    @Override
+    public void setBrowserURL(PeerComponent browserPeer, String url, Map<String, String> headers) {
+        if (url.startsWith("jar:")) {
+            url = url.substring(6);
+            if(url.indexOf("/") != 0) {
+                url = "/"+url;
+            }
+
+            url = "file:///android_asset"+url;
+        }
+        AndroidImplementation.AndroidBrowserComponent bc = (AndroidImplementation.AndroidBrowserComponent) browserPeer;
+        if(bc.parent.fireBrowserNavigationCallbacks(url)) {
+            bc.setURL(url, headers);
+        }
+    }
+
+    @Override
+    public boolean isURLWithCustomHeadersSupported() {
+        return true;
+    }
+
+    @Override
+    public void setBrowserURL(PeerComponent browserPeer, String url) {
+        setBrowserURL(browserPeer, url, null);
+    }
+
+    public void browserStop(PeerComponent browserPeer) {
+        ((AndroidImplementation.AndroidBrowserComponent) browserPeer).stop();
+    }
+
+    public void browserDestroy(PeerComponent browserPeer) {
+        ((AndroidImplementation.AndroidBrowserComponent) browserPeer).destroy();
+    }
+
+    /**
+     * Reload the current page
+     *
+     * @param browserPeer browser instance
+     */
+    public void browserReload(PeerComponent browserPeer) {
+        ((AndroidImplementation.AndroidBrowserComponent) browserPeer).reload();
+    }
+
+    /**
+     * Indicates whether back is currently available
+     *
+     * @param browserPeer browser instance
+     * @return true if back should work
+     */
+    public boolean browserHasBack(PeerComponent browserPeer) {
+        return ((AndroidImplementation.AndroidBrowserComponent) browserPeer).hasBack();
+    }
+
+    public boolean browserHasForward(PeerComponent browserPeer) {
+        return ((AndroidImplementation.AndroidBrowserComponent) browserPeer).hasForward();
+    }
+
+    public void browserBack(PeerComponent browserPeer) {
+        ((AndroidImplementation.AndroidBrowserComponent) browserPeer).back();
+    }
+
+    public void browserForward(PeerComponent browserPeer) {
+        ((AndroidImplementation.AndroidBrowserComponent) browserPeer).forward();
+    }
+
+    public void browserClearHistory(PeerComponent browserPeer) {
+        ((AndroidImplementation.AndroidBrowserComponent) browserPeer).clearHistory();
+    }
+
+    public void setBrowserPage(PeerComponent browserPeer, String html, String baseUrl) {
+        ((AndroidImplementation.AndroidBrowserComponent) browserPeer).setPage(html, baseUrl);
+    }
+
+    public void browserExposeInJavaScript(PeerComponent browserPeer, Object o, String name) {
+        ((AndroidImplementation.AndroidBrowserComponent) browserPeer).exposeInJavaScript(o, name);
+    }
+
+    private boolean useEvaluateJavascript() {
+        return android.os.Build.VERSION.SDK_INT >= 19;
+    }
+    
+
+    private int jsCallbackIndex=0;
+
+    private void execJSUnsafe(WebView web, String js) {
+        if (useEvaluateJavascript()) {
+            web.evaluateJavascript(js, null);
+        } else {
+            web.loadUrl("javascript:(function(){"+js+"})()");
+        }
+    }
+
+    private void execJSSafe(final WebView web, final String js) {
+        if (useJSDispatchThread()) {
+            runOnJSDispatchThread(new Runnable() {
+                public void run() {
+                    getActivity().runOnUiThread(new Runnable() {
+                        public void run() {
+                            execJSUnsafe(web, js);
+                        }
+                    });
+                }
+            });
+        } else {
+            getActivity().runOnUiThread(new Runnable() {
+                public void run() {
+                    execJSUnsafe(web, js);
+                }
+            });
+        }
+    }
+
+    private void execJSUnsafe(final AndroidBrowserComponent bc, final String javaScript, final ValueCallback<String> resultCallback) {
+        if (useEvaluateJavascript()) {
+            try {
+                bc.web.evaluateJavascript(javaScript, resultCallback);
+            } catch (Throwable t) {
+                com.codename1.io.Log.e(t);
+                resultCallback.onReceiveValue(null);
+            }
+        } else {
+            jsCallbackIndex = (++jsCallbackIndex) % 1024;
+            int index = jsCallbackIndex;
+
+            // The jsCallback is a special java object exposed to javascript that we use
+            // to return values from javascript to java.
+            synchronized (bc.jsCallback){
+                // Initialize the return value to null
+                while (!bc.jsCallback.isIndexAvailable(index)) {
+                    index++;
+                }
+                jsCallbackIndex = index+1;
+            }
+            final int fIndex = index;
+            // We are placing the javascript inside eval() so we need to escape
+            // the input.
+            String escaped = StringUtil.replaceAll(javaScript, "\\", "\\\\");
+            escaped = StringUtil.replaceAll(escaped, "'", "\\'");
+
+            final String js = "javascript:(function(){"
+
+                    + "try{"
+                    +bc.jsCallback.jsInit()
+                    +bc.jsCallback.jsCleanup()
+                    + AndroidBrowserComponentCallback.JS_RETURNVAL_VARNAME+"["+index+"]"
+                    + "=eval('"+escaped +"');} catch (e){console.log(e)};"
+                    + AndroidBrowserComponentCallback.JS_VAR_NAME+".addReturnValue(" + index+", ''+"
+
+                    + AndroidBrowserComponentCallback.JS_RETURNVAL_VARNAME+"["+index+"]"
+                    + ");})()";
+
+            // Send the Javascript string via SetURL.
+            // NOTE!! This is sent asynchronously so we will need to wait for
+            // the result to come in.
+            bc.setURL(js, null);
+            if (resultCallback == null) {
+                return;
+            }
+            Thread t = new Thread(new Runnable() {
+                public void run() {
+                    int maxTries = 500;
+                    int tryCounter = 0;
+
+                    // If we are not on the EDT, then it is safe to just loop and wait.
+                    while (!bc.jsCallback.isValueSet(fIndex) && tryCounter++ < maxTries) {
+                        synchronized(bc.jsCallback){
+                            Util.wait(bc.jsCallback, 20);
+                        }
+                    }
+
+                    if (bc.jsCallback.isValueSet(fIndex)) {
+                        String retval = bc.jsCallback.getReturnValue(fIndex);
+                        bc.jsCallback.remove(fIndex);
+                        resultCallback.onReceiveValue(retval != null ? JSONObject.quote(retval) : null);
+
+                    } else {
+                        com.codename1.io.Log.e(new RuntimeException("Failed to execute javascript "+js+" after maximum wait time."));
+                        resultCallback.onReceiveValue(null);
+                    }
+                }
+            });
+            t.start();
+
+        }
+    }
+
+    private void execJSSafe(final AndroidBrowserComponent bc, final String javaScript, final ValueCallback<String> resultCallback) {
+        if (useJSDispatchThread()) {
+            runOnJSDispatchThread(new Runnable() {
+                public void run() {
+                    getActivity().runOnUiThread(new Runnable() {
+                        public void run() {
+                            execJSUnsafe(bc, javaScript, resultCallback);
+                        }
+                    });
+                }
+            });
+        } else {
+            getActivity().runOnUiThread(new Runnable() {
+                public void run() {
+                    execJSUnsafe(bc, javaScript, resultCallback);
+                }
+            });
+        }
+    }
+
+
+
+    @Override
+    public void browserExecute(final PeerComponent browserPeer, final String javaScript) {
+        final AndroidImplementation.AndroidBrowserComponent bc = (AndroidImplementation.AndroidBrowserComponent) browserPeer;
+        execJSSafe(bc.web, javaScript);
+    }
+
+    private com.codename1.util.EasyThread jsDispatchThread;
+    private com.codename1.util.EasyThread jsDispatchThread() {
+        if (jsDispatchThread == null) {
+            jsDispatchThread = com.codename1.util.EasyThread.start("JS Dispatch Thread");
+        }
+        return jsDispatchThread;
+    }
+
+    private boolean useJSDispatchThread() {
+
+        // Before version 24, we need a separate JS dispatch thread to prevent deadlocks
+        return true;//Build.VERSION.SDK_INT < 24;
+    }
+
+    public boolean isJSDispatchThread() {
+        if (useJSDispatchThread()) {
+            return jsDispatchThread().isThisIt();
+        } else {
+            return (Looper.getMainLooper().getThread() == Thread.currentThread());
+        }
+    }
+
+    public boolean runOnJSDispatchThread(Runnable r) {
+        if (isJSDispatchThread()) {
+            r.run();
+            return true;
+        }
+        if (useJSDispatchThread()) {
+            jsDispatchThread().run(r);
+        } else {
+            getActivity().runOnUiThread(r);
+        }
+        return false;
+    }
+    
+    /**
+     * Executes javascript and returns a string result where appropriate.
+     * @param browserPeer
+     * @param javaScript
+     * @return
+     */
+    @Override
+    public String browserExecuteAndReturnString(final PeerComponent browserPeer, final String javaScript) {
+        final AndroidImplementation.AndroidBrowserComponent bc = (AndroidImplementation.AndroidBrowserComponent) browserPeer;
+        final String[] result = new String[1];
+        final boolean[] complete = new boolean[1];
+
+        execJSSafe(bc, javaScript, new ValueCallback<String>() {
+            @Override
+            public void onReceiveValue(String value) {
+                synchronized(result) {
+                    complete[0] = true;
+                    result[0] = value;
+                    result.notify();
+                }
+            }
+        });
+        synchronized(result) {
+            if (!complete[0]) {
+                Util.wait(result, 10000);
+            }
+        }
+        if (result[0] == null) {
+            return null;
+        } else {
+            org.json.JSONTokener tok = new org.json.JSONTokener("{\"result\":"+result[0]+"}");
+            try {
+                JSONObject jso = new JSONObject(tok);
+                return jso.getString("result");
+            } catch (Throwable ex) {
+                com.codename1.io.Log.e(ex);
+                return null;
+            }
+
+        }
+
+
+    }
+
+    public boolean supportsBrowserExecuteAndReturnString(PeerComponent browserPeer) {
+        return true;
+    }
+
+    public boolean canForceOrientation() {
+        return true;
+    }
+
+    public void lockOrientation(boolean portrait) {
+        if (getActivity() == null) {
+            return;
+        }
+        if(portrait){
+            getActivity().setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        }else{
+            getActivity().setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        }
+    }
+
+    public void unlockOrientation() {
+        if (getActivity() == null) {
+            return;
+        }
+        getActivity().setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR);
+    }
+
+
+
+    public boolean isAffineSupported() {
+        return true;
+    }
+
+    public void resetAffine(Object nativeGraphics) {
+        ((AndroidGraphics) nativeGraphics).resetAffine();
+    }
+
+    public void scale(Object nativeGraphics, float x, float y) {
+        ((AndroidGraphics) nativeGraphics).scale(x, y);
+    }
+
+    public void rotate(Object nativeGraphics, float angle) {
+        ((AndroidGraphics) nativeGraphics).rotate(angle);
+    }
+
+    public void rotate(Object nativeGraphics, float angle, int x, int y) {
+        ((AndroidGraphics) nativeGraphics).rotate(angle, x, y);
+    }
+
+    @Override
+    public void pushClip(Object graphics) {
+        ((AndroidGraphics) graphics).pushClip();
+    }
+
+    @Override
+    public void popClip(Object graphics) {
+        ((AndroidGraphics) graphics).popClip();
+    }
+
+    @Override
+    public boolean isTranslateMatrixSupported() {
+        return true;
+    }
+
+    @Override
+    public void translateMatrix(Object nativeGraphics, float x, float y) {
+        ((AndroidGraphics) nativeGraphics).translateMatrix(x, y);
+    }
+
+    public void shear(Object nativeGraphics, float x, float y) {
+    }
+
+    public boolean isTablet() {
+        return (getContext().getResources().getConfiguration().screenLayout
+                & Configuration.SCREENLAYOUT_SIZE_MASK)
+                >= Configuration.SCREENLAYOUT_SIZE_LARGE;
+    }
+
+    // Foldable / device posture, backed by androidx.window via reflection. The androidx.window
+    // dependency is only present when the app opts in with the android.foldableSupport build hint;
+    // when absent these all degrade safely to "not foldable". The tracker is started lazily so it
+    // only spins up for apps that query the posture APIs.
+    @Override
+    public boolean isFoldable() {
+        AndroidFoldablePosture.start(getActivity());
+        return AndroidFoldablePosture.isFoldable();
+    }
+
+    @Override
+    public int getDevicePosture() {
+        AndroidFoldablePosture.start(getActivity());
+        return AndroidFoldablePosture.getPosture();
+    }
+
+    @Override
+    public int getFoldOrientation() {
+        AndroidFoldablePosture.start(getActivity());
+        return AndroidFoldablePosture.getFoldOrientation();
+    }
+
+    @Override
+    public boolean isPostureSeparating() {
+        AndroidFoldablePosture.start(getActivity());
+        return AndroidFoldablePosture.isSeparating();
+    }
+
+    @Override
+    public com.codename1.ui.geom.Rectangle getFoldBounds(com.codename1.ui.geom.Rectangle rect) {
+        AndroidFoldablePosture.start(getActivity());
+        return AndroidFoldablePosture.getFoldBounds(rect);
+    }
+
+    private Boolean watchCache;
+
+    @Override
+    public boolean isWatch() {
+        if(watchCache == null) {
+            // PackageManager.FEATURE_WATCH ("android.hardware.type.watch") is
+            // the canonical Wear OS marker; use the string literal so this
+            // compiles regardless of the configured minimum SDK level.
+            watchCache = getContext().getPackageManager()
+                    .hasSystemFeature("android.hardware.type.watch");
+        }
+        return watchCache;
+    }
+
+    private Boolean tvCache;
+
+    @Override
+    public boolean isTV() {
+        if(tvCache == null) {
+            // PackageManager.FEATURE_TELEVISION ("android.hardware.type.television")
+            // and FEATURE_LEANBACK ("android.software.leanback") are the canonical
+            // Android TV / Google TV markers; use the string literals so this
+            // compiles regardless of the configured minimum SDK level.
+            android.content.pm.PackageManager pm = getContext().getPackageManager();
+            boolean tv = pm.hasSystemFeature("android.hardware.type.television")
+                    || pm.hasSystemFeature("android.software.leanback");
+            if(!tv) {
+                // Fall back to the runtime UI mode (covers emulators/devices that
+                // expose the TV ui-mode without declaring the hardware feature).
+                android.app.UiModeManager um = (android.app.UiModeManager)
+                        getContext().getSystemService(Context.UI_MODE_SERVICE);
+                tv = um != null && um.getCurrentModeType()
+                        == Configuration.UI_MODE_TYPE_TELEVISION;
+            }
+            tvCache = tv;
+        }
+        return tvCache;
+    }
+
+    @Override
+    public com.codename1.car.spi.CarBridge getCarBridge() {
+        // The Android Auto glue (injected by the builder only when the app references
+        // com.codename1.car) registers its bridge here; null otherwise so the API no-ops.
+        return AndroidCarSupport.getBridge();
+    }
+
+    @Override
+    public boolean isCarConnected() {
+        com.codename1.car.spi.CarBridge b = AndroidCarSupport.getBridge();
+        return b != null && b.isConnected();
+    }
+
+    @Override
+    public com.codename1.wearable.spi.WearableBridge getWearableBridge() {
+        // The Wearable Data Layer glue is injected by the builder only when the app references
+        // com.codename1.wearable; without it this is null and the API no-ops.
+        Context ctx = getContext();
+        return ctx == null ? null : AndroidWearableSupport.getBridge(ctx);
+    }
+
+    private com.codename1.surfaces.spi.SurfaceBridge surfaceBridge;
+
+    @Override
+    public com.codename1.surfaces.spi.SurfaceBridge getSurfaceBridge() {
+        if (surfaceBridge == null) {
+            surfaceBridge = new com.codename1.impl.android.surfaces.AndroidSurfaceBridge();
+        }
+        return surfaceBridge;
+    }
+
+    private com.codename1.documents.spi.DocumentProviderBridge documentProviderBridge;
+
+    @Override
+    public com.codename1.documents.spi.DocumentProviderBridge getDocumentProviderBridge() {
+        if (documentProviderBridge == null) {
+            documentProviderBridge =
+                    new com.codename1.impl.android.documents.AndroidDocumentProviderBridge();
+        }
+        return documentProviderBridge;
+    }
+
+    private com.codename1.continuity.spi.ContinuityBridge continuityBridge;
+
+    /// Returns the continuity bridge, which on Android exists for one job:
+    /// flushing the state checkpoint when the platform says the process may
+    /// be killed. Neither cross-device capability exists here and both report
+    /// themselves unsupported.
+    ///
+    /// Synchronized for the reason the intent bridge is: two callers arriving
+    /// together would each construct one, and each construction registers a
+    /// lifecycle listener -- so the loser's listener would stay registered and
+    /// the app would checkpoint twice on every save.
+    @Override
+    public synchronized com.codename1.continuity.spi.ContinuityBridge getContinuityBridge() {
+        if (continuityBridge == null) {
+            continuityBridge =
+                    new com.codename1.impl.android.continuity.AndroidContinuityBridge();
+        }
+        return continuityBridge;
+    }
+
+    private com.codename1.intents.spi.IntentBridge intentBridge;
+
+    @Override
+    // Synchronized for the same reason as the JavaSE bridge: two callers arriving together
+    // each see a null field and each construct one, and whichever loses the assignment keeps
+    // the donation or the indexed entities that were recorded through it. Nothing throws.
+    public synchronized com.codename1.intents.spi.IntentBridge getIntentBridge() {
+        if (intentBridge == null) {
+            intentBridge = new com.codename1.impl.android.intents.AndroidIntentBridge();
+        }
+        return intentBridge;
+    }
+
+    private AndroidHomeBridge homeBridge;
+
+    /// Returns the smart-home bridge. Always returned rather than
+    /// conditionally null: the bridge answers honestly through
+    /// {@link AndroidSmartHomeSupport}, which is empty unless the builder
+    /// injected a delegate, so {@code SmartHome} reports NOT_SUPPORTED
+    /// without this getter needing to know how the app was built.
+    ///
+    /// Note that a delegate being present does not mean the graph is
+    /// readable. The ordinary Android answer is
+    /// {@code HomeAvailability.COMMISSIONING_ONLY}: Play services can add a
+    /// Matter accessory with no setup at all, while reading or controlling
+    /// one needs the Google Home APIs and a Google Cloud project only the
+    /// app's developer can create.
+    @Override
+    public com.codename1.home.spi.HomeBridge getHomeBridge() {
+        if (homeBridge == null) {
+            homeBridge = new AndroidHomeBridge();
+        }
+        return homeBridge;
+    }
+
+    /// Invoked once the app has started (from the generated stub, next to
+    /// `deliverPendingSharedContent`) to flush surface actions that arrived through the
+    /// `CN1SurfaceActionActivity` trampoline before the app instance existed.
+    public static void deliverPendingSurfaceActions() {
+        com.codename1.impl.android.surfaces.AndroidSurfaceBridge.deliverPendingActions();
+    }
+
+    /// Invoked once the app has started (from the generated stub, beside
+    /// `deliverPendingSurfaceActions`) to run intent requests the trampoline parked rather than
+    /// dispatched.
+    ///
+    /// A non-headless handler is allowed to touch a `Form`, so the launcher tap can only ask for
+    /// the app to be brought forward; running the handler has to wait until it is.
+    public static void deliverPendingIntentRequests() {
+        // Order matters. The generated bootstrap installs the dispatcher before startContext
+        // has produced a bridge, so publication is deferred -- and until it happens the bridge
+        // never sees registerIntents, which is what judges a request the trampoline parked at a
+        // cold start. Draining the foreground queue alone left such a shortcut opening the app
+        // and running nothing.
+        com.codename1.intents.Intents.publishPendingDeclarations();
+        com.codename1.impl.android.intents.AndroidIntentBridge.deliverPendingForegroundRequests();
+    }
+
+    /**
+     * Executes r on the UI thread and blocks the EDT to completion
+     * @param r runnable to execute
+     */
+    public static void runOnUiThreadAndBlock(final Runnable r) {
+        if (getActivity() == null) {
+            throw new RuntimeException("Cannot run on UI thread because getActivity() is null.  This generally means we are running inside a service in the background so UI access is disabled.");
+        }
+
+        final boolean[] completed = new boolean[1];
+        getActivity().runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    r.run();
+                } catch(Throwable t) {
+                    com.codename1.io.Log.e(t);
+                }
+                synchronized(completed) {
+                    completed[0] = true;
+                    completed.notify();
+                }
+            }
+        });
+        Display.getInstance().invokeAndBlock(new Runnable() {
+            @Override
+            public void run() {
+                synchronized(completed) {
+                    while(!completed[0]) {
+                        try {
+                            completed.wait();
+                        } catch(InterruptedException err) {}
+                    }
+                }
+            }
+        });
+    }
+    
+    public static void runOnUiThreadSync(final Runnable r) {
+        if (getActivity() == null) {
+            throw new RuntimeException("Cannot run on UI thread because getActivity() is null.  This generally means we are running inside a service in the background so UI access is disabled.");
+        }
+
+        final boolean[] completed = new boolean[1];
+        getActivity().runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    r.run();
+                } catch(Throwable t) {
+                    com.codename1.io.Log.e(t);
+                }
+                synchronized(completed) {
+                    completed[0] = true;
+                    completed.notify();
+                }
+            }
+        });
+        synchronized(completed) {
+            while(!completed[0]) {
+                try {
+                    completed.wait();
+                } catch(InterruptedException err) {}
+            }
+        }
+    }
+
+
+    public int convertToPixels(int dipCount, boolean horizontal) {
+        DisplayMetrics dm = getContext().getResources().getDisplayMetrics();
+        float ppi = dm.density * 160f;
+        return (int) (((float) dipCount) / 25.4f * ppi);
+    }
+
+    public boolean isPortrait() {
+        int orientation = getContext().getResources().getConfiguration().orientation;
+        if (orientation == Configuration.ORIENTATION_UNDEFINED
+                || orientation == Configuration.ORIENTATION_SQUARE) {
+            return super.isPortrait();
+        }
+        return orientation == Configuration.ORIENTATION_PORTRAIT;
+    }
+
+    /**
+     * Checks if this platform supports sharing cookies between Native components (e.g. BrowserComponent)
+     * and ConnectionRequests.  Currently only Android and iOS ports support this.
+     * @return
+     */
+    @Override
+    public boolean isNativeCookieSharingSupported() {
+        return true;
+    }
+
+    @Override
+    public void clearNativeCookies() {
+        CookieManager mgr = getCookieManager();
+        mgr.removeAllCookie();
+    }
+    private static CookieManager cookieManager;
+    private static synchronized CookieManager getCookieManager() {
+        if (android.os.Build.VERSION.SDK_INT > 28) {
+            return CookieManager.getInstance();
+        }
+        if (cookieManager == null) {
+            CookieSyncManager.createInstance(getContext()); // Fixes a crash on Android 4.3
+            // https://stackoverflow.com/a/20552998/2935174
+            cookieManager = CookieManager.getInstance();
+        }
+        return CookieManager.getInstance();
+    }
+
+    @Override
+    public Vector getCookiesForURL(String url) {
+        if (isUseNativeCookieStore()) {
+            try {
+                URI uri = new URI(url);
+
+
+                CookieManager mgr = getCookieManager();
+                mgr.removeExpiredCookie();
+                String domain = uri.getHost();
+                String cookieStr = mgr.getCookie(url);
+                if (cookieStr != null) {
+                    String[] cookies = cookieStr.split(";");
+                    int len = cookies.length;
+                    Vector out = new Vector();
+                    for (int i = 0; i < len; i++) {
+                        Cookie c = new Cookie();
+                        String[] parts = cookies[i].split("=");
+                        c.setName(parts[0].trim());
+                        if (parts.length > 1) {
+                            c.setValue(parts[1].trim());
+                        } else {
+                            c.setValue("");
+                        }
+                        c.setDomain(domain);
+                        out.add(c);
+                    }
+                    return out;
+                }
+            } catch (Exception ex) {
+                com.codename1.io.Log.e(ex);
+            }
+            return new Vector();
+        }
+        return super.getCookiesForURL(url);
+    }
+
+    public class WebAppInterface {
+        BrowserComponent bc;
+        /** Instantiate the interface and set the context */
+        WebAppInterface(BrowserComponent bc) {
+            this.bc = bc;
+        }
+
+        @JavascriptInterface   // must be added for API 17 or higher
+        public boolean shouldNavigate(String url) {
+            return bc.fireBrowserNavigationCallbacks(url);
+        }
+    }
+    
+    class AndroidBrowserComponent extends AndroidImplementation.AndroidPeer {
+
+        private Activity act;
+        private WebView web;
+        private BrowserComponent parent;
+        private boolean scrollingEnabled = true;
+        protected AndroidBrowserComponentCallback jsCallback;
+        private boolean lightweightMode = false;
+        private ProgressDialog progressBar;
+        private boolean hideProgress;
+        private int layerType;
+
+
+        public AndroidBrowserComponent(final WebView web, Activity act, Object p) {
+            super(web);
+            if(!superPeerMode) {
+                doSetVisibility(false);
+            }
+            parent = (BrowserComponent) p;
+            this.web = web;
+            layerType = web.getLayerType();
+            web.getSettings().setJavaScriptEnabled(true);
+            web.getSettings().setSupportZoom(parent.isPinchToZoomEnabled());
+            this.act = act;
+            jsCallback = new AndroidBrowserComponentCallback();
+            hideProgress = Display.getInstance().getProperty("WebLoadingHidden", "false").equals("true");
+
+            web.addJavascriptInterface(jsCallback, AndroidBrowserComponentCallback.JS_VAR_NAME);
+            web.addJavascriptInterface(new WebAppInterface(parent), "cn1application");
+            if (android.os.Build.VERSION.SDK_INT >= 21) {
+                CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+            }
+
+            web.setWebViewClient(new WebViewClient() {
+                
+                
+                
+                public void onLoadResource(WebView view, String url) {
+                    if (Display.getInstance().getProperty("syncNativeCookies", "false").equals("true")) {
+                        try {
+                            URI uri = new URI(url);
+                            CookieManager mgr = getCookieManager();
+                            mgr.removeExpiredCookie();
+                            String domain = uri.getHost();
+                            removeCookiesForDomain(domain);
+                            String cookieStr = mgr.getCookie(url);
+                            if (cookieStr != null) {
+                                String[] cookies = cookieStr.split(";");
+                                int len = cookies.length;
+                                ArrayList out = new ArrayList();
+                                for (int i = 0; i < len; i++) {
+                                    Cookie c = new Cookie();
+                                    String[] parts = cookies[i].split("=");
+                                    c.setName(parts[0].trim());
+                                    if (parts.length > 1) {
+                                        c.setValue(parts[1].trim());
+                                    } else {
+                                        c.setValue("");
+                                    }
+                                    c.setDomain(domain);
+                                    out.add(c);
+                                }
+                                Cookie[] cookiesArr = new Cookie[out.size()];
+                                out.toArray(cookiesArr);
+                                AndroidImplementation.this.addCookie(cookiesArr, false);
+                            }
+
+                        } catch (URISyntaxException ex) {
+
+                        }
+                    }
+                    parent.fireWebEvent("onLoadResource", new ActionEvent(url));
+                    super.onLoadResource(view, url);
+                    setShouldCalcPreferredSize(true);
+                }
+
+                @Override
+                public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                    if (getActivity() == null) {
+                        return;
+                    }
+
+                    parent.fireWebEvent("onStart", new ActionEvent(url));
+                    super.onPageStarted(view, url, favicon);
+                    dismissProgress();
+                    //show the progress only if there is no ActionBar
+                    if(!hideProgress && !isNativeTitle()){
+                        progressBar = ProgressDialog.show(getActivity(), null, "Loading...");
+                        //if the page hasn't finished for more the 10 sec, dismiss
+                        //the dialog
+                        Timer t= new Timer();
+                        t.schedule(new TimerTask() {
+                            @Override
+                            public void run() {
+                                dismissProgress();
+                            }
+                        }, 10000);
+                    }
+                }
+
+                public void onPageFinished(WebView view, String url) {
+                    parent.fireWebEvent("onLoad", new ActionEvent(url));
+                    super.onPageFinished(view, url);
+                    setShouldCalcPreferredSize(true);
+                    dismissProgress();
+                }
+
+                private void dismissProgress() {
+                    if (progressBar != null && progressBar.isShowing()) {
+                        progressBar.dismiss();
+                        Display.getInstance().callSerially(new Runnable() {
+
+                            public void run() {
+                                setVisible(true);
+                                repaint();
+                            }
+                        });
+                    }
+                }
+
+                public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                    parent.fireWebEvent("onError", new ActionEvent(description, errorCode));
+                    super.onReceivedError(view, errorCode, description, failingUrl);
+                    super.shouldOverrideKeyEvent(view, null);
+                    dismissProgress();
+                }
+
+                public boolean shouldOverrideKeyEvent(WebView view, KeyEvent event) {
+                    int keyCode = event.getKeyCode();
+                    if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_MENU) {
+                        return true;
+                    }
+
+                    return super.shouldOverrideKeyEvent(view, event);
+                }
+
+                public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                    if (url.startsWith("jar:")) {
+                        setURL(url, null);
+                        return true;
+                    }
+
+                    // this will fail if dial permission isn't declared
+                    if(url.startsWith("tel:")) {
+                        if(parent.fireBrowserNavigationCallbacks(url)) {
+                            try {
+                                Intent dialer = new Intent(android.content.Intent.ACTION_DIAL, Uri.parse(url));
+                                getContext().startActivity(dialer);
+                            } catch(Throwable t) {}
+                        }
+                        return true;
+                    }
+                    // this will fail if dial permission isn't declared
+                    if(url.startsWith("mailto:")) {
+                        if(parent.fireBrowserNavigationCallbacks(url)) {
+                            try {
+                                Intent emailIntent = new Intent(Intent.ACTION_SENDTO, Uri.parse(url));
+                                getContext().startActivity(emailIntent);
+                            } catch(Throwable t) {}
+                        }
+                        return true;
+                    }
+                    return !parent.fireBrowserNavigationCallbacks(url);
+                }
+
+
+            });
+
+            web.setWebChromeClient(new WebChromeClient(){
+                // For 3.0+ Devices (Start)
+                // onActivityResult attached before constructor
+                protected void openFileChooser(ValueCallback uploadMsg, String acceptType)
+                {
+                    mUploadMessage = uploadMsg;
+                    Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    i.setType(acceptType);
+                    AndroidNativeUtil.getActivity().startActivityForResult(Intent.createChooser(i, "File Browser"), FILECHOOSER_RESULTCODE);
+                }
+
+
+                // For Lollipop 5.0+ Devices
+                public boolean onShowFileChooser(WebView mWebView, ValueCallback<Uri[]> filePathCallback, WebChromeClient.FileChooserParams fileChooserParams)
+                {
+                    if (uploadMessage != null) {
+                        uploadMessage.onReceiveValue(null);
+                        uploadMessage = null;
+                    }
+
+                    uploadMessage = filePathCallback;
+
+                    Intent intent = fileChooserParams.createIntent();
+                    try
+                    {
+                        AndroidNativeUtil.getActivity().startActivityForResult(intent, REQUEST_SELECT_FILE);
+                    } catch (ActivityNotFoundException e)
+                    {
+                        uploadMessage = null;
+                        Toast.makeText(getActivity().getApplicationContext(), "Cannot Open File Chooser", Toast.LENGTH_LONG).show();
+                        return false;
+                    }
+                    return true;
+                }
+
+                //For Android 4.1 only
+                protected void openFileChooser(ValueCallback<Uri> uploadMsg, String acceptType, String capture)
+                {
+                    mUploadMessage = uploadMsg;
+                    Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType(acceptType);
+                    
+                    AndroidNativeUtil.getActivity().startActivityForResult(Intent.createChooser(intent, "File Browser"), FILECHOOSER_RESULTCODE);
+                }
+
+                protected void openFileChooser(ValueCallback<Uri> uploadMsg)
+                {
+                    mUploadMessage = uploadMsg;
+                    Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    i.setType("image/*");
+                    AndroidNativeUtil.getActivity().startActivityForResult(Intent.createChooser(i, "File Chooser"), FILECHOOSER_RESULTCODE);
+                }
+
+                
+                @Override
+                public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
+                    com.codename1.io.Log.p("["+consoleMessage.messageLevel()+"] "+consoleMessage.message()+" On line "+consoleMessage.lineNumber()+" of "+consoleMessage.sourceId());
+                    return true;
+                }
+
+                @Override
+                public void onProgressChanged(WebView view, int newProgress) {
+                    parent.fireWebEvent("Progress", new ActionEvent(parent, ActionEvent.Type.Progress, newProgress));
+                    if(!hideProgress && isNativeTitle() && getCurrentForm() != null && getCurrentForm().getTitle() != null && getCurrentForm().getTitle().length() > 0 ){
+                        if(getActivity() != null){
+                            try{
+                                getActivity().setProgressBarVisibility(true);
+                                getActivity().setProgress(newProgress * 100);
+                                if(newProgress == 100){
+                                    getActivity().setProgressBarVisibility(false);
+                                }
+                            }catch(Throwable t){
+                            }
+                        }
+                    }
+                }
+
+                @Override
+                public void onGeolocationPermissionsShowPrompt(String origin,
+                                                               GeolocationPermissions.Callback callback) {
+                    // Always grant permission since the app itself requires location
+                    // permission and the user has therefore already granted it
+                    callback.invoke(origin, true, false);
+                }
+
+                @Override
+                public void onPermissionRequest(final PermissionRequest request) {
+
+                    Log.d("Codename One", "onPermissionRequest");
+                    getActivity().runOnUiThread(new Runnable() {
+                        @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+                        @Override
+                        public void run() {
+                            String allowedOrigins = Display.getInstance().getProperty("android.WebView.grantPermissionsFrom", null);
+                            if (allowedOrigins != null) {
+                                String[] origins = Util.split(allowedOrigins, " ");
+                                boolean allowed = false;
+                                for (String origin : origins) {
+                                    if (request.getOrigin().toString().equals(origin)) {
+                                        allowed = true;
+                                        break;
+                                    }
+                                }
+                                if (allowed) {
+                                    Log.d("Codename One", "Allowing permission for "+Arrays.toString(request.getResources())+" in web view for origin "+request.getOrigin());
+                                    request.grant(request.getResources());
+                                } else {
+                                    Log.d("Codename One", "Denying permission for "+Arrays.toString(request.getResources())+" in web view for origin "+request.getOrigin());
+                                    request.deny();
+                                }
+                            }
+
+                        }
+                    });
+                }
+            });
+        }
+
+        @Override
+        protected void initComponent() {
+            if(android.os.Build.VERSION.SDK_INT == 21 && web.getLayerType() != layerType){
+                act.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        web.setLayerType(layerType, null); //setting layer type to original state
+                    }
+                });
+            }
+            super.initComponent();
+            blockNativeFocus(false);
+            setPeerImage(null);
+        }
+
+
+        @Override
+        protected Image generatePeerImage() {
+            try {
+                final Bitmap nativeBuffer = Bitmap.createBitmap(
+                        getWidth(), getHeight(), Bitmap.Config.ARGB_8888);
+                Image image = new AndroidImplementation.NativeImage(nativeBuffer);
+                getActivity().runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            Canvas canvas = new Canvas(nativeBuffer);
+                            web.draw(canvas);
+                        } catch(Throwable t) {
+                            t.printStackTrace();
+                        }
+                    }
+                });
+                return image;
+            } catch(Throwable t) {
+                t.printStackTrace();
+                return Image.createImage(5, 5);
+            }
+        }
+
+        protected boolean shouldRenderPeerImage() {
+            return lightweightMode || !isInitialized();
+        }
+
+        protected void setLightweightMode(boolean l) {
+            doSetVisibility(!l);
+            if (lightweightMode == l) {
+                return;
+            }
+            lightweightMode = l;
+        }
+
+
+
+        public void setScrollingEnabled(final boolean enabled){
+            this.scrollingEnabled = enabled;
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    web.setHorizontalScrollBarEnabled(enabled);
+                    web.setVerticalScrollBarEnabled(enabled);
+                    if ( !enabled ){
+                        web.setOnTouchListener(new View.OnTouchListener(){
+
+                            @Override
+                            public boolean onTouch(View view, MotionEvent me) {
+                                return (me.getAction() == MotionEvent.ACTION_MOVE);
+                            }
+
+                        });
+                    } else {
+                        web.setOnTouchListener(null);
+                    }
+                }
+            });
+
+        }
+
+        public boolean isScrollingEnabled(){
+            return scrollingEnabled;
+        }
+
+        public void setProperty(final String key, final Object value) {
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    WebSettings s = web.getSettings();
+                    if(key.equalsIgnoreCase("useragent")) {
+                        s.setUserAgentString((String)value);
+                        return;
+                    }
+                    try {
+                        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                    } catch(Throwable t) {
+                        // the method isn't available in Android 4.x
+                    }
+                    String methodName = "set" + key;
+                    for (Method m : s.getClass().getMethods()) {
+                        if (m.getName().equalsIgnoreCase(methodName) && m.getParameterTypes().length == 1) {
+                            try {
+                                m.invoke(s, value);
+                            } catch (Exception ex) {
+                                ex.printStackTrace();
+                            }
+                            return;
+                        }
+                    }
+                }
+            });
+        }
+
+        public String getTitle() {
+            final String[] retVal = new String[1];
+            final boolean[] complete = new boolean[1];
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    try {
+
+                        retVal[0] = web.getTitle();
+                    } finally {
+                        complete[0] = true;
+                    }
+                }
+            });
+            while (!complete[0]) {
+                Display.getInstance().invokeAndBlock(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!complete[0]) {
+                            try {
+                                Thread.sleep(20);
+                            } catch (InterruptedException ex) {
+                            }
+                        }
+                    }
+                });
+            }
+            return retVal[0];
+        }
+
+        public String getURL() {
+            final String[] retVal = new String[1];
+            final boolean[] complete = new boolean[1];
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    try {
+                        retVal[0] = web.getUrl();
+                    } finally {
+                        complete[0] = true;
+                    }
+                }
+            });
+            while (!complete[0]) {
+                Display.getInstance().invokeAndBlock(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!complete[0]) {
+                            try {
+                                Thread.sleep(20);
+                            } catch (InterruptedException ex) {
+                            }
+                        }
+                    }
+                });
+            }
+            return retVal[0];
+        }
+
+        public void setURL(final String url, final Map<String, String> headers) {
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    if(headers != null) {
+                        web.loadUrl(url, headers);
+                    } else {
+                        web.loadUrl(url);
+                    }
+                }
+            });
+        }
+
+        public void reload() {
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    web.reload();
+                }
+            });
+        }
+
+        public boolean hasBack() {
+            final Boolean [] retVal = new Boolean[1];
+            final boolean[] complete = new boolean[1];
+
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    try {
+                        retVal[0] = web.canGoBack();
+                    } finally {
+                        complete[0] = true;
+                    }
+                }
+            });
+            while (!complete[0]) {
+                Display.getInstance().invokeAndBlock(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!complete[0]) {
+                            try {
+                                Thread.sleep(20);
+                            } catch (InterruptedException ex) {
+                            }
+                        }
+                    }
+                });
+            }
+            return retVal[0].booleanValue();
+        }
+
+        public boolean hasForward() {
+            final Boolean [] retVal = new Boolean[1];
+            final boolean[] complete = new boolean[1];
+
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    try {
+                        retVal[0] = web.canGoForward();
+                    } finally {
+                        complete[0] = true;
+                    }
+                }
+            });
+
+            while (!complete[0]) {
+                Display.getInstance().invokeAndBlock(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!complete[0]) {
+                            try {
+                                Thread.sleep(20);
+                            } catch (InterruptedException ex) {
+                            }
+                        }
+                    }
+                });
+            }
+            return retVal[0].booleanValue();
+        }
+
+        public void back() {
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    web.goBack();
+                }
+            });
+        }
+
+        public void forward() {
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    web.goForward();
+                }
+            });
+        }
+
+        public void clearHistory() {
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    web.clearHistory();
+                }
+            });
+        }
+
+        public void stop() {
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    web.stopLoading();
+                }
+            });
+        }
+
+        public void destroy() {
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    web.destroy();
+                }
+            });
+        }
+
+        public void setPage(final String html, final String baseUrl) {
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    web.loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null);
+                }
+            });
+        }
+
+        public void exposeInJavaScript(final Object o, final String name) {
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    web.addJavascriptInterface(o, name);
+                }
+            });
+        }
+
+        public  void setPinchZoomEnabled(final boolean e) {
+            act.runOnUiThread(new Runnable() {
+                public void run() {
+                    web.getSettings().setSupportZoom(e);
+                    web.getSettings().setBuiltInZoomControls(e);
+                }
+            });
+        }
+
+        @Override
+        protected void deinitialize() {
+            act.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if(android.os.Build.VERSION.SDK_INT == 21) { // bugfix for Android 5.0.x
+                        web.setLayerType(View.LAYER_TYPE_SOFTWARE, null); //setting layer type to software to prevent the sigseg 11 crash
+                    }
+                }
+            });
+            super.deinitialize();
+        }
+    }
+
+
+
+    public Object connect(String url, boolean read, boolean write, int timeout) throws IOException {
+        URL u = new URL(url);
+        CookieHandler.setDefault(null);
+        URLConnection con = u.openConnection();
+        if (con instanceof HttpURLConnection) {
+            HttpURLConnection c = (HttpURLConnection) con;
+            c.setUseCaches(false);
+            c.setDefaultUseCaches(false);
+            c.setInstanceFollowRedirects(false);
+            if(timeout > -1) {
+                c.setConnectTimeout(timeout);
+            }
+
+            if (android.os.Build.VERSION.SDK_INT > 13) {
+                c.setRequestProperty("Connection", "close");
+            }
+        }
+        con.setDoInput(read);
+        con.setDoOutput(write);
+        return con;
+    }
+    
+    @Override
+    public void setReadTimeout(Object connection, int readTimeout) {
+        if (connection instanceof URLConnection) {
+            ((URLConnection)connection).setReadTimeout(readTimeout);
+        }
+    }
+    
+    
+
+    @Override
+    public boolean isReadTimeoutSupported() {
+        return true;
+    }
+    
+    @Override
+    public void setInsecure(Object connection, boolean insecure) {
+        if (insecure) {
+            if (connection instanceof HttpsURLConnection) {
+                HttpsURLConnection conn = (HttpsURLConnection)connection;
+                try {
+                    TrustModifier.relaxHostChecking(conn);
+                } catch (Exception ex) {
+                    com.codename1.io.Log.e(ex);
+                }
+            }
+        }
+    }
+    
+
+    /**
+     * @inheritDoc
+     */
+    public Object connect(String url, boolean read, boolean write) throws IOException {
+        return connect(url, read, write, timeout);
+    }
+
+
+    private static final char[] HEX_CHARS = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+
+    private static String dumpHex(byte[] data) {
+        final int n = data.length;
+        final StringBuilder sb = new StringBuilder(n * 3 - 1);
+        for (int i = 0; i < n; i++) {
+            if (i > 0) {
+                sb.append(' ');
+            }
+            sb.append(HEX_CHARS[(data[i] >> 4) & 0x0F]);
+            sb.append(HEX_CHARS[data[i] & 0x0F]);
+        }
+        return sb.toString();
+    }
+
+    @Override
+    public String[] getSSLCertificates(Object connection, String url) throws IOException {
+        if (connection instanceof HttpsURLConnection) {
+            HttpsURLConnection conn = (HttpsURLConnection)connection;
+
+            try {
+                conn.connect();
+                java.security.cert.Certificate[] certs = conn.getServerCertificates();
+                String[] out = new String[certs.length * 2];
+                int i=0;
+                for (java.security.cert.Certificate cert : certs) {
+                    {
+                        MessageDigest md = MessageDigest.getInstance("SHA-256");
+                        md.update(cert.getEncoded());
+                        out[i++] = "SHA-256:" + dumpHex(md.digest());
+                    }
+                    {
+                        MessageDigest md = MessageDigest.getInstance("SHA1");
+                        md.update(cert.getEncoded());
+                        out[i++] = "SHA1:" + dumpHex(md.digest());
+                    }
+
+                }
+                return out;
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        }
+        return new String[0];
+
+    }
+
+    @Override
+    public boolean canGetSSLCertificates() {
+        return true;
+    }
+
+    @Override
+    public boolean canGetPublicKeyDigests() {
+        return true;
+    }
+
+    @Override
+    public String[] getSSLCertificatesEx(Object connection, String url) throws IOException {
+        if (connection instanceof HttpsURLConnection) {
+            HttpsURLConnection conn = (HttpsURLConnection) connection;
+            try {
+                conn.connect();
+                java.security.cert.Certificate[] certs = conn.getServerCertificates();
+                java.util.List<String> out = new java.util.ArrayList<String>();
+                for (int i = 0; i < certs.length; i++) {
+                    java.security.cert.Certificate cert = certs[i];
+                    out.add("CHAIN:" + i);
+                    MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
+                    sha256.update(cert.getEncoded());
+                    out.add("SHA-256:" + dumpHex(sha256.digest()));
+                    MessageDigest sha1 = MessageDigest.getInstance("SHA1");
+                    sha1.update(cert.getEncoded());
+                    out.add("SHA1:" + dumpHex(sha1.digest()));
+                    // getPublicKey().getEncoded() is already the DER SubjectPublicKeyInfo,
+                    // which is exactly what a public-key pin is computed over.
+                    java.security.PublicKey pk = cert.getPublicKey();
+                    if (pk != null && pk.getEncoded() != null) {
+                        MessageDigest spki = MessageDigest.getInstance("SHA-256");
+                        spki.update(pk.getEncoded());
+                        out.add("SPKI-SHA-256:"
+                                + com.codename1.util.Base64.encodeNoNewline(spki.digest()));
+                    }
+                }
+                return out.toArray(new String[out.size()]);
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        }
+        return new String[0];
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void setHeader(Object connection, String key, String val) {
+        ((URLConnection) connection).setRequestProperty(key, val);
+    }
+
+    @Override
+    public void setChunkedStreamingMode(Object connection, int bufferLen){
+        HttpURLConnection con = ((HttpURLConnection) connection);
+        con.setChunkedStreamingMode(bufferLen);
+    }
+
+
+
+    /**
+     * @inheritDoc
+     */
+    public OutputStream openOutputStream(Object connection) throws IOException {
+        if (connection instanceof String) {
+            String con = (String)connection;
+            if (con.startsWith("file://")) {
+                con = con.substring(7);
+            }
+
+            OutputStream fc = createFileOuputStream((String) con);
+            BufferedOutputStream o = new BufferedOutputStream(fc, (String) con);
+            return o;
+        }
+        return new BufferedOutputStream(((URLConnection) connection).getOutputStream(), connection.toString());
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public OutputStream openOutputStream(Object connection, int offset) throws IOException {
+        String con = (String) connection;
+        con = removeFilePrefix(con);
+        RandomAccessFile rf = new RandomAccessFile(con, "rw");
+        rf.seek(offset);
+        FileOutputStream fc = new FileOutputStream(rf.getFD());
+        BufferedOutputStream o = new BufferedOutputStream(fc, con);
+        o.setConnection(rf);
+        return o;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void cleanup(Object o) {
+        try {
+            super.cleanup(o);
+            if (o != null) {
+                if (o instanceof RandomAccessFile) {
+                    ((RandomAccessFile) o).close();
+                }
+            }
+        } catch (Throwable ex) {
+            ex.printStackTrace();
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public InputStream openInputStream(Object connection) throws IOException {
+        if (connection instanceof String) {
+            String con = (String) connection;
+            if (con.startsWith("file://")) {
+                con = con.substring(7);
+            }
+            InputStream fc = createFileInputStream(con);
+            BufferedInputStream o = new BufferedInputStream(fc, con);
+            return o;
+        }
+        if(connection instanceof HttpURLConnection) {
+            HttpURLConnection ht = (HttpURLConnection)connection;
+            if(ht.getResponseCode() < 400) {
+                return new BufferedInputStream(ht.getInputStream());
+            }
+            return new BufferedInputStream(ht.getErrorStream());
+        } else {
+            return new BufferedInputStream(((URLConnection) connection).getInputStream());
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void setHttpMethod(Object connection, String method) throws IOException {
+        if(method.equalsIgnoreCase("patch")) {
+            allowPatch((HttpURLConnection) connection);
+        }
+        ((HttpURLConnection) connection).setRequestMethod(method);
+    }
+
+    // the following block is based on a few suggestions in this stack overflow 
+    // answer https://stackoverflow.com/questions/25163131/httpurlconnection-invalid-http-method-patch
+    private static boolean enabledPatch;
+    private static boolean patchFailed;
+    private static void allowPatch(HttpURLConnection connection) {
+        if(enabledPatch) {
+            return;
+        }
+        if(patchFailed) {
+            connection.setRequestProperty("X-HTTP-Method-Override", "PATCH");
+            return;
+        }
+        try {
+            Field methodsField = HttpURLConnection.class.getDeclaredField("methods");
+
+            Field modifiersField = Field.class.getDeclaredField("modifiers");
+            modifiersField.setAccessible(true);
+            modifiersField.setInt(methodsField, methodsField.getModifiers() & ~Modifier.FINAL);
+
+            methodsField.setAccessible(true);
+
+            String[] oldMethods = (String[]) methodsField.get(null);
+            Set<String> methodsSet = new LinkedHashSet<String>(Arrays.asList(oldMethods));
+            methodsSet.addAll(Arrays.asList("PATCH"));
+            String[] newMethods = methodsSet.toArray(new String[0]);
+
+            methodsField.set(null/*static field*/, newMethods);
+            enabledPatch = true;
+        } catch (NoSuchFieldException e) {
+            patchFailed = true;
+            connection.setRequestProperty("X-HTTP-Method-Override", "PATCH");
+        } catch(IllegalAccessException ee) {
+            patchFailed = true;
+            connection.setRequestProperty("X-HTTP-Method-Override", "PATCH");
+        }
+    }    
+    
+    /**
+     * @inheritDoc
+     */
+    public void setPostRequest(Object connection, boolean p) {
+        try {
+            if (p) {
+                ((HttpURLConnection) connection).setRequestMethod("POST");
+            } else {
+                ((HttpURLConnection) connection).setRequestMethod("GET");
+            }
+        } catch (IOException err) {
+            // an exception here doesn't make sense
+            err.printStackTrace();
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public int getResponseCode(Object connection) throws IOException {
+        // workaround for Android bug discussed here: http://stackoverflow.com/questions/17638398/androids-httpurlconnection-throws-eofexception-on-head-requests
+        HttpURLConnection con = (HttpURLConnection) connection;
+        if("head".equalsIgnoreCase(con.getRequestMethod())) {
+            con.setDoOutput(false);
+            con.setRequestProperty( "Accept-Encoding", "" );
+        }
+        return ((HttpURLConnection) connection).getResponseCode();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String getResponseMessage(Object connection) throws IOException {
+        return ((HttpURLConnection) connection).getResponseMessage();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public int getContentLength(Object connection) {
+        return ((HttpURLConnection) connection).getContentLength();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String getHeaderField(String name, Object connection) throws IOException {
+        return ((HttpURLConnection) connection).getHeaderField(name);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String[] getHeaderFieldNames(Object connection) throws IOException {
+        Set<String> s = ((HttpURLConnection) connection).getHeaderFields().keySet();
+        String[] resp = new String[s.size()];
+        s.toArray(resp);
+        return resp;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String[] getHeaderFields(String name, Object connection) throws IOException {
+        HttpURLConnection c = (HttpURLConnection) connection;
+        List<String> headers = new ArrayList<String>();
+
+        // we need to merge headers with differing case since this should be case insensitive
+        for(String key : c.getHeaderFields().keySet()) {
+            if(key != null && key.equalsIgnoreCase(name)) {
+                headers.addAll(c.getHeaderFields().get(key));
+            }
+        }
+        if (headers.size() > 0) {
+            List<String> v = new ArrayList<String>();
+            v.addAll(headers);
+            Collections.reverse(v);
+            String[] s = new String[v.size()];
+            v.toArray(s);
+            return s;
+        }
+        // workaround for a bug in some android devices
+        String f = c.getHeaderField(name);
+        if(f != null && f.length() > 0) {
+            return new String[] {f};
+        }
+        return null;
+
+
+
+    }
+
+    /**
+     * Directory holding storage writes still in progress.
+     *
+     * <p>A sibling of the files dir rather than something inside it. Every name is a
+     * legal storage key, so no name reserved inside that namespace can be kept clear
+     * of the application: a key called after the scratch area would either be
+     * unstorable or, if it already existed as a file, would stop the directory being
+     * created and fail every write from then on. Outside the namespace there is
+     * nothing to collide with. It stays on the same filesystem as the entries, which
+     * is what lets a write be published by renaming.</p>
+     */
+    private static final String STORAGE_SCRATCH_DIR = "cn1-storage-scratch";
+
+    /**
+     * Suffix of the file each process locks for as long as it is running, so that the
+     * others can tell whether the writes it left behind are still being written.
+     *
+     * <p>This replaces judging a scratch file by its age. An application may run more
+     * than one process, each with its own copy of this class and so its own idea of
+     * what is open, and age was the only thing they all agreed on -- but
+     * {@code lastModified} is a wall clock reading, and a clock that jumps forward
+     * makes a file being written this moment look arbitrarily old. A lock says
+     * whether the writer is there, and the system drops it when a process ends
+     * however it ends, so it cannot outlive the process it stands for.</p>
+     */
+    private static final String STORAGE_LIVE_SUFFIX = ".live";
+
+    /**
+     * How long to leave between sweeps. A rate limit rather than a judgement about
+     * any file, measured on the monotonic clock so that setting the wall clock cannot
+     * disturb it.
+     */
+    private static final long STORAGE_SWEEP_INTERVAL = 5L * 60L * 1000L;
+
+    /**
+     * Distinguishes the scratch files of concurrent writes. Paired with the process
+     * id, since a second process counts from the beginning as well.
+     */
+    private static final AtomicLong storageScratchCounter = new AtomicLong();
+
+    /**
+     * Guards the instant at which a write is published or abandoned, and the set of
+     * writes that are still open. Deleting an entry and publishing one have to take
+     * turns: otherwise a write that renames its scratch file just after another
+     * thread deleted the entry brings the deleted entry back.
+     */
+    private static final Object storagePublishLock = new Object();
+
+    /**
+     * Name of the file whose lock serializes storage writes between processes.
+     */
+    private static final String STORAGE_LOCK_FILE = ".lock";
+
+    /**
+     * The cross process lock, and the handle it is taken on, while this process holds
+     * it. Guarded by {@link #storagePublishLock}, so only one thread here ever has it.
+     */
+    private static RandomAccessFile storageLockHandle;
+    private static FileLock storageLockAcrossProcesses;
+
+    /**
+     * The lock this process holds for as long as it runs, saying that the scratch
+     * files bearing its process id are still being written. Never released: the
+     * system takes it back when the process ends.
+     */
+    private static RandomAccessFile storageLiveHandle;
+    private static FileLock storageLiveLock;
+
+    /**
+     * How many nested claims this process has on the cross process lock. A
+     * {@code FileLock} is held by the whole VM and cannot be taken twice, and
+     * clearStorage claims it and then calls deleteStorageFile for every entry.
+     */
+    private static int storageLockDepth;
+
+    /**
+     * Claims the storage for this process, so that creating a scratch file, deleting
+     * an entry and publishing a write cannot interleave between processes.
+     *
+     * <p>Unlinking a writer's scratch file is what cancels it, and that only reaches
+     * the writes that exist when the deletion looks. Without this a second process
+     * could create its scratch file just after a deletion had scanned for them, and
+     * publish over the entry that deletion went on to remove. A lock the filesystem
+     * arbitrates is the only thing both processes can see; the system drops it when a
+     * process ends however it ends, so it cannot be left held by a crash.</p>
+     *
+     * <p>Best effort: if the lock cannot be taken the work still goes ahead, since a
+     * storage that stops writing would be worse than one exposed to a race that only
+     * an application with more than one process can reach at all.</p>
+     *
+     * <p>The caller must hold {@link #storagePublishLock}.</p>
+     */
+    private static void lockStorageAcrossProcesses() {
+        if (storageLockDepth == 0) {
+            try {
+                File dir = storageScratchDir();
+                if (dir.isDirectory() || dir.mkdirs() || dir.isDirectory()) {
+                    // kept before the lock is attempted rather than after it succeeds,
+                    // so that a lock which throws still leaves releaseStorageLock
+                    // something to close. Otherwise a filesystem that refuses to lock
+                    // leaks a descriptor on every storage operation until unrelated
+                    // files stop opening.
+                    storageLockHandle =
+                            new RandomAccessFile(new File(dir, STORAGE_LOCK_FILE), "rw");
+                    storageLockAcrossProcesses = storageLockHandle.getChannel().lock();
+                }
+            } catch (Throwable t) {
+                // android's log, not ours: the default log writer is a storage stream,
+                // so reporting this through it would come back through here with the
+                // depth still at zero and fail the same way, again and again
+                Log.e("CodenameOne", "Could not lock the storage", t);
+                releaseStorageLock();
+            }
+        }
+        storageLockDepth++;
+    }
+
+    /**
+     * Gives up this process's claim on the storage.
+     *
+     * <p>The caller must hold {@link #storagePublishLock}.</p>
+     */
+    private static void unlockStorageAcrossProcesses() {
+        storageLockDepth--;
+        if (storageLockDepth == 0) {
+            releaseStorageLock();
+        }
+    }
+
+    /**
+     * Drops the cross process lock and the handle it was taken on, whichever of them
+     * this process actually got.
+     */
+    private static void releaseStorageLock() {
+        try {
+            if (storageLockAcrossProcesses != null) {
+                storageLockAcrossProcesses.release();
+            }
+        } catch (Throwable t) {
+            Log.e("CodenameOne", "Could not release the storage lock", t);
+        }
+        storageLockAcrossProcesses = null;
+        try {
+            if (storageLockHandle != null) {
+                storageLockHandle.close();
+            }
+        } catch (Throwable t) {
+            Log.e("CodenameOne", "Could not close the storage lock", t);
+        }
+        storageLockHandle = null;
+    }
+
+    /**
+     * The writes that are currently open, so that deleting an entry can cancel them.
+     * Guarded by {@link #storagePublishLock}.
+     */
+    private static final List<StorageOutputStream> openStorageWrites =
+            new ArrayList<StorageOutputStream>();
+
+    /**
+     * When the scratch area is next worth looking at, on the monotonic clock. Keeps
+     * the sweep from running on every write without ever being the thing that decides
+     * whether a file is abandoned. Guarded by {@link #storagePublishLock}.
+     */
+    private static long nextStorageScratchSweep;
+
+    /**
+     * @inheritDoc
+     */
+    public void deleteStorageFile(String name) {
+        synchronized (storagePublishLock) {
+            lockStorageAcrossProcesses();
+            try {
+                // cancelled before the entry goes, and under the same lock the
+                // publishing rename takes, so a write that is already mid close
+                // cannot put the entry back afterwards.
+                for (int iter = 0; iter < openStorageWrites.size(); iter++) {
+                    openStorageWrites.get(iter).cancel(name);
+                }
+                // the same for writes in another process, which the monitor above
+                // knows nothing about. Unlinking a scratch file cancels it: the
+                // writer keeps a working descriptor on an inode with no name, exactly
+                // as it used to keep one on an entry deleted underneath it, and the
+                // rename that would have published it can no longer find anything to
+                // rename. Scratch files go first, so a publish that slips through
+                // between the two still leaves an entry for the delete to remove.
+                discardScratchFilesFor(name);
+                getContext().deleteFile(name);
+            } finally {
+                unlockStorageAcrossProcesses();
+            }
+        }
+    }
+
+    /**
+     * Unlinks every scratch file being written for the given entry, in this process
+     * or any other, which is what cancels those writes.
+     *
+     * @param name the storage entry
+     */
+    private static void discardScratchFilesFor(String name) {
+        try {
+            String prefix = storageScratchPrefix(name);
+            File[] scratch = storageScratchDir().listFiles();
+            if (scratch == null) {
+                return;
+            }
+            for (int iter = 0; iter < scratch.length; iter++) {
+                if (scratch[iter].getName().startsWith(prefix) && !scratch[iter].delete()) {
+                    com.codename1.io.Log.p("Could not cancel the storage write "
+                            + scratch[iter]);
+                }
+            }
+        } catch (IOException err) {
+            com.codename1.io.Log.e(err);
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void clearStorage() {
+        synchronized (storagePublishLock) {
+            // every open write, not just the ones for entries that exist. A write to
+            // an entry that is not there yet is absent from listStorageEntries, so the
+            // inherited implementation never reaches it, and it would publish a new
+            // entry moments after the storage was supposedly emptied.
+            lockStorageAcrossProcesses();
+            try {
+                for (int iter = 0; iter < openStorageWrites.size(); iter++) {
+                    openStorageWrites.get(iter).cancel();
+                }
+                discardAllScratchFiles();
+                super.clearStorage();
+            } finally {
+                unlockStorageAcrossProcesses();
+            }
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public boolean abandonStorageWrite(String name, OutputStream writing) {
+        // this write and no other. Every write to the entry used to be given up
+        // together, so a second thread writing the same entry had its value quietly
+        // discarded and was told the write had succeeded.
+        if (writing instanceof StorageOutputStream) {
+            synchronized (storagePublishLock) {
+                ((StorageOutputStream) writing).cancel();
+            }
+            // such a write leaves the entry untouched until it is published, so
+            // whatever was stored is still there
+            return true;
+        }
+        // a stream that never opened cannot have touched anything either. Anything
+        // else wrote into the entry itself and the caller has to clear up after it.
+        return writing == null;
+    }
+
+    /**
+     * @inheritDoc
+     *
+     * <p>Writes into the entry, as it always has. A caller may hold this open and
+     * expect what it flushes to be readable meanwhile -- the log writer keeps one for
+     * the life of the application and sendLog reads the entry behind its back -- so
+     * an entry that appeared only on close would leave the log unreadable and lose
+     * everything written since the process started. What can be given here without
+     * changing when the entry appears is the flush that Android does not do on
+     * close.</p>
+     */
+    public OutputStream createStorageOutputStream(String name) throws IOException {
+        return new SyncingStorageOutputStream(getContext().openFileOutput(name, 0));
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public OutputStream createStorageOutputStream(String name, boolean replaceWhenClosed)
+            throws IOException {
+        if (!replaceWhenClosed) {
+            return createStorageOutputStream(name);
+        }
+        sweepStorageScratchFiles();
+        return new StorageOutputStream(name);
+    }
+
+    /**
+     * Forces a stream onto the device as it closes, which Android does not do by
+     * itself, without changing anything about when what is written becomes visible.
+     */
+    private static final class SyncingStorageOutputStream extends OutputStream {
+        private final FileOutputStream out;
+        private boolean closed;
+
+        SyncingStorageOutputStream(FileOutputStream out) {
+            this.out = out;
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            out.write(b);
+        }
+
+        @Override
+        public void write(byte[] b) throws IOException {
+            out.write(b);
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            out.write(b, off, len);
+        }
+
+        @Override
+        public void flush() throws IOException {
+            out.flush();
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            try {
+                out.flush();
+                out.getFD().sync();
+            } finally {
+                out.close();
+            }
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public InputStream createStorageInputStream(String name) throws IOException {
+        return getContext().openFileInput(name);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public boolean storageFileExists(String name) {
+        String[] fileList = getContext().fileList();
+        for (int iter = 0; iter < fileList.length; iter++) {
+            if (fileList[iter].equals(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String[] listStorageEntries() {
+        return getContext().fileList();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public int getStorageEntrySize(String name) {
+        return (int)new File(getContext().getFilesDir(), name).length();
+    }
+
+    /**
+     * Removes the scratch files left behind by a run that died mid write, once they
+     * are old enough that nothing can still be writing them.
+     */
+    private void sweepStorageScratchFiles() {
+        synchronized (storagePublishLock) {
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (now < nextStorageScratchSweep) {
+                return;
+            }
+            nextStorageScratchSweep = now + STORAGE_SWEEP_INTERVAL;
+            // under the lock the other processes take to start a write or to say they
+            // are running. Finding an owner gone and then deleting its files are two
+            // steps, and a process id is handed out again the moment its holder is
+            // gone: without this a process could be given the id just examined, say so
+            // and start writing, and have this sweep delete the write it had only just
+            // begun -- or the very file it had said it was alive with, after which
+            // every later sweep would take it for gone.
+            lockStorageAcrossProcesses();
+            try {
+                File dir = storageScratchDir();
+                File[] files = dir.listFiles();
+                if (files == null) {
+                    return;
+                }
+                int mine = android.os.Process.myPid();
+                for (int iter = 0; iter < files.length; iter++) {
+                    if (isStorageLockFile(files[iter])) {
+                        continue;
+                    }
+                    int owner = storageScratchOwner(files[iter].getName());
+                    // this process knows what it is doing without asking, and never
+                    // tries to lock its own liveness file, which it already holds
+                    if (owner < 0 || owner == mine || isProcessWriting(dir, owner)) {
+                        continue;
+                    }
+                    if (!files[iter].delete()) {
+                        com.codename1.io.Log.p("Could not remove the abandoned storage "
+                                + "scratch file " + files[iter]);
+                    }
+                }
+            } catch (Throwable t) {
+                // a sweep that fails costs disk space, never correctness
+                com.codename1.io.Log.e(t);
+            } finally {
+                unlockStorageAcrossProcesses();
+            }
+        }
+    }
+
+    /**
+     * The process a file in the scratch directory belongs to.
+     *
+     * @param fileName the name of the file
+     * @return the process id, or -1 if the name does not carry one
+     */
+    private static int storageScratchOwner(String fileName) {
+        String pid;
+        if (fileName.endsWith(STORAGE_LIVE_SUFFIX)) {
+            pid = fileName.substring(0, fileName.length() - STORAGE_LIVE_SUFFIX.length());
+        } else {
+            int digest = fileName.indexOf('-');
+            int counter = digest < 0 ? -1 : fileName.indexOf('-', digest + 1);
+            if (counter < 0) {
+                return -1;
+            }
+            pid = fileName.substring(digest + 1, counter);
+        }
+        try {
+            return Integer.parseInt(pid);
+        } catch (NumberFormatException err) {
+            return -1;
+        }
+    }
+
+    /**
+     * Whether the given process is still running, and so may still be writing the
+     * scratch files that carry its id.
+     *
+     * <p>Asked of the filesystem rather than of {@code /proc}, which since Android 9
+     * shows a process only itself. A lock that can be taken is one nobody is holding.
+     * Anything unexpected counts as running, since deleting another process's work on
+     * a guess is the one outcome worth avoiding here.</p>
+     *
+     * @param dir the scratch directory
+     * @param pid the process to ask about
+     * @return true if that process appears to be running
+     */
+    private static boolean isProcessWriting(File dir, int pid) {
+        File live = new File(dir, pid + STORAGE_LIVE_SUFFIX);
+        if (!live.exists()) {
+            return false;
+        }
+        RandomAccessFile handle = null;
+        FileLock held = null;
+        try {
+            handle = new RandomAccessFile(live, "rw");
+            held = handle.getChannel().tryLock();
+            return held == null;
+        } catch (Throwable t) {
+            return true;
+        } finally {
+            try {
+                if (held != null) {
+                    held.release();
+                }
+                if (handle != null) {
+                    handle.close();
+                }
+            } catch (Throwable t) {
+                com.codename1.io.Log.e(t);
+            }
+        }
+    }
+
+    /**
+     * Says, for as long as this process runs, that the scratch files carrying its
+     * process id are still being written.
+     *
+     * @param dir the scratch directory
+     */
+    private static void claimStorageLiveness(File dir) {
+        synchronized (storagePublishLock) {
+            if (storageLiveLock != null) {
+                return;
+            }
+            // under the same lock the sweep takes, so that saying this process is
+            // running and clearing what the last holder of its id left behind cannot
+            // land in the middle of another process deciding that id is gone
+            lockStorageAcrossProcesses();
+            try {
+                try {
+                    storageLiveHandle = new RandomAccessFile(
+                            new File(dir, android.os.Process.myPid() + STORAGE_LIVE_SUFFIX), "rw");
+                    storageLiveLock = storageLiveHandle.getChannel().lock();
+                } catch (Throwable t) {
+                    // android's log for the same reason as above
+                    Log.e("CodenameOne", "Could not claim the storage liveness file", t);
+                    try {
+                        if (storageLiveHandle != null) {
+                            storageLiveHandle.close();
+                        }
+                    } catch (Throwable ignored) {
+                        Log.e("CodenameOne", "Could not close the liveness file", ignored);
+                    }
+                    // the lock as well as the handle: closing the handle gives up the
+                    // lock, and a lock this process still believed it held is one it
+                    // would never take again, which leaves every other process reading
+                    // it as gone and free to delete the writes it has in flight
+                    storageLiveHandle = null;
+                    storageLiveLock = null;
+                    return;
+                }
+                try {
+                    discardEarlierIncarnation(dir);
+                } catch (Throwable t) {
+                    // separately, because the claim above has already succeeded and
+                    // clearing up after whoever held this id last is not worth giving
+                    // it up for. The leftovers keep until a later sweep.
+                    Log.e("CodenameOne", "Could not clear the earlier incarnation", t);
+                }
+            } finally {
+                unlockStorageAcrossProcesses();
+            }
+        }
+    }
+
+    /**
+     * Unlinks every scratch file there is, cancelling every write in progress in any
+     * process.
+     */
+    private static void discardAllScratchFiles() {
+        try {
+            File[] scratch = storageScratchDir().listFiles();
+            if (scratch == null) {
+                return;
+            }
+            for (int iter = 0; iter < scratch.length; iter++) {
+                if (!isStorageMarkerFile(scratch[iter]) && !scratch[iter].delete()) {
+                    com.codename1.io.Log.p("Could not cancel the storage write "
+                            + scratch[iter]);
+                }
+            }
+        } catch (IOException err) {
+            com.codename1.io.Log.e(err);
+        }
+    }
+
+    /**
+     * Whether the given file is the one whose lock serializes the processes, rather
+     * than a write in progress.
+     *
+     * <p>It has to survive both the clear and the sweep. Linux lets a locked file be
+     * unlinked, and the lock goes with the inode rather than the name, so a process
+     * that removed it while holding it would leave the next process free to create
+     * the name afresh and take a lock on a different inode: both would then hold
+     * "the" lock and neither would wait for the other. Nothing writes to it either,
+     * so its age says nothing about whether it is in use.</p>
+     *
+     * @param file a file in the scratch directory
+     * @return true if the file is the lock
+     */
+    private static boolean isStorageLockFile(File file) {
+        return STORAGE_LOCK_FILE.equals(file.getName());
+    }
+
+    /**
+     * Removes whatever a previous process left behind under this process's id.
+     *
+     * <p>Android hands out a process id again once the process holding it is gone, so
+     * after a crash or a reboot the files an earlier incarnation abandoned can be
+     * sitting under the id this one has just been given. The sweep passes over
+     * anything bearing its own id, on the grounds that a process knows its own work,
+     * which would leave those files where they are for good.</p>
+     *
+     * <p>Usually this runs before the first write, when the process owns nothing and
+     * everything under its id must belong to the incarnation before it. That is not
+     * guaranteed: a claim that fails is retried by the next write, by which time this
+     * process may have writes of its own open. Those are known exactly and are left
+     * alone -- deleting one would fail a write that had already been serialized.</p>
+     *
+     * <p>The caller must hold {@link #storagePublishLock}.</p>
+     *
+     * @param dir the scratch directory
+     */
+    private static void discardEarlierIncarnation(File dir) {
+        File[] files = dir.listFiles();
+        if (files == null) {
+            return;
+        }
+        int mine = android.os.Process.myPid();
+        for (int iter = 0; iter < files.length; iter++) {
+            if (!isStorageMarkerFile(files[iter])
+                    && storageScratchOwner(files[iter].getName()) == mine
+                    && !isOpenStorageWrite(files[iter])
+                    && !files[iter].delete()) {
+                com.codename1.io.Log.p("Could not remove the abandoned storage scratch "
+                        + "file " + files[iter]);
+            }
+        }
+    }
+
+    /**
+     * Whether the given scratch file belongs to a write this process has open.
+     *
+     * <p>The caller must hold {@link #storagePublishLock}.</p>
+     *
+     * @param file a file in the scratch directory
+     * @return true if a write in this process is using it
+     */
+    private static boolean isOpenStorageWrite(File file) {
+        for (int iter = 0; iter < openStorageWrites.size(); iter++) {
+            if (openStorageWrites.get(iter).scratch.equals(file)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether the given file is one of the markers the processes keep about
+     * themselves, rather than a write in progress.
+     *
+     * <p>Clearing the storage throws away the writes, and nothing else. A process
+     * whose liveness file was taken from underneath it goes on holding the lock, so
+     * it never notices and never makes the name again, and from then on every other
+     * process reads it as gone and feels free to delete the writes it has in flight.
+     * The sweep is the one place a liveness file is removed, and only once its owner
+     * is known to be gone.</p>
+     *
+     * @param file a file in the scratch directory
+     * @return true if the file is a marker rather than a pending write
+     */
+    private static boolean isStorageMarkerFile(File file) {
+        return isStorageLockFile(file) || file.getName().endsWith(STORAGE_LIVE_SUFFIX);
+    }
+
+    /**
+     * The start of the name of every scratch file for the given entry.
+     *
+     * <p>A digest rather than the entry itself: an entry name may be as long as the
+     * filesystem allows on its own, so anything built by appending to one would be
+     * refused. Fixed width, and specific enough that one entry's deletion does not
+     * cancel another's write.</p>
+     *
+     * @param name the storage entry
+     * @return the prefix shared by that entry's scratch files
+     * @throws IOException if the digest is unavailable
+     */
+    private static String storageScratchPrefix(String name) throws IOException {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(name.getBytes("UTF-8"));
+            StringBuilder b = new StringBuilder(digest.length * 2);
+            for (int iter = 0; iter < digest.length; iter++) {
+                b.append(Character.forDigit((digest[iter] >> 4) & 0xf, 16));
+                b.append(Character.forDigit(digest[iter] & 0xf, 16));
+            }
+            return b.append('-').toString();
+        } catch (java.security.NoSuchAlgorithmException err) {
+            throw new IOException("No SHA-256 to name storage scratch files with", err);
+        }
+    }
+
+    /**
+     * Resolves a storage entry to its file, refusing anything that would land outside
+     * the storage directory.
+     *
+     * <p>{@code openFileOutput} used to make this check on our behalf and reject any
+     * name holding a path separator. Publishing by rename does not: with name
+     * normalization turned off a key like {@code ../shared_prefs/settings.xml}
+     * reaches here as it was written, and {@code File} resolves it, which would put
+     * the rename anywhere in the application's private data and leave behind an entry
+     * that Storage itself could no longer read or delete.</p>
+     *
+     * @param name the storage entry
+     * @return the file the entry is stored in
+     * @throws IOException if the name does not name an entry in the storage directory
+     */
+    private static File storageEntryFile(String name) throws IOException {
+        File dir = getContext().getFilesDir();
+        if (name.indexOf('/') >= 0 || name.indexOf(File.separatorChar) >= 0) {
+            throw new IOException("Storage entry " + name + " contains a path separator");
+        }
+        File entry = new File(dir, name);
+        if (!dir.equals(entry.getParentFile())) {
+            throw new IOException("Storage entry " + name + " resolves outside " + dir);
+        }
+        return entry;
+    }
+
+    /**
+     * The directory holding the writes that are in progress.
+     *
+     * @return the scratch directory, which is not guaranteed to exist yet
+     * @throws IOException if the application has no data directory to put it in
+     */
+    private static File storageScratchDir() throws IOException {
+        File files = getContext().getFilesDir();
+        File data = files.getParentFile();
+        if (data == null) {
+            throw new IOException("No application data directory above " + files);
+        }
+        return new File(data, STORAGE_SCRATCH_DIR);
+    }
+
+    /**
+     * Writes a storage entry to a scratch file, forces the bytes onto the device and
+     * only then renames that file over the entry.
+     *
+     * <p>{@code openFileOutput} truncates the entry as it opens it, and Android does
+     * not flush a file on close. Writing the entry in place therefore left a window
+     * on every single write in which the entry was empty or half written on disk, and
+     * left the bytes of a completed write sitting in the page cache for as long as
+     * the kernel felt like holding them. An abrupt end to the process or to the
+     * device inside either window -- a low memory kill, a force stop, a battery pull,
+     * a panic -- lost the entry, and on a filesystem that journals the truncation
+     * ahead of the data it came back as a zero length file. How wide those windows
+     * are is a property of the filesystem and of how eagerly the vendor kills
+     * background processes, which is why this only ever showed up on some devices.</p>
+     *
+     * <p>The entry now changes in a single rename, which the filesystem cannot show
+     * half done, and the bytes reach the device before that rename is made.</p>
+     */
+    private static final class StorageOutputStream extends OutputStream {
+        private final String name;
+        private final File target;
+        private final File scratch;
+        private final FileOutputStream out;
+        private boolean closed;
+        private boolean cancelled;
+
+        StorageOutputStream(String name) throws IOException {
+            this.name = name;
+            this.target = storageEntryFile(name);
+            File dir = storageScratchDir();
+            if (!dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory()) {
+                throw new IOException("Could not create the storage scratch directory "
+                        + dir);
+            }
+            // the write goes ahead whether or not that succeeded. A claim can only
+            // fail where the filesystem will not lock, and refusing to write would
+            // turn that into an application that cannot store anything -- far worse
+            // than what it costs, which is that another process sweeping at that
+            // moment may take this write for abandoned and unlink it. That fails the
+            // write, honestly, and leaves what was already stored where it is; the
+            // next write claims again. Same trade the cross process lock makes.
+            claimStorageLiveness(dir);
+            // the digest of the entry lets another process find and cancel this write.
+            // The process id separates concurrent processes, whose counters both start
+            // from the beginning, and the counter separates writes within one.
+            this.scratch = new File(dir, storageScratchPrefix(name)
+                    + android.os.Process.myPid() + "-"
+                    + storageScratchCounter.incrementAndGet());
+            // created and registered as one step under the lock a deletion takes.
+            // Registering afterwards would leave a write whose scratch file already
+            // exists but which a concurrent deleteStorageFile cannot see to cancel,
+            // and that write would rename itself over the entry that was deleted.
+            synchronized (storagePublishLock) {
+                lockStorageAcrossProcesses();
+                try {
+                    this.out = new FileOutputStream(scratch);
+                    openStorageWrites.add(this);
+                } finally {
+                    unlockStorageAcrossProcesses();
+                }
+            }
+        }
+
+        /**
+         * Marks this write as one that must not be published, whatever entry it is
+         * for. Called holding {@link #storagePublishLock}.
+         */
+        void cancel() {
+            cancelled = true;
+        }
+
+        /**
+         * Marks this write as one that must not be published, because the entry it
+         * would publish over has been deleted since it opened. Called holding
+         * {@link #storagePublishLock}.
+         *
+         * @param entry the entry being deleted
+         */
+        void cancel(String entry) {
+            if (name.equals(entry)) {
+                cancelled = true;
+            }
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            out.write(b);
+        }
+
+        @Override
+        public void write(byte[] b) throws IOException {
+            out.write(b);
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            out.write(b, off, len);
+        }
+
+        @Override
+        public void flush() throws IOException {
+            out.flush();
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            try {
+                try {
+                    out.flush();
+                    out.getFD().sync();
+                } finally {
+                    out.close();
+                }
+                publish();
+            } finally {
+                synchronized (storagePublishLock) {
+                    openStorageWrites.remove(this);
+                }
+                if (scratch.exists() && !scratch.delete()) {
+                    com.codename1.io.Log.p("Could not remove the storage scratch file "
+                            + scratch);
+                }
+            }
+        }
+
+        /**
+         * Renames the scratch file over the entry, which is the point at which the
+         * write becomes visible.
+         *
+         * @throws IOException if the entry could not be replaced, so that the caller
+         *   that wrote it hears about it rather than being told the write succeeded
+         */
+        private void publish() throws IOException {
+            synchronized (storagePublishLock) {
+                lockStorageAcrossProcesses();
+                try {
+                    // the one case where not publishing is not a failure: this
+                    // process cancelled the write itself, so the caller either asked
+                    // for the entry to go or is already abandoning the write. Failing
+                    // here would only log noise over an outcome that is already known.
+                    if (cancelled) {
+                        return;
+                    }
+                    if (scratch.renameTo(target)) {
+                        syncStorageDirectory(target.getParentFile());
+                        return;
+                    }
+                    // A missing scratch file is not reported as a success. Another
+                    // process unlinking it does mean this entry was deleted, and
+                    // failing here reaches the same place -- writeObject deletes the
+                    // entry on a failed write -- while still telling the caller that
+                    // what it wrote did not land. Anything else that removed the file
+                    // gets the same honest answer, where calling it a success would
+                    // leave the caller believing in a value the storage never took.
+                    throw new IOException("Could not store " + name);
+                } finally {
+                    unlockStorageAcrossProcesses();
+                }
+            }
+        }
+    }
+
+    /**
+     * Forces a rename in the given directory onto the device, so that a completed
+     * write does not fall back to its previous contents after an abrupt shutdown.
+     * Best effort: without it a crash can still only cost the newest write, never the
+     * integrity of an entry.
+     *
+     * @param dir the directory holding the storage entries
+     */
+    private static void syncStorageDirectory(File dir) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            return;
+        }
+        try {
+            DirectorySync.sync(dir);
+        } catch (Throwable t) {
+            // some filesystems refuse to sync a directory handle
+        }
+    }
+
+    /**
+     * Isolates the API 21 syscalls, so that verifying {@code AndroidImplementation}
+     * on an older device never has to resolve them.
+     */
+    private static final class DirectorySync {
+        private DirectorySync() {
+        }
+
+        static void sync(File dir) throws android.system.ErrnoException {
+            java.io.FileDescriptor fd = android.system.Os.open(dir.getPath(),
+                    android.system.OsConstants.O_RDONLY, 0);
+            try {
+                android.system.Os.fsync(fd);
+            } finally {
+                android.system.Os.close(fd);
+            }
+        }
+    }
+
+    private String addFile(String s) {
+        // I explicitly don't create a "proper URL" since code might rely on the fact that the file isn't encoded
+        if(s != null && s.startsWith("/")) {
+            return "file://" + s;
+        }
+        return s;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String[] listFilesystemRoots() {
+
+        if(!checkForPermission(Manifest.permission.READ_EXTERNAL_STORAGE, "This is required to browse the file system")){
+            return new String[]{};
+        }
+
+        String [] storageDirs = getStorageDirectories();
+        if(storageDirs != null){
+            String [] roots = new String[storageDirs.length + 1];
+            System.arraycopy(storageDirs, 0, roots, 0, storageDirs.length);
+            roots[roots.length - 1] = addFile(Environment.getRootDirectory().getAbsolutePath());
+            return roots;
+        }
+        return new String[]{addFile(Environment.getRootDirectory().getAbsolutePath())};
+    }
+
+    @Override
+    public boolean hasCachesDir() {
+        return true;
+    }
+
+    @Override
+    public String getCachesDir() {
+        return getContext().getCacheDir().getAbsolutePath();
+    }
+
+
+
+    private String[] getStorageDirectories() {
+        String [] storageDirs = null;
+
+        String storageDev = Environment.getExternalStorageDirectory().getPath();
+        String storageRoot = storageDev.substring(0, storageDev.length() - 1);
+        BufferedReader bufReader = null;
+
+        try {
+            bufReader = new BufferedReader(new InputStreamReader(new FileInputStream("/proc/mounts"), StandardCharsets.UTF_8));
+            ArrayList<String> list = new ArrayList<String>();
+            String line;
+
+            while ((line = bufReader.readLine()) != null) {
+                if (line.contains("vfat") || line.contains("/mnt") || line.contains("/storage")) {
+                    StringTokenizer tokens = new StringTokenizer(line, " ");
+                    String s = tokens.nextToken();
+                    s = tokens.nextToken(); // Take the second token, i.e. mount point
+
+                    if (s.indexOf("secure") != -1) {
+                        continue;
+                    }
+
+                    if (s.startsWith(storageRoot) == true) {
+                        list.add(s);
+                        continue;
+                    }
+
+                    if (line.contains("vfat") && line.contains("/mnt")) {
+                        list.add(s);
+                        continue;
+                    }
+                }
+            }
+
+            int count = list.size();
+
+            if (count < 2) {
+                storageDirs = new String[] {
+                        storageDev
+                };
+            }
+            else {
+                storageDirs = new String[count];
+
+                for (int i = 0; i < count; i++) {
+                    storageDirs[i] = (String) list.get(i);
+                }
+            }
+        }
+        catch (FileNotFoundException e) {}
+        catch (IOException e) {}
+        finally {
+            if (bufReader != null) {
+                try {
+                    bufReader.close();
+                }
+                catch (IOException e) {}
+            }
+
+            return storageDirs;
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String getAppHomePath() {
+        return addFile(getContext().getFilesDir().getAbsolutePath() + "/");
+    }
+
+    @Override
+    public String toNativePath(String path) {
+        return removeFilePrefix(path);
+    }
+    
+    
+
+    /**
+     * @inheritDoc
+     */
+    public String[] listFiles(String directory) throws IOException {
+        directory = removeFilePrefix(directory);
+        return new File(directory).list();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public long getRootSizeBytes(String root) {
+        return -1;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public long getRootAvailableSpace(String root) {
+        return -1;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void mkdir(String directory) {
+        directory = removeFilePrefix(directory);
+        new File(directory).mkdir();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void deleteFile(String file) {
+        file = removeFilePrefix(file);
+        File f = new File(file);
+        f.delete();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public boolean isHidden(String file) {
+        file = removeFilePrefix(file);
+        return new File(file).isHidden();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void setHidden(String file, boolean h) {
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public long getFileLength(String file) {
+        file = removeFilePrefix(file);
+        return new File(file).length();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public long getFileLastModified(String file) {
+        file = removeFilePrefix(file);
+        return new File(file).lastModified();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public boolean isDirectory(String file) {
+        file = removeFilePrefix(file);
+        return new File(file).isDirectory();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public char getFileSystemSeparator() {
+        return File.separatorChar;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public OutputStream openFileOutputStream(String file) throws IOException {
+        file = removeFilePrefix(file);
+        OutputStream os = null;
+        try{
+            os = createFileOuputStream(file);
+        }catch(FileNotFoundException fne){
+            //It is impossible to know if a path is considered an external
+            //storage on the various android's versions.
+            //So we try to open the path and if failed due to permission we will
+            //ask for the permission from the user
+            if(fne.getMessage().contains("Permission denied")){
+
+                if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to access the file")){
+                    //The user refused to give access.
+                    return null;
+                }else{
+                    //The user gave permission try again to access the path
+                    return createFileOuputStream(file);
+                }
+
+            }else{
+                throw fne;
+            }
+        }
+
+        return os;
+    }
+
+    static String removeFilePrefix(String file) {
+        if (file.startsWith("file://")) {
+            return file.substring(7);
+        }
+        if (file.startsWith("file:/")) {
+            return file.substring(5);
+        }
+        return file;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public InputStream openFileInputStream(String file) throws IOException {
+        file = removeFilePrefix(file);
+        InputStream is = null;
+        try{
+            is = createFileInputStream(file);
+        }catch(FileNotFoundException fne){
+            //It is impossible to know if a path is considered an external
+            //storage on the various android's versions.
+            //So we try to open the path and if failed due to permission we will
+            //ask for the permission from the user
+            if(fne.getMessage().contains("Permission denied")){
+
+                if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to access the file")){
+                    //The user refused to give access.
+                    return null;
+                }else{
+                    //The user gave permission try again to access the path
+                    return openFileInputStream(file);
+                }
+
+            }else{
+                throw fne;
+            }
+        }
+
+        return is;
+    }
+
+    @Override
+    public boolean isMultiTouch() {
+        return true;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public boolean exists(String file) {
+        file = removeFilePrefix(file);
+        return new File(file).exists();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void rename(String file, String newName) {
+        file = removeFilePrefix(file);
+        new File(file).renameTo(new File(new File(file).getParentFile(), newName));
+    }
+
+    protected File createFileObject(String fileName) {
+        return new File(fileName);
+    }
+
+    protected InputStream createFileInputStream(String fileName) throws FileNotFoundException {
+        return new FileInputStream(removeFilePrefix(fileName));
+    }
+
+    protected InputStream createFileInputStream(File f) throws FileNotFoundException {
+        return new FileInputStream(f);
+    }
+
+    protected OutputStream createFileOuputStream(String fileName) throws FileNotFoundException {
+        return new FileOutputStream(removeFilePrefix(fileName));
+    }
+
+    protected OutputStream createFileOuputStream(java.io.File f) throws FileNotFoundException {
+        return new FileOutputStream(f);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public boolean shouldWriteUTFAsGetBytes() {
+        return true;
+    }
+
+
+    /**
+     * @inheritDoc
+     */
+    public void closingOutput(OutputStream s) {
+        // For some reasons the Android guys chose not doing this by default:
+        // http://android-developers.blogspot.com/2010/12/saving-data-safely.html
+        // this seems to be a mistake of sacrificing stability for minor performance
+        // gains which will only be noticeable on a server.
+        if (s != null) {
+            if (s instanceof FileOutputStream) {
+                try {
+                    FileDescriptor fd = ((FileOutputStream) s).getFD();
+                    if (fd != null) {
+                        fd.sync();
+                    }
+                } catch (IOException ex) {
+                    // this exception doesn't help us
+                    ex.printStackTrace();
+                }
+            }
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void printStackTraceToStream(Throwable t, Writer o) {
+        PrintWriter p = new PrintWriter(o);
+        t.printStackTrace(p);
+    }
+
+    private AndroidBiometrics biometrics;
+    private AndroidSecureStorage secureStorage;
+    private AndroidNfc nfc;
+    private AndroidBluetooth bluetooth;
+
+    @Override
+    public com.codename1.security.Biometrics getBiometrics() {
+        if (biometrics == null) {
+            biometrics = new AndroidBiometrics();
+        }
+        return biometrics;
+    }
+
+    @Override
+    public com.codename1.security.SecureStorage getSecureStorage() {
+        if (secureStorage == null) {
+            secureStorage = new AndroidSecureStorage();
+        }
+        return secureStorage;
+    }
+
+    @Override
+    public com.codename1.nfc.Nfc getNfc() {
+        if (nfc == null) {
+            nfc = new AndroidNfc(this);
+        }
+        return nfc;
+    }
+
+    @Override
+    public com.codename1.bluetooth.Bluetooth getBluetooth() {
+        if (bluetooth == null) {
+            bluetooth = new AndroidBluetooth();
+        }
+        return bluetooth;
+    }
+
+    private com.codename1.health.Health health;
+
+    /// Returns the Health Connect-backed health entry point. The store
+    /// degrades to reporting itself unsupported when no bridge has been
+    /// injected, which is the case for apps that never reference
+    /// com.codename1.health.
+    @Override
+    public com.codename1.health.Health getHealth() {
+        // Guarded because everything the store serializes is per-instance:
+        // the authorization queue, the subscription registry, drain
+        // coalescing and the persisted-cursor lock. Two threads racing this
+        // getter each got their own store, and two stores coordinate on
+        // nothing -- they would launch overlapping permission flows despite
+        // the queue inside each one being correct.
+        synchronized (AndroidImplementation.class) {
+            if (health == null) {
+                health = new AndroidHealth();
+            }
+            return health;
+        }
+    }
+
+    /**
+     * This method returns the platform Location Control
+     *
+     * @return LocationControl Object
+     */
+    public LocationManager getLocationManager() {
+        String permissionMessage = "This is required to get the location";
+        if (
+                !checkForPermission( Manifest.permission.ACCESS_FINE_LOCATION, permissionMessage)
+        ) {
+            return null;
+        }
+        if (
+                Build.VERSION.SDK_INT >= 29  
+                && "true".equals(Display.getInstance().getProperty("android.requiresBackgroundLocationPermissionForAPI29", "false"))
+        ) {
+            if (
+                    !checkForPermission(
+                            "android.permission.ACCESS_BACKGROUND_LOCATION", 
+                            permissionMessage
+                    )
+            ) {
+                com.codename1.io.Log.e(new RuntimeException("Background location permission denied"));
+            }
+        }
+
+        boolean includesPlayServices = Display.getInstance().getProperty("IncludeGPlayServices", "false").equals("true");
+        if (includesPlayServices && hasAndroidMarket()) {
+            try {
+                Class clazz = Class.forName("com.codename1.location.AndroidLocationPlayServiceManager");
+                return (com.codename1.location.LocationManager)clazz.getMethod("getInstance").invoke(null);
+            } catch (Exception e) {
+                return AndroidLocationManager.getInstance(getContext());
+            }
+        } else {
+            return AndroidLocationManager.getInstance(getContext());
+        }
+    }
+
+    /// Whether this device draws the system location button.
+    ///
+    /// See [AndroidLocationButton] for why the check is a runtime one: the same
+    /// build of this port runs on both sides of the API 37 line, and nothing in
+    /// it is compiled against API 37 at all.
+    ///
+    /// #### Returns
+    ///
+    /// whether a system-rendered location button can be built here
+    public boolean isLocationButtonSupported() {
+        return getActivity() != null && AndroidLocationButton.isSupported();
+    }
+
+    /// Builds the system location button as a Codename One peer.
+    ///
+    /// #### Parameters
+    ///
+    /// - `textType`: one of the `TEXT_` constants on
+    ///   `com.codename1.location.LocationButton`
+    ///
+    /// - `backgroundColor`: an RRGGBB colour, or -1 for the platform's own
+    ///
+    /// - `textColor`: an RRGGBB colour, or -1 for the platform's own
+    ///
+    /// - `onPermissionResult`: TRUE when the user shared their location, FALSE
+    ///   when they declined, null when the session failed
+    ///
+    /// #### Returns
+    ///
+    /// the peer, or null when this device has no such control
+    public PeerComponent createLocationButton(final int textType,
+            final int backgroundColor, final int textColor,
+            final SuccessCallback<Boolean> onPermissionResult) {
+        final CodenameOneActivity a = getActivity();
+        if (a == null || !AndroidLocationButton.isSupported()) {
+            return null;
+        }
+        // A View may only be constructed on the Android UI thread, and the
+        // caller is building a Container right now and needs the peer to put in
+        // it -- the same trade the GPU peer above makes.
+        //
+        // A NAMED class rather than an anonymous one on purpose:
+        // scripts/check-cast-semantics.sh keys its baseline on Outer$N, so an
+        // anonymous class added anywhere in this file renumbers every one after
+        // it and reports untouched entries as new findings.
+        LocationButtonBuilder builder = new LocationButtonBuilder(a, textType,
+                backgroundColor, textColor, onPermissionResult);
+        runOnUiThreadAndBlock(builder);
+        if (builder.created == null) {
+            return null;
+        }
+        return createNativePeer(builder.created);
+    }
+
+    /// Whether the system has opened a session for this control.
+    ///
+    /// See [AndroidLocationButton#hasSession()]: the view is built
+    /// synchronously and the surface the system draws into arrives afterwards,
+    /// so a control that exists is not yet a control that works.
+    ///
+    /// #### Parameters
+    ///
+    /// - `button`: a peer from [#createLocationButton]
+    ///
+    /// #### Returns
+    ///
+    /// whether the platform is drawing into it
+    public boolean isLocationButtonReady(PeerComponent button) {
+        if (button == null) {
+            return false;
+        }
+        Object view = button.getNativePeer();
+        return view instanceof AndroidLocationButton
+                && ((AndroidLocationButton) view).hasSession();
+    }
+
+    /// Constructs an [AndroidLocationButton] on the Android UI thread.
+    private static final class LocationButtonBuilder implements Runnable {
+        private final Activity activity;
+        private final int textType;
+        private final int backgroundColor;
+        private final int textColor;
+        private final SuccessCallback<Boolean> onPermissionResult;
+
+        AndroidLocationButton created;
+
+        LocationButtonBuilder(Activity activity, int textType, int backgroundColor,
+                int textColor, SuccessCallback<Boolean> onPermissionResult) {
+            this.activity = activity;
+            this.textType = textType;
+            this.backgroundColor = backgroundColor;
+            this.textColor = textColor;
+            this.onPermissionResult = onPermissionResult;
+        }
+
+        public void run() {
+            created = new AndroidLocationButton(activity, textType, backgroundColor,
+                    textColor, onPermissionResult);
+        }
+    }
+
+    private AndroidMotionSensorManager motionSensorManager;
+
+    @Override
+    public com.codename1.sensors.MotionSensorManager getMotionSensorManager() {
+        if (motionSensorManager == null) {
+            Context ctx = getContext();
+            if (ctx == null) {
+                return null;
+            }
+            motionSensorManager = new AndroidMotionSensorManager(ctx);
+        }
+        return motionSensorManager;
+    }
+
+    private String fixAttachmentPath(String attachment) {
+        com.codename1.io.File cn1File = new com.codename1.io.File(attachment);
+        File mediaStorageDir = new File(new File(getContext().getCacheDir(), "intent_files"), "Attachment");
+
+        // Create the storage directory if it does not exist
+        if (!mediaStorageDir.exists()) {
+            if (!mediaStorageDir.mkdirs()) {
+                Log.d(Display.getInstance().getProperty("AppName", "CodenameOne"), "failed to create directory");
+                return null;
+            }
+        }
+
+        File newFile = new File(mediaStorageDir.getPath() + File.separator
+                    + cn1File.getName());
+        if (newFile.exists()) {
+            if (Display.getInstance().getProperty("DeleteCachedFileAfterShare", "false").equals("true")) {
+                newFile.delete();
+            } else {
+                // Create a media file name
+                String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+                newFile = new File(mediaStorageDir.getPath() + File.separator
+                        + "IMG_" + timeStamp + "_" + cn1File.getName());
+            }
+        }
+
+
+        //Uri fileUri = Uri.fromFile(newFile);
+        newFile.getParentFile().mkdirs();
+        //Uri imageUri = Uri.fromFile(newFile);
+        Uri fileUri = FileProvider.getUriForFile(getContext(), getContext().getPackageName()+".provider", newFile);
+
+        try {
+            InputStream is = FileSystemStorage.getInstance().openInputStream(attachment);
+            OutputStream os = new FileOutputStream(newFile);
+            byte [] buf = new byte[1024];
+            int len;
+            while((len = is.read(buf)) > -1){
+                os.write(buf, 0, len);
+            }
+            is.close();
+            os.close();
+        } catch (IOException ex) {
+            Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
+        return fileUri.toString();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void sendMessage(String[] recipients, String subject, Message msg) {
+        if(editInProgress()) {
+            stopEditing(true);
+        }
+        Intent emailIntent;
+        String attachment = msg.getAttachment();
+        boolean hasAttachment = (attachment != null && attachment.length() > 0) || msg.getAttachments().size() > 0;
+
+        if(msg.getMimeType().equals(Message.MIME_TEXT) && !hasAttachment){
+            StringBuilder to = new StringBuilder();
+            for (int i = 0; i < recipients.length; i++) {
+                to.append(recipients[i]);
+                to.append(";");
+            }
+            emailIntent = new Intent(Intent.ACTION_SENDTO,
+                    Uri.parse(
+                            "mailto:" + to.toString()
+                                    + "?subject=" + Uri.encode(subject)
+                                    + "&body=" + Uri.encode(msg.getContent())));
+        }else{
+            if (hasAttachment) {
+                if(msg.getAttachments().size() > 1) {
+                    emailIntent = new Intent(android.content.Intent.ACTION_SEND_MULTIPLE);
+                    emailIntent.putExtra(android.content.Intent.EXTRA_EMAIL, recipients);
+                    emailIntent.putExtra(android.content.Intent.EXTRA_SUBJECT, subject);
+                    emailIntent.setType(msg.getMimeType());
+                    ArrayList<Uri> uris = new ArrayList<Uri>();
+
+                    for(String path : msg.getAttachments().keySet()) {
+                        uris.add(Uri.parse(fixAttachmentPath(path)));
+                    }
+
+                    emailIntent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+                } else {
+                    emailIntent = new Intent(android.content.Intent.ACTION_SEND);
+                    emailIntent.putExtra(android.content.Intent.EXTRA_EMAIL, recipients);
+                    emailIntent.putExtra(android.content.Intent.EXTRA_SUBJECT, subject);
+                    emailIntent.setType(msg.getMimeType());
+                    emailIntent.setType(msg.getAttachmentMimeType());
+                    //if the attachment is in the uder home dir we need to copy it
+                    //to an accessible dir
+                    attachment = fixAttachmentPath(attachment);
+                    emailIntent.putExtra(Intent.EXTRA_STREAM, Uri.parse(attachment));
+                }
+            } else {
+                emailIntent = new Intent(android.content.Intent.ACTION_SEND);
+                emailIntent.putExtra(android.content.Intent.EXTRA_EMAIL, recipients);
+                emailIntent.putExtra(android.content.Intent.EXTRA_SUBJECT, subject);
+                emailIntent.setType(msg.getMimeType());
+            }
+            if (msg.getMimeType().equals(Message.MIME_HTML)) {
+                emailIntent.putExtra(android.content.Intent.EXTRA_TEXT, Html.fromHtml(msg.getContent()));
+                emailIntent.putExtra("android.intent.extra.HTML_TEXT", msg.getContent());
+            }else{
+                /*
+                // Attempted this workaround to fix the ClassCastException that occurs on android when
+                // there are multiple attachments.  Unfortunately, this fixes the stack trace, but
+                // has the unwanted side-effect of producing a blank message body.
+                // Same workaround for HTML mimetype also fails the same way.
+                // Conclusion, Just live with the stack trace.  It doesn't seem to affect the
+                // execution of the program... treat it as a warning.
+                // See https://github.com/codenameone/CodenameOne/issues/1782
+                if (msg.getAttachments().size() > 1) {
+                    ArrayList<String> contentArr = new ArrayList<String>();
+                    contentArr.add(msg.getContent());
+                    emailIntent.putStringArrayListExtra(android.content.Intent.EXTRA_TEXT, contentArr);
+                } else {
+                    emailIntent.putExtra(android.content.Intent.EXTRA_TEXT, msg.getContent());
+
+                }*/
+                emailIntent.putExtra(android.content.Intent.EXTRA_TEXT, msg.getContent());
+            }
+
+        }
+        final String attach = attachment;
+        AndroidNativeUtil.startActivityForResult(Intent.createChooser(emailIntent, "Send mail..."), new IntentResultListener() {
+
+            @Override
+            public void onActivityResult(int requestCode, int resultCode, Intent data) {
+                if(attach != null && attach.length() > 0 && attach.contains("tmp")){
+                    FileSystemStorage.getInstance().delete(attach);
+                }
+            }
+        });
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void dial(String phoneNumber) {
+        Intent dialer = new Intent(android.content.Intent.ACTION_DIAL, Uri.parse("tel:" + phoneNumber));
+        getContext().startActivity(dialer);
+    }
+
+    @Override
+    public int getSMSSupport() {
+        if(canDial()) {
+            return Display.SMS_INTERACTIVE;
+        }
+        return Display.SMS_NOT_SUPPORTED;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void sendSMS(final String phoneNumber, final String message, boolean i) throws IOException {
+        /*if(!checkForPermission(Manifest.permission.SEND_SMS, "This is required to send a SMS")){
+            return;
+        }*/
+        if(!checkForPermission(Manifest.permission.READ_PHONE_STATE, "This is required to send a SMS")){
+            return;
+        }
+        if(i) {
+            Intent smsIntent = null;
+            if(android.os.Build.VERSION.SDK_INT < 19){
+                smsIntent = new Intent(Intent.ACTION_VIEW);
+                smsIntent.setType("vnd.android-dir/mms-sms");
+                smsIntent.putExtra("address", phoneNumber);
+                smsIntent.putExtra("sms_body",message);
+            }else{
+                smsIntent = new Intent(Intent.ACTION_SENDTO);
+                smsIntent.setData(Uri.parse("smsto:" + Uri.encode(phoneNumber)));
+                smsIntent.putExtra("sms_body", message);
+            }
+            getContext().startActivity(smsIntent);
+
+        } /*else {
+            SmsManager sms = SmsManager.getDefault();
+            ArrayList<String> parts = sms.divideMessage(message);
+            sms.sendMultipartTextMessage(phoneNumber, null, parts, null, null);
+        }*/
+    }
+
+    @Override
+    public void dismissNotification(Object o) {
+        NotificationManager notificationManager = (NotificationManager) getContext().getSystemService(Activity.NOTIFICATION_SERVICE);
+        if(o != null){
+            Integer n = (Integer)o;
+            notificationManager.cancel("CN1", n.intValue());
+        }else{
+            notificationManager.cancelAll();
+        }
+    }
+
+    @Override
+    public boolean isNotificationSupported() {
+        return true;
+    }
+
+    /**
+     * Keys of display properties that need to be made available to Services
+     * i.e. must be accessible even if CN1 is not initialized.
+     * 
+     * This is accomplished by setting them inside init().  Then they
+     * are written to file so that they can be accessed inside a service
+     * like push notification service.
+     */
+    private static final String[] servicePropertyKeys = new String[]{
+        "android.NotificationChannel.id",
+        "android.NotificationChannel.name",
+        "android.NotificationChannel.description",
+        "android.NotificationChannel.importance",
+        "android.NotificationChannel.enableLights",
+        "android.NotificationChannel.lightColor",
+        "android.NotificationChannel.enableVibration",
+        "android.NotificationChannel.vibrationPattern",
+        "android.NotoficationChannel.soundUri"
+    };
+    
+    /**
+     * Flag to indicate if any of the service properties have been changed.
+     */
+    private static boolean servicePropertiesDirty() {
+        for (String key : servicePropertyKeys) {
+            if (Display.getInstance().getProperty(key, null) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * Stores properties that need to be accessible to services.   
+     * i.e. must be accessible even if CN1 is not initialized.
+     * 
+     * This is accomplished by setting them inside init().  Then they
+     * are written to file so that they can be accessed inside a service
+     * like push notification service.
+     */
+    private static Map<String,String> serviceProperties;
+    
+    /**
+     * Gets the service properties.  Will read properties from file so that
+     * they are available even if CN1 is not initialized.
+     * @param a
+     * @return 
+     */
+    public static Map<String,String> getServiceProperties(Context a) {
+        if (serviceProperties == null) {
+            InputStream i = null;
+            try {
+                serviceProperties = new HashMap<String,String>();
+                try {
+                    i = a.openFileInput("CN1$AndroidServiceProperties");
+                    if(i == null) {
+                        return serviceProperties;
+                    }
+                } catch (FileNotFoundException notFoundEx){
+                    return serviceProperties;
+                }
+                DataInputStream is = new DataInputStream(i);
+                int count = is.readInt();
+                for (int idx=0; idx<count; idx++) {
+                    String key = is.readUTF();
+                    String value = is.readUTF();
+                    serviceProperties.put(key, value);
+                }
+            } catch (IOException ex) {
+                Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+            } finally {
+                try {
+                    if (i != null) i.close();
+                } catch (Throwable ex) {
+                    Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+                }
+            }
+        }
+        return serviceProperties;
+    }
+    
+    public static void writeServiceProperties(Context a) {
+        if (servicePropertiesDirty()) {
+            Map<String,String> out = getServiceProperties(a);
+            
+            
+            for (String key : servicePropertyKeys) {
+                
+                String val = Display.getInstance().getProperty(key, null);
+                if (val != null) {
+                    out.put(key, val);
+                }
+                if ("true".equals(Display.getInstance().getProperty(key+"#delete", null))) {
+                    out.remove(key);
+                    
+                }
+            }
+            
+            OutputStream os = null;
+            try {
+                os = a.openFileOutput("CN1$AndroidServiceProperties", 0);
+                if (os == null) {
+                    System.out.println("Failed to save service properties null output stream");
+                    return;
+                }
+                DataOutputStream dos = new DataOutputStream(os);
+                dos.writeInt(out.size());
+                for (String key : out.keySet()) {
+                    dos.writeUTF(key);
+                    dos.writeUTF((String)out.get(key));
+                }
+                serviceProperties = null;
+            } catch (FileNotFoundException ex) {
+                System.out.println("Service properties file not found.  This is normal for the first run.   On subsequent runs, the file should exist.");
+            } catch (IOException ex) {
+                
+                Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+            } finally {
+                try {
+                    if (os != null) os.close();
+                } catch (Throwable ex) {
+                    Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Gets a "service" display property.  This is a property that is available
+     * even if CN1 is not initialized.  They are written to file after init() so that 
+     * they are available thereafter to services like push notification services.
+     * @param key THe key
+     * @param defaultValue The default value
+     * @param context Context
+     * @return The value.
+     */
+    public static String getServiceProperty(String key, String defaultValue, Context context) {
+        if (Display.isInitialized()) {
+            return Display.getInstance().getProperty(key, defaultValue);
+        }
+        String val = getServiceProperties(context).get(key);
+        return val == null ? defaultValue : val;
+    }
+    
+    /**
+     * Sets the notification channel on a notification builder.  Uses service properties to 
+     * set properties of channel.
+     * @param nm The notification manager.
+     * @param mNotifyBuilder The notify builder
+     * @param context The context
+     * @since 7.0
+     */
+    public static void setNotificationChannel(NotificationManager nm, NotificationCompat.Builder mNotifyBuilder, Context context) {
+        setNotificationChannel(nm, mNotifyBuilder, context, (String)null);
+        
+    }
+    
+    /**
+     * Sets the notification channel on a notification builder.  Uses service properties to 
+     * set properties of channel.
+     * @param nm The notification manager.
+     * @param mNotifyBuilder The notify builder
+     * @param context The context
+     * @param soundName The name of the sound to use for notifications on this channel.  E.g. mysound.mp3.  This feature is not yet implemented, but
+     *  parameter is added now to scaffold compatibility with build daemon until implementation is complete.
+     * @since 7.0
+     */
+    public static void setNotificationChannel(NotificationManager nm, NotificationCompat.Builder mNotifyBuilder, Context context, String soundName) {
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            try {
+                NotificationManager mNotificationManager = nm;
+                              
+                String id = getServiceProperty("android.NotificationChannel.id", "cn1-channel", context);
+                
+                CharSequence name = getServiceProperty("android.NotificationChannel.name", "Notifications", context);
+                
+                String description = getServiceProperty("android.NotificationChannel.description", "Remote notifications", context);
+                
+                // NotificationManager.IMPORTANCE_LOW = 2
+                // NotificationManager.IMPORTANCE_HIGH = 4  // <-- Minimum level to produce sound.
+                int importance = Integer.parseInt(getServiceProperty("android.NotificationChannel.importance", "4", context));
+                    // Note: Currently we use a single notification channel for the app, but if the app uses different kinds of 
+                    // push notifications, then this may not be sufficient.   E.g. The app may send both silent push notifications
+                    // and regular notifications - but their settings (e.g. sound) are all managed through one channel with
+                    // same settings. 
+                    // TODO Add support for multiple channels.
+                    // See https://github.com/codenameone/CodenameOne/issues/2583
+                
+                Class clsNotificationChannel = Class.forName("android.app.NotificationChannel");
+                //android.app.NotificationChannel mChannel = new android.app.NotificationChannel(id, name, importance);
+                Constructor constructor = clsNotificationChannel.getConstructor(java.lang.String.class, java.lang.CharSequence.class, int.class);
+                Object mChannel = constructor.newInstance(new Object[]{id, name, importance});
+                
+                Method method = clsNotificationChannel.getMethod("setDescription", java.lang.String.class);
+                method.invoke(mChannel, new Object[]{description});
+                //mChannel.setDescription(description);
+                
+                method = clsNotificationChannel.getMethod("enableLights", boolean.class);
+                method.invoke(mChannel, new Object[]{Boolean.parseBoolean(getServiceProperty("android.NotificationChannel.enableLights", "true", context))});
+                //mChannel.enableLights(Boolean.parseBoolean(getServiceProperty("android.NotificationChannel.enableLights", "true", context)));
+                
+                method = clsNotificationChannel.getMethod("setLightColor", int.class);
+                method.invoke(mChannel, new Object[]{Integer.parseInt(getServiceProperty("android.NotificationChannel.lightColor", "" + android.graphics.Color.RED, context))});
+                //mChannel.setLightColor(Integer.parseInt(getServiceProperty("android.NotificationChannel.lightColor", "" + android.graphics.Color.RED, context)));
+                
+                method = clsNotificationChannel.getMethod("enableVibration", boolean.class);
+                method.invoke(mChannel, new Object[]{Boolean.parseBoolean(getServiceProperty("android.NotificationChannel.enableVibration", "false", context))});
+                //mChannel.enableVibration(Boolean.parseBoolean(getServiceProperty("android.NotificationChannel.enableVibration", "false", context)));
+                String vibrationPatternStr = getServiceProperty("android.NotificationChannel.vibrationPattern", null, context);
+                if (vibrationPatternStr != null) {
+                    String[] parts = vibrationPatternStr.split(",");
+                    int len = parts.length;
+                    long[] pattern = new long[len];
+                    for (int i = 0; i < len; i++) {
+                        pattern[i] = Long.parseLong(parts[i].trim());
+                    }
+                    method = clsNotificationChannel.getMethod("setVibrationPattern", long[].class);
+                    method.invoke(mChannel, new Object[]{pattern});
+                    //mChannel.setVibrationPattern(pattern);
+                }
+                
+                String soundUri = getServiceProperty("android.NotificationChannel.soundUri", null, context);
+                if (soundUri != null) {
+                    Uri uri= android.net.Uri.parse(soundUri);
+                    
+                    android.media.AudioAttributes audioAttributes = new android.media.AudioAttributes.Builder()
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                            .build();
+                    method = clsNotificationChannel.getMethod("setSound", android.net.Uri.class, android.media.AudioAttributes.class);
+                    method.invoke(mChannel, new Object[]{uri, audioAttributes});
+                }
+                
+                method = NotificationManager.class.getMethod("createNotificationChannel", clsNotificationChannel);
+                method.invoke(mNotificationManager, new Object[]{mChannel});
+                //mNotificationManager.createNotificationChannel(mChannel);
+                try {
+                    // For some reason I can't find the app-support-v4.jar for
+                    // API 26 that includes this method so that I can compile in netbeans.
+                    // So we use reflection...  If someone coming after can find a newer version
+                    // that has setChannelId(), please rip out this ugly reflection hack and
+                    // replace it with a proper call to mNotifyBuilder.setChannelId(id)
+                    mNotifyBuilder.getClass().getMethod("setChannelId", new Class[]{String.class}).invoke(mNotifyBuilder, new Object[]{id});
+                } catch (Exception ex) {
+                    Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+                }
+                //mNotifyBuilder.setChannelId(id);
+            } catch (ClassNotFoundException ex) {
+                Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+            } catch (NoSuchMethodException ex) {
+                Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+            } catch (SecurityException ex) {
+                Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+            } catch (IllegalAccessException ex) {
+                Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+            } catch (IllegalArgumentException ex) {
+                Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+            } catch (InvocationTargetException ex) {
+                Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+            } catch (InstantiationException ex) {
+                Logger.getLogger(AndroidImplementation.class.getName()).log(Level.SEVERE, null, ex);
+            }
+            //mNotifyBuilder.setChannelId(id);
+        }
+
+    }
+    
+    public Object notifyStatusBar(String tickerText, String contentTitle,
+                                  String contentBody, boolean vibrate, boolean flashLights, Hashtable args) {
+        int id = getContext().getResources().getIdentifier("icon", "drawable", getContext().getApplicationInfo().packageName);
+
+        NotificationManager notificationManager = (NotificationManager) getContext().getSystemService(Activity.NOTIFICATION_SERVICE);
+
+        Intent notificationIntent = new Intent();
+        notificationIntent.setComponent(activityComponentName);
+        PendingIntent contentIntent = createPendingIntent(getContext(), 0, notificationIntent);
+
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(getContext())
+                .setContentIntent(contentIntent)
+                .setSmallIcon(id)
+                .setContentTitle(contentTitle)
+                .setTicker(tickerText);
+        if(flashLights){
+            builder.setLights(0, 1000, 1000);
+        }
+        if(vibrate){
+            builder.setVibrate(new long[]{0, 100, 1000});
+        }
+        if(args != null) {
+            Boolean b = (Boolean)args.get("persist");
+            if(b != null && b.booleanValue()) {
+                builder.setAutoCancel(false);
+                builder.setOngoing(true);
+            } else {
+                builder.setAutoCancel(false);
+            }
+        } else {
+            builder.setAutoCancel(true);
+        }
+        Notification notification = builder.build();
+        int notifyId = 10001;
+        notificationManager.notify("CN1", notifyId, notification);
+        return new Integer(notifyId);
+    }
+
+    public boolean isContactsPermissionGranted() {
+        if (android.os.Build.VERSION.SDK_INT < 23) {
+            return true;
+        }
+
+        if (android.support.v4.content.ContextCompat.checkSelfPermission(getContext(),
+                Manifest.permission.READ_CONTACTS)
+                != PackageManager.PERMISSION_GRANTED) {
+            return false;
+        }
+        return true;
+    }
+
+
+    @Override
+    public String[] getAllContacts(boolean withNumbers) {
+        if(!checkForPermission(Manifest.permission.READ_CONTACTS, "This is required to get the contacts")){
+            return new String[]{};
+        }
+        return AndroidContactsManager.getInstance().getContacts(getContext(), withNumbers);
+    }
+
+    @Override
+    public com.codename1.calendar.LocalCalendarSource getLocalCalendarSource() {
+        if (calendarSource == null) {
+            calendarSource = new AndroidCalendarSource(getContext());
+        }
+        return calendarSource;
+    }
+
+    @Override
+    public Contact getContactById(String id) {
+        if(!checkForPermission(Manifest.permission.READ_CONTACTS, "This is required to get the contacts")){
+            return null;
+        }
+        return AndroidContactsManager.getInstance().getContact(getContext(), id);
+    }
+
+    @Override
+    public Contact getContactById(String id, boolean includesFullName, boolean includesPicture,
+                                  boolean includesNumbers, boolean includesEmail, boolean includeAddress){
+        if(!checkForPermission(Manifest.permission.READ_CONTACTS, "This is required to get the contacts")){
+            return null;
+        }
+        return AndroidContactsManager.getInstance().getContact(getContext(), id, includesFullName, includesPicture,
+                includesNumbers, includesEmail, includeAddress);
+    }
+
+    @Override
+    public Contact[] getAllContacts(boolean withNumbers, boolean includesFullName, boolean includesPicture, boolean includesNumbers, boolean includesEmail, boolean includeAddress) {
+        if(!checkForPermission(Manifest.permission.READ_CONTACTS, "This is required to get the contacts")){
+            return new Contact[]{};
+        }
+        return AndroidContactsManager.getInstance().getAllContacts(getContext(), withNumbers, includesFullName, includesPicture, includesNumbers, includesEmail, includeAddress);
+    }
+
+    @Override
+    public boolean isGetAllContactsFast() {
+        return true;
+    }
+
+    @Override
+    public boolean isContactPickerSupported() {
+        // Both paths behind AndroidContactPicker exist on every version this
+        // port runs on: the system picker from Android 17, ACTION_PICK
+        // against the contacts provider before that. A device with no
+        // contacts app answers with ActivityNotFoundException, which the
+        // picker reports as an empty selection -- the same thing a cancelled
+        // pick reports, so callers need no separate case for it.
+        //
+        // Deliberately NOT PackageManager.resolveActivity. Review asked for
+        // it, to catch the kiosk device that has no contacts app at all, and
+        // it would answer the wrong question on every ordinary one: from
+        // Android 11 a resolve query is filtered by package visibility, so an
+        // app without a matching <queries> entry is told nothing handles the
+        // intent even where the picker works perfectly. LAUNCHING an implicit
+        // intent is not filtered, which is why the picker itself needs no
+        // <queries> and works regardless. Trading a false yes on a stripped
+        // device -- whose cost is a pick that reports empty, exactly as a
+        // cancelled one does -- for a false no on every modern device, whose
+        // cost is a working feature hidden with no way to find out why, is a
+        // bad trade.
+        return getActivity() != null;
+    }
+
+    @Override
+    public void pickContacts(int requestedFields, boolean multiSelect,
+                             int selectionLimit, boolean requireAllRequestedFields,
+                             ActionListener<ActionEvent> response) {
+        if (getActivity() == null) {
+            fireContactPickerResult(response, new Contact[0]);
+            return;
+        }
+        if (editInProgress()) {
+            stopEditing(true);
+        }
+        // Deliberately no checkForPermission call. The whole point of the
+        // picker is that neither path needs READ_CONTACTS, and asking for it
+        // here would put the permission back into the manifest and in front
+        // of the user for a flow that does not need it.
+        AndroidContactPicker.pick(getContext(), requestedFields, multiSelect,
+                selectionLimit, requireAllRequestedFields,
+                new ContactPickerResult(response));
+    }
+
+    /**
+     * Hands a picker selection back to the listener that asked for it.
+     */
+    private final class ContactPickerResult implements AndroidContactPicker.Result {
+        private final ActionListener<ActionEvent> response;
+
+        ContactPickerResult(ActionListener<ActionEvent> response) {
+            this.response = response;
+        }
+
+        @Override
+        public void picked(Contact[] picked) {
+            fireContactPickerResult(response, picked);
+        }
+    }
+
+    public String createContact(String firstName, String surname, String officePhone, String homePhone, String cellPhone, String email) {
+        if(!checkForPermission(Manifest.permission.WRITE_CONTACTS, "This is required to create a contact")){
+            return null;
+        }
+        return AndroidContactsManager.getInstance().createContact(getContext(), firstName, surname, officePhone, homePhone, cellPhone, email);
+    }
+
+    public boolean deleteContact(String id) {
+        if(!checkForPermission(Manifest.permission.WRITE_CONTACTS, "This is required to delete a contact")){
+            return false;
+        }
+        return AndroidContactsManager.getInstance().deleteContact(getContext(), id);
+    }
+
+    @Override
+    public boolean isNativeShareSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isNativeInAppReviewSupported() {
+        // True only when the Play In-App Review library was bundled, which the
+        // AndroidGradleBuilder does when the app references the app-review API.
+        return getActivity() != null && AppReviewSupport.isSupported();
+    }
+
+    @Override
+    public void requestNativeInAppReview(final SuccessCallback<Boolean> done) {
+        final CodenameOneActivity activity = getActivity();
+        if (activity == null || !AppReviewSupport.isSupported()) {
+            if (done != null) {
+                done.onSucess(Boolean.FALSE);
+            }
+            return;
+        }
+        activity.runOnUiThread(new Runnable() {
+            public void run() {
+                AppReviewSupport.requestReview(activity, done);
+            }
+        });
+    }
+
+    @Override
+    public void share(String text, String image, String mimeType, Rectangle sourceRect){
+        share(text, image, mimeType, sourceRect, null);
+    }
+
+    @Override
+    public void share(String text, String image, String mimeType, Rectangle sourceRect, final com.codename1.share.ShareResultListener listener) {
+        /*if(!checkForPermission(Manifest.permission.READ_PHONE_STATE, "This is required to perform share")){
+            return;
+        }*/
+        Intent shareIntent = new Intent(android.content.Intent.ACTION_SEND);
+        if(image == null){
+            if (text.startsWith("file:") && mimeType != null && new com.codename1.io.File(text).exists()) {
+                shareIntent.setType(mimeType);
+                shareIntent.putExtra(Intent.EXTRA_STREAM, Uri.parse(fixAttachmentPath(text)));
+            } else {
+                shareIntent.setType("text/plain");
+                shareIntent.putExtra(android.content.Intent.EXTRA_TEXT, text);
+            }
+        }else{
+            shareIntent.setType(mimeType);
+            shareIntent.putExtra(Intent.EXTRA_STREAM, Uri.parse(fixAttachmentPath(image)));
+            shareIntent.putExtra(Intent.EXTRA_TEXT, text);
+        }
+
+        Intent chooser;
+        try {
+            if (listener != null && android.os.Build.VERSION.SDK_INT >= 22) {
+                chooser = buildShareChooserWithCallback(shareIntent, listener);
+            } else {
+                // Pre-22 has no chooser callback at all, so the listener is
+                // completed here or never.
+                //
+                // Left unfulfilled, Display.share(..., listener) simply never
+                // answered on API 21 -- the lowest level an app using invites
+                // can run at, since the feature catalog lifts minSdk to 21 for
+                // the Play referrer. Invites.share() emitted no invite_shared,
+                // and InviteButton kept its invite marked outstanding for the
+                // life of the button because the outcome it waits for could
+                // not arrive.
+                //
+                // FAILED, not sharedTo(null), and the difference is the whole
+                // point of the listener.
+                //
+                // This runs BEFORE startActivity, and nothing afterwards can
+                // report the outcome: EXTRA_CHOSEN_COMPONENT arrives with API
+                // 22, and a chooser started for a result answers RESULT_CANCELED
+                // whether or not a target was picked. So a sharedTo here is a
+                // guess, and it is a guess in the direction that costs money --
+                // reportShareResult() emits invite_shared on it, and an
+                // application's reward logic sees a successful share for a
+                // sheet the user swiped away.
+                //
+                // FAILED carries the one thing that is actually known: the
+                // outcome was not observed. reportShareResult() emits nothing
+                // for it, so the funnel stays a measurement, and the callback
+                // still completes -- which is what the unfulfilled listener bug
+                // this branch was added for was about.
+                chooser = Intent.createChooser(shareIntent, "Share with...");
+                if (listener != null) {
+                    listener.onResult(com.codename1.share.ShareResult.failed(
+                            "this Android version does not report the chosen share target"));
+                }
+            }
+        } catch (Throwable t) {
+            // Fall back to the plain chooser, then complete the listener so
+            // the app doesn't hang on an unfulfilled callback -- as FAILED,
+            // for the reason the branch above gives: the outcome of a plain
+            // chooser cannot be observed, and reporting a share that was not
+            // measured is the one direction that costs an application money.
+            chooser = Intent.createChooser(shareIntent, "Share with...");
+            if (listener != null) {
+                listener.onResult(com.codename1.share.ShareResult.failed(
+                        "the share target could not be observed: " + t));
+            }
+        }
+        getContext().startActivity(chooser);
+    }
+
+    // ONE receiver for the process, and one listener held at a time.
+    //
+    // A receiver per share leaked every cancelled one. It is unregistered from
+    // inside onReceive, and Android sends nothing when the chooser is
+    // dismissed -- there is no public dismissal signal -- so a cancelled share
+    // left its receiver registered on the application context, holding the
+    // listener and, through it, the button and the form it is on. Each cancel
+    // added another, for the life of the process, and a share button is
+    // exactly the kind of control a user opens and backs out of repeatedly.
+    //
+    // Reusing one receiver bounds that at a single retained listener: the next
+    // share replaces the one a dismissal left behind. It cannot be driven to
+    // zero from here, because knowing the chooser was dismissed is the thing
+    // Android does not tell us.
+    //
+    // Instance fields, not static: there is one implementation per process,
+    // the receiver belongs to it, and a lazily initialised static is a
+    // different claim -- one SpotBugs reads as a threading bug, correctly,
+    // because nothing here would make it safe if it were true.
+    //
+    // Each chooser gets its OWN entry, keyed by a token the PendingIntent
+    // carries back, and they share the one receiver.
+    //
+    // A single replaceable listener was wrong: two share() calls that both
+    // present a chooser before either reports a selection would have the
+    // second overwrite the first, so picking a target in the first chooser
+    // invoked the SECOND call's listener and the second result was then
+    // dropped against a field that had already been cleared. The per-call
+    // receiver this replaced did not have that fault -- it gave each chooser
+    // its own action and its own PendingIntent -- so keeping the leak fixed
+    // must not cost that.
+    //
+    // What cannot be reclaimed is an entry for a chooser the user DISMISSED,
+    // because Android reports nothing for one. The map is bounded instead:
+    // beyond MAX_PENDING_SHARES the oldest is dropped, which is the same
+    // outcome the single field gave and only for shares that old. Insertion
+    // order is what LinkedHashMap gives, and the oldest outstanding chooser is
+    // the one the user is least likely to still be looking at.
+    //
+    // Touched from the Codename One EDT (share) and the Android main thread
+    // (onReceive), so every access is synchronized on the map itself. That is
+    // a native boundary crossing, not core framework code.
+    private BroadcastReceiver shareChooserReceiver;
+
+    private String shareChooserAction;
+
+    private static final String EXTRA_SHARE_TOKEN = "cn1ShareToken";
+
+    private static final int MAX_PENDING_SHARES = 8;
+
+    // UNGUESSABLE, because the token is what authenticates the broadcast.
+    //
+    // The receiver is registered exported -- RECEIVER_EXPORTED on API 33+, and
+    // the two-argument registration is externally reachable on older releases
+    // -- so any installed app can send <package>.CN1_SHARE_CHOSEN. setPackage()
+    // constrains the PendingIntent the framework creates; it does nothing to a
+    // forged explicit broadcast. With a counter starting at 1 that forgery was
+    // trivial, and it reported a fabricated successful ShareResult:
+    // invite_shared for a share that never happened, and whatever reward logic
+    // an application hangs off its own listener.
+    //
+    // A random token is the half of the repair that can be made from here.
+    // onReceive looks the token up and returns when it is not one this process
+    // issued, so a forged broadcast has to guess a 32-bit value that never
+    // leaves the PendingIntent. Registering the receiver non-exported is the
+    // better answer on API 33+ and is NOT done blind: a PendingIntent
+    // broadcast is delivered with this app's own identity, so it should still
+    // arrive -- but "should" is doing real work in that sentence and the
+    // failure mode is silent, the callback simply stopping and invite_shared
+    // stopping with it. That wants a device rather than an inference.
+    private final java.security.SecureRandom shareTokens = new java.security.SecureRandom();
+
+    private final java.util.LinkedHashMap<Integer, com.codename1.share.ShareResultListener>
+            pendingShares =
+            new java.util.LinkedHashMap<Integer, com.codename1.share.ShareResultListener>();
+
+    @TargetApi(22)
+    private Intent buildShareChooserWithCallback(Intent shareIntent, final com.codename1.share.ShareResultListener listener) {
+        final Context appCtx = getContext().getApplicationContext();
+        // This chooser's own token, recorded before the receiver can fire.
+        final int token;
+        synchronized (pendingShares) {
+            token = shareTokens.nextInt();
+            pendingShares.put(Integer.valueOf(token), listener);
+            while (pendingShares.size() > MAX_PENDING_SHARES) {
+                java.util.Iterator<Integer> oldest = pendingShares.keySet().iterator();
+                oldest.next();
+                oldest.remove();
+            }
+        }
+        if (shareChooserReceiver != null) {
+            // Already registered and listening on the same action, so there is
+            // nothing to build but the PendingIntent below.
+            return chooserFor(appCtx, shareIntent, shareChooserAction, token);
+        }
+        final String action = appCtx.getPackageName() + ".CN1_SHARE_CHOSEN";
+        shareChooserAction = action;
+        // The receiver fires once when the user picks a target. Android
+        // does not expose a dismissal signal for the chooser, so the
+        // listener simply does not fire on user-cancel (see comment
+        // further down).
+        BroadcastReceiver receiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context ctx, Intent intent) {
+                // Taken by token, so this delivers to the chooser it belongs
+                // to and a repeat broadcast cannot deliver twice. The receiver
+                // stays registered for the next share.
+                com.codename1.share.ShareResultListener target;
+                synchronized (pendingShares) {
+                    target = pendingShares.remove(Integer.valueOf(
+                            intent.getIntExtra(EXTRA_SHARE_TOKEN, -1)));
+                }
+                if (target == null) {
+                    return;
+                }
+                String pkg = null;
+                try {
+                    // Taken as a Parcelable and tested, rather than assigned straight
+                    // to ComponentName: that assignment compiles to a CHECKCAST whose
+                    // failure this catch would have to handle, and the extra is
+                    // whatever the SENDING application chose to put there, so the
+                    // failure is not hypothetical. (The cast-semantics gate no longer
+                    // scans this port, since ParparVM does not translate it -- this
+                    // stands on its own terms.)
+                    android.os.Parcelable chosen =
+                            intent.getParcelableExtra(Intent.EXTRA_CHOSEN_COMPONENT);
+                    if (chosen instanceof android.content.ComponentName) {
+                        pkg = ((android.content.ComponentName) chosen).getPackageName();
+                    }
+                } catch (Throwable ignore) {}
+                target.onResult(com.codename1.share.ShareResult.sharedTo(pkg));
+            }
+        };
+        IntentFilter filter = new IntentFilter(action);
+        boolean registered = false;
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            // RECEIVER_EXPORTED = 0x2 -- constant exists at runtime on
+            // API 33+ but is not present in older android.jar build deps,
+            // so call the 3-arg overload via reflection to stay source-
+            // compatible.
+            try {
+                java.lang.reflect.Method m = Context.class.getMethod(
+                        "registerReceiver", BroadcastReceiver.class, IntentFilter.class, int.class);
+                m.invoke(appCtx, receiver, filter, Integer.valueOf(0x2));
+                registered = true;
+            } catch (Throwable ignore) {}
+        }
+        if (!registered) {
+            appCtx.registerReceiver(receiver, filter);
+        }
+        // Recorded only once it is really listening, so a registration that
+        // threw is retried by the next share rather than skipped for ever.
+        shareChooserReceiver = receiver;
+        // Android's chooser IntentSender callback never fires on
+        // dismissal: there is no public API to observe a user-cancel.
+        // Apps that need a dismissal signal must use Activity-resume.
+
+        return chooserFor(appCtx, shareIntent, action, token);
+    }
+
+    /// The chooser Intent itself, wrapping a broadcast PendingIntent on this
+    /// action.
+    ///
+    /// Split out because it is built on every share while the receiver behind
+    /// it is built once.
+    ///
+    /// **The token is the REQUEST CODE, not merely an extra.** What stood here
+    /// said FLAG_UPDATE_CURRENT made a fixed action safe because the
+    /// PendingIntent "is handed back with this chooser's extras, and only one
+    /// chooser is ever up at a time". Both halves were wrong. Android does not
+    /// include extras in PendingIntent identity, so with request code 0 and one
+    /// action every share resolved to the SAME PendingIntent and
+    /// FLAG_UPDATE_CURRENT overwrote the first chooser's token with the
+    /// second's -- selecting from the first chooser then delivered the second
+    /// token, invoked the second listener and stranded the first, which is the
+    /// per-chooser callback the token map exists to provide. And a second
+    /// chooser is the case being defended against, so assuming only one is up
+    /// assumed the bug away.
+    ///
+    /// The request code IS part of that identity, so passing the token makes
+    /// each chooser's PendingIntent distinct and its extras its own.
+    @TargetApi(22)
+    private Intent chooserFor(Context appCtx, Intent shareIntent, String action, int token) {
+        Intent pi = new Intent(action).setPackage(appCtx.getPackageName());
+        pi.putExtra(EXTRA_SHARE_TOKEN, token);
+        int piFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            // FLAG_MUTABLE was introduced in API 31; its numeric value
+            // (0x02000000) is referenced here directly so the source
+            // still compiles against pre-31 android.jar build deps.
+            piFlags |= 0x02000000;
+        }
+        PendingIntent pendingIntent = PendingIntent.getBroadcast(appCtx, token, pi, piFlags);
+        return Intent.createChooser(shareIntent, "Share with...", pendingIntent.getIntentSender());
+    }
+
+    /// Printing uses the Android print framework which requires API 19
+    /// and a foreground activity to host the print dialog.
+    @Override
+    public boolean isPrintingSupported() {
+        return android.os.Build.VERSION.SDK_INT >= 19 && getActivity() != null;
+    }
+
+    /// Print through the Android print framework. PDF files are streamed
+    /// verbatim into a `android.print.PrintDocumentAdapter`; images go
+    /// through the support library `PrintHelper` which scales them to the
+    /// page.
+    ///
+    /// Outcome reporting is best effort: the PDF path polls the returned
+    /// `android.print.PrintJob` and treats a queued/started job as
+    /// completed since Android offers no callback for the terminal job
+    /// state once it was handed to the print service. The image path
+    /// reports completed when `PrintHelper` finishes because it can't
+    /// distinguish a dismissed dialog from a printed page.
+    @Override
+    public void print(final String filePath, final String mimeType, final com.codename1.printing.PrintResultListener listener) {
+        final PrintResultDispatcher dispatcher = new PrintResultDispatcher(listener);
+        if (!isPrintingSupported()) {
+            dispatcher.fire(com.codename1.printing.PrintResult.failed(
+                    "Printing requires Android 4.4 or newer and a foreground activity"));
+            return;
+        }
+        if (filePath == null) {
+            dispatcher.fire(com.codename1.printing.PrintResult.failed("No file to print"));
+            return;
+        }
+        final File file = new File(removeFilePrefix(filePath));
+        if (!file.exists()) {
+            dispatcher.fire(com.codename1.printing.PrintResult.failed("File not found: " + filePath));
+            return;
+        }
+        getActivity().runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    // PrintSupport touches android.print which only exists
+                    // on API 19+; the isPrintingSupported() gate above keeps
+                    // the class from loading on older devices.
+                    PrintSupport.startPrint(getActivity(), file, mimeType, dispatcher);
+                } catch (Throwable t) {
+                    dispatcher.fire(com.codename1.printing.PrintResult.failed(
+                            "Failed to start print job: " + t));
+                }
+            }
+        });
+    }
+
+    /// Delivers a [com.codename1.printing.PrintResult] to the listener at
+    /// most once. The listener may be null and results may arrive from any
+    /// thread; `Display` moves the callback onto the EDT.
+    private static final class PrintResultDispatcher {
+        private final com.codename1.printing.PrintResultListener listener;
+        private boolean fired;
+
+        PrintResultDispatcher(com.codename1.printing.PrintResultListener listener) {
+            this.listener = listener;
+        }
+
+        void fire(com.codename1.printing.PrintResult result) {
+            synchronized (this) {
+                if (fired) {
+                    return;
+                }
+                fired = true;
+            }
+            if (listener != null) {
+                listener.onResult(result);
+            }
+        }
+    }
+
+    /// All android.print framework access lives in this class so the
+    /// classes it references are only loaded behind the API 19 check in
+    /// [#print].
+    @TargetApi(19)
+    private static final class PrintSupport {
+
+        private static final int JOB_PENDING = 0;
+        private static final int JOB_COMPLETED = 1;
+        private static final int JOB_CANCELLED = 2;
+        private static final int JOB_FAILED = 3;
+
+        /// How long the poller waits for the print dialog/job to reach a
+        /// terminal state before giving up.
+        private static final long POLL_TIMEOUT = 15 * 60 * 1000L;
+        private static final long POLL_INTERVAL = 500;
+
+        /// Must run on the UI thread: `PrintManager.print` and
+        /// `PrintHelper.printBitmap` both require it.
+        static void startPrint(Activity activity, File file, String mimeType, PrintResultDispatcher dispatcher) {
+            String jobName = file.getName();
+            if ("application/pdf".equalsIgnoreCase(mimeType)) {
+                android.print.PrintManager printManager =
+                        (android.print.PrintManager) activity.getSystemService(Context.PRINT_SERVICE);
+                if (printManager == null) {
+                    dispatcher.fire(com.codename1.printing.PrintResult.failed("Print service unavailable"));
+                    return;
+                }
+                android.print.PrintJob job = printManager.print(jobName,
+                        new PdfFilePrintAdapter(jobName, file), null);
+                pollPrintJob(activity, job, dispatcher);
+            } else if (mimeType != null && mimeType.startsWith("image/")) {
+                printImage(activity, file, jobName, dispatcher);
+            } else {
+                dispatcher.fire(com.codename1.printing.PrintResult.failed(
+                        "Unsupported print document type: " + mimeType));
+            }
+        }
+
+        private static void printImage(Activity activity, File file, String jobName,
+                final PrintResultDispatcher dispatcher) {
+            Bitmap bitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
+            if (bitmap == null) {
+                dispatcher.fire(com.codename1.printing.PrintResult.failed(
+                        "Unable to decode image for printing"));
+                return;
+            }
+            android.support.v4.print.PrintHelper helper = new android.support.v4.print.PrintHelper(activity);
+            helper.setScaleMode(android.support.v4.print.PrintHelper.SCALE_MODE_FIT);
+            helper.printBitmap(jobName, bitmap, new android.support.v4.print.PrintHelper.OnPrintFinishCallback() {
+                @Override
+                public void onFinish() {
+                    // PrintHelper fires onFinish when the print flow ends
+                    // without exposing whether the user printed or
+                    // dismissed the dialog; report completed best effort.
+                    dispatcher.fire(com.codename1.printing.PrintResult.completed());
+                }
+            });
+        }
+
+        /// Watches the print job from a background thread and reports the
+        /// first terminal state. The job object must only be queried on
+        /// the UI thread, so every tick bounces through `runOnUiThread`.
+        private static void pollPrintJob(final Activity activity, final android.print.PrintJob job,
+                final PrintResultDispatcher dispatcher) {
+            Thread poller = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    long deadline = System.currentTimeMillis() + POLL_TIMEOUT;
+                    while (System.currentTimeMillis() < deadline) {
+                        try {
+                            Thread.sleep(POLL_INTERVAL);
+                        } catch (InterruptedException ignore) {
+                        }
+                        final int[] state = new int[]{JOB_PENDING};
+                        final boolean[] done = new boolean[1];
+                        final Object lock = new Object();
+                        activity.runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                int s = JOB_PENDING;
+                                try {
+                                    if (job.isCancelled()) {
+                                        s = JOB_CANCELLED;
+                                    } else if (job.isFailed()) {
+                                        s = JOB_FAILED;
+                                    } else if (job.isCompleted()) {
+                                        s = JOB_COMPLETED;
+                                    } else if (job.isQueued() || job.isStarted() || job.isBlocked()) {
+                                        // The dialog phase is over and the
+                                        // job belongs to the print service;
+                                        // that is as "completed" as Android
+                                        // lets us observe reliably.
+                                        s = JOB_COMPLETED;
+                                    }
+                                } catch (Throwable t) {
+                                    s = JOB_FAILED;
+                                }
+                                synchronized (lock) {
+                                    state[0] = s;
+                                    done[0] = true;
+                                    lock.notifyAll();
+                                }
+                            }
+                        });
+                        synchronized (lock) {
+                            long waitUntil = System.currentTimeMillis() + 5000;
+                            while (!done[0] && System.currentTimeMillis() < waitUntil) {
+                                try {
+                                    lock.wait(POLL_INTERVAL);
+                                } catch (InterruptedException ignore) {
+                                }
+                            }
+                            if (!done[0]) {
+                                // UI thread didn't get to us; try again on
+                                // the next tick until the deadline passes.
+                                continue;
+                            }
+                        }
+                        switch (state[0]) {
+                            case JOB_COMPLETED:
+                                dispatcher.fire(com.codename1.printing.PrintResult.completed());
+                                return;
+                            case JOB_CANCELLED:
+                                dispatcher.fire(com.codename1.printing.PrintResult.cancelled());
+                                return;
+                            case JOB_FAILED:
+                                dispatcher.fire(com.codename1.printing.PrintResult.failed("Print job failed"));
+                                return;
+                            default:
+                                // still in the dialog phase, keep polling
+                        }
+                    }
+                    dispatcher.fire(com.codename1.printing.PrintResult.failed(
+                            "Timed out waiting for the print job status"));
+                }
+            }, "CN1PrintJobPoller");
+            poller.setDaemon(true);
+            poller.start();
+        }
+
+        /// Streams an existing PDF file into the print system unchanged.
+        /// Layout/write failures are routed through the framework
+        /// callbacks which fail the print job; the poller in
+        /// [#pollPrintJob] then reports the failure to the listener, so
+        /// the dispatcher still fires exactly once.
+        private static final class PdfFilePrintAdapter extends android.print.PrintDocumentAdapter {
+            private final String jobName;
+            private final File file;
+
+            PdfFilePrintAdapter(String jobName, File file) {
+                this.jobName = jobName;
+                this.file = file;
+            }
+
+            @Override
+            public void onLayout(android.print.PrintAttributes oldAttributes,
+                    android.print.PrintAttributes newAttributes,
+                    android.os.CancellationSignal cancellationSignal,
+                    LayoutResultCallback callback, Bundle extras) {
+                if (cancellationSignal != null && cancellationSignal.isCanceled()) {
+                    callback.onLayoutCancelled();
+                    return;
+                }
+                try {
+                    android.print.PrintDocumentInfo info = new android.print.PrintDocumentInfo.Builder(jobName)
+                            .setContentType(android.print.PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+                            .setPageCount(android.print.PrintDocumentInfo.PAGE_COUNT_UNKNOWN)
+                            .build();
+                    callback.onLayoutFinished(info, !newAttributes.equals(oldAttributes));
+                } catch (Throwable t) {
+                    callback.onLayoutFailed(t.toString());
+                }
+            }
+
+            @Override
+            public void onWrite(android.print.PageRange[] pages,
+                    android.os.ParcelFileDescriptor destination,
+                    android.os.CancellationSignal cancellationSignal,
+                    WriteResultCallback callback) {
+                FileInputStream in = null;
+                FileOutputStream out = null;
+                try {
+                    in = new FileInputStream(file);
+                    out = new FileOutputStream(destination.getFileDescriptor());
+                    byte[] buffer = new byte[8192];
+                    int count;
+                    while ((count = in.read(buffer)) > -1) {
+                        if (cancellationSignal != null && cancellationSignal.isCanceled()) {
+                            callback.onWriteCancelled();
+                            return;
+                        }
+                        out.write(buffer, 0, count);
+                    }
+                    callback.onWriteFinished(new android.print.PageRange[]{android.print.PageRange.ALL_PAGES});
+                } catch (Throwable t) {
+                    callback.onWriteFailed(t.toString());
+                } finally {
+                    if (in != null) {
+                        try {
+                            in.close();
+                        } catch (Throwable ignore) {
+                        }
+                    }
+                    if (out != null) {
+                        try {
+                            out.close();
+                        } catch (Throwable ignore) {
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String getPlatformName() {
+        return "and";
+    }
+
+    /**
+     * Snapshot of the recent process logcat for crash protection. Since
+     * Android 4.1 (API 16) apps can only read their own process log
+     * without the READ_LOGS permission, which is exactly what we want.
+     * Returns the last ~200 lines (capped at 32 KB).
+     */
+    @Override
+    public String getNativeLogSnapshot() {
+        java.io.BufferedReader reader = null;
+        Process proc = null;
+        try {
+            proc = Runtime.getRuntime().exec(new String[]{
+                "logcat", "-d", "-t", "200", "-v", "threadtime"});
+            reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(proc.getInputStream(), "UTF-8"));
+            StringBuilder sb = new StringBuilder(8192);
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append('\n');
+                if (sb.length() > 32 * 1024) {
+                    break;
+                }
+            }
+            return sb.length() == 0 ? null : sb.toString();
+        } catch (Throwable ignored) {
+            // logcat unavailable (very old Android, locked-down ROM,
+            // etc.) -- crash protection still works, just without the
+            // device log context.
+            return null;
+        } finally {
+            if (reader != null) {
+                try { reader.close(); } catch (java.io.IOException ignored) { }
+            }
+            if (proc != null) {
+                try { proc.destroy(); } catch (Throwable ignored) { }
+            }
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String[] getPlatformOverrides() {
+        if (isWatch()) {
+            return new String[]{"watch", "android", "android-watch"};
+        }
+        if (isTV()) {
+            return new String[]{"tv", "android", "android-tv"};
+        }
+        if (isTablet()) {
+            return new String[]{"tablet", "android", "android-tab"};
+        } else {
+            return new String[]{"phone", "android", "android-phone"};
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void copyToClipboard(final Object obj) {
+        super.copyToClipboard(obj);
+        if (getActivity() == null) {
+            return;
+        }
+        getActivity().runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                int sdk = android.os.Build.VERSION.SDK_INT;
+                if (sdk < 11) {
+                    android.text.ClipboardManager clipboard = (android.text.ClipboardManager) getActivity().getSystemService(Context.CLIPBOARD_SERVICE);
+                    clipboard.setText(obj.toString());
+                    // Afterwards, as in the branch below: a clip that was never published has
+                    // not replaced the one the system is still holding, and unpinning that one
+                    // first left its files reclaimable while it was still there to be pasted.
+                    clipboardHolds(0);
+                } else {
+                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getActivity().getSystemService(Context.CLIPBOARD_SERVICE);
+                    android.content.ClipData clip;
+                    long staged = 0;
+                    boolean assembled = false;
+                    if (obj instanceof ClipboardContent) {
+                        AssembledClip built = clipDataFor((ClipboardContent) obj);
+                        clip = built == null ? null : built.getData();
+                        staged = built == null ? 0 : built.getClip();
+                        assembled = true;
+                        if (clip == null) {
+                            // A copy of nothing is an empty clipboard, which is a thing the user
+                            // asked for and can paste. A *drag* of nothing is not: there the null
+                            // refuses to start, because a drag that carries nothing still lands
+                            // somewhere and tells that receiver it succeeded.
+                            clip = ClipData.newPlainText("Codename One", "");
+                        }
+                    } else {
+                        // Nothing of ours is staged for a plain text clip.
+                        clip = ClipData.newPlainText("Codename One", obj.toString());
+                    }
+                    watchPrimaryClip(clipboard);
+                    // Pinned for the length of the call, held only if it returns. setPrimaryClip
+                    // can throw -- a payload past the Binder transaction limit is the usual way
+                    // -- and switching the hold beforehand handed the *old* clip's files to
+                    // reclamation while the system was still holding that clip, pinned the ones
+                    // that never reached the clipboard in their place, and left a callback
+                    // counted that would never arrive. The pin in between is what keeps the new
+                    // clip's own files from being reclaimed in the window this opens.
+                    clipboardPublishing(staged);
+                    boolean published = false;
+                    try {
+                        clipboard.setPrimaryClip(clip);
+                        published = true;
+                    } finally {
+                        clipboardPublished(staged, published);
+                        if (assembled) {
+                            // Taken over by the clipboard, or given up on. Either way this
+                            // assembly is no longer one nothing has claimed.
+                            endStagingClip(staged);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    /// Builds the Android clip that publishes a `ClipboardContent`, for a clipboard copy and
+    /// for a native drag alike -- both hand another application the same thing, so both go
+    /// through the same conversion, including the file provider URIs that let the receiving
+    /// application read generated image bytes.
+    ///
+    /// #### Parameters
+    ///
+    /// - `content`: the representations to publish
+    ///
+    /// #### Returns
+    ///
+    /// the clip, or null when the content produced no representation at all
+    AssembledClip clipDataFor(ClipboardContent content) {
+        // Held here and handed down, never read back off the field. A clipboard copy runs
+        // on the Android UI thread and a drag on the Codename One event dispatch thread, so
+        // two assemblies can overlap -- and one reading the field mid-way filed its
+        // remaining files under the other's id, which split one clip across two and left
+        // the half nobody pinned free to be deleted while the clip still referenced it.
+        final long clip = beginStagingClip();
+        // Every read this assembly makes goes through here; see Assembly for why it is not the
+        // content's own memory of what its providers produced.
+        Assembly assembly = new Assembly(content);
+        int sdk = android.os.Build.VERSION.SDK_INT;
+        List<String> mimeTypes = new ArrayList<String>();
+        List<ClipData.Item> items = new ArrayList<ClipData.Item>();
+        String plain = assembly.text(ClipboardContent.MIME_TEXT);
+        String html = assembly.text(ClipboardContent.MIME_HTML);
+        // A clip carries one text payload. Where the content has no text/plain but does have
+        // some other text representation -- markdown, AsciiDoc, a URI list -- that one is the
+        // payload, since publishing an empty clip instead would lose it outright.
+        String primaryTextMime = plain != null ? ClipboardContent.MIME_TEXT : null;
+        // Not when there is HTML: that is already the payload, and the plain text beside it is
+        // derived from the markup below rather than searched for among the other
+        // representations, which would put an unrelated one under the HTML.
+        if (plain == null && html == null) {
+            String[] advertised = content.getMimeTypes();
+            for (int iter = 0; iter < advertised.length && plain == null; iter++) {
+                if (!advertised[iter].startsWith("text/")) {
+                    // Text types only, however the value happens to be carried. A String under
+                    // application/json -- or under an application's own type -- is that type's
+                    // encoding and not a reading the source offered as text, and publishing it
+                    // as the clip's text let a text-only application paste a representation
+                    // nobody advertised to it. Nothing is lost by refusing: a String under a
+                    // type that is not text travels as a typed content URI like any other
+                    // representation, under its own name. The file list is covered by the same
+                    // test, since that is not a text type either.
+                    //
+                    // The types getMimeTypes answers with are normalized to lower case, so this
+                    // is an ASCII comparison against an ASCII constant and no locale enters it.
+                    continue;
+                }
+                String value = assembly.text(advertised[iter]);
+                if (value != null) {
+                    plain = value;
+                    primaryTextMime = advertised[iter];
+                }
+            }
+        }
+        // The types are recorded here, but the text does not become an item of its own yet. A
+        // clip item is a dragged *object*, so a text item beside a file item is two things
+        // being dragged at once, and a receiver that imports everything takes the document
+        // *and* a stray piece of text instead of choosing the best form of one thing. Where
+        // the clip carries a URI, the text rides on it -- see attachCarriedText below.
+        boolean carriesHtml = sdk >= 16 && html != null;
+        if (carriesHtml && plain == null) {
+            // Android *requires* it: ClipData.Item refuses HTML with no plain text beside it,
+            // and threw IllegalArgumentException out of the thread that was building the clip
+            // -- so content offering nothing but MIME_HTML crashed a copy and silently failed
+            // a drag. Rendered from the markup rather than being the markup, which would show
+            // every receiver the tags.
+            plain = htmlToPlainText(html);
+        }
+        if (carriesHtml) {
+            mimeTypes.add(ClipboardContent.MIME_TEXT);
+            mimeTypes.add(ClipboardContent.MIME_HTML);
+        } else if (plain != null) {
+            mimeTypes.add(ClipboardContent.MIME_TEXT);
+            if (primaryTextMime != null && !mimeTypes.contains(primaryTextMime)) {
+                mimeTypes.add(primaryTextMime);
+            }
+        }
+        // One pass at a time. Together under a single catch, a failure in the first abandoned
+        // the two after it as well, so a clip whose image could not be written went out
+        // without the document and the typed representations it also had.
+        try {
+            addBinaryContent(assembly, mimeTypes, items, clip);
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+        try {
+            addPublishedUris(assembly, mimeTypes, items, clip);
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+        try {
+            addRemainingRepresentations(assembly, plain, mimeTypes, items, clip);
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+        if (carriesHtml || plain != null) {
+            attachCarriedText(items, plain, carriesHtml ? html : null);
+        }
+        if (items.isEmpty()) {
+            // Nothing was produced. Every representation this content offered is a provider that
+            // answered null or threw, which ClipboardDataProvider explicitly permits -- so there
+            // is no clip, and the callers decide what that means. Answering with empty text
+            // instead replaced the payload with a different one: a drag offering only
+            // application/pdf reported success and let another application accept blank text.
+            return new AssembledClip(null, clip);
+        }
+        // Built from the union of the types, not by appending to a text clip. ClipData.addItem
+        // does not add the item's type to the description, so a clip assembled that way
+        // describes itself as text only -- and both a Codename One drop target filtering on
+        // MIME_FILE and an external receiver choosing a representation read the description.
+        ClipData data = new ClipData("Codename One",
+                mimeTypes.toArray(new String[mimeTypes.size()]), items.get(0));
+        for (int iter = 1; iter < items.size(); iter++) {
+            data.addItem(items.get(iter));
+        }
+        return new AssembledClip(data, clip);
+    }
+
+    /// A clip and the assembly that built it.
+    ///
+    /// The id travels with the clip because that is the only way its caller can say which
+    /// assembly the clipboard or the drag now holds: a field read afterwards answers about
+    /// whichever assembly began most recently, and two of them can be in flight at once.
+    static final class AssembledClip {
+        /// The clip, or null when the content produced nothing that could be published.
+        private final ClipData data;
+        private final long clip;
+
+        AssembledClip(ClipData data, long clip) {
+            this.data = data;
+            this.clip = clip;
+        }
+
+        ClipData getData() {
+            return data;
+        }
+
+        long getClip() {
+            return clip;
+        }
+    }
+
+    // ------------------------------------------------------------------------------------
+    // Native drag and drop. See AndroidNativeDragAndDrop; the payload is the same ClipData a
+    // copy publishes, which is why a drag out of the application lands in another application
+    // exactly as a paste would.
+    // ------------------------------------------------------------------------------------
+
+    @Override
+    public boolean isNativeDragAndDropSupported() {
+        return AndroidNativeDragAndDrop.isSupported();
+    }
+
+    @Override
+    public boolean isNativeDragOutsideApplicationSupported() {
+        return AndroidNativeDragAndDrop.isOutsideApplicationSupported();
+    }
+
+    @Override
+    public boolean startNativeDrag(com.codename1.ui.NativeDragOperation op) {
+        return AndroidNativeDragAndDrop.startDrag(this, op);
+    }
+
+    @Override
+    public void cancelNativeDrag() {
+        AndroidNativeDragAndDrop.cancelDrag();
+    }
+
+    /**
+     * Collects the image bytes and file references carried by the ClipboardContent as items and
+     * MIME types, exposing binary content as FileProvider content:// URIs. The caller assembles
+     * the ClipData from the union of everything collected here and the text types, because
+     * ClipData.addItem cannot widen a description that already exists.
+     */
+    private void addBinaryContent(Assembly assembly, List<String> mimeTypes,
+            List<ClipData.Item> items, long clip) throws IOException {
+        String authority = getContext().getPackageName() + ".provider";
+
+        // The files first, then the byte-backed representations. Android's ClipData.Item holds
+        // exactly one Uri, so two representations that are both bytes cannot be one item -- the
+        // platform has no way to say "another reading of the same object" for them, only for
+        // the text and markup that attachCarriedText rides on the item below. Publishing them
+        // is still right: they are what the description advertises, and dropping them would
+        // refuse the very target that accepted the hover on one. What order fixes is which
+        // object a receiver reading only the first item takes -- the document, not its
+        // thumbnail.
+        //
+        // It is also what puts the carried text on the document rather than on the thumbnail.
+
+        // File references: MIME_FILE may be a single String or a String[]
+        Object fileData = assembly.value(ClipboardContent.MIME_FILE);
+        if (fileData != null) {
+            String[] paths;
+            if (fileData instanceof String[]) {
+                paths = (String[]) fileData;
+            } else {
+                paths = new String[]{ fileData.toString() };
+            }
+            for (int i = 0; i < paths.length; i++) {
+                String pathOrUri = paths[i];
+                if (pathOrUri == null || pathOrUri.length() == 0) {
+                    continue;
+                }
+                // Each file on its own. A path outside the roots the file provider was
+                // configured with throws, and one throwing on the second of three used to
+                // abandon the third as well *and* skip every representation after the file
+                // loop -- so the clip went out holding one file, silently, and the drag
+                // reported success.
+                try {
+                    Uri u;
+                    if (hasScheme(pathOrUri, "content:")) {
+                        u = Uri.parse(pathOrUri);
+                    } else {
+                        File file = hasScheme(pathOrUri, "file:")
+                                ? new File(Uri.parse(pathOrUri).getPath())
+                                : new File(pathOrUri);
+                        u = shareableUriFor(file, authority, clip);
+                    }
+                    if (!mimeTypes.contains("text/uri-list")) {
+                        mimeTypes.add("text/uri-list");
+                    }
+                    // And whatever the document actually is. A receiver in another application
+                    // reads the description and nothing else while the drag hovers, so a PDF
+                    // dragged out of here described only as a URI list was refused by every
+                    // target that filters on application/pdf -- the type was there for the
+                    // asking on the URI, and only this side can ask it in time. The alias the
+                    // hover adds locally cannot help them; it never leaves this process.
+                    //
+                    // Only a type the resolver actually knows. octet-stream is what a provider
+                    // answers when it has nothing to say, and advertising that would tell a
+                    // receiver the clip holds a type it cannot use.
+                    String resolved = bareMimeType(
+                            getContext().getContentResolver().getType(u));
+                    if (resolved != null && resolved.length() > 0
+                            && !"application/octet-stream".equals(resolved)
+                            && !mimeTypes.contains(resolved)) {
+                        mimeTypes.add(resolved);
+                    }
+                    items.add(new ClipData.Item(u));
+                } catch (Throwable t) {
+                    // Absent rather than advertised: nothing named it a type of its own, so
+                    // no receiver is told the clip holds a file it does not.
+                    com.codename1.io.Log.e(t);
+                }
+            }
+        }
+
+        // Image bytes: prefer PNG, then JPEG, then GIF
+        String imageMime = null;
+        byte[] imageBytes = null;
+        String imageExt = null;
+        imageBytes = assembly.bytes(ClipboardContent.MIME_PNG);
+        if (imageBytes != null) {
+            imageMime = ClipboardContent.MIME_PNG;
+            imageExt = "png";
+        } else {
+            imageBytes = assembly.bytes(ClipboardContent.MIME_JPEG);
+            if (imageBytes != null) {
+                imageMime = ClipboardContent.MIME_JPEG;
+                imageExt = "jpg";
+            } else {
+                imageBytes = assembly.bytes(ClipboardContent.MIME_GIF);
+                if (imageBytes != null) {
+                    imageMime = ClipboardContent.MIME_GIF;
+                    imageExt = "gif";
+                }
+            }
+        }
+        if (imageBytes != null) {
+            try {
+                Uri imageUri = writeAsProviderUri(imageBytes, imageExt, imageMime, clip);
+                if (imageUri != null) {
+                    if (!mimeTypes.contains(imageMime)) {
+                        mimeTypes.add(imageMime);
+                    }
+                    items.add(new ClipData.Item(imageUri));
+                }
+            } catch (Throwable t) {
+                // On its own, so a picture that cannot be written does not take the files
+                // and the other representations with it.
+                com.codename1.io.Log.e(t);
+            }
+        }
+    }
+
+    /// The text of an HTML fragment, for the plain text Android requires beside it.
+    ///
+    /// Empty rather than null when the markup renders to nothing: an item may carry empty text
+    /// with its HTML, and may not carry none.
+    private static String htmlToPlainText(String html) {
+        try {
+            CharSequence text = android.os.Build.VERSION.SDK_INT >= 24
+                    ? android.text.Html.fromHtml(html, android.text.Html.FROM_HTML_MODE_LEGACY)
+                    : android.text.Html.fromHtml(html);
+            return text == null ? "" : text.toString();
+        } catch (Throwable t) {
+            // Markup this platform will not parse still has to travel; the HTML is the payload
+            // and the text beside it is what Android asks for, not what the clip is for.
+            com.codename1.io.Log.e(t);
+            return "";
+        }
+    }
+
+    /// Puts the URIs a text/uri-list names on the clip as URIs.
+    ///
+    /// A URI is what an Android receiver reads off `ClipData.Item#getUri()`, and a link has
+    /// nothing else to be read off. Left to the passes around this one a uri-list became
+    /// carried text, or -- where the clip had text already -- a content URI holding the list
+    /// as a document; either way a receiver that took the clip because it advertised
+    /// text/uri-list found no URI on it at all.
+    ///
+    /// One item per URI, because an item is a dragged object and a list of three links is
+    /// three of them. The clip's text still rides on the first, as it does on a file.
+    private void addPublishedUris(Assembly assembly, List<String> mimeTypes,
+            List<ClipData.Item> items, long clip) {
+        String list = assembly.text(ClipboardContent.MIME_URI_LIST);
+        if (list == null) {
+            return;
+        }
+        // The files the source published, which the clip is already carrying: each went onto
+        // it as a content URI this application minted, so the list's own spelling of the same
+        // document -- a path, or a file: URI of it -- would drag that document a second time.
+        //
+        // Compared against those paths rather than against the minted URIs, which are not
+        // equal to anything the source wrote. Entry by entry, too: returning on the first file
+        // threw away every *other* line, so a document published beside its own web address
+        // advertised text/uri-list and delivered the document alone.
+        List<String> alreadyCarried = new ArrayList<String>();
+        Object files = assembly.value(ClipboardContent.MIME_FILE);
+        if (files instanceof String[]) {
+            String[] paths = (String[]) files;
+            for (int iter = 0; iter < paths.length; iter++) {
+                if (paths[iter] != null) {
+                    alreadyCarried.add(publishedUriKey(paths[iter]));
+                }
+            }
+        } else if (files instanceof String) {
+            alreadyCarried.add(publishedUriKey((String) files));
+        }
+        boolean carriesPublishedFile = false;
+        for (int iter = 0; iter < items.size(); iter++) {
+            Uri carried = items.get(iter).getUri();
+            // A *generated* URI is not one of the source's. It carries a representation's
+            // bytes -- an image, a document this application encoded -- and a reader filters
+            // it out precisely because the source never published it as a URI.
+            if (carried != null && !isGeneratedClipFile(carried)) {
+                carriesPublishedFile = true;
+                break;
+            }
+        }
+        boolean any = false;
+        String[] lines = list.split("\n");
+        for (int iter = 0; iter < lines.length; iter++) {
+            String line = lines[iter].trim();
+            // RFC 2483: a line opening with a hash is a comment, not a URI.
+            if (line.length() == 0 || line.charAt(0) == '#') {
+                continue;
+            }
+            if (alreadyCarried.contains(publishedUriKey(line))) {
+                continue;
+            }
+            Uri published = publishableUri(line, clip);
+            if (published == null) {
+                continue;
+            }
+            items.add(new ClipData.Item(published));
+            any = true;
+        }
+        // Declared when the clip can produce one: the entries just added, the published files
+        // a reader builds the list back out of, or both.
+        if (any || carriesPublishedFile) {
+            declareUriList(mimeTypes);
+        }
+    }
+
+    /// One entry of a URI list, in a form the clip may leave this process with, or null when
+    /// it cannot be published at all.
+    ///
+    /// A file: URI is the case that needs the work. Android refuses to let a clip carrying one
+    /// cross the application boundary -- prepareToLeaveProcess throws FileUriExposedException
+    /// from API 24 -- so a copy of a list naming a local document threw out of the UI thread it
+    /// was made on, and a global drag of one never started. It goes through the file provider
+    /// exactly as the file representation does, which is also what makes it *readable* by the
+    /// receiver rather than merely legal.
+    ///
+    /// Anything else -- an http address, a mailto:, another application's content URI -- is
+    /// already publishable and travels as it was written.
+    private Uri publishableUri(String line, long clip) {
+        if (!hasScheme(line, "file:")) {
+            return Uri.parse(line);
+        }
+        String path = Uri.parse(line).getPath();
+        if (path == null || path.length() == 0) {
+            return null;
+        }
+        try {
+            return shareableUriFor(new File(path),
+                    getContext().getPackageName() + ".provider", clip);
+        } catch (Throwable t) {
+            // Absent rather than advertised, as the file representation does it: a document
+            // outside the roots the provider was configured with cannot be handed over, and
+            // naming it anyway tells the receiver the clip holds something it will not get.
+            com.codename1.io.Log.e(t);
+            return null;
+        }
+    }
+
+    /// What two spellings of one file have in common.
+    ///
+    /// ClipboardContent's file representation permits a raw path, and a URI list beside it
+    /// commonly names the same document as a file: URI -- percent encoded, as a URI is. They
+    /// are one document, and putting both on the clip drags it twice.
+    private static String publishedUriKey(String value) {
+        if (hasScheme(value, "file:")) {
+            String path = Uri.parse(value).getPath();
+            return path == null ? value : path;
+        }
+        return value;
+    }
+
+    private static void declareUriList(List<String> mimeTypes) {
+        if (!mimeTypes.contains(ClipboardContent.MIME_URI_LIST)) {
+            mimeTypes.add(ClipboardContent.MIME_URI_LIST);
+        }
+    }
+
+    /// Puts the clip's text on the first item that carries a URI, or makes an item of it when
+    /// there is none.
+    ///
+    /// Android has no notion of "an alternative reading of this object": every item is another
+    /// thing being dragged. A file and its text fallback therefore have to be one item, or a
+    /// receiver importing the clip gets two objects where the source published one. The same
+    /// mistake on the iOS side made a receiver import a document and a stray piece of text.
+    private static void attachCarriedText(List<ClipData.Item> items, String plain, String html) {
+        for (int iter = 0; iter < items.size(); iter++) {
+            Uri uri = items.get(iter).getUri();
+            if (uri != null) {
+                items.set(iter, html != null
+                        ? new ClipData.Item(plain, html, null, uri)
+                        : new ClipData.Item(plain, null, uri));
+                return;
+            }
+        }
+        // Nothing to ride on, so the text is the object. First, as it was before there was
+        // anything else in the clip at all.
+        items.add(0, html != null ? new ClipData.Item(plain, html) : new ClipData.Item(plain));
+    }
+
+    /// Adds the representations neither the text nor the binary pass above has taken.
+    ///
+    /// Byte-backed types -- a PDF, an archive, an application's own format -- become typed
+    /// content URIs, which is the only labelled way an Android clip carries bytes. Text types
+    /// are advertised only when their value *is* the text the clip already carries: a clip has
+    /// one text payload, so advertising a second, different reading of it would tell a receiver
+    /// the clip holds something it cannot then produce, and a Codename One target would accept
+    /// the hover and be refused at the drop.
+    private void addRemainingRepresentations(Assembly assembly, String carriedText,
+            List<String> mimeTypes, List<ClipData.Item> items, long clip) throws IOException {
+        String[] advertised = assembly.content().getMimeTypes();
+        for (int iter = 0; iter < advertised.length; iter++) {
+            String mime = advertised[iter];
+            if (mimeTypes.contains(mime) || ClipboardContent.MIME_FILE.equals(mime)) {
+                continue;
+            }
+            // Each representation on its own: a provider that throws is one type absent, not
+            // every type after it. ClipboardDataProvider permits it to fail.
+            Object value = assembly.value(mime);
+            byte[] bytes = null;
+            if (value instanceof String) {
+                if (carriedText != null && carriedText.equals(value)) {
+                    // The same text the clip already carries, so naming the type is enough.
+                    mimeTypes.add(mime);
+                    continue;
+                }
+                // A *different* reading -- Markdown source beside its plain rendering, say.
+                // A clip carries one text payload, so this one travels as a typed content URI
+                // the way binary does. Dropping it instead, which is what this did, lost a
+                // representation the application deliberately published.
+                bytes = ((String) value).getBytes("UTF-8");
+            } else if (value instanceof byte[]) {
+                bytes = (byte[]) value;
+            }
+            if (bytes != null) {
+                try {
+                    Uri uri = writeAsProviderUri(bytes, extensionForMime(mime), mime, clip);
+                    if (uri != null) {
+                        mimeTypes.add(mime);
+                        items.add(new ClipData.Item(uri));
+                    }
+                } catch (Throwable t) {
+                    com.codename1.io.Log.e(t);
+                }
+            }
+        }
+    }
+
+    /// A content URI another application can read for this file.
+    ///
+    /// The file provider is configured with a fixed set of roots -- the application's files
+    /// directory and cache/intent_files -- and getUriForFile throws for anything outside them.
+    /// Plenty of perfectly good paths are outside them: FileSystemStorage lists external
+    /// storage roots, and a file there used to throw, be logged, and be left out of the clip
+    /// entirely -- taking the whole drag with it when it was the only thing being dragged.
+    ///
+    /// So it is copied where the provider can reach, under its own name, which is what a
+    /// receiver sees. Not through writeAsProviderUri: that names and records what it mints as
+    /// transport for a representation's bytes, and this is a file the source published.
+    private static final long MAX_STAGED_SHARE_BYTES = 8L * 1024 * 1024;
+    private static final String SHARED_COPY_PREFIX = "cn1-shared-";
+
+    private Uri shareableUriFor(File file, String authority, long clip) throws IOException {
+        try {
+            Uri direct = FileProvider.getUriForFile(getContext(), authority, file);
+            getContext().grantUriPermission("android", direct,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            return direct;
+        } catch (Throwable outsideTheRoots) {
+            com.codename1.io.Log.e(outsideTheRoots);
+        }
+        // The copy runs on the thread that started the drag, which is the event dispatch
+        // thread, and a drag has to begin while the finger is still down -- so this cannot be
+        // moved off it and cannot be allowed to take long. Android stops waiting for input after
+        // five seconds; a few megabytes is far below that on any storage, and a file bigger than
+        // this has no business being copied at all. It belongs under a provider root, which is
+        // where the roots above now put the external storage such files actually live on.
+        if (file.length() > MAX_STAGED_SHARE_BYTES) {
+            throw new IOException("refusing to copy " + file.length() + " bytes on the event "
+                    + "dispatch thread to share " + file);
+        }
+        File dir = new File(getContext().getCacheDir(), "intent_files");
+        dir.mkdirs();
+        // Its own directory, so the copy keeps the original name without colliding with
+        // another file of the same name in the same drag.
+        File holder = File.createTempFile(SHARED_COPY_PREFIX, "", dir);
+        if (!holder.delete() || !holder.mkdirs()) {
+            throw new IOException("could not stage " + file + " for sharing");
+        }
+        File copy = new File(holder, file.getName());
+        boolean registered = false;
+        try {
+            InputStream in = new FileInputStream(file);
+            try {
+                OutputStream os = new FileOutputStream(copy);
+                try {
+                    byte[] buffer = new byte[8192];
+                    int read;
+                    while ((read = in.read(buffer)) > 0) {
+                        os.write(buffer, 0, read);
+                    }
+                } finally {
+                    os.close();
+                }
+            } finally {
+                in.close();
+            }
+            Uri shared = FileProvider.getUriForFile(getContext(), authority, copy);
+            getContext().grantUriPermission("android", shared,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            // Remembered so it is cleaned up, but not as transport: this is a file the source
+            // published, and it has to read back as one.
+            rememberStagedClipFile(shared, copy, false, clip);
+            registered = true;
+            return shared;
+        } finally {
+            if (!registered) {
+                // A source that vanished, a read that failed, a disk that filled: the holder
+                // and whatever was written into it exist by now, and nothing has registered
+                // them for reclamation -- so every failed export left its partial copy in the
+                // cache for good.
+                //
+                // Registration, not the copy, is what ends the window. Naming the file to the
+                // provider can fail on its own -- a path the manifest's roots do not cover is
+                // refused there and nowhere else -- and with the flag set at the end of the
+                // copy, that failure leaked exactly what this was written to prevent.
+                copy.delete();
+                holder.delete();
+            }
+        }
+    }
+
+    /// One clip assembly's reading of a content, kept to itself.
+    ///
+    /// A representation registered as a provider is resolved once per transfer, and the memory
+    /// of that lives on the ClipboardContent -- which is fine for a transfer that owns it and
+    /// wrong for two that overlap. A copy assembles on Android's UI thread and a drag on the
+    /// event dispatch thread, so one could reset the shared memo halfway through the other and
+    /// hand it a value produced for a different transfer: a clip built from two generations of
+    /// a payload that changes.
+    ///
+    /// So an assembly reads through this instead. The provider is asked at most once per type
+    /// *per assembly*, which is what the promise actually is, and neither assembly can disturb
+    /// the other because neither touches the content's own memory.
+    private static final class Assembly {
+        private final ClipboardContent content;
+        private final Map<String, Object> produced = new HashMap<String, Object>();
+
+        Assembly(ClipboardContent content) {
+            this.content = content;
+        }
+
+        ClipboardContent content() {
+            return content;
+        }
+
+        Object value(String mimeType) {
+            if (content == null || mimeType == null) {
+                return null;
+            }
+            if (produced.containsKey(mimeType)) {
+                return produced.get(mimeType);
+            }
+            Object value = null;
+            try {
+                value = com.codename1.ui.NativeDragAndDrop.produceTransferValue(content, mimeType);
+            } catch (Throwable err) {
+                // A provider that fails is one type absent, not a clip abandoned -- and the
+                // failure is remembered like any other answer, so a second read of the same
+                // type does not run it again. Same rule as clipboardValue.
+                com.codename1.io.Log.e(err);
+            }
+            produced.put(mimeType, value);
+            return value;
+        }
+
+        String text(String mimeType) {
+            Object value = value(mimeType);
+            return value instanceof String ? (String) value : null;
+        }
+
+        byte[] bytes(String mimeType) {
+            Object value = value(mimeType);
+            return value instanceof byte[] ? (byte[]) value : null;
+        }
+    }
+
+    /// Writes bytes somewhere the application's file provider can serve them from and returns
+    /// the content URI, which is how an Android clip carries anything that is not text.
+    ///
+    /// AndroidGradleBuilder exposes cache/intent_files through the app's FileProvider, so
+    /// generated payloads stay inside that root and FileProvider can safely name them.
+    ///
+    /// The name carries `mime` so the read back is an answer rather than a guess -- see
+    /// `#decodeMimeFromFileName(java.lang.String)`.
+    private Uri writeAsProviderUri(byte[] bytes, String extension, String mime, long clip)
+            throws IOException {
+        if (bytes == null) {
+            return null;
+        }
+        // A zero length payload is still a payload: refusing it would leave the clip without a
+        // type it had advertised, and a target filtering on that type would accept the hover
+        // and be refused the drop.
+        File dir = new File(getContext().getCacheDir(), "intent_files");
+        dir.mkdirs();
+        // A name built from the clock and the payload's length collided: two representations of
+        // one payload that share an extension and a byte length are written within the same
+        // millisecond, and the second overwrote the first -- leaving both clip items pointing at
+        // the second one's bytes. createTempFile is the guarantee rather than a longer guess.
+        String encoded = encodeMimeForFileName(mime);
+        File file = File.createTempFile(
+                encoded == null ? CLIP_FILE_PREFIX : CLIP_FILE_PREFIX + encoded + "-",
+                "." + extension, dir);
+        boolean registered = false;
+        try {
+            OutputStream os = new FileOutputStream(file);
+            try {
+                os.write(bytes);
+            } finally {
+                os.close();
+            }
+            Uri uri = FileProvider.getUriForFile(getContext(),
+                    getContext().getPackageName() + ".provider", file);
+            // Grant broadly so any paste or drop target can read the content:// URI
+            getContext().grantUriPermission("android", uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            rememberStagedClipFile(uri, file, true, clip);
+            registered = true;
+            return uri;
+        } finally {
+            if (!registered) {
+                // The file exists from createTempFile onwards, and reclamation only ever sees
+                // what was registered -- so a cache that fills mid-write, or a provider that
+                // refuses to name the file, left a partial cn1-clip- file behind that nothing
+                // would ever collect. The same window the published-file copy above closes.
+                file.delete();
+            }
+        }
+    }
+
+    /// The name every generated clip file starts with, and the alphabet
+    /// `#encodeMimeForFileName(java.lang.String)` writes the type in.
+    private static final String CLIP_FILE_PREFIX = "cn1-clip-";
+    private static final String CLIP_MIME_HEX = "0123456789abcdef";
+
+    /// Writes a MIME type into something that is legal in a file name and reads back as itself.
+    ///
+    /// The extension cannot do this job. It is derived from the type and the derivation is
+    /// lossy -- `application/x-foo` and `application/x-foo+json` both reduce to `xfoo` -- so two
+    /// representations of one payload can produce URIs no reader can tell apart, and both are
+    /// then dropped rather than mispaired. Hex is unlovely for a file name nobody reads, and it
+    /// is exact: every byte of the type survives, and no character it produces means anything to
+    /// a file system, a URI or `#decodeMimeFromFileName(java.lang.String)`.
+    ///
+    /// Answers null for a type this cannot carry, and the file is then named without one.
+    private static String encodeMimeForFileName(String mime) {
+        if (mime == null || mime.length() == 0 || mime.length() > 60) {
+            return null;
+        }
+        StringBuilder out = new StringBuilder();
+        for (int iter = 0; iter < mime.length(); iter++) {
+            int c = mime.charAt(iter);
+            if (c > 0xff) {
+                return null;
+            }
+            out.append(CLIP_MIME_HEX.charAt((c >> 4) & 0xf)).append(CLIP_MIME_HEX.charAt(c & 0xf));
+        }
+        return out.toString();
+    }
+
+    /// The MIME type `#encodeMimeForFileName(java.lang.String)` wrote into this name, or null
+    /// when the name did not come from there -- a clip another application published, or one
+    /// whose type was too long to carry.
+    private static String decodeMimeFromFileName(String name) {
+        if (name == null || !name.startsWith(CLIP_FILE_PREFIX)) {
+            return null;
+        }
+        int end = name.indexOf('-', CLIP_FILE_PREFIX.length());
+        if (end < 0) {
+            return null;
+        }
+        String hex = name.substring(CLIP_FILE_PREFIX.length(), end);
+        if (hex.length() == 0 || (hex.length() & 1) != 0) {
+            return null;
+        }
+        StringBuilder out = new StringBuilder();
+        for (int iter = 0; iter < hex.length(); iter += 2) {
+            int hi = Character.digit(hex.charAt(iter), 16);
+            int lo = Character.digit(hex.charAt(iter + 1), 16);
+            if (hi < 0 || lo < 0) {
+                return null;
+            }
+            out.append((char) ((hi << 4) | lo));
+        }
+        return asciiLower(out.toString());
+    }
+
+    /// A file extension for a MIME type, used to name the temporary file a content URI is
+    /// served from.
+    ///
+    /// Android's own table first, because a FileProvider derives the URI's type from the
+    /// extension: a synthesized one it does not recognize makes ContentResolver.getType answer
+    /// application/octet-stream, and the type the clip advertised is then unrecoverable when
+    /// the clip is read back.
+    private static String extensionForMime(String mime) {
+        try {
+            String known = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime);
+            if (known != null && known.length() > 0) {
+                return known;
+            }
+        } catch (Throwable t) {
+            // Fall through to the synthesized extension below.
+        }
+        int slash = mime.indexOf('/');
+        String sub = slash < 0 ? mime : mime.substring(slash + 1);
+        int plus = sub.indexOf('+');
+        if (plus > 0) {
+            sub = sub.substring(0, plus);
+        }
+        StringBuilder out = new StringBuilder();
+        for (int iter = 0; iter < sub.length(); iter++) {
+            char c = sub.charAt(iter);
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+                out.append(c);
+            }
+        }
+        return out.length() == 0 ? "bin" : out.toString();
+    }
+
+    /// The MIME type to file an incoming image's bytes under: the framework's constant for the
+    /// three formats it names, and the type the content resolver reported for anything else.
+    ///
+    /// `#mimeForImageType(java.lang.String)` answers PNG for everything it does not recognize,
+    /// which for a WebP meant filing WebP bytes as a PNG -- undecodable by anything that
+    /// believed the label, and invisible to a target filtering on the type the drag advertised,
+    /// so the hover was accepted and the drop refused.
+    private static String imageMimeFor(String type) {
+        String lower = asciiLower(type);
+        if (lower.startsWith(ClipboardContent.MIME_PNG)
+                || lower.startsWith(ClipboardContent.MIME_JPEG)
+                || lower.startsWith(ClipboardContent.MIME_GIF)) {
+            return mimeForImageType(lower);
+        }
+        return lower;
+    }
+
+    /**
+     * Maps a content resolver image MIME type to the corresponding ClipboardContent MIME constant,
+     * defaulting to PNG for unrecognized image types.
+     */
+    private static String mimeForImageType(String type) {
+        if (type == null) {
+            return ClipboardContent.MIME_PNG;
+        }
+        if (type.startsWith(ClipboardContent.MIME_JPEG)) {
+            return ClipboardContent.MIME_JPEG;
+        }
+        if (type.startsWith(ClipboardContent.MIME_GIF)) {
+            return ClipboardContent.MIME_GIF;
+        }
+        return ClipboardContent.MIME_PNG;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public Object getPasteDataFromClipboard() {
+        if (getContext() == null) {
+            return null;
+        }
+        final Object[] response = new Object[1];
+        runOnUiThreadAndBlock(new Runnable() {
+            @Override
+            public void run() {
+                int sdk = android.os.Build.VERSION.SDK_INT;
+                if (sdk < 11) {
+                    android.text.ClipboardManager clipboard = (android.text.ClipboardManager) getActivity().getSystemService(Context.CLIPBOARD_SERVICE);
+                    response[0] = clipboard.getText().toString();
+                } else {
+                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getActivity().getSystemService(Context.CLIPBOARD_SERVICE);
+                    ClipData clip = clipboard.getPrimaryClip();
+                    if (clip == null || clip.getItemCount() == 0) {
+                        return;
+                    }
+                    // With the description, exactly as a drop is read. Without it the only
+                    // types a paste could report were the ones an item produced by itself,
+                    // so another application's text published under a type of its own --
+                    // text/markdown, an application's own format -- arrived as nothing but
+                    // text/plain and the type it was published under was gone.
+                    ClipboardContent content = contentFromClip(clip, clip.getDescription());
+                    String plain = content.getText(ClipboardContent.MIME_TEXT);
+                    // What the clip actually holds, not how many types it happens to name.
+                    // Counting worked only because every clip used to acquire a text/plain of
+                    // its own, empty or not: with that padding gone an image-only clip counted
+                    // as one type, fell through to the plain-text answer, and a paste that had
+                    // a perfectly good PNG in it returned null.
+                    String[] types = content.getMimeTypes();
+                    boolean textOnly = types.length == 0
+                            || (types.length == 1 && ClipboardContent.MIME_TEXT.equals(types[0]));
+                    if (!textOnly) {
+                        response[0] = content;
+                    } else {
+                        response[0] = plain != null && plain.length() > 0 ? plain : null;
+                    }
+                }
+            }
+        });
+        return response[0];
+    }
+
+    /// Reads an Android `android.content.ClipData` into the framework's `ClipboardContent`.
+    ///
+    /// Shared by paste and by a native drop, because Android describes both the same way: a
+    /// list of items that are each text, HTML or a URI, and a URI is either an image to be read
+    /// or a file reference to be passed along. The plain text representation is always present,
+    /// even when empty, so a caller can tell "nothing but text" from "something richer" by the
+    /// number of MIME types.
+    ///
+    /// #### Parameters
+    ///
+    /// - `clip`: the clip data, which may be null
+    ///
+    /// #### Returns
+    ///
+    /// the content, never null
+    ClipboardContent contentFromClip(ClipData clip) {
+        return contentFromClip(clip, clip == null ? null : clip.getDescription());
+    }
+
+    /// Reads a clip, and where a description is given also honours the MIME types it
+    /// advertises.
+    ///
+    /// A drag is filtered twice: once against the description while it hovers, and again
+    /// against the materialized content when it is dropped. If the second view is narrower than
+    /// the first, a target accepts the hover and is then refused the drop -- which is what
+    /// happened to a component filtering on `ClipboardContent#MIME_URI_LIST`, because a URI
+    /// item materializes as `MIME_FILE` alone. Nothing is invented here: an advertised type is
+    /// only filled from a value the clip actually produced.
+    ///
+    /// A paste is read the same way, from the primary clip's own description. It used to pass
+    /// none, on the reasoning that a paste should report only what the clip produced -- but
+    /// the description *is* what the clip says it holds, and without it a type another
+    /// application published its text under was simply lost. What is filled from it is still
+    /// only ever a value the clip produced.
+    ///
+    /// #### Parameters
+    ///
+    /// - `clip`: the clip data, which may be null
+    ///
+    /// - `description`: what the source advertised, or null to report only what was read --
+    ///   which no caller does any more, though a port that has no description to offer
+    ///   still may
+    ///
+    /// #### Returns
+    ///
+    /// the content, never null
+    ClipboardContent contentFromClip(ClipData clip, ClipDescription description) {
+        ClipboardContent content = new ClipboardContent();
+        if (clip == null) {
+            content.setData(ClipboardContent.MIME_TEXT, "");
+            return content;
+        }
+        int sdk = android.os.Build.VERSION.SDK_INT;
+        String plain = null;
+        String html = null;
+        List<String> fileUris = new ArrayList<String>();
+        // Every URI the clip carried that the source published, files or not. A link dragged out
+        // of a browser belongs here and not in fileUris: it is a URI, and it is not a document on
+        // disk. The two lists differ only by that, and by the transport URIs this exporter mints,
+        // which are in neither because the source never published them as URIs at all.
+        List<String> publishedUris = new ArrayList<String>();
+        // URIs the content resolver could not name. An application defined type has no entry in
+        // Android's table, so a FileProvider serving it reports octet-stream or nothing at all.
+        List<Uri> unnamedUris = new ArrayList<Uri>();
+        for (int i = 0; i < clip.getItemCount(); i++) {
+            ClipData.Item item = clip.getItemAt(i);
+            try {
+                Uri uri = item.getUri();
+                if (uri != null) {
+                    // Without the parameters, because a bare MIME type is what everything here
+                    // compares against: a provider answering "text/plain; charset=utf-8" would
+                    // file the document under a type no target asks for, and would slip past
+                    // the MIME_TEXT check below that stops the synthesized empty text from
+                    // overwriting it.
+                    String type = bareMimeType(getContext().getContentResolver().getType(uri));
+                    if (type != null && type.startsWith("image/")) {
+                        // Promised, not read. Reading it here opened the URI and pulled the
+                        // whole image across on Android's own UI thread, before the drop was
+                        // even queued -- so a photo dropped on a target that wanted nothing
+                        // but getFiles() stalled the application, or ran it out of memory,
+                        // for bytes nobody asked for. The same promise the typed branch below
+                        // makes, and safe for the same reason: the grant this drop was given
+                        // lasts as long as the activity, so a read a moment later on the
+                        // event dispatch thread still succeeds. See uriBytesProvider.
+                        String imageMime = imageMimeFor(type);
+                        if (!content.hasMimeType(imageMime)) {
+                            content.setDataProvider(imageMime, uriBytesProvider(uri));
+                        }
+                    } else if (type != null && type.length() > 0
+                            && !"application/octet-stream".equals(type)) {
+                        // A typed URI is a file reference *and* that type. Reducing it to a file
+                        // alone let a target filtering on, say, application/pdf accept the hover
+                        // -- the description advertised the type -- and then be refused the
+                        // drop, because the content it is filtered against a second time no
+                        // longer had it. The bytes are promised rather than read: a target that
+                        // only wants the path should not pay for a document it never opens.
+                        if (!content.hasMimeType(type)) {
+                            content.setDataProvider(type, uriBytesProvider(uri));
+                        }
+                    } else {
+                        unnamedUris.add(uri);
+                    }
+                    // A URI item is a file reference as well as whatever its type made of it --
+                    // unless it is one this exporter minted to carry bytes. The image branch
+                    // used to return before reaching this at all, so dragging a PNG *file*
+                    // produced image bytes and no file, and a target filtering on MIME_FILE
+                    // accepted the hover -- the description still advertised text/uri-list --
+                    // and was refused the drop. Adding every URI unconditionally is the other
+                    // error: a payload of nothing but application/pdf bytes travels as a
+                    // content URI without text/uri-list ever being advertised, and calling that
+                    // a file both invents a representation the source never published and lets
+                    // a nested file-only target take a drop the PDF-capable one was chosen for
+                    // while it hovered.
+                    //
+                    // The two are told apart by the exporter's own record of what it minted,
+                    // not by anything about the URI or its name -- an application may publish a
+                    // file called anything at all.
+                    if (!isGeneratedClipFile(uri) && mayCarryAcrossApplications(uri)) {
+                        publishedUris.add(uri.toString());
+                        if (namesALocalFile(uri)) {
+                            fileUris.add(uri.toString());
+                        }
+                    }
+                    // No continue: an item carrying a URI carries the clip's text too, because
+                    // that is where this exporter puts it -- a text item of its own would be a
+                    // second object being dragged. Returning here dropped the fallback the
+                    // source published on its own round trip.
+                }
+            } catch (Throwable t) {
+                com.codename1.io.Log.e(t);
+            }
+            if (html == null && sdk >= 16) {
+                // Empty markup is a value, not an absence: getHtmlText answers null when the
+                // item carries no HTML at all, so anything else is what the source published.
+                // Discarding it left fillAdvertisedTypes to rebuild the advertised text/html
+                // from the plain text, handing the target something the source never wrote --
+                // and this exporter publishes exactly that item for content whose HTML is empty.
+                html = item.getHtmlText();
+            }
+            if (plain == null) {
+                // What the item literally carries first, and empty counts: getText answers
+                // null when the item holds no text at all, so anything else is what the
+                // source published -- the same reading getHtmlText gets above. Discarding an
+                // empty one left an advertised text/markdown with nothing to restore it
+                // from, and a target that took the hover on that type was refused the drop.
+                CharSequence literal = item.getText();
+                if (literal != null) {
+                    plain = literal.toString();
+                } else if (item.getUri() == null) {
+                    // Nothing literal, so it is derived -- and only for an item with no URI.
+                    // coerceToText on one of those goes and reads the document behind it,
+                    // which is a different value altogether and none of this branch's
+                    // business. An empty derivation means the item had nothing to give
+                    // rather than that the source published nothing, so it does not stop
+                    // the search.
+                    CharSequence derived = item.coerceToText(getContext());
+                    if (derived != null && derived.length() > 0) {
+                        plain = derived.toString();
+                    }
+                }
+            }
+        }
+        if (html != null) {
+            // A value the clip's own item published, so it wins over a URI the resolver happened
+            // to type text/html -- an .html file being dragged. Same rule as the text below,
+            // and the reason that one needs a guard and this one does not: there is no
+            // synthesized empty HTML to write over a representation that already answered.
+            content.setData(ClipboardContent.MIME_HTML, html);
+        }
+        if (!fileUris.isEmpty()) {
+            content.setFiles(fileUris.toArray(new String[fileUris.size()]));
+        }
+        // Not when the clip named exactly one type and it is not text/plain. That type is what
+        // the text *is*: another application publishing a direct item of its own format --
+        // application/json, say -- carries the value as the item's text, because an Android
+        // item has nowhere else to put a string. Calling it text/plain lost the name the clip
+        // gave it, and a target filtered to that name accepted the hover and was refused the
+        // drop; fillAdvertisedTypes below hands the value to the type instead.
+        if (plain != null && soleAdvertisedType(description) == null) {
+            content.setData(ClipboardContent.MIME_TEXT, plain);
+        } else if (plain == null && !content.hasMimeType(ClipboardContent.MIME_TEXT)
+                && description != null && description.hasMimeType(ClipboardContent.MIME_TEXT)) {
+            // The clip promised text and no item produced it, so the empty string keeps that
+            // promise: a target that accepted the hover on text/plain would otherwise be
+            // refused the drop it was told it could have. Only then, though -- a clip that
+            // never mentioned text does not acquire it here. findTarget runs again against the
+            // materialized content, so inventing text/plain let a nested text-only component
+            // take a drop the type-capable ancestor had been chosen for while it hovered, and
+            // that component never saw an enter event at all.
+            //
+            // Nor over a representation that answered: a URI the resolver typed text/plain,
+            // which is what a dragged .txt is, has already registered the document's own
+            // contents, and writing over that handed the target an empty document.
+            content.setData(ClipboardContent.MIME_TEXT, "");
+        }
+        if (description != null) {
+            fillAdvertisedTypes(content, description, plain, publishedUris, unnamedUris);
+        } else if (!publishedUris.isEmpty() && !content.hasMimeType(ClipboardContent.MIME_URI_LIST)) {
+            // A paste is told nothing about what the clip advertises, so what it reports can
+            // only come from what the clip carried -- and what this one carried is URIs.
+            // Another application copying a link publishes exactly that, one item with a URI
+            // and no text at all: nothing above it produces a representation, so without this
+            // the read answered with an empty content and the paste with null.
+            //
+            // Nothing is invented by it either. These are the URIs the clip itself carried,
+            // minus the ones this exporter minted as transport, which is what a URI list is.
+            content.setData(ClipboardContent.MIME_URI_LIST, uriListOf(publishedUris));
+        }
+        return content;
+    }
+
+    /// The content URIs this exporter minted to carry bytes, oldest first.
+    ///
+    /// Remembered, not recognized. The file name cannot answer the question: an application may
+    /// publish a file of its own by any name it likes, and one called cn1-clip-roundtrip.txt is
+    /// exactly what the clipboard round trip publishes -- which a prefix test then threw away
+    /// as one of ours, losing the file reference it had just copied. The type cannot answer it
+    /// either, since a PDF published as bytes and a PDF published as a file both arrive as
+    /// application/pdf. Only the exporter knows, so the exporter records it.
+    ///
+    /// Bounded: a clip that has been replaced on the clipboard can no longer be pasted, so the
+    /// oldest entries are of no further use. A clip that outlives the process falls back to
+    /// being read as a file, which is what it was read as before any of this existed.
+    /// It also names the file, because every one of these is a file this application wrote
+    /// into its own cache and nothing else will ever come back for it. A clip that has been
+    /// replaced cannot be pasted, so when one falls off the end its file goes with it --
+    /// otherwise copying documents or images repeatedly leaves every one of them on disk for
+    /// the life of the installation.
+    ///
+    /// Kept by the clip rather than one file at a time. A single payload can stage more files
+    /// than any per-file bound, and counting them individually deleted the earliest ones while
+    /// clipDataFor was still building the very clip that referenced them -- so the clip went
+    /// out pointing at files that were already gone. Whole clips are what is forgotten, never
+    /// the one being assembled.
+    ///
+    /// Bounded by bytes rather than by a count of clips. A receiver may hold a content URI
+    /// this application handed it and read it much later -- a queued upload does exactly that,
+    /// and the grant stays valid -- so counting clips deleted a file somebody was still
+    /// entitled to as soon as eight more copies had been made, however small. What can
+    /// actually fill a device is bytes: a hundred staged text fragments cost nothing and all
+    /// survive, while a few videos are reclaimed as soon as they add up.
+    ///
+    /// There is no signal that says a receiver is finished with one, and inventing one would
+    /// be a new public API every application had to adopt to keep behaving as it does today.
+    /// The same reasoning, and the same budget, as the dropped copies on iOS.
+    private static final long GENERATED_CLIP_BUDGET = 64L * 1024 * 1024;
+    private static final java.util.LinkedHashMap<String, StagedClipFile> STAGED_CLIP_FILES =
+            new java.util.LinkedHashMap<String, StagedClipFile>();
+
+    /// One file staged for a clip: where it is, and whether it carries a representation's
+    /// bytes rather than being a file the source published.
+    private static final class StagedClipFile {
+        private final String path;
+        private final boolean transport;
+        private final long clip;
+        /// What it occupies, for the budget above. Taken when it is staged, because by the
+        /// time it is reclaimed the file may be gone and a size of zero would make a large
+        /// clip look free.
+        private final long bytes;
+
+        StagedClipFile(String path, boolean transport, long clip, long bytes) {
+            this.path = path;
+            this.transport = transport;
+            this.clip = clip;
+            this.bytes = bytes;
+        }
+    }
+
+    /// The clip being assembled. Incremented as each one starts, so everything staged for it
+    /// is recognisable as belonging together.
+    private static long stagingClip;
+
+    /// The clip the system clipboard is holding, and the clip a running drag is carrying.
+    ///
+    /// Neither is superseded by anything newer, which is what a window of recent clips would
+    /// otherwise assume. A clipboard holds its clip until something replaces it, and every
+    /// drag in between advances the count -- so nine drags after a copy deleted the files the
+    /// clipboard was still pointing at, and the paste the user eventually made produced a
+    /// content URI nothing could read.
+    private static long clipboardClip;
+    private static long draggingClip;
+
+    /// The assembly a publication in progress is about to put on the clipboard, exempt from
+    /// reclamation until the attempt is over. Nothing holds it yet -- the clipboard has not
+    /// taken it -- and without this the window between assembling a clip and the system
+    /// accepting it was one in which its own files could be deleted.
+    private static long publishingClip;
+
+    /// Changes to the primary clip this application is about to make itself, which the watcher
+    /// below hears about like any other and must not read as somebody else's copy.
+    ///
+    /// A count rather than a flag: a copy can be made while an earlier one's callback is still
+    /// queued, and a flag cleared by the first would have made the second look foreign.
+    private static int expectedClipChanges;
+
+    /// True once the primary clip watcher is installed, which happens the first time this
+    /// application puts anything on the clipboard.
+    private static boolean clipboardWatched;
+
+    /// The assemblies that have begun and whose caller has not yet taken them over.
+    ///
+    /// An assembly is exempt from reclamation while it is being built -- its files are being
+    /// referenced by a clip that does not exist yet -- and stays exempt until whoever asked for
+    /// it has put it on the clipboard or handed it to a drag. Exempting only the clip currently
+    /// growing was not enough: a copy assembles on Android's UI thread while a drag assembles
+    /// on the event dispatch thread, so one could finish and be waiting for its caller to claim
+    /// it while the other's staging triggered a reclamation that deleted its files. The caller
+    /// then published, or dragged, a clip of dead URIs.
+    private static final java.util.Set<Long> ASSEMBLING_CLIPS = new java.util.HashSet<Long>();
+
+    private static long beginStagingClip() {
+        synchronized (STAGED_CLIP_FILES) {
+            long clip = ++stagingClip;
+            ASSEMBLING_CLIPS.add(Long.valueOf(clip));
+            return clip;
+        }
+    }
+
+    /// Ends an assembly's exemption, because its caller has taken it over -- or has given up on
+    /// it, which is the same thing as far as its files are concerned.
+    ///
+    /// #### Parameters
+    ///
+    /// - `clip`: the assembly, or zero when there was none
+    static void endStagingClip(long clip) {
+        if (clip == 0) {
+            return;
+        }
+        synchronized (STAGED_CLIP_FILES) {
+            ASSEMBLING_CLIPS.remove(Long.valueOf(clip));
+            reclaimStagedClipFiles();
+        }
+    }
+
+    /// Starts listening for the primary clip being replaced, once.
+    ///
+    /// A clip this application published is exempt from reclamation for as long as the
+    /// clipboard holds it, and nothing but another copy of our own used to end that -- so a
+    /// copy made in *another* application left ours pinned for good, and an oversized one then
+    /// sat in the cache above the budget with nothing able to reclaim it.
+    ///
+    /// Called on the Android UI thread, from the copy that is about to pin something.
+    ///
+    /// Android only delivers these callbacks to an application that has focus, so a copy made
+    /// elsewhere while this one is in the background is still missed. That leaves the hold in
+    /// place until the next copy either application makes, which is the behaviour this
+    /// replaces rather than a new failure -- and the files are in the cache directory, which
+    /// the system reclaims under pressure whatever this bookkeeping believes.
+    private static void watchPrimaryClip(android.content.ClipboardManager clipboard) {
+        synchronized (STAGED_CLIP_FILES) {
+            if (clipboardWatched) {
+                return;
+            }
+            clipboardWatched = true;
+        }
+        try {
+            clipboard.addPrimaryClipChangedListener(
+                    new android.content.ClipboardManager.OnPrimaryClipChangedListener() {
+                @Override
+                public void onPrimaryClipChanged() {
+                    synchronized (STAGED_CLIP_FILES) {
+                        if (expectedClipChanges > 0) {
+                            // Our own copy, which has already said what it holds.
+                            expectedClipChanges--;
+                            return;
+                        }
+                    }
+                    // A clip somebody else published replaced ours, so what ours was carrying
+                    // is nobody's to paste any more.
+                    clipboardHolds(0);
+                }
+            });
+        } catch (Throwable t) {
+            // A device that will not register the listener keeps the old behaviour, which is
+            // a hold that outlives the clip rather than a crash on copy.
+            com.codename1.io.Log.e(t);
+            synchronized (STAGED_CLIP_FILES) {
+                clipboardWatched = false;
+                // Nothing will consume what was counted for the copy this call belongs to.
+                expectedClipChanges = 0;
+            }
+        }
+    }
+
+    /// Records that this application is about to replace the primary clip, so the watcher does
+    /// not mistake its own callback for another application's copy, and pins what the clip is
+    /// about to carry for the length of the attempt.
+    ///
+    /// #### Parameters
+    ///
+    /// - `clip`: the assembly being published, or zero for a clip with nothing staged
+    private static void clipboardPublishing(long clip) {
+        synchronized (STAGED_CLIP_FILES) {
+            if (clipboardWatched) {
+                expectedClipChanges++;
+            }
+            // Only while something is listening. Counting a copy no callback will ever arrive
+            // for -- a device that refused the listener -- left the count standing, and if a
+            // later copy did install the watcher, that phantom swallowed the first genuinely
+            // foreign clipboard change: the clip stayed pinned and its files stayed out of
+            // reach of the budget.
+            publishingClip = clip;
+        }
+    }
+
+    /// Ends a publication, either committing it or putting back what it had provisionally
+    /// taken.
+    ///
+    /// #### Parameters
+    ///
+    /// - `clip`: the assembly that was being published
+    ///
+    /// - `published`: true when setPrimaryClip returned
+    private static void clipboardPublished(long clip, boolean published) {
+        synchronized (STAGED_CLIP_FILES) {
+            publishingClip = 0;
+            if (!published && expectedClipChanges > 0) {
+                // No callback is coming for a clip that never reached the clipboard.
+                expectedClipChanges--;
+            }
+        }
+        if (published) {
+            // Now, and only now, is the clip the clipboard's -- which is also what stops the
+            // one it replaced from being pinned.
+            clipboardHolds(clip);
+        }
+    }
+
+    /// Records which clip the system clipboard now holds, or zero for a clip with nothing
+    /// staged for it.
+    ///
+    /// Called for every clip put on the clipboard, plain text included: what matters as much
+    /// is that the clip it held *before* is not the clipboard's any more, so its files may go
+    /// when they age out.
+    static void clipboardHolds(long clip) {
+        synchronized (STAGED_CLIP_FILES) {
+            clipboardClip = clip;
+            // Letting go is as good a moment to reconsider as staging is: a clip that was
+            // over the budget on its own could not be reclaimed while it was held, and
+            // nothing else would have looked at it again until some later transfer staged
+            // a file -- which for an application that drags one large payload and then
+            // stops is never.
+            reclaimStagedClipFiles();
+        }
+    }
+
+    /// The clip a drag is carrying right now, so a release queued for one drag can tell
+    /// whether it is still the drag whose hold it is about to end.
+    static long draggingClip() {
+        synchronized (STAGED_CLIP_FILES) {
+            return draggingClip;
+        }
+    }
+
+    /// Ends the hold on one drag's clip, and only that one.
+    ///
+    /// A drop's release is queued onto the event dispatch thread, and a callback that enters a
+    /// nested event loop can let another drag start before it runs. Clearing the shared slot
+    /// unconditionally then let go of the *new* drag's clip, whose files a cache over budget
+    /// could delete while the receiving application was still to read them.
+    ///
+    /// #### Parameters
+    ///
+    /// - `clip`: the clip whose drag has finished, or zero to release whatever is held
+    static void releaseDragHold(long clip) {
+        synchronized (STAGED_CLIP_FILES) {
+            if (clip != 0 && draggingClip != clip) {
+                return;
+            }
+            // Compared and cleared without letting go of the lock in between. A completion
+            // listener on the event dispatch thread can start the next drag at any moment, and
+            // it claims this slot: reading it, releasing the lock and then clearing it let go
+            // of a drag that had begun after the comparison said it was safe. The body is
+            // dragHolds(0) written out for that reason and nothing else.
+            draggingClip = 0;
+            reclaimStagedClipFiles();
+        }
+    }
+
+    /// Records the clip a drag is carrying, or zero once it has ended.
+    static void dragHolds(long clip) {
+        synchronized (STAGED_CLIP_FILES) {
+            draggingClip = clip;
+            reclaimStagedClipFiles();
+        }
+    }
+
+    private static void rememberStagedClipFile(Uri uri, File file, boolean transport,
+            long clip) {
+        synchronized (STAGED_CLIP_FILES) {
+            STAGED_CLIP_FILES.remove(uri.toString());
+            STAGED_CLIP_FILES.put(uri.toString(),
+                    new StagedClipFile(file.getAbsolutePath(), transport, clip, file.length()));
+            reclaimStagedClipFiles();
+        }
+    }
+
+    /// Reclaims staged files, oldest first, until what is left fits the budget.
+    ///
+    /// Never an assembly whose caller has yet to take it over -- it is still growing, or
+    /// waiting to be handed to a clipboard or a drag -- and never the one the clipboard, a
+    /// running drag or a publication in progress is carrying, none of which are superseded by
+    /// anything however old they are. Called when a file is staged and again when any of those
+    /// is released, because a clip too large for the budget on its own can only be reclaimed
+    /// once nothing holds it any more.
+    private static void reclaimStagedClipFiles() {
+        synchronized (STAGED_CLIP_FILES) {
+            long held = 0;
+            for (StagedClipFile staged : STAGED_CLIP_FILES.values()) {
+                held += staged.bytes;
+            }
+            java.util.Iterator<java.util.Map.Entry<String, StagedClipFile>> entries =
+                    STAGED_CLIP_FILES.entrySet().iterator();
+            while (held > GENERATED_CLIP_BUDGET && entries.hasNext()) {
+                StagedClipFile staged = entries.next().getValue();
+                if (ASSEMBLING_CLIPS.contains(Long.valueOf(staged.clip))
+                        || staged.clip == clipboardClip || staged.clip == draggingClip
+                        || staged.clip == publishingClip) {
+                    continue;
+                }
+                held -= staged.bytes;
+                entries.remove();
+                deleteStagedClipFile(staged);
+            }
+        }
+    }
+
+    /// Removes a staged file, and the directory it was given to itself when it had one.
+    ///
+    /// Best effort by design: a file that will not delete is one the cache directory will
+    /// eventually reclaim, which is what a cache directory is for -- and is also what bounds
+    /// the files left behind by a process that ended before it could let go of them.
+    private static void deleteStagedClipFile(StagedClipFile staged) {
+        try {
+            File file = new File(staged.path);
+            File holder = file.getParentFile();
+            if (file.delete() && holder != null
+                    && holder.getName().startsWith(SHARED_COPY_PREFIX)) {
+                holder.delete();
+            }
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+    }
+
+    /// True when this content URI is one `#writeAsProviderUri(byte[], java.lang.String,
+    /// java.lang.String)` minted to carry a representation's bytes, rather than a file the
+    /// source published.
+    private static boolean isGeneratedClipFile(Uri uri) {
+        synchronized (STAGED_CLIP_FILES) {
+            StagedClipFile staged = STAGED_CLIP_FILES.get(uri.toString());
+            return staged != null && staged.transport;
+        }
+    }
+
+    /// True when a URI another application put on a clip is one this application may carry.
+    ///
+    /// A file: URI, or a bare path, is not. Android has refused to let a clip carrying one
+    /// cross an application boundary since API 24 -- prepareToLeaveProcess throws for exactly
+    /// that -- so one arriving here was never published by a well behaved application, and it
+    /// comes with no grant that would make it readable in the first place. Taking it at its
+    /// word is worse than useless: the path is read with *this* application's permissions, and
+    /// republishing it -- a copy, a drag onward -- would hand somebody else a file the sender
+    /// could not open, named by the sender. A content: URI carries a grant and is the only
+    /// spelling a clip is entitled to use for a document; everything remote is carried as a
+    /// URI and never opened as a path.
+    ///
+    /// This is about what *arrives*. What the application itself publishes through
+    /// `ClipboardContent#setFiles(java.lang.String...)` is its own file and is unaffected.
+    private static boolean mayCarryAcrossApplications(Uri uri) {
+        String scheme = uri.getScheme();
+        if (scheme == null) {
+            return false;
+        }
+        return !"file".equalsIgnoreCase(scheme);
+    }
+
+    /// True when this URI names something on this device rather than somewhere on the web.
+    ///
+    /// A link dragged out of a browser arrives as a text/uri-list item whose URI is https,
+    /// and calling that a file handed a file-only target a URL through getFiles() as though
+    /// it were a document on disk. It is still carried, under MIME_URI_LIST, which is what
+    /// it actually is.
+    private static boolean namesALocalFile(Uri uri) {
+        String scheme = uri.getScheme();
+        if (scheme == null) {
+            // A bare path, which is a local file by construction.
+            return true;
+        }
+        // equalsIgnoreCase rather than a fold: it compares character by character and is
+        // locale independent, which String.toLowerCase() is not.
+        return "content".equalsIgnoreCase(scheme) || "file".equalsIgnoreCase(scheme);
+    }
+
+    /// Lowercases ASCII letters only, so the result never depends on the device locale.
+    ///
+    /// String.toLowerCase() is locale sensitive, and a Turkish or Azerbaijani default turns
+    /// I into a dotless i: IMAGE/PNG normalized under one of those locales stopped being
+    /// equal to image/png, so every check against the framework's own constants failed and
+    /// a port no longer recognized the representation at all. MIME types, schemes and file
+    /// extensions are ASCII by definition, which is what makes folding only ASCII correct
+    /// rather than merely safe. Codename One has no java.util.Locale to ask for the root
+    /// locale instead.
+    /// True when this value opens with that scheme, whatever case it was written in.
+    ///
+    /// A URI scheme is case insensitive by specification, and a case-sensitive prefix test
+    /// read FILE:///sdcard/report.pdf as a literal path -- a file that does not exist, so
+    /// the only representation a file-only clip had was quietly dropped.
+    ///
+    /// #### Parameters
+    ///
+    /// - `value`: the path or URI
+    ///
+    /// - `scheme`: the scheme to test for, colon included, in lower case
+    private static boolean hasScheme(String value, String scheme) {
+        return value.length() >= scheme.length()
+                && value.regionMatches(true, 0, scheme, 0, scheme.length());
+    }
+
+    static String asciiLower(String s) {
+        StringBuilder out = new StringBuilder(s.length());
+        for (int iter = 0; iter < s.length(); iter++) {
+            char c = s.charAt(iter);
+            out.append(c >= 'A' && c <= 'Z' ? (char) (c + 32) : c);
+        }
+        return out.toString();
+    }
+
+    /// A MIME type without its parameters, lower case, or null when there is none.
+    private static String bareMimeType(String type) {
+        if (type == null) {
+            return null;
+        }
+        int semicolon = type.indexOf(';');
+        String bare = asciiLower((semicolon < 0 ? type : type.substring(0, semicolon)).trim());
+        return bare.length() == 0 ? null : bare;
+    }
+
+    /// Reads a content URI's bytes when something actually asks for them.
+    ///
+    /// The drag-and-drop permission this drop was granted lasts for the life of the activity --
+    /// nothing calls release() on it -- so a read that happens a moment later on the event
+    /// dispatch thread still succeeds. Once read the value is kept, so a target that reads
+    /// during the drop may hold the result for as long as it likes.
+    ///
+    /// What it does not survive is the activity: a representation *first* asked for after the
+    /// activity that received the drop has been destroyed reads through a grant that no
+    /// longer exists, and answers null. Copying every representation into this application's
+    /// own storage at drop time is the only way round that, and it is the wrong trade -- it
+    /// is the eager read that stalls the platform's thread with a document nobody asked for,
+    /// which is why this is a promise in the first place. Component.nativeDrop says so where
+    /// an application will read it.
+    private ClipboardDataProvider uriBytesProvider(final Uri uri) {
+        return new ClipboardDataProvider() {
+            @Override
+            public Object getClipboardData(String mimeType) {
+                try {
+                    InputStream in = getContext().getContentResolver().openInputStream(uri);
+                    if (in == null) {
+                        return null;
+                    }
+                    byte[] bytes;
+                    try {
+                        bytes = Util.readInputStream(in);
+                    } finally {
+                        in.close();
+                    }
+                    // A text type reads back as text: the framework's getText() answers null
+                    // for a byte array, so a Markdown representation that went out as a typed
+                    // URI would come back unreadable to the very API that asked for it.
+                    if (bytes != null && mimeType != null && mimeType.startsWith("text/")) {
+                        return new String(bytes, "UTF-8");
+                    }
+                    return bytes;
+                } catch (Throwable t) {
+                    com.codename1.io.Log.e(t);
+                    return null;
+                }
+            }
+        };
+    }
+
+    /// The `text/uri-list` spelling of the URIs a clip carried: one per line, CRLF separated
+    /// as RFC 2483 has it.
+    private static String uriListOf(List<String> uris) {
+        StringBuilder out = new StringBuilder();
+        for (int iter = 0; iter < uris.size(); iter++) {
+            if (iter > 0) {
+                out.append("\r\n");
+            }
+            out.append(uris.get(iter));
+        }
+        return out.toString();
+    }
+
+    /// Fills the MIME types the drag advertised but the read did not produce, from what it did.
+    ///
+    /// An Android clip carries a single text payload and the description says what that text
+    /// is, so a type the description names and the clip did not otherwise yield is that text --
+    /// `text/uri-list` excepted, which is the list of URIs the clip carried. A type with no
+    /// value to give it is left absent rather than advertised empty.
+    private void fillAdvertisedTypes(ClipboardContent content, ClipDescription description,
+            String plain, List<String> publishedUris, List<Uri> unnamedUris) {
+        List<String> unsatisfiedBinary = new ArrayList<String>();
+        List<String> unsatisfiedText = new ArrayList<String>();
+        for (int iter = 0; iter < description.getMimeTypeCount(); iter++) {
+            String mime = description.getMimeType(iter);
+            if (mime == null) {
+                continue;
+            }
+            mime = asciiLower(mime);
+            if (content.hasMimeType(mime)) {
+                continue;
+            }
+            if ("text/uri-list".equals(mime)) {
+                // Every URI, not only the ones that name files: a URI list is a URI list, and a
+                // link the source published belongs in it even though it is not a document.
+                if (!publishedUris.isEmpty()) {
+                    content.setData(ClipboardContent.MIME_URI_LIST, uriListOf(publishedUris));
+                }
+                continue;
+            }
+            // A text type is *not* assumed to be the carried text here. The exporter writes a
+            // text representation whose value differs from that text into a content URI exactly
+            // as it writes binary, so assuming made a target asking for an application's own
+            // text format receive the plain fallback instead of the value it published.
+            if (mime.startsWith("text/")) {
+                unsatisfiedText.add(mime);
+            } else {
+                unsatisfiedBinary.add(mime);
+            }
+        }
+        List<Uri> unclaimed = new ArrayList<Uri>(unnamedUris);
+        for (int iter = unclaimed.size() - 1; iter >= 0; iter--) {
+            Uri uri = unclaimed.get(iter);
+            String named = mimeForUnnamedUri(uri, unsatisfiedBinary, unsatisfiedText);
+            if (named != null) {
+                content.setDataProvider(named, uriBytesProvider(uri));
+                unsatisfiedBinary.remove(named);
+                unsatisfiedText.remove(named);
+                unclaimed.remove(iter);
+            }
+        }
+        if (unclaimed.size() == 1) {
+            // One representation the clip promised and could not produce, and one URI whose
+            // type Android could not name: the pairing cannot be anything else. A byte backed
+            // type is taken first because bytes can only have come from a URI, where a text one
+            // may also be another reading of the text the clip carries. With more of either it
+            // could be, and inventing an association would tell a target it has something it
+            // may not -- which is the failure this whole path exists to avoid -- so those are
+            // left absent and the target correctly refuses.
+            String only = null;
+            if (unsatisfiedBinary.size() == 1) {
+                only = unsatisfiedBinary.remove(0);
+            } else if (unsatisfiedBinary.isEmpty() && unsatisfiedText.size() == 1) {
+                only = unsatisfiedText.remove(0);
+            }
+            if (only != null) {
+                content.setDataProvider(only, uriBytesProvider(unclaimed.get(0)));
+            }
+        }
+        if (plain != null) {
+            for (int iter = 0; iter < unsatisfiedText.size(); iter++) {
+                // What is left: an Android clip carries a single text payload, and a text type
+                // no URI accounted for is another name for that payload -- which is exactly how
+                // the exporter advertises a reading whose value *is* the carried text.
+                content.setData(unsatisfiedText.get(iter), plain);
+            }
+            if (unsatisfiedText.isEmpty() && unsatisfiedBinary.size() == 1 && unclaimed.isEmpty()
+                    && !content.hasMimeType(ClipboardContent.MIME_TEXT)) {
+                // And a type that is not text, when it is the only thing left unaccounted for
+                // and the carried text was not published as text either -- which is the clip
+                // that named one format of its own and put the value in the item, and only
+                // that clip. The pairing cannot be anything else, the same reasoning the one
+                // unclaimed URI above is matched by.
+                content.setData(unsatisfiedBinary.get(0), plain);
+            }
+        }
+    }
+
+    /// The one type a clip advertises when that is all it advertises and it is not plain
+    /// text, or null.
+    ///
+    /// A clip that names a single format of its own is the case where the item's text is that
+    /// format rather than a plain reading of it; anything advertising text/plain, or more than
+    /// one type, is read the way it always was.
+    private static String soleAdvertisedType(ClipDescription description) {
+        if (description == null || description.getMimeTypeCount() != 1) {
+            return null;
+        }
+        String mime = description.getMimeType(0);
+        if (mime == null) {
+            return null;
+        }
+        mime = asciiLower(mime);
+        return ClipboardContent.MIME_TEXT.equals(mime) ? null : mime;
+    }
+
+    /// The type an untyped content URI was published as, recovered from the name of the file it
+    /// serves.
+    ///
+    /// ContentResolver could not name it -- MimeTypeMap has no entry for an application defined
+    /// type, so the FileProvider serving it reports octet-stream. What this application wrote
+    /// still says so in its own name, exactly, which is the answer; a clip from elsewhere gets
+    /// the extension read as a type, which is a good guess and is treated as one -- an extension
+    /// two advertised types share answers nothing.
+    private String mimeForUnnamedUri(Uri uri, List<String> binary, List<String> text) {
+        String name = displayNameFor(uri);
+        if (name == null) {
+            return null;
+        }
+        String declared = decodeMimeFromFileName(name);
+        if (declared != null) {
+            // Written by this application, which named the type outright. It answers even when
+            // it names a type that is not among the candidates -- that means the type is already
+            // satisfied, or was never advertised, and either way this URI is not the missing
+            // one. Guessing past an exact answer would be strictly worse.
+            return binary.contains(declared) || text.contains(declared) ? declared : null;
+        }
+        int dot = name.lastIndexOf('.');
+        if (dot < 0 || dot == name.length() - 1) {
+            return null;
+        }
+        String extension = asciiLower(name.substring(dot + 1));
+        String match = null;
+        for (int pass = 0; pass < 2; pass++) {
+            List<String> candidates = pass == 0 ? binary : text;
+            for (int iter = 0; iter < candidates.size(); iter++) {
+                String candidate = candidates.get(iter);
+                if (extension.equals(extensionForMime(candidate))) {
+                    if (match != null) {
+                        return null;
+                    }
+                    match = candidate;
+                }
+            }
+        }
+        return match;
+    }
+
+    /// The file name behind a content URI, which is where the extension an exporter chose
+    /// survives. A provider that will not answer OpenableColumns still has the name in its path.
+    private String displayNameFor(Uri uri) {
+        Cursor cursor = null;
+        try {
+            cursor = getContext().getContentResolver().query(uri,
+                    new String[]{android.provider.OpenableColumns.DISPLAY_NAME},
+                    null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int column = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (column >= 0) {
+                    String name = cursor.getString(column);
+                    if (name != null && name.length() > 0) {
+                        return name;
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            // Fall through to the path below.
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        return uri.getLastPathSegment();
+    }
+
+    public static MediaException createMediaException(int extra) {
+        MediaErrorType type;
+        String message;
+        switch (extra) {
+
+            case MediaPlayer.MEDIA_ERROR_IO:
+                type = MediaErrorType.Network;
+                message = "IO error";
+                break;
+            case MediaPlayer.MEDIA_ERROR_MALFORMED:
+                type = MediaErrorType.Decode;
+                message = "Media was malformed";
+                break;
+            case MediaPlayer.MEDIA_ERROR_NOT_VALID_FOR_PROGRESSIVE_PLAYBACK:
+                type = MediaErrorType.SrcNotSupported;
+                message = "Not valie for progressive playback";
+                break;
+            case MediaPlayer.MEDIA_ERROR_SERVER_DIED:
+                type = MediaErrorType.Network;
+                message = "Server died";
+                break;
+            case MediaPlayer.MEDIA_ERROR_TIMED_OUT:
+                type = MediaErrorType.Network;
+                message = "Timed out";
+                break;
+
+            case MediaPlayer.MEDIA_ERROR_UNKNOWN:
+                type = MediaErrorType.Network;
+                message = "Unknown error";
+                break;
+            case MediaPlayer.MEDIA_ERROR_UNSUPPORTED:
+                type = MediaErrorType.SrcNotSupported;
+                message = "Unsupported media";
+                break;
+            default:
+                type = MediaErrorType.Network;
+                message = "Unknown error";
+        }
+        return new MediaException(type, message);
+    }
+
+
+    public class Video extends AndroidImplementation.AndroidPeer implements AsyncMedia {
+        
+        private VideoView nativeVideo;
+        private Activity activity;
+        private boolean fullScreen = false;
+        private Rectangle bounds;
+        private boolean nativeController = true;
+        private boolean nativePlayer;
+        private Form curentForm;
+        private List<Runnable> completionHandlers;
+        private final EventDispatcher errorListeners = new EventDispatcher();
+        
+        private final EventDispatcher stateChangeListeners = new EventDispatcher();
+        private PlayRequest pendingPlayRequest;
+        private PauseRequest pendingPauseRequest;
+        private boolean androidSeekPreviewWorkaroundEnabled;
+
+        @Override
+        public State getState() {
+            if (isPlaying()) {
+                return State.Playing;
+            } else {
+                return State.Paused;
+            }
+        }
+        
+        protected void fireMediaStateChange(State newState) {
+            if (stateChangeListeners.hasListeners() && newState != getState()) {
+                stateChangeListeners.fireActionEvent(new MediaStateChangeEvent(this, getState(), newState));
+            }
+        }
+        
+        @Override
+        public void addMediaStateChangeListener(ActionListener<MediaStateChangeEvent> l) {
+            
+            stateChangeListeners.addListener(l);
+        }
+        
+        @Override
+        public void removeMediaStateChangeListener(ActionListener<MediaStateChangeEvent> l) {
+            
+            stateChangeListeners.removeListener(l);
+        }
+        
+        @Override
+        public void addMediaErrorListener(ActionListener<MediaErrorEvent> l) {
+            errorListeners.addListener(l);
+        }
+        
+        @Override
+        public void removeMediaErrorListener(ActionListener<MediaErrorEvent> l) {
+            errorListeners.removeListener(l);
+        }
+        
+        @Override
+        public PlayRequest playAsync() {
+            final PlayRequest out = new PlayRequest();
+            out.ready(new SuccessCallback<AsyncMedia>() {
+                @Override
+                public void onSucess(AsyncMedia value) {
+                    if (out == pendingPlayRequest) {
+                        pendingPlayRequest = null;
+                    }
+                }
+            }).except(new SuccessCallback<Throwable>() {
+                @Override
+                public void onSucess(Throwable value) {
+                    if (out == pendingPlayRequest) {
+                        pendingPlayRequest = null;
+                    }
+                }
+            });
+            ;
+            if (pendingPlayRequest != null) {
+                pendingPlayRequest.ready(new SuccessCallback<AsyncMedia>() {
+                    @Override
+                    public void onSucess(AsyncMedia value) {
+                        if (!out.isDone()) {
+                            out.complete(value);
+                        }
+                    }
+                }).except(new SuccessCallback<Throwable>() {
+                    @Override
+                    public void onSucess(Throwable value) {
+                        if (!out.isDone()) {
+                            out.error(value);
+                        }
+                    }
+                });
+                return out;
+            } else {
+                pendingPlayRequest = out;
+            }
+            
+            ActionListener<MediaStateChangeEvent> onStateChange = new ActionListener<MediaStateChangeEvent>() {
+                @Override
+                public void actionPerformed(MediaStateChangeEvent evt) {
+                    stateChangeListeners.removeListener(this);
+                    if (!out.isDone()) {
+                        if (evt.getNewState() == State.Playing) {
+                            out.complete(Video.this);
+                        }
+                    }
+                    
+                }
+                
+            };
+            
+            stateChangeListeners.addListener(onStateChange);
+            play();
+            
+            return out;
+            
+        }
+        
+        @Override
+        public PauseRequest pauseAsync() {
+            final PauseRequest out = new PauseRequest();
+            out.ready(new SuccessCallback<AsyncMedia>() {
+                @Override
+                public void onSucess(AsyncMedia value) {
+                    if (out == pendingPauseRequest) {
+                        pendingPauseRequest = null;
+                    }
+                }
+            }).except(new SuccessCallback<Throwable>() {
+                @Override
+                public void onSucess(Throwable value) {
+                    if (out == pendingPauseRequest) {
+                        pendingPauseRequest = null;
+                    }
+                }
+            });
+            ;
+            if (pendingPauseRequest != null) {
+                pendingPauseRequest.ready(new SuccessCallback<AsyncMedia>() {
+                    @Override
+                    public void onSucess(AsyncMedia value) {
+                        if (!out.isDone()) {
+                            out.complete(value);
+                        }
+                    }
+                }).except(new SuccessCallback<Throwable>() {
+                    @Override
+                    public void onSucess(Throwable value) {
+                        if (!out.isDone()) {
+                            out.error(value);
+                        }
+                    }
+                });
+                return out;
+            } else {
+                pendingPauseRequest = out;
+            }
+            
+            ActionListener<MediaStateChangeEvent> onStateChange = new ActionListener<MediaStateChangeEvent>() {
+                @Override
+                public void actionPerformed(MediaStateChangeEvent evt) {
+                    stateChangeListeners.removeListener(this);
+                    if (!out.isDone()) {
+                        if (evt.getNewState() == State.Paused) {
+                            out.complete(Video.this);
+                        }
+                    }
+                    
+                }
+                
+            };
+            
+            stateChangeListeners.addListener(onStateChange);
+            play();
+            
+            return out;
+        }
+        
+
+        public Video(final VideoView nativeVideo, final Activity activity, final Runnable onCompletion) {
+            super(new RelativeLayout(activity));
+            this.nativeVideo = nativeVideo;
+            RelativeLayout rl = (RelativeLayout)getNativePeer();
+
+            rl.addView(nativeVideo);
+            RelativeLayout.LayoutParams layout = new RelativeLayout.LayoutParams(getWidth(), getHeight());
+            layout.addRule(RelativeLayout.CENTER_HORIZONTAL);
+            layout.addRule(RelativeLayout.CENTER_VERTICAL);
+            rl.setLayoutParams(layout);
+            rl.requestLayout();
+
+            this.activity = activity;
+            if (nativeController) {
+                MediaController mc = new AndroidImplementation.CN1MediaController();
+                nativeVideo.setMediaController(mc);
+            }
+
+            nativeVideo.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+                @Override
+                public void onCompletion(MediaPlayer arg0) {
+                    fireMediaStateChange(State.Paused);
+                    
+                    fireCompletionHandlers();
+                }
+            });
+            if (onCompletion != null) {
+                addCompletionHandler(onCompletion);
+            }
+
+            nativeVideo.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+                @Override
+                public boolean onError(MediaPlayer mp, int what, int extra) {
+                    com.codename1.io.Log.p("Media player error: " + mp + " what: " + what + " extra: " + extra);
+                    errorListeners.fireActionEvent(new MediaErrorEvent(Video.this, createMediaException(extra)));
+                    fireMediaStateChange(State.Paused);
+                    fireCompletionHandlers();
+                    return true;
+                }
+            });
+
+        }
+        
+        
+        
+        private void fireCompletionHandlers() {
+            if (completionHandlers != null && !completionHandlers.isEmpty()) {
+                Display.getInstance().callSerially(new Runnable() {
+                    public void run() {
+                        if (completionHandlers != null && !completionHandlers.isEmpty()) {
+                            ArrayList<Runnable> toRun;
+                            synchronized(Video.this) {
+                                toRun = new ArrayList<Runnable>(completionHandlers);
+                            }
+                            for (Runnable r : toRun) {
+                                r.run();
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        private void setNativeController(final boolean nativeController) {
+            if (nativeController != this.nativeController) {
+                this.nativeController = nativeController;
+                if (nativeVideo != null) {
+                    Activity activity = getActivity();
+                    if (activity != null) {
+                        activity.runOnUiThread(new Runnable() {
+
+                            @Override
+                            public void run() {
+                                if (nativeVideo != null) {
+                                    MediaController mc = new AndroidImplementation.CN1MediaController();
+                                    nativeVideo.setMediaController(mc);
+                                    if (!nativeController) mc.setVisibility(View.GONE);
+                                    else mc.setVisibility(View.VISIBLE);
+
+                                }
+                            }
+
+                        });
+                    }
+
+                }
+            }
+        }
+
+        @Override
+        public void init() {
+            super.init();
+            setVisible(true);
+        }
+
+        public void prepare() {
+        }
+
+        @Override
+        public void play() {
+            Component cmp = getVideoComponent();
+            if (cmp.getParent() == null && nativePlayer && curentForm == null) {
+                curentForm = Display.getInstance().getCurrent();
+                Form f = new Form();
+                f.setBackCommand(new Command("") {
+                    @Override
+                    public void actionPerformed(ActionEvent evt) {
+                        Component cmp = getVideoComponent();
+                        if(cmp != null) {
+                            cmp.remove();
+                            pause();
+                        }
+                        curentForm.showBack();
+                        curentForm = null;
+                    }
+                });
+                f.setLayout(new BorderLayout());
+
+                if(cmp.getParent() != null) {
+                    cmp.getParent().removeComponent(cmp);
+                }
+                f.addComponent(BorderLayout.CENTER, cmp);
+                f.show();
+            }
+            nativeVideo.start();
+            fireMediaStateChange(State.Playing);
+        }
+
+        @Override
+        public void pause() {
+            if(nativeVideo != null && nativeVideo.canPause()){
+                nativeVideo.pause();
+                fireMediaStateChange(State.Paused);
+            }
+        }
+
+        @Override
+        public void cleanup() {
+            if(nativeVideo != null) {
+                nativeVideo.stopPlayback();
+                fireMediaStateChange(State.Paused);
+            }
+            nativeVideo = null;
+            if (nativePlayer && curentForm != null) {
+                curentForm.showBack();
+                curentForm = null;
+            }
+        }
+
+        @Override
+        public int getTime() {
+            if(nativeVideo != null){
+                return nativeVideo.getCurrentPosition();
+            }
+            return -1;
+        }
+
+        @Override
+        public void setTime(int time) {
+            if(nativeVideo != null){
+                final int seekTime = time;
+                activity.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (nativeVideo == null) {
+                            return;
+                        }
+                        nativeVideo.seekTo(seekTime);
+                        if (androidSeekPreviewWorkaroundEnabled && !nativeVideo.isPlaying()) {
+                            final int refreshSeekTime = Math.max(0, seekTime - 1);
+                            nativeVideo.postDelayed(new Runnable() {
+                                @Override
+                                public void run() {
+                                    if (nativeVideo != null && !nativeVideo.isPlaying()) {
+                                        nativeVideo.seekTo(refreshSeekTime);
+                                        nativeVideo.seekTo(seekTime);
+                                        nativeVideo.invalidate();
+                                    }
+                                }
+                            }, 60);
+                        }
+                    }
+                });
+            }
+        }
+
+        @Override
+        public int getDuration() {
+            if(nativeVideo != null){
+                return nativeVideo.getDuration();
+            }
+            return -1;
+        }
+
+        @Override
+        public void setVolume(int vol) {
+            // float v = ((float) vol) / 100.0F;
+            AudioManager am = (AudioManager) activity.getSystemService(Context.AUDIO_SERVICE);
+            int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, vol, 0);
+        }
+
+        @Override
+        public int getVolume() {
+            AudioManager am = (AudioManager) activity.getSystemService(Context.AUDIO_SERVICE);
+            return am.getStreamVolume(AudioManager.STREAM_MUSIC);
+        }
+
+        @Override
+        public boolean isVideo() {
+            return true;
+        }
+
+        @Override
+        public boolean isFullScreen() {
+            return fullScreen || nativePlayer;
+        }
+
+        @Override
+        public void setFullScreen(boolean fullScreen) {
+            this.fullScreen = fullScreen;
+            if (fullScreen) {
+                bounds = new Rectangle(getBounds());
+                setX(0);
+                setY(0);
+                setWidth(Display.getInstance().getDisplayWidth());
+                setHeight(Display.getInstance().getDisplayHeight());
+            } else {
+                if (bounds != null) {
+                    setX(bounds.getX());
+                    setY(bounds.getY());
+                    setWidth(bounds.getSize().getWidth());
+                    setHeight(bounds.getSize().getHeight());
+                }
+            }
+            repaint();
+        }
+
+        @Override
+        public Component getVideoComponent() {
+            return this;
+        }
+
+        @Override
+        protected Dimension calcPreferredSize() {
+            if(nativeVideo != null){
+                return new Dimension(nativeVideo.getWidth(), nativeVideo.getHeight());
+            }
+            return new Dimension();
+        }
+
+        @Override
+        public void setWidth(final int width) {
+            super.setWidth(width);
+            final int currH = getHeight();
+            if(nativeVideo != null){
+                activity.runOnUiThread(new Runnable() {
+
+                    public void run() {
+                        float nh = nativeVideo.getHeight();
+                        float nw = nativeVideo.getWidth();
+                        float w = width;
+                        float h = currH;
+                        if (nh != 0 && nw != 0) {
+                            h = width * nh / nw;
+                            if (h > getHeight()) {
+                                h = getHeight();
+                                w = h * nw / nh;
+                            }
+                            if (w > getWidth()) {
+                                w = getWidth();
+                                h = w * nh / nw;
+                            }
+                        }
+                        RelativeLayout.LayoutParams layout = new RelativeLayout.LayoutParams((int)w, (int)h);
+                        layout.addRule(RelativeLayout.CENTER_HORIZONTAL);
+                        layout.addRule(RelativeLayout.CENTER_VERTICAL);
+                        nativeVideo.setLayoutParams(layout);
+                        nativeVideo.requestLayout();
+                        nativeVideo.getHolder().setSizeFromLayout();
+                    }
+                });
+            }
+        }
+
+        @Override
+        public void setHeight(final int height) {
+            super.setHeight(height);
+            final int currW = getWidth();
+            if(nativeVideo != null){
+                activity.runOnUiThread(new Runnable() {
+
+                    public void run() {
+                        float nh = nativeVideo.getHeight();
+                        float nw = nativeVideo.getWidth();
+                        float h = height;
+                        float w = currW;
+                        if (nh != 0 && nw != 0) {
+                            w = h * nw / nh;
+                            if (h > getHeight()) {
+                                h = getHeight();
+                                w = h * nw / nh;
+                            }
+                            if (w > getWidth()) {
+                                w = getWidth();
+                                h = w * nh / nw;
+                            }
+                        }
+                        RelativeLayout.LayoutParams layout = new RelativeLayout.LayoutParams((int)w, (int)h);
+                        layout.addRule(RelativeLayout.CENTER_HORIZONTAL);
+                        layout.addRule(RelativeLayout.CENTER_VERTICAL);
+                        nativeVideo.setLayoutParams(layout);
+                        nativeVideo.requestLayout();
+                        nativeVideo.getHolder().setSizeFromLayout();
+                    }
+                });
+            }
+        }
+
+        @Override
+        public void setNativePlayerMode(boolean nativePlayer) {
+            this.nativePlayer = nativePlayer;
+        }
+
+        @Override
+        public boolean isNativePlayerMode() {
+            return nativePlayer;
+        }
+
+        @Override
+        public boolean isPlaying() {
+            if(nativeVideo != null){
+                return nativeVideo.isPlaying();
+            }
+            return false;
+        }
+
+        public void setVariable(String key, Object value) {
+            if (nativeVideo != null && Media.VARIABLE_NATIVE_CONTRLOLS_EMBEDDED.equals(key) && value instanceof Boolean) {
+                setNativeController((Boolean)value);
+                return;
+            }
+            if (Media.VARIABLE_ANDROID_SEEK_PREVIEW_WORKAROUND.equals(key) && value instanceof Boolean) {
+                androidSeekPreviewWorkaroundEnabled = ((Boolean)value).booleanValue();
+            }
+        }
+
+        public Object getVariable(String key) {
+            return null;
+        }
+
+        @Override
+        public void addMediaCompletionHandler(Runnable onComplete) {
+            addCompletionHandler(onComplete);
+        }
+
+        
+        
+        private void addCompletionHandler(Runnable onCompletion) {
+            synchronized(this) {
+                if (completionHandlers == null) {
+                    completionHandlers = new ArrayList<Runnable>();
+                }
+                completionHandlers.add(onCompletion);
+            }
+        }
+        
+        private void removeCompletionHandler(Runnable onCompletion) {
+            synchronized(this) {
+                if (completionHandlers != null) {
+                    completionHandlers.remove(onCompletion);
+                }
+            }
+        }
+
+      
+    }
+
+
+    private String getImageFilePath(Uri uri) {
+        String scheme = uri.getScheme();
+        String[] filePathColumn = {MediaStore.Images.Media.DATA};
+        Cursor cursor = getContext().getContentResolver().query(
+                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                new String[]{ MediaStore.Images.Media.DATA},
+                null,
+                null,
+                null
+        );
+        // Some gallery providers may return an empty cursor on modern Android builds.
+        String filePath = null;
+        if (cursor != null) {
+            try {
+                int columnIndex = cursor.getColumnIndex(filePathColumn[0]);
+                if (columnIndex >= 0 && cursor.moveToFirst()) {
+                    filePath = cursor.getString(columnIndex);
+                }
+            } finally {
+                cursor.close();
+            }
+        }
+
+        if (filePath == null || "content".equals(scheme)) {
+            //if the file is not on the filesystem download it and save it
+            //locally
+            InputStream inputStream = null;
+            OutputStream tmp = null;
+            try {
+                inputStream = getContext().getContentResolver().openInputStream(uri);
+                if (inputStream != null) {
+                    String name = new File(uri.toString()).getName();//getContentName(getContext().getContentResolver(), uri);
+                    if (name != null) {
+                        String homePath = getAppHomePath();
+                        if (homePath.endsWith("/")) {
+                            homePath = homePath.substring(0, homePath.length()-1);
+                        }
+                        filePath = homePath
+                                + getFileSystemSeparator() + name;
+                        File f = new File(removeFilePrefix(filePath));
+                        tmp = createFileOuputStream(f);
+                        Util.copy(inputStream, tmp);
+                    }
+                }
+            } catch (Exception e) {
+                com.codename1.io.Log.e(e);
+            } finally {
+                Util.cleanup(tmp);
+                Util.cleanup(inputStream);
+            }
+        }
+        return filePath;
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent intent) {
+
+        if (requestCode == ZOOZ_PAYMENT) {
+            ((IntentResultListener) pur).onActivityResult(requestCode, resultCode, intent);
+            return;
+        }
+
+        takePersistablePermissionsFromIntent(intent);
+
+        if (requestCode == REQUEST_SELECT_FILE || requestCode == FILECHOOSER_RESULTCODE) {
+            if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                if (requestCode == REQUEST_SELECT_FILE) {
+                    if (uploadMessage == null) return;
+                    Uri[] results = null;
+
+                    // Check that the response is a good one
+                    if (resultCode == Activity.RESULT_OK) {
+                        if (intent != null) {
+                            // If there is not data, then we may have taken a photo
+                            String dataString = intent.getDataString();
+                            ClipData clipData = intent.getClipData();
+
+                            if (clipData != null) {
+                                results = new Uri[clipData.getItemCount()];
+                                for (int i = 0; i < clipData.getItemCount(); i++) {
+                                    ClipData.Item item = clipData.getItemAt(i);
+                                    results[i] = item.getUri();
+                                }
+                            } else if (dataString != null) {
+                                results = new Uri[]{Uri.parse(dataString)};
+                            }
+                        }
+                    }
+
+                    uploadMessage.onReceiveValue(results);
+                    uploadMessage = null;
+                }
+            }
+            else if (requestCode == FILECHOOSER_RESULTCODE) {
+                if (null == mUploadMessage) {
+                    return;
+                }
+            // Use MainActivity.RESULT_OK if you're implementing WebView inside Fragment
+            // Use RESULT_OK only if you're implementing WebView inside an Activity
+                Uri result = intent == null || resultCode != Activity.RESULT_OK ? null : intent.getData();
+                mUploadMessage.onReceiveValue(result);
+                mUploadMessage = null;
+            }
+            else {
+
+                Toast.makeText(getActivity().getApplicationContext(), "Failed to Upload File", Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+
+        
+        if (resultCode == Activity.RESULT_OK) {
+            if (requestCode == CAPTURE_IMAGE) {
+                try {
+                    String imageUri = (String) Storage.getInstance().readObject("imageUri");
+                    Vector pathandId = StringUtil.tokenizeString(imageUri, ";");
+                    String path = (String)pathandId.get(0);
+                    String lastId = (String)pathandId.get(1);
+                    Storage.getInstance().deleteStorageFile("imageUri");
+                    clearMediaDB(lastId, path);
+                    callback.fireActionEvent(new ActionEvent(addFile(path)));
+                    return;
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            } else if (requestCode == CAPTURE_VIDEO) {
+                String path = (String) Storage.getInstance().readObject("videoUri");
+                Storage.getInstance().deleteStorageFile("videoUri");
+                callback.fireActionEvent(new ActionEvent(addFile(path)));
+                return;
+            } else if (requestCode == CAPTURE_AUDIO) {
+                Uri data = intent.getData();
+                String path = convertImageUriToFilePath(data, getContext());
+                callback.fireActionEvent(new ActionEvent(addFile(path)));
+                return;
+                
+            } else if (requestCode == OPEN_GALLERY_MULTI) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+                    if(intent.getClipData() != null){
+                        // If it was a multi-request
+                        ArrayList<String> selectedPaths = new ArrayList<String>();
+                        int count = intent.getClipData().getItemCount();
+                        for (int i=0; i<count; i++){
+
+                            Uri uri = intent.getClipData().getItemAt(i).getUri();
+                            String p = getImageFilePath(uri);
+                            if (p != null) {
+                                selectedPaths.add(p);
+                            }
+                        }
+                        callback.fireActionEvent(new ActionEvent(selectedPaths.toArray(new String[selectedPaths.size()])));
+                        return;
+                    }
+                } else {
+                    com.codename1.io.Log.e(new RuntimeException("OPEN_GALLERY_MULTI requires android sdk 16 (jelly bean) or higher"));
+                    callback.fireActionEvent(null);
+                }
+
+                Uri selectedImage = intent.getData();
+                String scheme = intent.getScheme();
+
+                String[] filePathColumn = {MediaStore.Images.Media.DATA};
+                Cursor cursor = getContext().getContentResolver().query(selectedImage, filePathColumn, null, null, null);
+
+                // Some gallery providers may return an empty cursor on modern Android builds.
+                String filePath = null;
+                if (cursor != null) {
+                    try {
+                        int columnIndex = cursor.getColumnIndex(filePathColumn[0]);
+                        if (columnIndex >= 0 && cursor.moveToFirst()) {
+                            filePath = cursor.getString(columnIndex);
+                        }
+                    } finally {
+                        cursor.close();
+                    }
+                }
+                boolean fileExists = false;
+                if (filePath != null) {
+                    File file = new File(filePath);
+                    fileExists = file.exists() && file.canRead();
+                }
+
+                if (!fileExists && "content".equals(scheme)) {
+                    //if the file is not on the filesystem download it and save it
+                    //locally
+                    try {
+                        InputStream inputStream = getContext().getContentResolver().openInputStream(selectedImage);
+                        if (inputStream != null) {
+                            String name = getContentName(getContext().getContentResolver(), selectedImage);
+                            if (name != null) {
+                                filePath = getAppHomePath()
+                                        + getFileSystemSeparator() + name;
+                                File f = new File(removeFilePrefix(filePath));
+                                OutputStream tmp = createFileOuputStream(f);
+                                byte[] buffer = new byte[1024];
+                                int read = -1;
+                                while ((read = inputStream.read(buffer)) > -1) {
+                                    tmp.write(buffer, 0, read);
+                                }
+                                tmp.close();
+                                inputStream.close();
+                            }
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+
+                if (filePath == null) {
+                    callback.fireActionEvent(null);
+                    return;
+                }
+
+                callback.fireActionEvent(new ActionEvent(new String[]{filePath}));
+                return;
+            } else if (requestCode == OPEN_GALLERY) {
+                
+                Uri selectedImage = intent.getData();
+                String scheme = intent.getScheme();
+
+                String[] filePathColumn = {MediaStore.Images.Media.DATA};
+                Cursor cursor = getContext().getContentResolver().query(selectedImage, filePathColumn, null, null, null);
+
+                // Some gallery providers may return an empty cursor on modern Android builds.
+                String filePath = null;
+                if (cursor != null) {
+                    try {
+                        int columnIndex = cursor.getColumnIndex(filePathColumn[0]);
+                        if (columnIndex >= 0 && cursor.moveToFirst()) {
+                            filePath = cursor.getString(columnIndex);
+                        }
+                    } finally {
+                        cursor.close();
+                    }
+                }
+                boolean fileExists = false;
+                if (filePath != null) {
+                    File file = new File(filePath);
+                    fileExists = file.exists() && file.canRead();
+                }
+
+                if (!fileExists && "content".equals(scheme)) {
+                    //if the file is not on the filesystem download it and save it
+                    //locally
+                    try {
+                        InputStream inputStream = getContext().getContentResolver().openInputStream(selectedImage);
+                        if (inputStream != null) {
+                            String name = getContentName(getContext().getContentResolver(), selectedImage);
+                            if (name != null) {
+                                filePath = getAppHomePath()
+                                        + getFileSystemSeparator() + name;
+                                File f = new File(removeFilePrefix(filePath));
+                                OutputStream tmp = createFileOuputStream(f);
+                                byte[] buffer = new byte[1024];
+                                int read = -1;
+                                while ((read = inputStream.read(buffer)) > -1) {
+                                    tmp.write(buffer, 0, read);
+                                }
+                                tmp.close();
+                                inputStream.close();
+                            }
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+
+                if (filePath == null) {
+                    callback.fireActionEvent(null);
+                    return;
+                }
+
+                callback.fireActionEvent(new ActionEvent(filePath));
+                return;
+            } else {
+                if(callback != null) {
+                    callback.fireActionEvent(new ActionEvent("ok"));
+                }
+                return;
+            }
+        }
+        //clean imageUri
+        String imageUri = (String) Storage.getInstance().readObject("imageUri");
+        if(imageUri != null){
+            Storage.getInstance().deleteStorageFile("imageUri");
+        }
+
+        if(callback != null) {
+            callback.fireActionEvent(null);
+        }
+    }
+
+
+
+    @Override
+    public void capturePhoto(ActionListener response) {
+        if (getActivity() == null) {
+            throw new RuntimeException("Cannot capture photo in background mode");
+        }
+        if (PermissionsHelper.requiresExternalStoragePermissionForMediaAccess()) {
+            if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to take a picture")){
+                return;
+            }
+        }
+
+        if (getRequestedPermissions().contains(Manifest.permission.CAMERA)) {
+            // Normally we don't need to request the CAMERA permission since we use
+            // the ACTION_IMAGE_CAPTURE intent, which handles permissions itself.
+            // BUT: If the camera permission is included in the Manifest file, the 
+            // intent will defer to the app's permissions, and on Android 6, 
+            // the permission is denied unless we do the runtime check for permission.
+            // See https://github.com/codenameone/CodenameOne/issues/2409#issuecomment-391696058
+            if(!checkForPermission(Manifest.permission.CAMERA, "This is required to take a picture")){
+                return;
+            }
+        }
+        callback = new EventDispatcher();
+        callback.addListener(response);
+        Intent intent = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
+
+        File newFile = getOutputMediaFile(false);
+        newFile.getParentFile().mkdirs();
+        newFile.getParentFile().setWritable(true, false);
+        //Uri imageUri = Uri.fromFile(newFile);
+        Uri imageUri = FileProvider.getUriForFile(getContext(), getContext().getPackageName()+".provider", newFile);
+        intent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, imageUri);
+
+        String lastImageID = getLastImageId();
+        Storage.getInstance().writeObject("imageUri", newFile.getAbsolutePath() + ";" + lastImageID);
+
+        intent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, imageUri);
+        intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        
+        if (Build.VERSION.SDK_INT < 21) {
+            List<ResolveInfo> resInfoList = getContext().getPackageManager().queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY);
+            for (ResolveInfo resolveInfo : resInfoList) {
+                String packageName = resolveInfo.activityInfo.packageName;
+                getContext().grantUriPermission(packageName, imageUri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            }
+        }
+
+        getActivity().startActivityForResult(intent, CAPTURE_IMAGE);
+    }
+
+    @Override
+    public void captureVideo(ActionListener response) {
+        captureVideo(null, response);
+    }
+    
+    @Override
+    public void captureVideo(VideoCaptureConstraints cnst, ActionListener response) {
+        if (getActivity() == null) {
+            throw new RuntimeException("Cannot capture video in background mode");
+        }
+        if (PermissionsHelper.requiresExternalStoragePermissionForMediaAccess()) {
+            if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to take a video")){
+                return;
+            }
+        }
+
+        if (getRequestedPermissions().contains(Manifest.permission.CAMERA)) {
+            // Normally we don't need to request the CAMERA permission since we use
+            // the ACTION_VIDEO_CAPTURE intent, which handles permissions itself.
+            // BUT: If the camera permission is included in the Manifest file, the 
+            // intent will defer to the app's permissions, and on Android 6, 
+            // the permission is denied unless we do the runtime check for permission.
+            // See https://github.com/codenameone/CodenameOne/issues/2409#issuecomment-391696058
+            if(!checkForPermission(Manifest.permission.CAMERA, "This is required to take a video")){
+                return;
+            }
+        }
+        callback = new EventDispatcher();
+        callback.addListener(response);
+        Intent intent = new Intent(android.provider.MediaStore.ACTION_VIDEO_CAPTURE);
+        if (cnst != null) {
+            switch (cnst.getQuality()) {
+                case VideoCaptureConstraints.QUALITY_LOW:
+                    intent.putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 0);
+                    break;
+                case VideoCaptureConstraints.QUALITY_HIGH:
+                    intent.putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 1);
+                    break;
+            }
+            
+            if (cnst.getMaxFileSize() > 0) {
+                intent.putExtra(MediaStore.EXTRA_SIZE_LIMIT, cnst.getMaxFileSize());
+            }
+            if (cnst.getMaxLength() > 0) {
+                intent.putExtra(MediaStore.EXTRA_DURATION_LIMIT, cnst.getMaxLength());
+            }
+        }
+        
+
+        File newFile = getOutputMediaFile(true);
+        newFile.getParentFile().mkdirs();
+        newFile.getParentFile().setWritable(true, false);
+        Uri videoUri = FileProvider.getUriForFile(getContext(), getContext().getPackageName()+".provider", newFile);
+
+        Storage.getInstance().writeObject("videoUri", newFile.getAbsolutePath());
+
+        intent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, videoUri);
+        intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        if (Build.VERSION.SDK_INT < 21) {
+            List<ResolveInfo> resInfoList = getContext().getPackageManager().queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY);
+            for (ResolveInfo resolveInfo : resInfoList) {
+                String packageName = resolveInfo.activityInfo.packageName;
+                getContext().grantUriPermission(packageName, videoUri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            }
+        }
+        
+        this.getActivity().startActivityForResult(intent, CAPTURE_VIDEO);
+    }
+
+    public void captureAudio(final ActionListener response) {
+
+        if(!checkForPermission(Manifest.permission.RECORD_AUDIO, "This is required to record the audio")){
+            return;
+        }
+        
+        try {
+            final Form current = Display.getInstance().getCurrent();
+
+            final File temp = File.createTempFile("mtmp", ".3gpp");
+            temp.deleteOnExit();
+
+            if (recorder != null) {
+                recorder.release();
+            }
+            recorder = new MediaRecorder();
+            recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            recorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP);
+            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_WB);
+            recorder.setOutputFile(temp.getAbsolutePath());
+
+            final Form recording = new Form("Recording");
+            recording.setTransitionInAnimator(CommonTransitions.createEmpty());
+            recording.setTransitionOutAnimator(CommonTransitions.createEmpty());
+            recording.setLayout(new BorderLayout());
+
+            recorder.prepare();
+            recorder.start();
+
+            final Label time = new Label("00:00");
+            time.getAllStyles().setAlignment(Component.CENTER);
+            Font f = Font.createSystemFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_LARGE);
+            f = f.derive(getDisplayHeight() / 10, Font.STYLE_PLAIN);
+            time.getAllStyles().setFont(f);
+            recording.addComponent(BorderLayout.CENTER, time);
+
+            recording.registerAnimated(new Animation() {
+
+                long current = System.currentTimeMillis();
+                long zero = current;
+                int sec = 0;
+
+                public boolean animate() {
+                    long now = System.currentTimeMillis();
+                    if (now - current > 1000) {
+                        current = now;
+                        sec++;
+                        return true;
+                    }
+                    return false;
+                }
+
+                public void paint(Graphics g) {
+                    int seconds = sec % 60;
+                    int minutes = sec / 60;
+
+                    String secStr = seconds < 10 ? "0" + seconds : "" + seconds;
+                    String minStr = minutes < 10 ? "0" + minutes : "" + minutes;
+
+                    String txt = minStr + ":" + secStr;
+                    time.setText(txt);
+                }
+            });
+
+            Container south = new Container(new com.codename1.ui.layouts.GridLayout(1, 2));
+            Command cancel = new Command("Cancel") {
+
+                @Override
+                public void actionPerformed(ActionEvent evt) {
+                    if (recorder != null) {
+                        recorder.stop();
+                        recorder.release();
+                        recorder = null;
+                    }
+                    current.showBack();
+                    response.actionPerformed(null);
+                }
+
+            };
+            recording.setBackCommand(cancel);
+            south.add(new com.codename1.ui.Button(cancel));
+            south.add(new com.codename1.ui.Button(new Command("Save") {
+
+                @Override
+                public void actionPerformed(ActionEvent evt) {
+                    if (recorder != null) {
+                        recorder.stop();
+                        recorder.release();
+                        recorder = null;
+                    }
+                    current.showBack();
+                    response.actionPerformed(new ActionEvent(temp.getAbsolutePath()));
+                }
+
+            }));
+            recording.addComponent(BorderLayout.SOUTH, south);
+            recording.show();
+
+        } catch (IOException ex) {
+            ex.printStackTrace();
+            throw new RuntimeException("failed to start audio recording");
+        }
+
+    }
+
+    /**
+     * Opens the device image gallery
+     *
+     * @param response callback for the resulting image
+     *
+     * 
+     * DISABLING:  openGallery() should take care of this
+    public void openImageGallery(ActionListener response) {
+        if (getActivity() == null) {
+            throw new RuntimeException("Cannot open image gallery in background mode");
+        }
+        if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to browse the photos")){
+            return;
+        }
+
+        if(editInProgress()) {
+            stopEditing(true);
+        }
+
+        callback = new EventDispatcher();
+        callback.addListener(response);
+        Intent galleryIntent = new Intent(Intent.ACTION_PICK, android.provider.MediaStore.Images.Media.INTERNAL_CONTENT_URI);
+        this.getActivity().startActivityForResult(galleryIntent, OPEN_GALLERY);
+    }
+    * */
+
+    @Override
+    public boolean isGalleryTypeSupported(int type) {
+        if (super.isGalleryTypeSupported(type)) {
+            return true;
+        }
+        if (type == -9999 || type == -9998) {
+            return true;
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 16) {
+            switch (type) {
+
+                case Display.GALLERY_ALL_MULTI:
+                case Display.GALLERY_VIDEO_MULTI:
+                case Display.GALLERY_IMAGE_MULTI:
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    
+    
+    public void openGallery(final ActionListener response, int type){
+        if (!isGalleryTypeSupported(type)) {
+            throw new IllegalArgumentException("Gallery type "+type+" not supported on this platform.");
+        }
+        if (getActivity() == null) {
+            throw new RuntimeException("Cannot open galery in background mode");
+        }
+        if (PermissionsHelper.requiresExternalStoragePermissionForMediaAccess()) {
+            if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to browse the photos")){
+                return;
+            }
+        }
+        if(editInProgress()) {
+            stopEditing(true);
+        }
+        final boolean multi;
+        switch (type) {
+            case Display.GALLERY_ALL_MULTI:
+                multi=true;
+                type = Display.GALLERY_ALL;
+                break;
+            case Display.GALLERY_VIDEO_MULTI:
+                multi=true;
+                type = Display.GALLERY_VIDEO;
+                break;
+            case Display.GALLERY_IMAGE_MULTI:
+                multi = true;
+                type = Display.GALLERY_IMAGE;
+                break;
+            case -9998:
+                multi = true;
+                type = -9999;
+                break;
+            default:
+                multi = false;
+        }
+        
+        callback = new EventDispatcher();
+        callback.addListener(response);
+        Intent galleryIntent = new Intent(Intent.ACTION_PICK, android.provider.MediaStore.Images.Media.INTERNAL_CONTENT_URI);
+        galleryIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (multi) {
+            galleryIntent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        }
+        if(type == Display.GALLERY_VIDEO){
+            galleryIntent.setType("video/*");
+        }else if(type == Display.GALLERY_IMAGE){
+            galleryIntent.setType("image/*");
+        }else if(type == Display.GALLERY_ALL){
+            galleryIntent.setType("image/* video/*");
+        }else if (type == -9999) {
+            galleryIntent = new Intent();
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
+                galleryIntent.setAction(Intent.ACTION_OPEN_DOCUMENT);
+            } else {
+                galleryIntent.setAction(Intent.ACTION_GET_CONTENT);
+            }
+            galleryIntent.addCategory(Intent.CATEGORY_OPENABLE);
+            galleryIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
+                galleryIntent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            }
+
+            // set MIME type for image
+            galleryIntent.setType("*/*");
+            galleryIntent.putExtra(Intent.EXTRA_MIME_TYPES, Display.getInstance().getProperty("android.openGallery.accept", "*/*").split(","));
+        }else{
+            galleryIntent.setType("*/*");
+        }
+        this.getActivity().startActivityForResult(galleryIntent, multi ? OPEN_GALLERY_MULTI: OPEN_GALLERY);
+    }
+
+    @Override
+    public void openFileChooser(final ActionListener response, String accept) {
+        if (getActivity() == null) {
+            throw new RuntimeException("Cannot open file chooser in background mode");
+        }
+        if(editInProgress()) {
+            stopEditing(true);
+        }
+        callback = new EventDispatcher();
+        callback.addListener(response);
+        Intent pickerIntent = new Intent();
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
+            pickerIntent.setAction(Intent.ACTION_OPEN_DOCUMENT);
+        } else {
+            pickerIntent.setAction(Intent.ACTION_GET_CONTENT);
+        }
+        pickerIntent.addCategory(Intent.CATEGORY_OPENABLE);
+        pickerIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
+            pickerIntent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        }
+        String[] mimeTypes = getFileChooserMimeTypes(accept);
+        pickerIntent.setType("*/*");
+        if (mimeTypes.length > 0) {
+            pickerIntent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
+        }
+        this.getActivity().startActivityForResult(pickerIntent, OPEN_GALLERY);
+    }
+
+    private String[] getFileChooserMimeTypes(String accept) {
+        if (accept == null || accept.trim().length() == 0 || "*/*".equals(accept.trim())) {
+            return new String[0];
+        }
+        ArrayList<String> out = new ArrayList<String>();
+        String[] tokens = accept.split(",");
+        for (int iter = 0; iter < tokens.length; iter++) {
+            String token = tokens[iter].trim();
+            if (token.length() == 0 || "*".equals(token)) {
+                continue;
+            }
+            if (token.indexOf('/') > 0) {
+                out.add(token);
+            }
+        }
+        if (out.isEmpty()) {
+            out.add("*/*");
+        }
+        return out.toArray(new String[out.size()]);
+    }
+
+    class NativeImage extends Image {
+
+        public NativeImage(Bitmap nativeImage) {
+            super(nativeImage);
+        }
+    }
+
+    /**
+     * Persist read permissions that were granted by an activity result so that media playback can
+     * continue after {@link Activity#onActivityResult(int, int, Intent)} returns.
+     *
+     * <p>Android 13 and newer revoke temporary grants immediately after the callback unless the
+     * app calls {@link ContentResolver#takePersistableUriPermission(Uri, int)}. Without this call
+     * {@link #createMedia(String, boolean, Runnable)} loses access to the {@code content://} URI
+     * provided by the system picker and playback fails on Android 15.</p>
+     */
+    private void takePersistablePermissionsFromIntent(Intent intent) {
+        if (intent == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) {
+            return;
+        }
+        int takeFlags = intent.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        if (takeFlags == 0) {
+            return;
+        }
+        ContentResolver resolver = getContext().getContentResolver();
+        if (resolver == null) {
+            return;
+        }
+        ClipData clip = intent.getClipData();
+        if (clip != null) {
+            for (int i = 0; i < clip.getItemCount(); i++) {
+                Uri uri = clip.getItemAt(i).getUri();
+                if (uri != null) {
+                    try {
+                        resolver.takePersistableUriPermission(uri, takeFlags);
+                    } catch (SecurityException ignored) {
+                    }
+                }
+            }
+        }
+        Uri dataUri = intent.getData();
+        if (dataUri != null) {
+            try {
+                resolver.takePersistableUriPermission(dataUri, takeFlags);
+            } catch (SecurityException ignored) {
+            }
+        }
+    }
+
+    /**
+     * Create a File for saving an image or video
+     */
+    private File getOutputMediaFile(boolean isVideo) {
+        // To be safe, you should check that the SDCard is mounted
+        // using Environment.getExternalStorageState() before doing this.
+        if (getActivity() != null) {
+            return GetOutputMediaFile.getOutputMediaFile(isVideo, getActivity());
+        } else {
+            return GetOutputMediaFile.getOutputMediaFile(isVideo, getContext(), "Video");
+        }
+    }
+
+    private static class GetOutputMediaFile {
+
+        public static File getOutputMediaFile(boolean isVideo,Activity activity) {
+            activity.getComponentName();
+            return getOutputMediaFile(isVideo, activity, activity.getTitle());
+        }
+
+        public static File getOutputMediaFile(boolean isVideo, Context activity, CharSequence title) {
+
+
+            File mediaStorageDir = new File(new File(getContext().getCacheDir(), "intent_files"), ""+title);
+
+            // Create the storage directory if it does not exist
+            if (!mediaStorageDir.exists()) {
+                if (!mediaStorageDir.mkdirs()) {
+                    Log.d(Display.getInstance().getProperty("AppName", "CodenameOne"), "failed to create directory");
+                    return null;
+                }
+            }
+
+            // Create a media file name
+            String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+            File mediaFile = null;
+            if (!isVideo) {
+                mediaFile = new File(mediaStorageDir.getPath() + File.separator
+                        + "IMG_" + timeStamp + ".jpg");
+            } else {
+                mediaFile = new File(mediaStorageDir.getPath() + File.separator
+                        + "VID_" + timeStamp + ".mp4");
+            }
+
+            return mediaFile;
+        }
+    }
+
+    @Override
+    public void systemOut(String content){
+        Log.d(Display.getInstance().getProperty("AppName", "CodenameOne"), content);
+    }
+
+    private boolean hasAndroidMarket() {
+        return hasAndroidMarket(getContext());
+    }
+
+    private static final String GooglePlayStorePackageNameOld = "com.google.market";
+    private static final String GooglePlayStorePackageNameNew = "com.android.vending";
+
+    /**
+     * Indicates whether this is a Google certified device which means that it
+     * has Android market etc.
+     */
+    public static boolean hasAndroidMarket(Context activity) {
+        final PackageManager packageManager = activity.getPackageManager();
+        List<PackageInfo> packages = packageManager.getInstalledPackages(PackageManager.GET_UNINSTALLED_PACKAGES);
+        for (PackageInfo packageInfo : packages) {
+            if (packageInfo.packageName.equals(GooglePlayStorePackageNameOld) ||
+                    packageInfo.packageName.equals(GooglePlayStorePackageNameNew)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public void registerPush(Hashtable metaData, boolean noFallback) {
+        if (getActivity() == null) {
+            return;
+        }
+
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            if(!checkForPermission("android.permission.POST_NOTIFICATIONS", "This is required to receive push notifications")){
+                return;
+            }
+        }
+
+        boolean huawei = "huawei".equals(Display.getInstance().getProperty("cn1.push.transport", ""));
+        if (!hasAndroidMarket() && !huawei) {
+            Log.d("Codename One", "Device doesn't have Android market/google play can't register for push!");
+            return;
+        }
+        String id = "";
+        if (!huawei) {
+            id = (String)metaData.get(com.codename1.push.Push.GOOGLE_PUSH_KEY);
+            if (id == null) {
+                id = Display.getInstance().getProperty("gcm.sender_id", null);
+            }
+        }
+        Log.d("Codename One", "Sending async push request for id: " + id);
+        ((CodenameOneActivity) getActivity()).registerForPush(id);
+    }
+
+    public static void stopPollingLoop() {
+        stopPolling();
+    }
+
+    public static void registerPolling() {
+        registerPollingFallback();
+    }
+
+    @Override
+    public void deregisterPush() {
+        boolean has = hasAndroidMarket()
+                || "huawei".equals(Display.getInstance().getProperty("cn1.push.transport", ""));
+        if (has) {
+            ((CodenameOneActivity) getActivity()).stopReceivingPush();
+            deregisterPushFromServer();
+        } else {
+            super.deregisterPush();
+        }
+    }
+
+    private static String convertImageUriToFilePath(Uri imageUri, Context activity) {
+        Cursor cursor = null;
+        String[] proj = {MediaStore.Images.Media.DATA};
+        cursor = activity.getContentResolver().query(imageUri, proj, null, null, null);
+        int column_index = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
+        cursor.moveToFirst();
+        String path = cursor.getString(column_index);
+        cursor.close();
+        return path;
+    }
+
+    class CN1MediaController extends MediaController {
+
+        public CN1MediaController() {
+            super(getActivity());
+        }
+
+        @Override
+        public boolean dispatchKeyEvent(KeyEvent event) {
+            int keycode = event.getKeyCode();
+            keycode = CodenameOneView.internalKeyCodeTranslate(keycode);
+            if (keycode == AndroidImplementation.DROID_IMPL_KEY_BACK) {
+                // Claim the gesture so the activity's OnBackInvokedCallback
+                // stands down; on Android 16 the platform can deliver both for
+                // one press. See PredictiveBackBridge. The claim brackets the
+                // DOWN and the UP even though this path answers each of them
+                // with a whole press/release pair of its own.
+                switch (event.getAction()) {
+                    case KeyEvent.ACTION_DOWN:
+                        PredictiveBackBridge.keyEventBackStarted();
+                        break;
+                    case KeyEvent.ACTION_UP:
+                        PredictiveBackBridge.keyEventBackFinished();
+                        break;
+                    default:
+                        break;
+                }
+                Display.getInstance().keyPressed(keycode);
+                Display.getInstance().keyReleased(keycode);
+                return true;
+            } else {
+                return super.dispatchKeyEvent(event);
+            }
+        }
+    }
+    private L10NManager l10n;
+
+    /**
+     * @inheritDoc
+     */
+    public L10NManager getLocalizationManager() {
+        if (l10n == null) {
+            final Locale l = Locale.getDefault();
+            l10n = new L10NManager(l.getLanguage(), l.getCountry()) {
+                public double parseDouble(String localeFormattedDecimal) {
+                    try {
+                        return NumberFormat.getNumberInstance().parse(localeFormattedDecimal).doubleValue();
+                    } catch (ParseException err) {
+                        return Double.parseDouble(localeFormattedDecimal);
+                    }
+                }
+
+                @Override
+                public String getLongMonthName(Date date) {
+                    java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("MMMM", l);
+                    return fmt.format(date);
+                }
+
+                @Override
+                public String getShortMonthName(Date date) {
+                    java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("MMM", l);
+                    return fmt.format(date);
+                }
+                
+                
+
+                public String format(int number) {
+                    return NumberFormat.getNumberInstance().format(number);
+                }
+
+                public String format(double number) {
+                    return NumberFormat.getNumberInstance().format(number);
+                }
+
+                public String formatCurrency(double currency) {
+                    return NumberFormat.getCurrencyInstance().format(currency);
+                }
+
+                public String formatDateLongStyle(Date d) {
+                    return DateFormat.getDateInstance(DateFormat.LONG).format(d);
+                }
+
+                public String formatDateShortStyle(Date d) {
+                    return DateFormat.getDateInstance(DateFormat.SHORT).format(d);
+                }
+
+                public String formatDateTime(Date d) {
+                    return DateFormat.getDateTimeInstance().format(d);
+                }
+
+                public String formatDateTimeMedium(Date d) {
+                    DateFormat dd = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.MEDIUM);
+                    return dd.format(d);
+                }
+
+                public String formatDateTimeShort(Date d) {
+                    DateFormat dd = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT);
+                    return dd.format(d);
+                }
+
+                public String getCurrencySymbol() {
+                    return NumberFormat.getInstance().getCurrency().getSymbol();
+                }
+
+                public void setLocale(String locale, String language) {
+                    super.setLocale(locale, language);
+                    Locale l = new Locale(language, locale);
+                    Locale.setDefault(l);
+                }
+            };
+        }
+        return l10n;
+    }
+    private com.codename1.ui.util.ImageIO imIO;
+
+    private com.codename1.media.VideoIO videoIO;
+    private boolean videoIOResolved;
+
+    @Override
+    public com.codename1.media.VideoIO getVideoIO() {
+        if (!videoIOResolved) {
+            videoIOResolved = true;
+            if (android.os.Build.VERSION.SDK_INT >= 21) {
+                videoIO = new AndroidVideoIO();
+            }
+        }
+        return videoIO;
+    }
+
+    @Override
+    public com.codename1.ui.util.ImageIO getImageIO() {
+        if (imIO == null) {
+            imIO = new com.codename1.ui.util.ImageIO() {
+                @Override
+                public Dimension getImageSize(String imageFilePath) throws IOException {
+                    BitmapFactory.Options o = new BitmapFactory.Options();
+                    o.inJustDecodeBounds = true;
+                    o.inPreferredConfig = Bitmap.Config.ARGB_8888;
+
+                    InputStream fis = createFileInputStream(imageFilePath);
+                    BitmapFactory.decodeStream(fis, null, o);
+                    fis.close();
+
+                    ExifInterface exif = new ExifInterface(removeFilePrefix(imageFilePath));
+
+                    // if the image is in portrait mode
+                    int orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+                    if(orientation == ExifInterface.ORIENTATION_ROTATE_90 || orientation == ExifInterface.ORIENTATION_ROTATE_270) {
+                        return new Dimension(o.outHeight, o.outWidth);
+                    }
+                    return new Dimension(o.outWidth, o.outHeight);
+                }
+
+                private Dimension getImageSizeNoRotation(String imageFilePath) throws IOException {
+                    BitmapFactory.Options o = new BitmapFactory.Options();
+                    o.inJustDecodeBounds = true;
+                    o.inPreferredConfig = Bitmap.Config.ARGB_8888;
+
+                    InputStream fis = createFileInputStream(imageFilePath);
+                    BitmapFactory.decodeStream(fis, null, o);
+                    fis.close();
+
+                    return new Dimension(o.outWidth, o.outHeight);
+                }
+
+                @Override
+                public void save(InputStream image, OutputStream response, String format, int width, int height, float quality) throws IOException {
+                    Bitmap.CompressFormat f = Bitmap.CompressFormat.PNG;
+                    if (FORMAT_JPEG.equals(format)) {
+                        f = Bitmap.CompressFormat.JPEG;
+                    }
+                    Image img = Image.createImage(image).scaled(width, height);
+                    Bitmap b = (Bitmap) img.getImage();
+                    b.compress(f, (int) (quality * 100), response);
+                }
+
+                @Override
+                public String saveAndKeepAspect(String imageFilePath, String preferredOutputPath, String format, int width, int height, float quality, boolean onlyDownscale, boolean scaleToFill) throws IOException{
+                    ExifInterface exif = new ExifInterface(removeFilePrefix(imageFilePath));
+                    Dimension d = getImageSizeNoRotation(imageFilePath);
+                    if(onlyDownscale) {
+                        if(scaleToFill) {
+                            if(d.getHeight() <= height || d.getWidth() <= width) {
+                                return imageFilePath;
+                            }
+                        } else {
+                            if(d.getHeight() <= height && d.getWidth() <= width) {
+                                return imageFilePath;
+                            }
+                        }
+                    }
+
+                    float ratio = ((float)d.getWidth()) / ((float)d.getHeight());
+                    int heightBasedOnWidth = (int)(((float)width) / ratio);
+                    int widthBasedOnHeight = (int)(((float)height) * ratio);
+                    if(scaleToFill) {
+                        if(heightBasedOnWidth >= width) {
+                            height = heightBasedOnWidth;
+                        } else {
+                            width = widthBasedOnHeight;
+                        }
+                    } else {
+                        if(heightBasedOnWidth > width) {
+                            width = widthBasedOnHeight;
+                        } else {
+                            height = heightBasedOnWidth;
+                        }
+                    }
+                    sampleSizeOverride = Math.max(d.getWidth()/width, d.getHeight()/height);
+                    OutputStream im = FileSystemStorage.getInstance().openOutputStream(preferredOutputPath);
+                    Image i = Image.createImage(imageFilePath);
+                    Image newImage = i.scaled(width, height);
+                    int orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+
+                    int angle = 0;
+                    switch (orientation) {
+                        case ExifInterface.ORIENTATION_ROTATE_90:
+                            angle = 90;
+                            break;
+                        case ExifInterface.ORIENTATION_ROTATE_180:
+                            angle = 180;
+                            break;
+                        case ExifInterface.ORIENTATION_ROTATE_270:
+                            angle = 270;
+                            break;
+                    }
+                    if (angle != 0) {
+                        Matrix mat = new Matrix();
+                        mat.postRotate(angle);
+                        Bitmap b = (Bitmap)newImage.getImage();
+                        Bitmap correctBmp = Bitmap.createBitmap(b, 0, 0, b.getWidth(), b.getHeight(), mat, true);
+                        b.recycle();
+                        newImage.dispose();
+                        Image tmp = Image.createImage(correctBmp);
+                        newImage = tmp;
+                        save(tmp, im, format, quality);
+                    } else {
+                        save(imageFilePath, im, format, width, height, quality);
+                    }
+                    sampleSizeOverride =  -1;
+                    return preferredOutputPath;
+                }
+
+                @Override
+                public void save(String imageFilePath, OutputStream response, String format, int width, int height, float quality) throws IOException {
+                    Image i = Image.createImage(imageFilePath);
+                    Image newImage = i.scaled(width, height);
+                    save(newImage, response, format, quality);
+                    newImage.dispose();
+                    i.dispose();
+                }
+
+                @Override
+                protected void saveImage(Image img, OutputStream response, String format, float quality) throws IOException {
+                    Bitmap.CompressFormat f = Bitmap.CompressFormat.PNG;
+                    if (FORMAT_JPEG.equals(format)) {
+                        f = Bitmap.CompressFormat.JPEG;
+                    }
+                    Bitmap b = (Bitmap) img.getImage();
+                    b.compress(f, (int) (quality * 100), response);
+                }
+
+                @Override
+                public boolean isFormatSupported(String format) {
+                    return FORMAT_JPEG.equals(format) || FORMAT_PNG.equals(format);
+                }
+            };
+        }
+        return imIO;
+    }
+
+    @Override
+    public Database openOrCreateDB(String databaseName) throws IOException {
+        // Reserved first, and recovery run inside the reservation. The slot has to be taken
+        // before the engine opens anything, or a conversion reading the count during the open
+        // starts replacing the file this is about to hand back -- and recovery has to be inside
+        // it too, because a conversion that has just installed its converted file leaves the live
+        // file and the backup both present, which recovery would otherwise read as a completed
+        // conversion and act on by deleting the backup.
+        String nativePath = resolveNativeDatabasePath(databaseName);
+        reserveDatabaseConnection(nativePath);
+        SQLiteDatabase db;
+        try {
+            // A plaintext open of a database mid-conversion would create an empty one over the
+            // top of the real data, which nothing afterwards could undo.
+            //
+            // One connection is allowed to be open here, and it is the reservation taken above.
+            // Anything beyond that is somebody else's handle -- including one taken through the
+            // constructor that wraps an already-open connection -- and recovery moves the file
+            // out from under it. When that is the case and a conversion is waiting to be
+            // finished, this open is refused rather than handing back a file recovery is going
+            // to replace; with nothing waiting there is nothing to recover and the open goes
+            // ahead as before.
+            recoverIfSoleConnection(nativePath);
+            if (databaseName.startsWith("file://")) {
+                db = SQLiteDatabase.openOrCreateDatabase(
+                        FileSystemStorage.getInstance().toNativePath(databaseName), null,
+                        KEEP_ON_CORRUPTION);
+            } else {
+                db = getContext().openOrCreateDatabase(databaseName, Context.MODE_PRIVATE,
+                        null, KEEP_ON_CORRUPTION);
+            }
+        } catch (RuntimeException didNotOpen) {
+            databaseConnectionClosed(nativePath);
+            // The engine reports a file it cannot read by throwing an unchecked
+            // SQLiteDatabaseCorruptException, and an encrypted database opened without its key is
+            // exactly that to the plain engine. This API promises every failure as an IOException,
+            // so the caller can catch one thing rather than an unchecked type per platform.
+            throw new IOException("The database " + databaseName + " could not be opened: "
+                    + didNotOpen.getMessage(), didNotOpen);
+        } catch (IOException didNotRecover) {
+            databaseConnectionClosed(nativePath);
+            throw didNotRecover;
+        }
+        return new AndroidDB(db, nativePath);
+    }
+
+    @Override
+    public Database openOrCreateDB(String databaseName, com.codename1.db.DatabaseConfig config) throws IOException {
+        if (config == null || !config.isEncrypted()) {
+            return openOrCreateDB(databaseName);
+        }
+        // The slot is taken before the engine opens anything, for the reason given in
+        // openOrCreateDB. AndroidCipherFactory hands back a connection that already holds it.
+        String nativePath = resolveNativeDatabasePath(databaseName);
+        reserveDatabaseConnection(nativePath);
+        // The SQLCipher-backed package is deleted at build time for apps that never touch
+        // DatabaseConfig, so it has to be reached reflectively - the same arrangement the
+        // ARCore-backed AR implementation uses.
+        Object opened;
+        try {
+            Class c = Class.forName("com.codename1.impl.android.cipher.AndroidCipherFactory");
+            java.lang.reflect.Method open = c.getMethod("open", String.class, String.class,
+                    String.class);
+            // Cast outside the try, below: inside a block that catches Throwable, a wrong type
+            // from the reflective call would be swallowed and reported as the package being
+            // absent. The resolved file, not the name it was asked for: a managed key with no explicit
+            // alias is stored under whatever is passed here, so two accepted spellings of one
+            // database would derive two different keys and the second open would report a wrong
+            // key against data that is perfectly intact.
+            opened = open.invoke(null,
+                    resolveNativeDatabasePath(databaseName), databaseName,
+                    config.resolveKeyMaterial(databaseKey(nativePath)));
+        } catch (java.lang.reflect.InvocationTargetException err) {
+            releaseUnusedDatabaseConnection(nativePath);
+            Throwable cause = err.getCause();
+            if (cause instanceof IOException) {
+                throw (IOException) cause;
+            }
+            throw new IOException(cause == null ? err.toString() : cause.getMessage(), cause);
+        } catch (IOException err) {
+            releaseUnusedDatabaseConnection(nativePath);
+            throw err;
+        } catch (ClassNotFoundException notBundled) {
+            // The only benign reason to land here: the build pruned the package because the
+            // application never referenced DatabaseConfig.
+            releaseUnusedDatabaseConnection(nativePath);
+            throw new com.codename1.db.DatabaseEncryptionException(
+                    com.codename1.db.DatabaseEncryptionException.NOT_SUPPORTED,
+                    "This build does not include encrypted database support", notBundled);
+        } catch (NoSuchMethodException broken) {
+            // The package is present but does not expose the entry point this reaches through.
+            // That is a broken build, not an unsupported platform, and reporting it as
+            // NOT_SUPPORTED would hide it: every caller would be told encryption is unavailable
+            // on a device that ships the engine. This is the failure mode a compiler would have
+            // caught if the seam were not reflective, so it has to be loud.
+            releaseUnusedDatabaseConnection(nativePath);
+            throw new IOException("The encrypted database implementation is present but does not "
+                    + "expose the expected entry point. This build is inconsistent: "
+                    + broken.getMessage(), broken);
+        } catch (Throwable err) {
+            releaseUnusedDatabaseConnection(nativePath);
+            throw new com.codename1.db.DatabaseEncryptionException(
+                    com.codename1.db.DatabaseEncryptionException.NOT_SUPPORTED,
+                    "This build does not include encrypted database support", err);
+        }
+        if (!(opened instanceof Database)) {
+            releaseUnusedDatabaseConnection(nativePath);
+            throw new IOException("The encrypted database implementation returned "
+                    + (opened == null ? "nothing" : opened.getClass().getName())
+                    + " rather than a Database. This build is inconsistent.");
+        }
+        return (Database) opened;
+    }
+
+    /// The file an implicit managed key is stored under; see the open path, which resolves the
+    /// same way so two spellings of one database derive one key.
+    @Override
+    public String databaseManagedKeyIdentity(String databaseName) {
+        // Canonical, like the connection registry: resolveNativeDatabasePath leaves a custom
+        // spelling as it was given, so "/data/app/./db.sqlite" and "/data/app/db.sqlite" would
+        // otherwise pick different stored keys for one file and report the second open as wrong.
+        return databaseKey(resolveNativeDatabasePath(databaseName));
+    }
+
+    @Override
+    public boolean isDatabaseEncryptionSupported() {
+        Object available;
+        try {
+            Class c = Class.forName("com.codename1.impl.android.cipher.AndroidCipherFactory");
+            available = c.getMethod("isAvailable").invoke(null);
+        } catch (Throwable notPresent) {
+            return false;
+        }
+        // Tested rather than cast inside the try: the reflective answer is untyped, and
+        // anything but a Boolean means the feature is unavailable rather than absent.
+        return available instanceof Boolean && ((Boolean) available).booleanValue();
+    }
+
+    @Override
+    public boolean isDatabaseManagedKeyHardwareBacked() {
+        // Ask the key itself. An API level says only that the API exists: emulators, and plenty of
+        // real devices, back AndroidKeyStore keys in software. Applications are told they may use
+        // this to refuse to store sensitive data, so it has to describe the actual key.
+        return AndroidSecureStorage.isPlainKeyInsideSecureHardware();
+    }
+
+    /**
+     * Absolute filesystem path for a database name, converting a custom file:// URL.
+     *
+     * getDatabasePath() deliberately echoes a file:// URL back unchanged, which is right for
+     * callers that hand it to FileSystemStorage but wrong for anything constructing a java.io.File
+     * from it.
+     */
+    /// Directory holding the encrypted-database migration's working files.
+    ///
+    /// A directory beside the database, so the rename that installs the converted file stays
+    /// within one filesystem and is therefore atomic.
+    ///
+    /// The location alone does not make these files ours. Custom paths mean an application can
+    /// point a database anywhere, including inside here, so ownership is established by the
+    /// marker's contents rather than by where a file sits or what it is called. Nothing is
+    /// deleted, renamed over or truncated without that proof.
+    public static final String DATABASE_MIGRATION_DIR = ".cn1migration";
+
+    /// Marker name for a database. Deterministic so recovery can find it; its contents, not its
+    /// name, are what establish that a conversion wrote it.
+    public static final String MIGRATION_MARKER = ".marker";
+
+    /// Fourth line of a marker whose installed file was never shown to open.
+    private static final String MIGRATION_UNVALIDATED = "unvalidated";
+
+    /// First line of a marker written by this port.
+    private static final String MIGRATION_MARKER_MAGIC = "codename1-database-migration-1";
+
+    /// The migration directory for a database, or null if the path has no parent.
+    public static File databaseMigrationDir(String path) {
+        File parent = new File(path).getParentFile();
+        return parent == null ? null : new File(parent, DATABASE_MIGRATION_DIR);
+    }
+
+    public static File databaseMigrationMarker(String path) {
+        File dir = databaseMigrationDir(path);
+        return dir == null ? null : new File(dir, new File(path).getName() + MIGRATION_MARKER);
+    }
+
+    /// Reads a marker written by this port, or null when the file is not one of ours.
+    ///
+    /// A marker is trusted only if it opens with the magic line. Anything else - including an
+    /// application database that happens to live at this path - is left alone.
+    ///
+    /// The two entries after it are the file holding the original and the export being built,
+    /// either of which may be absent: the marker is written before the export is filled in and
+    /// rewritten once the original has been moved aside, so which files exist depends on how far
+    /// the conversion got.
+    ///
+    /// What this does NOT defend against, deliberately: an actor who can write in the migration
+    /// directory can still write a marker naming files inside it. The magic line is in the
+    /// source, so it authenticates nothing -- and there is no secret this port could sign a
+    /// marker with that the same actor could not read out of the application. The damage is
+    /// bounded to that one directory, which that actor can already write to and delete from
+    /// directly, so the check earns its keep by keeping the names inside it rather than by
+    /// pretending the file is trusted.
+    ///
+    /// A rejected marker is treated as somebody else's file: recovery leaves it alone and a
+    /// conversion refuses to start rather than overwriting it, with a message naming the file. A
+    /// crafted marker therefore stops conversions of that one database until it is removed, which
+    /// is the outcome to prefer over acting on it.
+    ///
+    /// @return the two names, either element null, or null if this is not our marker
+    private static String[] readDatabaseMigrationMarker(String path) {
+        File marker = databaseMigrationMarker(path);
+        if (marker == null || !marker.isFile()) {
+            return null;
+        }
+        BufferedReader reader = null;
+        try {
+            reader = new BufferedReader(new InputStreamReader(new FileInputStream(marker),
+                    "UTF-8"));
+            if (!MIGRATION_MARKER_MAGIC.equals(reader.readLine())) {
+                return null;
+            }
+            String backup = reader.readLine();
+            String target = reader.readLine();
+            String state = reader.readLine();
+            String backupName = backup == null || backup.length() == 0 ? null : backup;
+            String targetName = target == null || target.length() == 0 ? null : target;
+            // The names this port writes are basenames createTempFile produced in the migration
+            // directory, and they are read back as files to truncate, delete and rename over. A
+            // marker is a plain text file beside the database, so where the database sits
+            // somewhere another actor can write -- which a custom path can -- an entry like
+            // "../../../files/secret" would be resolved against that directory and handed to the
+            // cleanup, which truncates and deletes what it is given. Anything that is not a
+            // simple name inside this directory means the file is not one of ours, which is the
+            // answer that stops every caller: recovery leaves it alone and a conversion refuses
+            // to overwrite it rather than starting.
+            File dir = databaseMigrationDir(path);
+            if ((backupName != null && !isMigrationEntryName(backupName, dir))
+                    || (targetName != null && !isMigrationEntryName(targetName, dir))) {
+                return null;
+            }
+            return new String[] {
+                backupName,
+                targetName,
+                state == null || state.length() == 0 ? null : state,
+            };
+        } catch (IOException unreadable) {
+            return null;
+        } finally {
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (IOException ignored) {
+                    // Nothing useful to do.
+                }
+            }
+        }
+    }
+
+    /// Whether a name a marker carries is one this port could have written there.
+    ///
+    /// A generated basename, and a file that really is a direct child of the migration directory:
+    /// the first rejects a path that climbs out of it, the second rejects a name inside it that
+    /// is a link to somewhere else. Both are checked because either alone can be walked around --
+    /// a name with no separator can still be a symlink, and a canonical check on its own would
+    /// accept "sub/dir/../file".
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the entry read from the marker
+    /// - `directory`: the migration directory the marker lives in
+    ///
+    /// #### Returns
+    ///
+    /// true if the name is safe to resolve against that directory
+    private static boolean isMigrationEntryName(String name, File directory) {
+        if (directory == null || name.length() == 0 || ".".equals(name) || "..".equals(name)) {
+            return false;
+        }
+        if (name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 || name.indexOf('\u0000') >= 0) {
+            return false;
+        }
+        try {
+            File resolved = new File(directory, name).getCanonicalFile();
+            File parent = resolved.getParentFile();
+            return parent != null && parent.equals(directory.getCanonicalFile());
+        } catch (IOException cannotResolve) {
+            // A name that cannot be resolved is not one that gets acted on.
+            return false;
+        }
+    }
+
+    /// Whether the marker for this database was written by this port.
+    ///
+    /// Distinct from having a backup: a marker written before the export was filled in names no
+    /// backup yet, and is still ours to rewrite.
+    private static boolean ownsDatabaseMigrationMarker(String path) {
+        return readDatabaseMigrationMarker(path) != null;
+    }
+
+    /// Reads the backup a marker claims, or null when there is none.
+    public static File readDatabaseMigrationBackup(String path) {
+        String[] entry = readDatabaseMigrationMarker(path);
+        if (entry == null || entry[0] == null) {
+            return null;
+        }
+        return new File(databaseMigrationMarker(path).getParentFile(), entry[0]);
+    }
+
+    /// Whether the marker says its installed file was never shown to open.
+    private static boolean isDatabaseMigrationUnvalidated(String path) {
+        String[] entry = readDatabaseMigrationMarker(path);
+        return entry != null && entry.length > 2 && MIGRATION_UNVALIDATED.equals(entry[2]);
+    }
+
+    /// Reads the export a marker claims, or null when there is none.
+    ///
+    /// The export is a second complete copy of the data, and a plaintext one when the conversion
+    /// was a decryption, so it is recorded before anything is written into it. Otherwise a process
+    /// death between creating it and finishing the conversion would leave readable data behind
+    /// under a name nothing knows to look for.
+    public static File readDatabaseMigrationTarget(String path) {
+        String[] entry = readDatabaseMigrationMarker(path);
+        if (entry == null || entry[1] == null) {
+            return null;
+        }
+        return new File(databaseMigrationMarker(path).getParentFile(), entry[1]);
+    }
+
+    /// Every database connection this port has open, by the file it is open on.
+    ///
+    /// Shared by both implementations on purpose. Only a conversion needs it, and a conversion is
+    /// not a statement: it renames a new file over the database while the process is running, and
+    /// Android lets that succeed while another connection holds the old one. That connection goes
+    /// on writing to a file that is no longer the database, is told each write succeeded, and
+    /// loses all of it when the backup is deleted.
+    ///
+    /// The connection it collides with is usually not another encrypted one -- the ordinary case
+    /// is an application holding `Database.openOrCreate(name)` open, which is a plaintext
+    /// connection, and then calling `Database.encrypt(name, ...)`. Counting only the encrypted
+    /// ones would miss exactly the case that happens.
+    private static final java.util.Map<String, Integer> OPEN_DATABASE_CONNECTIONS =
+            new java.util.HashMap<String, Integer>();
+
+    /// The key a database file is tracked under.
+    ///
+    /// Canonical, because two spellings of one file must not be two entries: a connection opened
+    /// as `/data/app/db.sqlite` has to be visible to a conversion started as
+    /// `/data/app/./db.sqlite`, or the file is replaced underneath it and its later writes -- each
+    /// one reported as successful -- disappear with the old inode. `toNativePath` only strips the
+    /// `file://` prefix, so a custom path arrives however the caller spelled it.
+    ///
+    /// Falls back to the absolute path when the file system cannot answer, which still collapses
+    /// the relative spellings; a canonical path that cannot be resolved is not a reason to refuse
+    /// to open a database.
+    /// The canonical identity of a database file, for callers outside this class.
+    ///
+    /// The cipher package resolves a managed key against it, so that its key change and the next
+    /// open agree on which file they are talking about.
+    public static String canonicalDatabaseKey(String path) {
+        return databaseKey(path);
+    }
+
+    private static String databaseKey(String path) {
+        if (path == null) {
+            return null;
+        }
+        try {
+            return new File(path).getCanonicalPath();
+        } catch (IOException cannotResolve) {
+            return new File(path).getAbsolutePath();
+        }
+    }
+
+    /// Records a connection opened on a database file.
+    public static synchronized void databaseConnectionOpened(String rawPath) {
+        String path = databaseKey(rawPath);
+        if (path == null) {
+            return;
+        }
+        Integer count = OPEN_DATABASE_CONNECTIONS.get(path);
+        OPEN_DATABASE_CONNECTIONS.put(path,
+                Integer.valueOf(count == null ? 1 : count.intValue() + 1));
+    }
+
+    /// Records a connection closed on a database file.
+    public static synchronized void databaseConnectionClosed(String rawPath) {
+        String path = databaseKey(rawPath);
+        if (path == null) {
+            return;
+        }
+        Integer count = OPEN_DATABASE_CONNECTIONS.get(path);
+        if (count == null) {
+            return;
+        }
+        if (count.intValue() <= 1) {
+            OPEN_DATABASE_CONNECTIONS.remove(path);
+        } else {
+            OPEN_DATABASE_CONNECTIONS.put(path, Integer.valueOf(count.intValue() - 1));
+        }
+    }
+
+    /// Database files a conversion currently owns exclusively.
+    private static final java.util.Set<String> MIGRATING_DATABASES =
+            new java.util.HashSet<String>();
+
+    /// Claims a database for a conversion, or refuses.
+    ///
+    /// Counting the connections and then converting are one decision, not two. Between a count
+    /// read on its own and the rename that ends the conversion, another thread can open the
+    /// database, and that connection then holds the file the rename replaces: its writes are
+    /// accepted and disappear when the backup goes. So the count is read and the claim taken
+    /// under the same lock the opens take, and an open that arrives afterwards is refused for as
+    /// long as the conversion runs.
+    ///
+    /// #### Parameters
+    ///
+    /// - `path`: the database file
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if the database is open elsewhere, or already being converted
+    public static synchronized void beginDatabaseMigration(String rawPath) throws IOException {
+        String path = databaseKey(rawPath);
+        if (MIGRATING_DATABASES.contains(path)) {
+            throw new IOException("The database " + path + " is already being converted.");
+        }
+        Integer count = OPEN_DATABASE_CONNECTIONS.get(path);
+        if (count != null && count.intValue() > 1) {
+            throw new IOException("The database " + path + " is open more than once, and "
+                    + "converting it replaces the file underneath every connection to it. Close "
+                    + "the other connections first; writes made through them during the "
+                    + "conversion would be accepted and then lost.");
+        }
+        MIGRATING_DATABASES.add(path);
+    }
+
+    /// Recovers an interrupted conversion, but only for an open that has the file to itself.
+    ///
+    /// Called from the open paths, plaintext and encrypted, each of which has already reserved
+    /// its own connection -- so one open connection is this caller and anything beyond it is
+    /// somebody else's handle, including one taken through the constructor that wraps an
+    /// already-open connection. Recovery renames the live file aside and puts a backup back, and
+    /// a connection attached to the displaced file keeps accepting writes that go nowhere, so it
+    /// is left for the next open that has the file alone.
+    ///
+    /// #### Parameters
+    ///
+    /// - `rawPath`: the database file
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if the recovery itself fails
+    public static void recoverIfSoleConnection(String rawPath) throws IOException {
+        if (claimDatabaseForRecovery(rawPath, 1)) {
+            try {
+                recoverInterruptedDatabaseMigration(rawPath);
+            } finally {
+                endDatabaseMigration(rawPath);
+            }
+            return;
+        }
+        if (hasInterruptedDatabaseMigration(rawPath)) {
+            // Recovery could not run and there is work waiting for it, which means the file this
+            // open would hand back is one recovery is going to replace. Two handles writing to it
+            // in the meantime would both be told their writes succeeded, and the next open with
+            // the file to itself would restore the backup over the top of them. Refusing is the
+            // only answer that does not accept writes it cannot keep.
+            throw new IOException("The database " + rawPath + " has a conversion that was "
+                    + "interrupted, and it cannot be finished while another connection holds the "
+                    + "file. Close the other connections and open it again; the data is intact "
+                    + "and will be put back then.");
+        }
+    }
+
+    /// Whether a conversion of this database was interrupted and still has work waiting.
+    ///
+    /// A marker this port wrote is the record of that. One written by something else is not ours
+    /// to read, and recovery leaves it alone for the same reason.
+    ///
+    /// #### Parameters
+    ///
+    /// - `rawPath`: the database file
+    ///
+    /// #### Returns
+    ///
+    /// true when recovery has something to do
+    private static boolean hasInterruptedDatabaseMigration(String rawPath) {
+        File marker = databaseMigrationMarker(rawPath);
+        return marker != null && marker.isFile() && ownsDatabaseMigrationMarker(rawPath);
+    }
+
+    /// Takes the conversion claim for a recovery, or reports that a conversion already holds it.
+    ///
+    /// Recovery moves the same three files a conversion does, so the two must not overlap. The
+    /// claim is the conversion's own, so a conversion starting while recovery runs is refused by
+    /// `#beginDatabaseMigration(String)` exactly as a second conversion would be.
+    ///
+    /// #### Parameters
+    ///
+    /// - `rawPath`: the database file
+    ///
+    /// #### Returns
+    ///
+    /// true when the claim was taken and must be given back
+    private static synchronized boolean claimDatabaseForRecovery(String rawPath,
+            int connectionsOfOurOwn) {
+        String path = databaseKey(rawPath);
+        if (path == null || MIGRATING_DATABASES.contains(path)) {
+            return false;
+        }
+        Integer count = OPEN_DATABASE_CONNECTIONS.get(path);
+        if (count != null && count.intValue() > connectionsOfOurOwn) {
+            // Somebody else holds the file. Recovery renames the live file aside and puts a
+            // backup back, and a connection already attached to the displaced file keeps
+            // accepting writes that go nowhere -- worst of all for a conversion whose converted
+            // file was never validated, where the backup is what recovery installs. Refusing
+            // leaves the marker in place for the next open that has the file to itself.
+            return false;
+        }
+        MIGRATING_DATABASES.add(path);
+        return true;
+    }
+
+    /// Whether a conversion currently owns a database file.
+    public static synchronized boolean isDatabaseBeingConverted(String rawPath) {
+        return MIGRATING_DATABASES.contains(databaseKey(rawPath));
+    }
+
+    /// Releases a database claimed by `#beginDatabaseMigration(String)`.
+    public static synchronized void endDatabaseMigration(String rawPath) {
+        MIGRATING_DATABASES.remove(databaseKey(rawPath));
+    }
+
+    /// Gives back a slot taken by `#reserveDatabaseConnection(String)` when no connection was
+    /// handed to the caller after all.
+    public static void releaseUnusedDatabaseConnection(String path) {
+        databaseConnectionClosed(path);
+    }
+
+    /// Takes a connection slot on a database, or refuses because a conversion owns it.
+    ///
+    /// The check and the count are one step. Checking that no conversion is running and then
+    /// registering afterwards leaves a gap: the engine's open sits between them, and a conversion
+    /// that reads the count during it sees only its own connection, takes its claim, and starts
+    /// replacing the file the open is about to return a connection to. Taking the slot inside the
+    /// same lock as the check closes that -- a conversion either sees the slot and refuses, or
+    /// holds the claim and the open refuses.
+    ///
+    /// The caller releases the slot with `#databaseConnectionClosed(String)` if the open itself
+    /// then fails, and the connection releases it on close.
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if a conversion currently owns the file
+    public static synchronized void reserveDatabaseConnection(String rawPath) throws IOException {
+        String path = databaseKey(rawPath);
+        if (path != null && com.codename1.db.Database.isDatabaseBeingDeleted(path)) {
+            // The claim the delete holds, not one of this port's: it is taken before the count
+            // this method increments is read, so an open arriving mid-delete is refused here and
+            // an open that got in first is seen by that count. A claim of our own, taken when
+            // the delete reached this port, would have been too late -- the count had already
+            // been read by then, and an open landing in between would have been handed a file
+            // about to lose its name.
+            throw new IOException("The database " + path + " is being deleted and cannot be "
+                    + "opened.");
+        }
+        if (path != null && MIGRATING_DATABASES.contains(path)) {
+            throw new IOException("The database " + path + " is being converted and cannot be "
+                    + "opened until that finishes.");
+        }
+        databaseConnectionOpened(path);
+    }
+
+    /// How many connections are open on a database file, encrypted or not.
+    public static synchronized int connectionsOpenOn(String rawPath) {
+        Integer count = OPEN_DATABASE_CONNECTIONS.get(databaseKey(rawPath));
+        return count == null ? 0 : count.intValue();
+    }
+
+    /// Disposes of an export, and reports anything that survived.
+    ///
+    /// If the file cannot be unlinked it is truncated instead, which removes the contents even
+    /// where the directory entry survives.
+    ///
+    /// @return a sentence to append to a failure message, empty when nothing survived
+    public static String discardDatabaseMigrationExport(File target) {
+        if (target == null) {
+            return "";
+        }
+        // The sidecars before anything else, and through the platform's own deletion, which knows
+        // the whole set: -wal, -shm, -journal and the master journals. A database written here
+        // leaves rows in those, so removing the file alone left the data behind under a name
+        // nobody was looking at -- which is the one thing this method exists to prevent. It is
+        // also the case that matters most, since the export is a complete copy of the database,
+        // in plaintext whenever the conversion was a decrypt.
+        android.database.sqlite.SQLiteDatabase.deleteDatabase(target);
+        String survivingSidecars = discardDatabaseSidecars(target);
+        if (!target.exists() || target.delete()) {
+            return survivingSidecars;
+        }
+        if (isSymbolicLink(target)) {
+            // Emptying follows the link, and what it would empty is whatever the link points at.
+            // The name was checked before any of this began, but a directory another actor can
+            // write to can have that name replaced afterwards, and unlinking a link that cannot
+            // be unlinked leaves this holding a name that now means somebody else's file.
+            // Reported instead: the export could not be removed, and nothing else is touched.
+            return " A complete copy of the data was left at " + target.getPath()
+                    + ", which is now a link and was left alone; delete it." + survivingSidecars;
+        }
+        try {
+            new FileOutputStream(target).close();
+        } catch (IOException cannotEmptyIt) {
+            return " A complete copy of the data was left at " + target.getPath()
+                    + " and could not be removed; delete it." + survivingSidecars;
+        }
+        if (!target.exists() || target.delete()) {
+            return survivingSidecars;
+        }
+        return " An emptied file was left at " + target.getPath() + "." + survivingSidecars;
+    }
+
+    /// Whether a name now resolves to something other than itself.
+    ///
+    /// Everything under the migration directory was checked to be a plain name inside it before
+    /// any of it was acted on. That check happens once, and a directory another actor can write to
+    /// can have an entry replaced between then and the cleanup -- so anything that opens a file
+    /// rather than unlinking it asks again, immediately before it opens it.
+    ///
+    /// Unlinking needs no such question: removing a link removes the link. Emptying does, because
+    /// a stream follows it and empties whatever it points at.
+    ///
+    /// Compares the canonical path with the absolute one rather than using a no-follow open, which
+    /// this port cannot reach at the API levels it supports. It does not close the window between
+    /// the question and the open, and cannot from Java; it does stop the case that makes the
+    /// window worth anything, which is a link that has been left in place because it could not be
+    /// unlinked.
+    ///
+    /// #### Parameters
+    ///
+    /// - `f`: the entry about to be opened
+    ///
+    /// #### Returns
+    ///
+    /// true if it is a link, or if that could not be determined
+    private static boolean isSymbolicLink(File f) {
+        try {
+            return !f.getCanonicalFile().equals(f.getAbsoluteFile());
+        } catch (IOException cannotResolve) {
+            // Unresolvable is treated as a link: this only decides whether to open something, and
+            // not opening it costs a message where opening it could truncate another file.
+            return true;
+        }
+    }
+
+    /// Disposes of the files SQLite keeps beside a database, and reports anything that survived.
+    ///
+    /// Called after the platform's own deletion rather than instead of it: that removes them in
+    /// the ordinary case, and this is what happens when one could not be unlinked. Emptying is
+    /// the fallback for the same reason it is for the database itself -- a file that cannot be
+    /// removed can still be stripped of what it holds.
+    ///
+    /// @param target the database file whose companions these are
+    /// @return a sentence to append to a failure message, empty when nothing survived
+    private static String discardDatabaseSidecars(File target) {
+        String[] suffixes = {"-wal", "-shm", "-journal"};
+        StringBuilder left = new StringBuilder();
+        for (int iter = 0; iter < suffixes.length; iter++) {
+            File sidecar = new File(target.getPath() + suffixes[iter]);
+            if (!sidecar.exists() || sidecar.delete()) {
+                continue;
+            }
+            if (isSymbolicLink(sidecar)) {
+                // As above: emptying a link empties its target, and the target is not ours.
+                left.append(" A working file was left at ").append(sidecar.getPath())
+                        .append(", which is now a link and was left alone.");
+                continue;
+            }
+            try {
+                new FileOutputStream(sidecar).close();
+            } catch (IOException cannotEmptyIt) {
+                left.append(" Part of the data was left at ").append(sidecar.getPath())
+                        .append(" and could not be removed; delete it.");
+                continue;
+            }
+            if (sidecar.exists() && !sidecar.delete()) {
+                left.append(" An emptied file was left at ").append(sidecar.getPath()).append(".");
+            }
+        }
+        return left.toString();
+    }
+
+    /// Records that a conversion is under way and which file holds the original.
+    ///
+    /// The marker is the one file here whose name has to be predictable, because recovery has to
+    /// find it without being told. So it is the one place something could already be sitting -
+    /// an application may point a database at this exact path - and writing over it would
+    /// destroy that database. Anything already there that this port did not write means the
+    /// conversion does not start.
+    /// Marks a conversion whose installed file was never shown to open.
+    ///
+    /// Recovery reads a live file and a backup both being present as a completed conversion and
+    /// removes the backup. That is right when the converted file opened, and catastrophic when it
+    /// did not and could not be taken back out either: the last readable copy would go. This
+    /// records the difference, and recovery puts the backup back instead.
+    public static void markDatabaseMigrationUnvalidated(String path, File backup)
+            throws IOException {
+        writeMarker(path, backup, null, true);
+    }
+
+    /// The same, for a conversion whose export has not been installed yet.
+    ///
+    /// The export has to stay named while it still exists under its own name, or recovery cannot
+    /// find it to clean it up -- and a conversion interrupted here leaves a complete copy of the
+    /// database in the migration directory, which after a decryption is a plaintext one.
+    ///
+    /// #### Parameters
+    ///
+    /// - `path`: the live database
+    /// - `backup`: the file the original was moved to
+    /// - `target`: the export, while it is still under its own name
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if the record cannot be written
+    public static void markDatabaseMigrationUnvalidated(String path, File backup, File target)
+            throws IOException {
+        writeMarker(path, backup, target, true);
+    }
+
+    public static void writeDatabaseMigrationMarker(String path, File backup, File target)
+            throws IOException {
+        writeMarker(path, backup, target, false);
+    }
+
+    private static void writeMarker(String path, File backup, File target, boolean unvalidated)
+            throws IOException {
+        File marker = databaseMigrationMarker(path);
+        if (marker == null) {
+            throw new IOException("The database " + path + " has no directory to convert it in");
+        }
+        if (marker.exists() && !ownsDatabaseMigrationMarker(path)) {
+            throw new IOException("There is already a file at " + marker + " that this port did "
+                    + "not write, so the conversion was not started rather than overwriting it. "
+                    + "Move it aside if it is not a database you need.");
+        }
+        // Written beside the marker and renamed over it, never written into it. The second call
+        // updates a marker that is already valid and already naming a file holding data, and
+        // opening it for writing truncates it first: a process death in that window leaves a
+        // marker that recovery cannot recognise, so it acts on nothing and the export it named is
+        // orphaned. A rename is atomic, so the marker is only ever the old contents or the new.
+        // The marker's own name already carries the ".marker" suffix, so it is never short
+        // enough for createTempFile to reject the prefix.
+        File pending = File.createTempFile(marker.getName() + ".", ".pending",
+                marker.getParentFile());
+        Writer writer = new OutputStreamWriter(new FileOutputStream(pending), "UTF-8");
+        try {
+            writer.write(MIGRATION_MARKER_MAGIC);
+            writer.write("\n");
+            writer.write(backup == null ? "" : backup.getName());
+            writer.write("\n");
+            writer.write(target == null ? "" : target.getName());
+            writer.write("\n");
+            writer.write(unvalidated ? MIGRATION_UNVALIDATED : "");
+            writer.write("\n");
+        } finally {
+            writer.close();
+        }
+        // renameTo replaces an existing destination on the filesystems Android puts databases on.
+        // Deleting first would reopen exactly the window this is here to close.
+        if (!pending.renameTo(marker)) {
+            pending.delete();
+            throw new IOException("The record of the conversion at " + marker + " could not be "
+                    + "written, so the conversion was not started.");
+        }
+    }
+
+    /// Restores a database whose conversion was interrupted between the two renames.
+    ///
+    /// Called before every open, encrypted or not. Encrypt and decrypt move the original aside
+    /// and install the converted file in its place, so a process death in that gap leaves a
+    /// complete database in the migration directory and nothing under the live name. Putting it
+    /// back is what makes that window recoverable rather than a silent empty database.
+    ///
+    /// Acts only on a marker this port wrote, and only on the backup that marker names.
+    public static void recoverInterruptedDatabaseMigration(String path) throws IOException {
+        if (path == null) {
+            return;
+        }
+        File marker = databaseMigrationMarker(path);
+        if (marker == null || !marker.isFile() || !ownsDatabaseMigrationMarker(path)) {
+            // Nothing of ours is here, and nothing of anybody else's gets touched. A file at this
+            // name that this port did not write belongs to someone -- a custom database path can
+            // legitimately put another database here -- and this runs before every open, so acting
+            // on it would mean that opening one database destroys an unrelated one.
+            return;
+        }
+        // The export first, whatever else is true. It is a second complete copy of the data, and
+        // a plaintext one when the conversion was a decryption, so an interrupted conversion must
+        // not leave it lying in the migration directory. It is only ever installed by being
+        // renamed over the live database, so anything still under its own name is an orphan.
+        File orphanedExport = readDatabaseMigrationTarget(path);
+        if (orphanedExport != null && orphanedExport.exists()) {
+            String surviving = discardDatabaseMigrationExport(orphanedExport);
+            if (surviving.length() > 0) {
+                throw new IOException("The database " + path + " has an interrupted conversion "
+                        + "whose working copy could not be cleaned up." + surviving);
+            }
+        }
+        File backup = readDatabaseMigrationBackup(path);
+        if (backup == null) {
+            // No original was moved aside, so the conversion never reached the swap. Only the
+            // export existed, and it is gone.
+            marker.delete();
+            return;
+        }
+        File live = new File(path);
+        if (!backup.isFile()) {
+            // The marker outlived its backup, so there is nothing to put back or clean up.
+            marker.delete();
+            return;
+        }
+        if (!live.exists()) {
+            // Died between the two renames: the backup is the only copy. Put it back, and refuse
+            // to continue if that fails - opening would create an empty database over the top and
+            // the next conversion would remove the backup as stale, losing the data for good.
+            if (!backup.renameTo(live)) {
+                throw new IOException("The database " + path + " is mid-conversion and the copy "
+                        + "holding its contents, at " + backup + ", could not be moved back. The "
+                        + "data is intact in that file; the database was not opened rather than "
+                        + "replacing it with an empty one.");
+            }
+            marker.delete();
+            return;
+        }
+        if (isDatabaseMigrationUnvalidated(path)) {
+            // The converted file is in place but was never shown to open, and the conversion could
+            // not take it back out. Both files existing is not evidence of success here, so the
+            // backup goes back rather than away: deleting it would drop the last readable copy.
+            File displaced = unusedSibling(path + ".unvalidated");
+            if (displaced == null) {
+                throw new IOException("The database " + path + " holds a converted file that was "
+                        + "never shown to open, and there is nowhere to move it aside to. The "
+                        + "original is intact at " + backup + "; nothing was overwritten.");
+            }
+            // Named in the marker before the first rename, in the slot an export is named in.
+            // The two renames below are not one step: a process dying between them leaves the
+            // converted file under a name nothing knows about, and the recovery after that takes
+            // the branch above -- restores the backup, deletes the marker, and leaves that file
+            // beside the database for good. After a failed decryption it is a plaintext copy.
+            // Recorded first, the next recovery finds it exactly where it finds an abandoned
+            // export, and discards it the same way.
+            try {
+                markDatabaseMigrationUnvalidated(path, backup, displaced);
+            } catch (IOException cannotRecord) {
+                throw new IOException("The database " + path + " holds a converted file that was "
+                        + "never shown to open, and where it is about to be moved could not be "
+                        + "recorded. The original is intact at " + backup + "; nothing was moved.",
+                        cannotRecord);
+            }
+            if (!live.renameTo(displaced) || !backup.renameTo(live)) {
+                throw new IOException("The database " + path + " holds a converted file that was "
+                        + "never shown to open, and the original at " + backup + " could not be "
+                        + "put back. The data is in that file; it was left there rather than "
+                        + "removed.");
+            }
+            // The same cleanup an abandoned export gets, and for the same reason: this file is a
+            // complete copy of the database, and after a failed decryption it is the plaintext
+            // one. A delete() whose result nobody reads would leave it beside the restored
+            // database under a predictable name while recovery reported success.
+            String surviving = discardDatabaseMigrationExport(displaced);
+            if (surviving.length() > 0) {
+                throw new IOException("The database " + path + " was restored from its backup, but"
+                        + " the converted copy could not be removed." + surviving);
+            }
+            marker.delete();
+            return;
+        }
+        // Both exist, so the swap completed and only the cleanup was lost. The backup is the
+        // database in its previous form, which after an encrypt is a plaintext copy of an
+        // encrypted database - the encryption-at-rest hole in slow motion.
+        if (!backup.delete() && backup.exists()) {
+            throw new IOException("The database " + path + " was converted, but the copy of its "
+                    + "previous form at " + backup + " could not be removed. Delete it before "
+                    + "relying on this database being encrypted.");
+        }
+        marker.delete();
+    }
+
+    /// A path near `preferred` that no file occupies, or null if too many are taken.
+    ///
+    /// The recovery moves the rejected file aside before putting the original back, and on these
+    /// filesystems a rename replaces whatever is at the destination. A custom database path can put
+    /// that destination anywhere the application also keeps files, so writing to it blind would let
+    /// a failed conversion destroy an unrelated file of the application's while reporting that it
+    /// recovered cleanly.
+    private static File unusedSibling(String preferred) {
+        File candidate = new File(preferred);
+        if (!candidate.exists()) {
+            return candidate;
+        }
+        for (int iter = 1; iter < 100; iter++) {
+            candidate = new File(preferred + "." + iter);
+            if (!candidate.exists()) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    /// Removes the working files for a database, reporting anything it could not remove.
+    ///
+    /// Used by delete, where the caller's intent is that the data goes away. A failure here has
+    /// to stop the deletion: continuing would report success while a complete copy of the
+    /// database survives, and a later open would restore it.
+    static void discardDatabaseMigrationArtifacts(String path) throws IOException {
+        if (path == null) {
+            return;
+        }
+        File export = readDatabaseMigrationTarget(path);
+        if (export != null && export.exists()) {
+            String surviving = discardDatabaseMigrationExport(export);
+            if (surviving.length() > 0) {
+                throw new IOException("The database " + path + " was not deleted, because the "
+                        + "working copy of its interrupted conversion could not be removed."
+                        + surviving);
+            }
+        }
+        File backup = readDatabaseMigrationBackup(path);
+        if (backup == null) {
+            File onlyMarker = databaseMigrationMarker(path);
+            if (onlyMarker != null && onlyMarker.isFile() && ownsDatabaseMigrationMarker(path)
+                    && !onlyMarker.delete() && onlyMarker.exists()) {
+                throw new IOException("The database " + path + " was not deleted, because the "
+                        + "record of its interrupted conversion at " + onlyMarker + " could not "
+                        + "be removed.");
+            }
+            return;
+        }
+        if (backup.exists() && !backup.delete() && backup.exists()) {
+            throw new IOException("The database " + path + " was not deleted, because the copy of "
+                    + "it at " + backup + " could not be removed and a later open would restore "
+                    + "it.");
+        }
+        File marker = databaseMigrationMarker(path);
+        if (marker.exists() && !marker.delete() && marker.exists()) {
+            throw new IOException("The database " + path + " was not deleted, because the record "
+                    + "of its interrupted conversion at " + marker + " could not be removed.");
+        }
+    }
+
+    /// Whether a marked migration backup is holding a database's contents.
+    static boolean hasRecoverableDatabaseBackup(String path) {
+        File backup = readDatabaseMigrationBackup(path);
+        return backup != null && backup.isFile();
+    }
+
+    /// Leaves a database that will not open where it is.
+    ///
+    /// The platform default answers corruption by deleting the file. An encrypted database opened
+    /// without its key is ciphertext to the plain engine, which is indistinguishable from
+    /// corruption -- so a single accidental openOrCreate(name) against an encrypted database
+    /// destroyed it, and destroyed it in the one case where the data was perfectly intact and one
+    /// correct-key open away from being readable.
+    ///
+    /// Keeping the file turns that into a failed open, which is what a wrong key should be. A
+    /// genuinely corrupt database is kept too, which is the answer every other port gives:
+    /// reporting the failure and leaving the bytes for a backup or a repair tool beats deleting
+    /// them on the application's behalf.
+    private static final class KeepDatabaseOnCorruption
+            implements android.database.DatabaseErrorHandler {
+        @Override
+        public void onCorruption(SQLiteDatabase databaseObject) {
+            com.codename1.io.Log.p("Database " + databaseObject.getPath() + " could not be read. "
+                    + "It was left in place rather than deleted: an encrypted database opened "
+                    + "without its key looks exactly like this.");
+        }
+    }
+
+    private static final android.database.DatabaseErrorHandler KEEP_ON_CORRUPTION =
+            new KeepDatabaseOnCorruption();
+
+    private String resolveNativeDatabasePath(String databaseName) {
+        if (databaseName.startsWith("file://")) {
+            return FileSystemStorage.getInstance().toNativePath(databaseName);
+        }
+        return getDatabasePath(databaseName);
+    }
+
+    @Override
+    public Database openOrCreateDBForRekey(String databaseName) throws IOException {
+        // The stock android.database.sqlite engine has no cipher, so a plaintext database opened
+        // through it can never be encrypted in place. Route the migration through SQLCipher, which
+        // opens an unencrypted file when given an empty key and can then rekey it.
+        if (!isDatabaseEncryptionSupported()) {
+            return openOrCreateDB(databaseName);
+        }
+        // The slot is taken before the engine opens anything, for the reason given in
+        // openOrCreateDB. AndroidCipherFactory hands back a connection that already holds it.
+        String nativePath = resolveNativeDatabasePath(databaseName);
+        reserveDatabaseConnection(nativePath);
+        Object opened;
+        try {
+            Class c = Class.forName("com.codename1.impl.android.cipher.AndroidCipherFactory");
+            java.lang.reflect.Method open = c.getMethod("open", String.class, String.class, String.class);
+            // Cast below, outside the try, for the reason given in openOrCreateDB.
+            opened = open.invoke(null,
+                    resolveNativeDatabasePath(databaseName), databaseName, "");
+        } catch (java.lang.reflect.InvocationTargetException err) {
+            // The open threw, so no connection exists to release the slot later. A rekey open of
+            // a file that turns out to be encrypted lands here, and leaving the slot behind would
+            // make every later conversion of that database see a connection that is not there.
+            releaseUnusedDatabaseConnection(nativePath);
+            Throwable cause = err.getCause();
+            if (cause instanceof IOException) {
+                throw (IOException) cause;
+            }
+            throw new IOException(cause == null ? err.toString() : cause.getMessage(), cause);
+        } catch (NoSuchMethodException broken) {
+            // Same reasoning as openOrCreateDB: falling back to the plaintext engine here would
+            // silently turn a re-key into a no-op on a build that does ship the cipher.
+            releaseUnusedDatabaseConnection(nativePath);
+            throw new IOException("The encrypted database implementation is present but does not "
+                    + "expose the expected entry point. This build is inconsistent: "
+                    + broken.getMessage(), broken);
+        } catch (Throwable err) {
+            releaseUnusedDatabaseConnection(nativePath);
+            return openOrCreateDB(databaseName);
+        }
+        if (!(opened instanceof Database)) {
+            releaseUnusedDatabaseConnection(nativePath);
+            throw new IOException("The encrypted database implementation returned "
+                    + (opened == null ? "nothing" : opened.getClass().getName())
+                    + " rather than a Database. This build is inconsistent.");
+        }
+        return (Database) opened;
+    }
+
+    @Override
+    public boolean isBlobQueryParameterSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isDatabaseCustomPathSupported() {
+        return true;
+    }
+
+
+
+    /// How many connections this port has open on a database, for the delete guard in core.
+    ///
+    /// This port counts connections in its own registry rather than the base class's, because the
+    /// conversion that consults them runs here. Answering from it is what makes
+    /// `Database.delete(String)` refuse on Android as it does everywhere else.
+    @Override
+    public int openDatabaseConnections(String databaseName) {
+        try {
+            return connectionsOpenOn(resolveNativeDatabasePath(databaseName));
+        } catch (RuntimeException cannotResolve) {
+            // An unresolvable name cannot be matched against the registry. Reporting none leaves
+            // the delete to the checks below rather than refusing something that may be fine.
+            return 0;
+        }
+    }
+
+    @Override
+    public void deleteDB(String databaseName) throws IOException {
+        String deletePath = resolveNativeDatabasePath(databaseName);
+        if (isDatabaseBeingConverted(deletePath)) {
+            // A conversion owns the file and its working copies. Deleting either underneath it
+            // would strand the data in whichever one the conversion has not installed yet.
+            throw new IOException("The database " + deletePath + " is being converted and cannot "
+                    + "be deleted until that finishes.");
+        }
+        // The working files first. They survive deleting the live file, and the next open runs
+        // recovery and puts the backup back - so a database the caller was told had been deleted
+        // reappears, and after an interrupted encryption what reappears is the plaintext copy.
+        discardDatabaseMigrationArtifacts(deletePath);
+        if (databaseName.startsWith("file://")) {
+            // Through the platform's own deletion rather than by removing the file, which is what
+            // this used to do. A SQLite database is more than its file: a crash or a kill leaves
+            // -wal, -shm and -journal beside it, holding rows that were written, and for an
+            // encrypted database those rows are as readable as the pages they came from. Removing
+            // the file alone reported a successful delete and left them there, and the next open
+            // on the same name would read them back. deleteDatabase takes the sidecars and the
+            // master journals with it, which is exactly what the non-custom branch below has been
+            // getting from Context.deleteDatabase all along.
+            android.database.sqlite.SQLiteDatabase.deleteDatabase(new File(deletePath));
+        } else {
+            getContext().deleteDatabase(databaseName);
+        }
+        requireDatabaseGone(deletePath);
+    }
+
+    /// Reports anything the platform left behind, rather than trusting that it deleted it.
+    ///
+    /// Both calls above answer with a boolean and neither says what it could not remove --
+    /// deleteDatabase ORs the results of deleting the file, the journal, the shared-memory index,
+    /// the write-ahead log and any master journals, so it answers true when the database file went
+    /// and a read-only or busy -wal stayed. Reading that boolean would therefore report success
+    /// over surviving pages just as ignoring it did, so this looks at the files instead.
+    ///
+    /// It matters most for the case this was added for: those files hold rows that were written,
+    /// and for an encrypted database they are as readable as the pages they came from. A caller
+    /// told the database was deleted has no reason to look, so the only chance to say so is here.
+    ///
+    /// #### Parameters
+    ///
+    /// - `path`: the database file, whose companions share its name
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: naming whatever is still on disk
+    private void requireDatabaseGone(String path) throws IOException {
+        File database = new File(path);
+        StringBuilder left = new StringBuilder();
+        if (database.exists()) {
+            left.append(' ').append(database.getPath());
+        }
+        String[] sidecars = databaseSidecarPaths(path);
+        for (int iter = 0; iter < sidecars.length; iter++) {
+            File sidecar = new File(sidecars[iter]);
+            if (sidecar.exists()) {
+                left.append(' ').append(sidecar.getPath());
+            }
+        }
+        // The master journals as well, which is why this lists the directory rather than checking
+        // three fixed names: SQLite names them <database>-mj<hex> and there can be more than one.
+        File directory = database.getParentFile();
+        if (directory != null) {
+            final String prefix = database.getName() + "-mj";
+            File[] journals = directory.listFiles();
+            if (journals != null) {
+                for (int iter = 0; iter < journals.length; iter++) {
+                    if (journals[iter].getName().startsWith(prefix)) {
+                        left.append(' ').append(journals[iter].getPath());
+                    }
+                }
+            }
+        }
+        if (left.length() > 0) {
+            throw new IOException("The database was not fully deleted. These files are still on "
+                    + "disk and hold its data:" + left + ". Close every connection to it and try "
+                    + "again, or remove them.");
+        }
+    }
+
+    @Override
+    public boolean existsDB(String databaseName) {
+        // Recover first. A conversion interrupted between its two renames leaves the live name
+        // missing while the database itself sits complete in the migration directory, and
+        // reporting "does not exist" there would refuse a retry of encrypt or decrypt - the one
+        // operation that could put it right.
+        String path = resolveNativeDatabasePath(databaseName);
+        // The claim, not a look at it. Asking whether a conversion is running and then recovering
+        // are two steps, and a conversion starting in between would find recovery already moving
+        // its marker, target and backup around: depending on how far it had got, recovery would
+        // delete the export it was writing, restore the backup during the swap, or -- the worst
+        // of the three -- remove the backup before the converted file had been validated, which
+        // is the copy the conversion falls back to when the reopen fails.
+        if (!claimDatabaseForRecovery(path, 0)) {
+            // A conversion is mid-flight and owns both the live file and its working copies.
+            // Recovering underneath it would act on a half-installed state, so this answers from
+            // what the conversion has not yet consumed instead.
+            return hasRecoverableDatabaseBackup(path) || new File(path).exists();
+        }
+        try {
+            recoverInterruptedDatabaseMigration(path);
+        } catch (IOException cannotRecover) {
+            // The data is still in the migration directory, so the database does exist even
+            // though it could not be moved back. Say so; the open will report the real problem.
+            return hasRecoverableDatabaseBackup(path);
+        } finally {
+            endDatabaseMigration(path);
+        }
+        if (databaseName.startsWith("file://")) {
+            return exists(databaseName);
+        }
+        File db = new File(getContext().getApplicationInfo().dataDir + "/databases/" + databaseName);
+        return db.exists();
+    }
+
+    public String getDatabasePath(String databaseName) {
+        if (databaseName.startsWith("file://")) {
+            return databaseName;
+        }
+        File db = new File(getContext().getApplicationInfo().dataDir + "/databases/" + databaseName);
+        return db.getAbsolutePath();
+    }
+
+    public boolean isNativeTitle() {
+        if(com.codename1.ui.Toolbar.isGlobalToolbar()) {
+            return false;
+        }
+        Form f = getCurrentForm();
+        boolean nativeCommand;
+        if(f != null){
+            nativeCommand = f.getMenuBar().getCommandBehavior() == Display.COMMAND_BEHAVIOR_NATIVE;
+        }else{
+            nativeCommand = getCommandBehavior() == Display.COMMAND_BEHAVIOR_NATIVE;
+        }
+        return hasActionBar() && nativeCommand;
+    }
+
+    public void refreshNativeTitle(){
+        if (getActivity() == null || com.codename1.ui.Toolbar.isGlobalToolbar()) {
+            return;
+        }
+        Form f = getCurrentForm();
+        if (f != null && isNativeTitle() &&  !(f instanceof Dialog)) {
+            getActivity().runOnUiThread(new SetCurrentFormImpl(getActivity(), f));
+        }
+    }
+
+    public void setCurrentForm(final Form f) {
+        if (getActivity() == null) {
+            return;
+        }
+        if(getCurrentForm() == null){
+            flushGraphics();
+        }
+        if(editInProgress()) {
+            stopEditing(true);
+        }
+        super.setCurrentForm(f);
+        if (isNativeTitle() &&  !(f instanceof Dialog)) {
+            getActivity().runOnUiThread(new SetCurrentFormImpl(getActivity(), f));
+        }
+    }
+
+    @Override
+    public void setNativeCommands(Vector commands) {
+        refreshNativeTitle();
+    }
+
+    @Override
+    public boolean isScreenLockSupported() {
+        return true;
+    }
+
+    @Override
+    public void lockScreen(){
+        ((CodenameOneActivity)getContext()).lockScreen();
+    }
+
+    @Override
+    public void unlockScreen(){
+        ((CodenameOneActivity)getContext()).unlockScreen();
+    }
+
+    private static class SetCurrentFormImpl implements Runnable {
+        private Activity activity;
+        private Form f;
+
+        public SetCurrentFormImpl(Activity activity, Form f) {
+            this.activity = activity;
+            this.f = f;
+        }
+
+        @Override
+        public void run() {
+            if(com.codename1.ui.Toolbar.isGlobalToolbar()) {
+                return;
+            }
+            ActionBar ab = activity.getActionBar();
+            String title = f.getTitle();
+            boolean hasMenuBtn = false;
+            if(android.os.Build.VERSION.SDK_INT >= 14){
+                try {
+                    ViewConfiguration vc = ViewConfiguration.get(activity);
+                    Method m = vc.getClass().getMethod("hasPermanentMenuKey", (Class[])null);
+                    hasMenuBtn = ((Boolean)m.invoke(vc, (Object[])null)).booleanValue();
+                } catch(Throwable t) {
+                    t.printStackTrace();
+                }
+            }
+            if((title != null && title.length() > 0) || (f.getCommandCount() > 0 && !hasMenuBtn)){
+                activity.runOnUiThread(new NotifyActionBar(activity, true));
+            }else{
+                activity.runOnUiThread(new NotifyActionBar(activity, false));
+                return;
+            }
+
+            ab.setTitle(title);
+            ab.setDisplayHomeAsUpEnabled(f.getBackCommand() != null);
+            if(android.os.Build.VERSION.SDK_INT >= 14){
+                Image icon = f.getTitleComponent().getIcon();
+                try {
+                    if(icon != null){
+                        ab.getClass().getMethod("setIcon", Drawable.class).invoke(ab, new BitmapDrawable(activity.getResources(), (Bitmap)icon.getImage()));
+                    }else{
+                        if(activity.getApplicationInfo().icon != 0){
+                            ab.getClass().getMethod("setIcon", Integer.TYPE).invoke(ab, activity.getApplicationInfo().icon);
+                        }
+                    }
+                    activity.runOnUiThread(new InvalidateOptionsMenuImpl(activity));
+                } catch(Throwable t) {
+                    t.printStackTrace();
+                }
+            }
+            return;
+        }
+
+    }
+
+    private Purchase pur;
+
+    @Override
+    public Purchase getInAppPurchase() {
+        try {
+            pur = ZoozPurchase.class.newInstance();
+            return pur;
+        } catch(Throwable t) {
+            return super.getInAppPurchase();
+        }
+    }
+
+    @Override
+    public boolean isTimeoutSupported() {
+        return true;
+    }
+
+    @Override
+    public void setTimeout(int t) {
+        timeout = t;
+    }
+
+    @Override
+    public CodeScanner getCodeScanner() {
+        if(scannerInstance == null) {
+            scannerInstance = new CodeScannerImpl();
+        }
+        return scannerInstance;
+    }
+
+    public void addCookie(Cookie c, boolean addToWebViewCookieManager, boolean sync) {
+        if(addToWebViewCookieManager) {
+            CookieManager mgr;
+            CookieSyncManager syncer;
+            try {
+                syncer = CookieSyncManager.getInstance();
+                mgr = getCookieManager();
+            } catch(IllegalStateException ex) {
+                syncer = CookieSyncManager.createInstance(this.getContext());
+                mgr = getCookieManager();
+            }
+            java.text.SimpleDateFormat format = new java.text.SimpleDateFormat("EEE, dd-MMM-yyyy HH:mm:ss z");
+            format.setTimeZone(TimeZone.getTimeZone("GMT"));
+            addCookie(c, mgr, format);
+            if(sync) {
+                syncer.sync();
+            }
+        }
+        super.addCookie(c);
+
+
+
+    }
+
+    private void addCookie(Cookie c, CookieManager mgr, java.text.SimpleDateFormat format) {
+
+        String d = c.getDomain();
+        String port = "";
+        if (d.contains(":")) {
+            // For some reason, the port must be stripped and stored separately
+            // or it won't retrieve it properly.
+            // https://github.com/codenameone/CodenameOne/issues/2804
+            port = "; Port=" + d.substring(d.indexOf(":")+1);
+            d = d.substring(0, d.indexOf(":"));
+        }
+        String cookieString = c.getName() + "=" + c.getValue() +
+                "; Domain=" + d +
+                port +
+                "; Path=" + c.getPath() +
+                "; " + (c.isSecure() ? "Secure;" : "")
+                + (c.getExpires() != 0 ? (" Expires="+format.format(new Date(c.getExpires()))+";") : "")
+                + (c.isHttpOnly() ? "httpOnly;" : "");
+        String cookieUrl = "http" +
+                (c.isSecure() ? "s" : "") + "://" +
+                d +
+                c.getPath();
+        mgr.setCookie(cookieUrl, cookieString);
+    }
+
+    public void addCookie(Cookie[] cs, boolean addToWebViewCookieManager, boolean sync) {
+        if(addToWebViewCookieManager) {
+            CookieManager mgr;
+            CookieSyncManager syncer;
+            try {
+                syncer = CookieSyncManager.getInstance();
+                mgr = getCookieManager();
+            } catch(IllegalStateException ex) {
+                syncer = CookieSyncManager.createInstance(this.getContext());
+                mgr = getCookieManager();
+            }
+            java.text.SimpleDateFormat format = new java.text.SimpleDateFormat("EEE, dd-MMM-yyyy HH:mm:ss z");
+            format.setTimeZone(TimeZone.getTimeZone("GMT"));
+
+            for (Cookie c : cs) {
+                addCookie(c, mgr, format);
+
+            }
+
+            if(sync) {
+                syncer.sync();
+            }
+        }
+        super.addCookie(cs);
+
+
+
+    }
+
+    @Override
+    public void addCookie(Cookie c) {
+        if(isUseNativeCookieStore()) {
+            this.addCookie(c, true, true);
+        } else {
+            super.addCookie(c);
+        }
+    }
+
+
+
+    @Override
+    public void addCookie(Cookie[] cookiesArray) {
+        if(isUseNativeCookieStore()) {
+            this.addCookie(cookiesArray, true);
+        } else {
+            super.addCookie(cookiesArray);
+        }
+    }
+
+    public void addCookie(Cookie[] cookiesArray, boolean addToWebViewCookieManager){
+        addCookie(cookiesArray, addToWebViewCookieManager, false);
+
+    }
+
+
+
+    class CodeScannerImpl extends CodeScanner implements IntentResultListener {
+        private ScanResult callback;
+
+        @Override
+        public void scanQRCode(ScanResult callback) {
+            if (getActivity() == null) {
+                return;
+            }
+            if (getActivity() instanceof CodenameOneActivity) {
+                ((CodenameOneActivity) getActivity()).setIntentResultListener(this);
+            }
+            this.callback = callback;
+            IntentIntegrator in = new IntentIntegrator(getActivity());
+            if(!in.initiateScan(IntentIntegrator.QR_CODE_TYPES, "QR_CODE_MODE")){
+                // restore old activity handling
+                Display.getInstance().callSerially(new Runnable() {
+                    @Override
+                    public void run() {
+                        if(CodeScannerImpl.this != null && CodeScannerImpl.this.callback != null) {
+                            CodeScannerImpl.this.callback.scanError(-1, "no scan app");
+                            CodeScannerImpl.this.callback = null;
+                        }
+                    }
+                });
+
+                if (getActivity() instanceof CodenameOneActivity) {
+                    ((CodenameOneActivity) getActivity()).restoreIntentResultListener();
+                }
+            }
+        }
+
+        @Override
+        public void scanBarCode(ScanResult callback) {
+            if (getActivity() == null) {
+                return;
+            }
+            if (getActivity() instanceof CodenameOneActivity) {
+                ((CodenameOneActivity) getActivity()).setIntentResultListener(this);
+            }
+            this.callback = callback;
+            IntentIntegrator in = new IntentIntegrator(getActivity());
+            Collection<String> types = IntentIntegrator.PRODUCT_CODE_TYPES;
+            if(Display.getInstance().getProperty("scanAllCodeTypes", "false").equals("true")) {
+                types = IntentIntegrator.ALL_CODE_TYPES;
+            }
+            if(Display.getInstance().getProperty("android.scanTypes", null) != null) {
+                String[] arr = Display.getInstance().getProperty("android.scanTypes", null).split(";");
+                types = Arrays.asList(arr);
+            }
+
+            if(!in.initiateScan(types, "ONE_D_MODE")){
+                // restore old activity handling
+                Display.getInstance().callSerially(new Runnable() {
+                    @Override
+                    public void run() {
+                        CodeScannerImpl.this.callback.scanError(-1, "no scan app");
+                        CodeScannerImpl.this.callback = null;
+                    }
+                });
+
+                if (getActivity() instanceof CodenameOneActivity) {
+                    ((CodenameOneActivity) getActivity()).restoreIntentResultListener();
+                }
+            }
+        }
+
+        public void onActivityResult(int requestCode, final int resultCode, Intent data) {
+            if (requestCode == IntentIntegrator.REQUEST_CODE && callback != null) {
+                final ScanResult sr = callback;
+                if (resultCode == Activity.RESULT_OK) {
+                    final String contents = data.getStringExtra("SCAN_RESULT");
+                    final String formatName = data.getStringExtra("SCAN_RESULT_FORMAT");
+                    final byte[] rawBytes = data.getByteArrayExtra("SCAN_RESULT_BYTES");
+                    Display.getInstance().callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            sr.scanCompleted(contents, formatName, rawBytes);
+                        }
+                    });
+                } else if(resultCode == Activity.RESULT_CANCELED) {
+                    Display.getInstance().callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            sr.scanCanceled();
+                        }
+                    });
+
+                } else {
+                    Display.getInstance().callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            sr.scanError(resultCode, null);
+                        }
+                    });
+                }
+                callback = null;
+            }
+
+            // restore old activity handling
+            if (getActivity() instanceof CodenameOneActivity) {
+                ((CodenameOneActivity) getActivity()).restoreIntentResultListener();
+            }
+        }
+    }
+
+    public boolean hasCamera() {
+        try {
+            int numCameras = Camera.getNumberOfCameras();
+            return numCameras > 0;
+        } catch(Throwable t) {
+            return true;
+        }
+    }
+
+    @Override
+    public com.codename1.impl.CameraImpl createCameraImpl() {
+        Activity act = getActivity();
+        if (act == null) return null;
+        return new AndroidCameraImpl(act);
+    }
+
+    @Override
+    public com.codename1.impl.ARImpl createARImpl() {
+        Activity act = getActivity();
+        if (act == null) {
+            return null;
+        }
+        // The ARCore-backed impl lives in a package the build deletes for
+        // apps that never reference com.codename1.ar (it compiles against
+        // com.google.ar.core which only exists when the AR gradle dependency
+        // was injected), so it must be reached reflectively.
+        try {
+            Class<?> clazz = Class.forName("com.codename1.impl.android.ar.AndroidARImpl");
+            return (com.codename1.impl.ARImpl) clazz
+                    .getConstructor(Activity.class).newInstance(act);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private AndroidNearbyBridge nearbyBridge;
+
+    /// The nearby bridge, which finds its own implementation.
+    ///
+    /// Always returned rather than conditionally null: the shell answers every
+    /// capability query honestly whether or not the optional backend was
+    /// bundled, so the public API reports NOT_SUPPORTED without this getter
+    /// having to know how the app was built.
+    @Override
+    public synchronized com.codename1.nearby.spi.NearbyBridge
+            getNearbyBridge() {
+        // Synchronized, because two threads reaching nearby for the first
+        // time both saw null and both built a backend. Only one was kept,
+        // and the loser could already have prepared a UWB session or taken
+        // the companion chooser slot in state nothing could reach again --
+        // so a later start or stop could not find its session, and the radio
+        // it had opened stayed open.
+        if (nearbyBridge == null) {
+            nearbyBridge = new AndroidNearbyBridge(getActivity());
+        }
+        return nearbyBridge;
+    }
+
+    private com.codename1.impl.android.call.AndroidCallBridge callBridge;
+
+    private com.codename1.impl.android.vpn.AndroidVpnBridge vpnBridge;
+
+    /// The call bridge, on Telecom.
+    ///
+    /// Always returned rather than conditionally null: the bridge answers
+    /// every capability query honestly, including reporting no support at all
+    /// below API 26 where a self-managed ConnectionService does not exist, so
+    /// the public API degrades without this getter having to know the OS
+    /// version.
+    ///
+    /// Synchronized for the reason the nearby getter is: the bridge holds the
+    /// registered PhoneAccount, and two threads racing this would each build
+    /// one, with the loser's registration unreachable.
+    @Override
+    public synchronized com.codename1.call.spi.CallBridge getCallBridge() {
+        if (callBridge == null) {
+            callBridge = new com.codename1.impl.android.call.AndroidCallBridge(
+                    callServiceContext());
+        }
+        return callBridge;
+    }
+
+    /// The context the call and VPN bridges do their system work through.
+    ///
+    /// NOT getActivity(): Codename One can be initialised from a Service --
+    /// which is what happens when a push wakes the app to report an incoming
+    /// call -- and getActivity() is null there. The bridge cached that null
+    /// for the life of the process, so even isSupported() threw on the
+    /// TelecomManager lookup, and foregrounding later did not repair it.
+    ///
+    /// An activity is only needed to SHOW something, and the two places that
+    /// need one look for it when they get there.
+    private Context callServiceContext() {
+        Context any = getActivity();
+        if (any == null) {
+            any = getContext();
+        }
+        if (any == null) {
+            return null;
+        }
+        // The APPLICATION context, never the Activity. Both bridges keep
+        // what they are given in a final field and are never cleared, so
+        // caching an Activity here held that Activity and its whole view
+        // hierarchy reachable for the rest of the process -- a leak renewed
+        // by every rotation. Nothing the bridges do with it needs an
+        // Activity: they look up system services, the package manager and
+        // the application label, and the two places that must SHOW
+        // something ask getActivity() at the point of showing, which is
+        // what the comment above already promised and what
+        // currentActivity() implements.
+        Context app = any.getApplicationContext();
+        return app != null ? app : any;
+    }
+
+    /// The VPN bridge, on the platform's managed IKEv2 client.
+    ///
+    /// Reports no support below API 30, where `VpnManager` does not exist.
+    @Override
+    public synchronized com.codename1.vpn.spi.VpnBridge getVpnBridge() {
+        if (vpnBridge == null) {
+            vpnBridge = new com.codename1.impl.android.vpn.AndroidVpnBridge(
+                    callServiceContext());
+        }
+        return vpnBridge;
+    }
+
+    @Override
+    public com.codename1.impl.VisionImpl createVisionImpl() {
+        return (com.codename1.impl.VisionImpl) createOptionalAiBackend(
+                "com.codename1.impl.android.ai.AndroidVisionImpl");
+    }
+
+    @Override
+    public com.codename1.impl.InferenceImpl createInferenceImpl() {
+        return (com.codename1.impl.InferenceImpl) createOptionalAiBackend(
+                "com.codename1.impl.android.ai.AndroidInferenceImpl");
+    }
+
+    @Override
+    public com.codename1.impl.LanguageImpl createLanguageImpl() {
+        return (com.codename1.impl.LanguageImpl) createOptionalAiBackend(
+                "com.codename1.impl.android.ai.AndroidLanguageImpl");
+    }
+
+    private Object createOptionalAiBackend(String className) {
+        try {
+            return Class.forName(className).newInstance();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    // Deeper-network connectivity platform factories. Each returns a small
+    // platform-specific class living under
+    // com.codename1.impl.android.connectivity. Those classes are loaded
+    // lazily on first call so apps that never reference WiFi / Bonjour /
+    // USB / NetworkTypeListener never pay the loading cost.
+
+    @Override
+    protected com.codename1.io.wifi.WifiPlatform createWifiPlatform() {
+        return new com.codename1.impl.android.connectivity.AndroidWifiPlatform();
+    }
+
+    @Override
+    protected com.codename1.io.wifi.WifiDirectPlatform createWifiDirectPlatform() {
+        return new com.codename1.impl.android.connectivity.AndroidWifiDirectPlatform();
+    }
+
+    @Override
+    protected com.codename1.io.bonjour.BonjourPlatform createBonjourPlatform() {
+        return new com.codename1.impl.android.connectivity.AndroidBonjourPlatform();
+    }
+
+    @Override
+    protected com.codename1.io.usb.UsbPlatform createUsbPlatform() {
+        return new com.codename1.impl.android.connectivity.AndroidUsbPlatform();
+    }
+
+    @Override
+    protected com.codename1.io.NetworkTypePlatform createNetworkTypePlatform() {
+        return new com.codename1.impl.android.connectivity.AndroidNetworkTypePlatform();
+    }
+
+    public String getCurrentAccessPoint() {
+
+        ConnectivityManager cm = (ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo info = cm.getActiveNetworkInfo();
+        if (info == null) {
+            return null;
+        }
+        String apName = info.getTypeName() + "_" + info.getSubtypeName();
+        if (info.getExtraInfo() != null) {
+            apName += "_" + info.getExtraInfo();
+        }
+        return apName;
+    }
+
+    @Override
+    public boolean isVPNDetectionSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isVPNActive() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                android.net.Network network = cm.getActiveNetwork();
+                if (network != null) {
+                    android.net.NetworkCapabilities capabilities = cm.getNetworkCapabilities(network);
+                    if (capabilities != null && capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) {
+                        return true;
+                    }
+                }
+            }
+
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                NetworkInterface current = interfaces.nextElement();
+                if (!current.isUp() || current.isLoopback()) {
+                    continue;
+                }
+                String name = current.getName();
+                if (name == null) {
+                    continue;
+                }
+                name = name.toLowerCase(Locale.US);
+                if (name.startsWith("tun") || name.startsWith("ppp") || name.startsWith("tap") || name.startsWith("ipsec")) {
+                    return true;
+                }
+            }
+        } catch (Throwable t) {
+            Log.d("Codename One", "VPN detection failed", t);
+        }
+        return false;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public String[] getAPIds() {
+        if (apIds == null) {
+            apIds = new HashMap();
+            NetworkInfo[] aps = ((ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE)).getAllNetworkInfo();
+            for (int i = 0; i < aps.length; i++) {
+                String apName = aps[i].getTypeName() + "_" + aps[i].getSubtypeName();
+                if (aps[i].getExtraInfo() != null) {
+                    apName += "_" + aps[i].getExtraInfo();
+                }
+                apIds.put(apName, aps[i]);
+            }
+        }
+        if (apIds.isEmpty()) {
+            return null;
+        }
+        String[] ret = new String[apIds.size()];
+        Iterator iter = apIds.keySet().iterator();
+        for (int i = 0; iter.hasNext(); i++) {
+            ret[i] = iter.next().toString();
+        }
+        return ret;
+
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public int getAPType(String id) {
+        if (apIds == null) {
+            getAPIds();
+        }
+        NetworkInfo info = (NetworkInfo) apIds.get(id);
+        if (info == null) {
+            return NetworkManager.ACCESS_POINT_TYPE_UNKNOWN;
+        }
+        int type = info.getType();
+        int subType = info.getSubtype();
+        if (type == ConnectivityManager.TYPE_WIFI) {
+            return NetworkManager.ACCESS_POINT_TYPE_WLAN;
+        } else if (type == ConnectivityManager.TYPE_MOBILE) {
+            switch (subType) {
+                case TelephonyManager.NETWORK_TYPE_1xRTT:
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK2G; // ~ 50-100 kbps
+                case TelephonyManager.NETWORK_TYPE_CDMA:
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK2G; // ~ 14-64 kbps
+                case TelephonyManager.NETWORK_TYPE_EDGE:
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK2G; // ~ 50-100 kbps
+                case TelephonyManager.NETWORK_TYPE_EVDO_0:
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK3G; // ~ 400-1000 kbps
+                case TelephonyManager.NETWORK_TYPE_EVDO_A:
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK3G; // ~ 600-1400 kbps
+                case TelephonyManager.NETWORK_TYPE_GPRS:
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK2G; // ~ 100 kbps
+                case TelephonyManager.NETWORK_TYPE_HSDPA:
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK3G; // ~ 2-14 Mbps
+                case TelephonyManager.NETWORK_TYPE_HSPA:
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK3G; // ~ 700-1700 kbps
+                case TelephonyManager.NETWORK_TYPE_HSUPA:
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK3G; // ~ 1-23 Mbps
+                case TelephonyManager.NETWORK_TYPE_UMTS:
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK3G; // ~ 400-7000 kbps
+            /*
+                 * Above API level 7, make sure to set android:targetSdkVersion
+                 * to appropriate level to use these
+                 */
+                case TelephonyManager.NETWORK_TYPE_EHRPD: // API level 11
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK3G; // ~ 1-2 Mbps
+                case TelephonyManager.NETWORK_TYPE_EVDO_B: // API level 9
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK3G; // ~ 5 Mbps
+                case TelephonyManager.NETWORK_TYPE_HSPAP: // API level 13
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK3G; // ~ 10-20 Mbps
+                case TelephonyManager.NETWORK_TYPE_IDEN: // API level 8
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK2G; // ~25 kbps
+                case TelephonyManager.NETWORK_TYPE_LTE: // API level 11
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK3G; // ~ 10+ Mbps
+                // Unknown
+                case TelephonyManager.NETWORK_TYPE_UNKNOWN:
+                default:
+                    return NetworkManager.ACCESS_POINT_TYPE_NETWORK2G;
+            }
+        } else {
+            return NetworkManager.ACCESS_POINT_TYPE_UNKNOWN;
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public void setCurrentAccessPoint(String id) {
+
+        if (apIds == null) {
+            getAPIds();
+        }
+        NetworkInfo info = (NetworkInfo) apIds.get(id);
+        if (info == null || info.isConnectedOrConnecting()) {
+            return;
+
+        }
+        ConnectivityManager cm = (ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+        cm.setNetworkPreference(info.getType());
+    }
+
+    private void scanMedia(File file) {
+        Uri uri = Uri.fromFile(file);
+        Intent scanFileIntent = new Intent(
+                Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, uri);
+        getActivity().sendBroadcast(scanFileIntent);
+    }
+
+    /**
+     * Gets the last image id from the media store
+     *
+     * @return
+     */
+    private String getLastImageId() {
+        int idVal = 0;;
+        final String[] imageColumns = {MediaStore.Images.Media._ID};
+        final String imageOrderBy = MediaStore.Images.Media._ID + " DESC";
+        final String imageWhere = null;
+        final String[] imageArguments = null;
+        Cursor imageCursor = getContext().getContentResolver().query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, imageColumns, imageWhere, imageArguments, imageOrderBy);
+        if (imageCursor.moveToFirst()) {
+            int id = imageCursor.getInt(imageCursor.getColumnIndex(MediaStore.Images.Media._ID));
+            imageCursor.close();
+            idVal = id;
+        }
+        return "" + idVal;
+    }
+
+    private void clearMediaDB(String lastId, String capturePath) {
+        final String[] imageColumns = {MediaStore.Images.Media.DATA, MediaStore.Images.Media.DATE_TAKEN, MediaStore.Images.Media.SIZE, MediaStore.Images.Media._ID};
+        final String imageOrderBy = MediaStore.Images.Media._ID + " DESC";
+        final String imageWhere = MediaStore.Images.Media._ID + ">?";
+        final String[] imageArguments = {lastId};
+        Cursor imageCursor = getContext().getContentResolver().query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, imageColumns, imageWhere, imageArguments, imageOrderBy);
+        if (imageCursor.getCount() > 1) {
+            while (imageCursor.moveToNext()) {
+                int id = imageCursor.getInt(imageCursor.getColumnIndex(MediaStore.Images.Media._ID));
+                String path = imageCursor.getString(imageCursor.getColumnIndex(MediaStore.Images.Media.DATA));
+                Long takenTimeStamp = imageCursor.getLong(imageCursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN));
+                Long size = imageCursor.getLong(imageCursor.getColumnIndex(MediaStore.Images.Media.SIZE));
+                if (path.contentEquals(capturePath)) {
+                    // Remove it
+                    ContentResolver cr = getContext().getContentResolver();
+                    cr.delete(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, MediaStore.Images.Media._ID + "=?", new String[]{Long.toString(id)});
+                    break;
+                }
+            }
+        }
+        imageCursor.close();
+    }
+
+
+    @Override
+    public boolean isNativePickerTypeSupported(int pickerType) {
+        if(android.os.Build.VERSION.SDK_INT >= 11) {
+            return pickerType == Display.PICKER_TYPE_DATE || pickerType == Display.PICKER_TYPE_TIME || pickerType == Display.PICKER_TYPE_STRINGS;
+        }
+        return pickerType == Display.PICKER_TYPE_DATE || pickerType == Display.PICKER_TYPE_TIME;
+    }
+
+    @Override
+    public Object showNativePicker(final int type, final Component source, final Object currentValue, final Object data) {
+        if (getActivity() == null) {
+            return null;
+        }
+        final boolean [] canceled = new boolean[1];
+        final boolean [] dismissed = new boolean[1];
+
+        if(editInProgress()) {
+            stopEditing(true);
+        }
+        if(type == Display.PICKER_TYPE_TIME) {
+
+            class TimePick implements TimePickerDialog.OnTimeSetListener, TimePickerDialog.OnCancelListener, Runnable {
+                int result = ((Integer)currentValue).intValue();
+                public void onTimeSet(TimePicker tp, int hour, int minute) {
+                    result = hour * 60 + minute;
+                    dismissed[0] = true;
+                    synchronized(this) {
+                        notify();
+                    }
+                }
+
+                public void run() {
+                    while(!dismissed[0]) {
+                        synchronized(this) {
+                            try {
+                                wait(50);
+                            } catch(InterruptedException er) {}
+                        }
+                    }
+                }
+
+                @Override
+                public void onCancel(DialogInterface di) {
+                    dismissed[0] = true;
+                    canceled[0] = true;
+                    synchronized (this) {
+                        notify();
+                    }
+                }
+            }
+            final TimePick pickInstance = new TimePick();
+            getActivity().runOnUiThread(new Runnable() {
+                public void run() {
+                    int hour = ((Integer)currentValue).intValue() / 60;
+                    int minute = ((Integer)currentValue).intValue() % 60;
+                    TimePickerDialog tp = new TimePickerDialog(getActivity(), pickInstance, hour, minute, true){
+
+                        @Override
+                        public void cancel() {
+                            super.cancel();
+                            dismissed[0] = true;
+                            canceled[0] = true;
+                        }
+
+                        @Override
+                        public void dismiss() {
+                            super.dismiss();
+                            dismissed[0] = true;
+                        }
+
+                    };
+                    tp.setOnCancelListener(pickInstance);
+                    //DateFormat.is24HourFormat(activity));
+                    tp.show();
+                }
+            });
+            Display.getInstance().invokeAndBlock(pickInstance);
+            if(canceled[0]) {
+                return null;
+            }
+            return new Integer(pickInstance.result);
+        }
+        if(type == Display.PICKER_TYPE_DATE) {
+            final java.util.Calendar cl = java.util.Calendar.getInstance();
+            if(currentValue != null) {
+                cl.setTime((Date)currentValue);
+            }
+            class DatePick implements DatePickerDialog.OnDateSetListener,DatePickerDialog.OnCancelListener, Runnable {
+                Date result = (Date)currentValue;
+
+                public void onDateSet(DatePicker dp, int year, int month, int day) {
+                    java.util.Calendar c = java.util.Calendar.getInstance();
+                    c.set(java.util.Calendar.YEAR, year);
+                    c.set(java.util.Calendar.MONTH, month);
+                    c.set(java.util.Calendar.DAY_OF_MONTH, day);
+                    result = c.getTime();
+                    dismissed[0] = true;
+                    synchronized(this) {
+                        notify();
+                    }
+                }
+
+                public void run() {
+                    while(!dismissed[0]) {
+                        synchronized(this) {
+                            try {
+                                wait(50);
+                            } catch(InterruptedException er) {}
+                        }
+                    }
+                }
+
+                public void onCancel(DialogInterface di) {
+                    result = null;
+                    dismissed[0] = true;
+                    canceled[0] = true;
+                    synchronized(this) {
+                        notify();
+                    }
+                }
+            }
+            final DatePick pickInstance = new DatePick();
+            getActivity().runOnUiThread(new Runnable() {
+                public void run() {
+                    DatePickerDialog tp = new DatePickerDialog(getActivity(), pickInstance, cl.get(java.util.Calendar.YEAR), cl.get(java.util.Calendar.MONTH), cl.get(java.util.Calendar.DAY_OF_MONTH)){
+
+                        @Override
+                        public void cancel() {
+                            super.cancel();
+                            dismissed[0] = true;
+                            canceled[0] = true;
+                        }
+
+                        @Override
+                        public void dismiss() {
+                            super.dismiss();
+                            dismissed[0] = true;
+                        }
+
+                    };
+                    tp.setOnCancelListener(pickInstance);
+                    tp.show();
+                }
+            });
+            Display.getInstance().invokeAndBlock(pickInstance);
+            return pickInstance.result;
+        }
+        if(type == Display.PICKER_TYPE_STRINGS) {
+            final String[] values = (String[])data;
+            class StringPick implements Runnable, NumberPicker.OnValueChangeListener {
+                int result = -1;
+
+                StringPick() {
+                }
+
+                public void run() {
+                    while(!dismissed[0]) {
+                        synchronized(this) {
+                            try {
+                                wait(50);
+                            } catch(InterruptedException er) {}
+                        }
+                    }
+                }
+
+                public void cancel() {
+                    dismissed[0] = true;
+                    canceled[0] = true;
+                    synchronized(this) {
+                        notify();
+                    }
+                }
+
+                public void ok() {
+                    canceled[0] = false;
+                    dismissed[0] = true;
+                    synchronized(this) {
+                        notify();
+                    }
+                }
+
+                @Override
+                public void onValueChange(NumberPicker np, int oldVal, int newVal) {
+                    result = newVal;
+                }
+            }
+
+            final StringPick pickInstance = new StringPick();
+            for(int iter = 0 ; iter < values.length ; iter++) {
+                if(values[iter].equals(currentValue)) {
+                    pickInstance.result = iter;
+                    break;
+                }
+            }
+            if (pickInstance.result == -1 && values.length > 0) {
+                // The picker will default to showing the first element anyways
+                // If we don't set the result to 0, then the user has to first
+                // scroll to a different number, then back to the first option
+                // to pick the first option.
+                pickInstance.result = 0;
+            }
+
+            getActivity().runOnUiThread(new Runnable() {
+                public void run() {
+                    NumberPicker picker = new NumberPicker(getActivity());
+                    if(source.getClientProperty("showKeyboard") == null) {
+                        picker.setDescendantFocusability(NumberPicker.FOCUS_BLOCK_DESCENDANTS);
+                    }
+                    picker.setMinValue(0);
+                    picker.setMaxValue(values.length - 1);
+                    picker.setDisplayedValues(values);
+                    picker.setOnValueChangedListener(pickInstance);
+                    if(pickInstance.result > -1) {
+                        picker.setValue(pickInstance.result);
+                    }
+                    RelativeLayout linearLayout = new RelativeLayout(getActivity());
+                    RelativeLayout.LayoutParams params = new RelativeLayout.LayoutParams(50, 50);
+                    RelativeLayout.LayoutParams numPicerParams = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+                    numPicerParams.addRule(RelativeLayout.CENTER_HORIZONTAL);
+
+                    linearLayout.setLayoutParams(params);
+                    linearLayout.addView(picker,numPicerParams);
+
+                    AlertDialog.Builder alertDialogBuilder = new AlertDialog.Builder(getActivity());
+                    alertDialogBuilder.setView(linearLayout);
+                    alertDialogBuilder
+                            .setCancelable(false)
+                            .setPositiveButton("Ok",
+                                    new DialogInterface.OnClickListener() {
+                                        public void onClick(DialogInterface dialog,
+                                                            int id) {
+                                            pickInstance.ok();
+                                        }
+                                    })
+                            .setNegativeButton("Cancel",
+                                    new DialogInterface.OnClickListener() {
+                                        public void onClick(DialogInterface dialog,
+                                                            int id) {
+                                            dialog.cancel();
+                                            pickInstance.cancel();
+                                        }
+                                    });
+                    AlertDialog alertDialog = alertDialogBuilder.create();
+                    alertDialog.show();
+                }
+            });
+            Display.getInstance().invokeAndBlock(pickInstance);
+            if(canceled[0]) {
+                return null;
+            }
+            if(pickInstance.result < 0) {
+                return null;
+            }
+            return values[pickInstance.result];
+        }
+        return null;
+    }
+    
+    private ServerSockets serverSockets;
+    private synchronized ServerSockets getServerSockets() {
+        if (serverSockets == null) {
+            serverSockets = new ServerSockets();
+        }
+        return serverSockets;
+    }
+    
+    class ServerSockets {
+        Map<Integer,ServerSocket> socks = new HashMap<Integer,ServerSocket>();
+        Map<Integer,ServerSocket> loopbackSocks = new HashMap<Integer,ServerSocket>();
+        
+        public synchronized ServerSocket get(int port) throws IOException {
+            return get(port, false);
+        }
+
+        /**
+         * When loopbackOnly is set the socket binds 127.0.0.1 rather than the wildcard
+         * address, so the channel isn't published on every network interface. The two
+         * are cached in SEPARATE maps: a port that is already bound to the wildcard
+         * address must never be handed back to a caller that asked for loopback.
+         * Distinguishing them by sign within one map would collide on port 0, the
+         * ephemeral-port request, where -0 == 0.
+         *
+         * The IPv4 loopback is named explicitly rather than taken from
+         * InetAddress.getLoopbackAddress(), which answers ::1 when the runtime
+         * prefers IPv6. A client that then connects to 127.0.0.1 - which is what
+         * adb forward and attaching agents do, and what the iOS port binds - would
+         * find nothing listening, with the server reporting that it had started.
+         */
+        public synchronized ServerSocket get(int port, boolean loopbackOnly) throws IOException {
+            Map<Integer,ServerSocket> cache = loopbackOnly ? loopbackSocks : socks;
+            Integer key = Integer.valueOf(port);
+            ServerSocket sock = cache.get(key);
+            if (sock == null || sock.isClosed()) {
+                sock = loopbackOnly
+                        ? new ServerSocket(port, 50, InetAddress.getByName("127.0.0.1"))
+                        : new ServerSocket(port);
+                cache.put(key, sock);
+            }
+            return sock;
+        }
+
+        /**
+         * Closes and forgets the socket, so a thread blocked in accept returns and a
+         * later listener on this port binds a fresh one rather than sharing this.
+         */
+        public synchronized void close(int port, boolean loopbackOnly) {
+            Map<Integer,ServerSocket> cache = loopbackOnly ? loopbackSocks : socks;
+            ServerSocket sock = cache.remove(Integer.valueOf(port));
+            if (sock != null) {
+                try {
+                    sock.close();
+                } catch (IOException ignored) {
+                    // best effort: the point is to unblock accept, and a socket that
+                    // cannot be closed is already unusable
+                }
+            }
+        }
+        
+        
+    }
+
+    class SocketImpl {
+        java.net.Socket socketInstance;
+        int errorCode = -1;
+        String errorMessage = null;
+        InputStream is;
+        OutputStream os;
+
+        public boolean connect(String param, int param1, int connectTimeout) {
+            try {
+                socketInstance = new java.net.Socket();
+                socketInstance.connect(new InetSocketAddress(param, param1), connectTimeout);
+                return true;
+            } catch(Exception err) {
+                err.printStackTrace();
+                errorMessage = err.toString();
+                return false;
+            }
+        }
+
+        private InputStream getInput() throws IOException {
+            if(is == null) {
+                if(socketInstance != null) {
+                    is = socketInstance.getInputStream();
+                } else {
+
+                }
+            }
+            return is;
+        }
+
+        private OutputStream getOutput() throws IOException {
+            if(os == null) {
+                os = socketInstance.getOutputStream();
+            }
+            return os;
+        }
+
+        public int getAvailableInput() {
+            try {
+                return getInput().available();
+            } catch(IOException err) {
+                errorMessage = err.toString();
+                err.printStackTrace();
+            }
+            return 0;
+        }
+
+        public String getErrorMessage() {
+            return errorMessage;
+        }
+
+        public byte[] readFromStream() {
+            try {
+                int av = getAvailableInput();
+                if(av > 0) {
+                    byte[] arr = new byte[av];
+                    int size = getInput().read(arr);
+                    if(size == arr.length) {
+                        return arr;
+                    }
+                    return shrink(arr, size);
+                }
+                byte[] arr = new byte[8192];
+                int size = getInput().read(arr);
+                if(size == arr.length) {
+                    return arr;
+                }
+                return shrink(arr, size);
+            } catch(IOException err) {
+                err.printStackTrace();
+                errorMessage = err.toString();
+                return null;
+            }
+        }
+
+        private byte[] shrink(byte[] arr, int size) {
+            if(size == -1) {
+                return null;
+            }
+            byte[] n = new byte[size];
+            System.arraycopy(arr, 0, n, 0, size);
+            return n;
+        }
+
+        public void writeToStream(byte[] param) {
+            writeToStream(param, 0, param.length);
+        }
+
+        public void writeToStream(byte[] param, int offset, int len) {
+            try {
+                OutputStream os = getOutput();
+                os.write(param, offset, len);
+                os.flush();
+            } catch(IOException err) {
+                errorMessage = err.toString();
+                err.printStackTrace();
+            }
+        }
+
+        public void disconnect() {
+            try {
+                if(socketInstance != null) {
+                    if(is != null) {
+                        try {
+                            is.close();
+                        } catch(IOException err) {}
+                    }
+                    if(os != null) {
+                        try {
+                            os.close();
+                        } catch(IOException err) {}
+                    }
+                    socketInstance.close();
+                    socketInstance = null;
+                }
+            } catch(IOException err) {
+                errorMessage = err.toString();
+                err.printStackTrace();
+            }
+        }
+
+        public Object listen(int param) {
+            return listen(param, false);
+        }
+
+        public Object listen(int param, boolean loopbackOnly) {
+            ServerSocket serverSocketInstance = null;
+            try {
+                serverSocketInstance = getServerSockets().get(param, loopbackOnly);
+                socketInstance = serverSocketInstance.accept();
+                SocketImpl si = new SocketImpl();
+                si.socketInstance = socketInstance;
+                return si;
+            } catch(Exception err) {
+                errorMessage = err.toString();
+                // A closed socket here is the deliberate stop path: stopping a
+                // listener closes it precisely to bring this accept back. Printing a
+                // stack trace for that would put an alarming fake failure in the log
+                // every time a listener is stopped.
+                if(serverSocketInstance == null || !serverSocketInstance.isClosed()) {
+                    err.printStackTrace();
+                }
+                return null;
+            }
+        }
+
+        public boolean isConnected() {
+            return socketInstance != null;
+        }
+
+        public int getErrorCode() {
+            return errorCode;
+        }
+    }
+
+    @Override
+    public Object connectSocket(String host, int port) {
+        return connectSocket(host, port, 0);
+    }
+
+    
+    
+    @Override
+    public Object connectSocket(String host, int port, int connectTimeout) {
+        SocketImpl i = new SocketImpl();
+        if(i.connect(host, port, connectTimeout)) {
+            return i;
+        }
+        return null;
+    }
+
+    @Override
+    public Object listenSocket(int port) {
+        return new SocketImpl().listen(port);
+    }
+
+    @Override
+    public boolean isLoopbackServerSocketAvailable() {
+        return true;
+    }
+
+    @Override
+    public Object listenSocketLoopback(int port) {
+        return new SocketImpl().listen(port, true);
+    }
+
+    @Override
+    public void stopListeningSocket(int port, boolean loopbackOnly) {
+        getServerSockets().close(port, loopbackOnly);
+    }
+
+    /**
+     * A debuggable package is one built for development: the flag is set by the
+     * build for a debug variant and cleared for a release variant, so this reads the
+     * distinction straight off the installed application rather than guessing.
+     */
+    @Override
+    public boolean isDebuggableBuild() {
+        Context ctx = getContext();
+        if (ctx == null) {
+            return false;
+        }
+        ApplicationInfo info = ctx.getApplicationInfo();
+        return info != null && (info.flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+    }
+
+    @Override
+    public String getHostOrIP() {
+        try {
+            InetAddress i = java.net.InetAddress.getLocalHost();
+            if(i.isLoopbackAddress()) {
+                Enumeration<NetworkInterface> nie = NetworkInterface.getNetworkInterfaces();
+                while(nie.hasMoreElements()) {
+                    NetworkInterface current = nie.nextElement();
+                    if(!current.isLoopback()) {
+                        Enumeration<InetAddress> iae = current.getInetAddresses();
+                        while(iae.hasMoreElements()) {
+                            InetAddress currentI = iae.nextElement();
+                            if(!currentI.isLoopbackAddress()) {
+                                return currentI.getHostAddress();
+                            }
+                        }
+                    }
+                }
+            }
+            return i.getHostAddress();
+        } catch(Throwable t) {
+            com.codename1.io.Log.e(t);
+            return null;
+        }
+    }
+
+    @Override
+    public void disconnectSocket(Object socket) {
+        ((SocketImpl)socket).disconnect();
+    }
+
+    @Override
+    public boolean isSocketConnected(Object socket) {
+        return ((SocketImpl)socket).isConnected();
+    }
+
+    
+
+    @Override
+    public boolean isServerSocketAvailable() {
+        return true;
+    }
+
+    @Override
+    public boolean isSocketAvailable() {
+        return true;
+    }
+
+    @Override
+    public String getSocketErrorMessage(Object socket) {
+        return ((SocketImpl)socket).getErrorMessage();
+    }
+
+    @Override
+    public int getSocketErrorCode(Object socket) {
+        return ((SocketImpl)socket).getErrorCode();
+    }
+
+    @Override
+    public int getSocketAvailableInput(Object socket) {
+        return ((SocketImpl)socket).getAvailableInput();
+    }
+
+    @Override
+    public byte[] readFromSocketStream(Object socket) {
+        return ((SocketImpl)socket).readFromStream();
+    }
+
+    @Override
+    public void writeToSocketStream(Object socket, byte[] data) {
+        ((SocketImpl)socket).writeToStream(data);
+    }
+
+    @Override
+    public boolean isWebSocketSupported() {
+        return true;
+    }
+
+    @Override
+    public com.codename1.impl.WebSocketImpl createWebSocketImpl(String url) {
+        return new AndroidWebSocketImpl(url);
+    }
+
+    @Override
+    public void writeToSocketStream(Object socket, byte[] data, int offset, int len) {
+        ((SocketImpl)socket).writeToStream(data, offset, len);
+    }
+
+    //Begin new Graphics Work
+    @Override
+    public boolean isShapeSupported(Object graphics) {
+        return true;
+    }
+
+    @Override
+    public boolean isTransformSupported(Object graphics) {
+        return true;
+    }
+
+    @Override
+    public boolean isPerspectiveTransformSupported(Object graphics){
+        return android.os.Build.VERSION.SDK_INT >= 14;
+    }
+
+    @Override
+    public void fillShape(Object graphics, com.codename1.ui.geom.Shape shape) {
+        AndroidGraphics ag = (AndroidGraphics)graphics;
+        Path p = cn1ShapeToAndroidPath(shape);
+        ag.fillPath(p);
+    }
+
+    @Override
+    public void fillShapeShadow(Object graphics, com.codename1.ui.geom.Shape shape, int fillColor,
+            int fillAlpha, int shadowColor, float shadowOpacity, int blurRadius, int offsetX, int offsetY) {
+        AndroidGraphics ag = (AndroidGraphics)graphics;
+        Path p = cn1ShapeToAndroidPath(shape);
+        ag.fillPathShadow(p, fillColor, fillAlpha, shadowColor, shadowOpacity, blurRadius, offsetX, offsetY);
+    }
+
+    @Override
+    public boolean isShapeShadowSupported(Object graphics) {
+        // Android's Canvas has no cheap GPU shadow for arbitrary shapes: BlurMaskFilter is ignored on
+        // the hardware canvas, and Paint.setShadowLayer collapses the whole view to software rendering
+        // (severe jank/ANR). Fall back to the cached-image path; the RAM cost is bounded by keeping the
+        // number of live shadowed components small (windowed lists) or disabling the per-border cache.
+        return false;
+    }
+
+    @Override
+    public void drawShape(Object graphics, com.codename1.ui.geom.Shape shape, com.codename1.ui.Stroke stroke) {
+        AndroidGraphics ag = (AndroidGraphics)graphics;
+        Path p = cn1ShapeToAndroidPath(shape);
+        ag.drawPath(p, stroke);
+
+    }
+
+    @Override
+    public void drawShadow(Object graphics, Object image, int x, int y, int offsetX, int offsetY, int blurRadius, int spreadRadius, int color, float opacity) {
+        AndroidGraphics ag = (AndroidGraphics)graphics;
+
+        ag.drawShadow(image, x, y, offsetX, offsetY, blurRadius, spreadRadius, color, opacity);
+    }
+
+    @Override
+    public boolean isDrawShadowSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isDrawShadowFast() {
+        return false;
+    }
+    // BEGIN TRANSFORMATION METHODS---------------------------------------------------------
+
+
+
+    @Override
+    public boolean transformEqualsImpl(Transform t1, Transform t2) {
+        Object o1 = null;
+        if(t1 != null) {
+            o1 = t1.getNativeTransform();
+        }
+        Object o2 = null;
+        if(t2 != null) {
+            o2 = t2.getNativeTransform();
+        }
+        return transformNativeEqualsImpl(o1, o2);
+    }
+
+    @Override
+    public boolean transformNativeEqualsImpl(Object t1, Object t2) {
+        if ( t1 != null ){
+            CN1Matrix4f m1 = (CN1Matrix4f)t1;
+            CN1Matrix4f m2 = (CN1Matrix4f)t2;
+            return m1.equals(m2);
+        } else {
+            return t2 == null;
+        }
+    }
+
+
+    @Override
+    public boolean isTransformSupported() {
+        return true;
+    }
+
+    @Override
+    public boolean isPerspectiveTransformSupported() {
+
+        return true;
+    }
+
+    @Override
+    public Object makeTransformAffine(double m00, double m10, double m01, double m11, double m02, double m12) {
+        CN1Matrix4f t = CN1Matrix4f.make(new float[]{
+                (float)m00, (float)m10, 0, 0,
+                (float)m01, (float)m11, 0, 0,
+                0, 0, 1, 0,
+                (float)m02, (float)m12, 0, 1
+        });
+        return t;
+    }
+
+    @Override
+    public void setTransformAffine(Object nativeTransform, double m00, double m10, double m01, double m11, double m02, double m12) {
+        ((CN1Matrix4f)nativeTransform).setData(new float[]{
+                (float)m00, (float)m10, 0, 0,
+                (float)m01, (float)m11, 0, 0,
+                0, 0, 1, 0,
+                (float)m02, (float)m12, 0, 1
+        });
+    }
+    
+    
+    @Override
+    public Object makeTransformTranslation(float translateX, float translateY, float translateZ) {
+        return CN1Matrix4f.makeTranslation(translateX, translateY, translateZ);
+    }
+
+    @Override
+    public void setTransformTranslation(Object nativeTransform, float translateX, float translateY, float translateZ) {
+        CN1Matrix4f m = (CN1Matrix4f)nativeTransform;
+        m.reset();
+        m.translate(translateX, translateY, translateZ);
+    }
+
+    @Override
+    public Object makeTransformScale(float scaleX, float scaleY, float scaleZ) {
+        CN1Matrix4f t = CN1Matrix4f.makeIdentity();
+        t.scale(scaleX, scaleY, scaleZ);
+        return t;
+    }
+
+    @Override
+    public void setTransformScale(Object nativeTransform, float scaleX, float scaleY, float scaleZ) {
+        CN1Matrix4f t = (CN1Matrix4f)nativeTransform;
+        t.reset();
+        t.scale(scaleX, scaleY, scaleZ);
+    }
+
+    @Override
+    public Object makeTransformRotation(float angle, float x, float y, float z) {
+        return CN1Matrix4f.makeRotation(angle, x, y, z);
+    }
+
+    @Override
+    public void setTransformRotation(Object nativeTransform, float angle, float x, float y, float z) {
+        CN1Matrix4f m = (CN1Matrix4f)nativeTransform;
+        m.reset();
+        m.rotate(angle, x, y, z);
+    }
+
+    @Override
+    public Object makeTransformPerspective(float fovy, float aspect, float zNear, float zFar) {
+        return CN1Matrix4f.makePerspective(fovy, aspect, zNear, zFar);
+    }
+
+    @Override
+    public void setTransformPerspective(Object nativeGraphics, float fovy, float aspect, float zNear, float zFar) {
+        CN1Matrix4f m = (CN1Matrix4f)nativeGraphics;
+        m.setPerspective(fovy, aspect, zNear, zFar);
+    }
+
+    @Override
+    public Object makeTransformOrtho(float left, float right, float bottom, float top, float near, float far) {
+        return CN1Matrix4f.makeOrtho(left, right, bottom, top, near, far);
+    }
+
+    @Override
+    public void setTransformOrtho(Object nativeGraphics, float left, float right, float bottom, float top, float near, float far) {
+        CN1Matrix4f m = (CN1Matrix4f)nativeGraphics;
+        m.setOrtho(left, right, bottom, top, near, far);
+    }
+
+    @Override
+    public Object makeTransformCamera(float eyeX, float eyeY, float eyeZ, float centerX, float centerY, float centerZ, float upX, float upY, float upZ) {
+        return CN1Matrix4f.makeCamera(eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX, upY, upZ);
+    }
+
+    @Override
+    public void setTransformCamera(Object nativeGraphics, float eyeX, float eyeY, float eyeZ, float centerX, float centerY, float centerZ, float upX, float upY, float upZ) {
+        CN1Matrix4f m = (CN1Matrix4f)nativeGraphics;
+        m.setCamera(eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX, upY, upZ);
+    }
+
+
+    @Override
+    public void transformRotate(Object nativeTransform, float angle, float x, float y, float z) {
+        ((CN1Matrix4f)nativeTransform).rotate(angle, x, y, z);
+    }
+
+    @Override
+    public void transformTranslate(Object nativeTransform, float x, float y, float z) {
+        //((Matrix) nativeTransform).preTranslate(x, y);
+        ((CN1Matrix4f)nativeTransform).translate(x, y, z);
+    }
+
+    @Override
+    public void transformScale(Object nativeTransform, float x, float y, float z) {
+        //((Matrix) nativeTransform).preScale(x, y);
+        ((CN1Matrix4f)nativeTransform).scale(x, y, z);
+    }
+
+    @Override
+    public Object makeTransformInverse(Object nativeTransform) {
+
+        CN1Matrix4f inverted = CN1Matrix4f.makeIdentity();
+        inverted.setData(((CN1Matrix4f)nativeTransform).getData());
+        if( inverted.invert()){
+            return inverted;
+        }
+        return null;
+
+        //Matrix inverted = new Matrix();
+        //if(((Matrix) nativeTransform).invert(inverted)){
+        //    return inverted;
+        //}
+        //return null;
+    }
+
+    @Override
+    public void setTransformInverse(Object nativeTransform) throws com.codename1.ui.Transform.NotInvertibleException {
+
+        CN1Matrix4f m = (CN1Matrix4f)nativeTransform;
+        if (!m.invert()) {
+            throw new com.codename1.ui.Transform.NotInvertibleException();
+        }
+    }
+
+    @Override
+    public void setTransformIdentity(Object transform) {
+        CN1Matrix4f m = (CN1Matrix4f)transform;
+        m.setIdentity();
+    }
+
+    @Override
+    public Object makeTransformIdentity() {
+        return CN1Matrix4f.makeIdentity();
+    }
+
+    @Override
+    public void copyTransform(Object src, Object dest) {
+        CN1Matrix4f t1 = (CN1Matrix4f) src;
+        CN1Matrix4f t2 = (CN1Matrix4f) dest;
+        t2.setData(t1.getData());
+    }
+
+    @Override
+    public void concatenateTransform(Object t1, Object t2) {
+        //((Matrix) t1).preConcat((Matrix) t2);
+        ((CN1Matrix4f)t1).concatenate((CN1Matrix4f)t2);
+    }
+
+    @Override
+    public void transformPoint(Object nativeTransform, float[] in, float[] out) {
+        //Matrix t = (Matrix) nativeTransform;
+        //t.mapPoints(in, 0, out, 0, 2);
+        ((CN1Matrix4f)nativeTransform).transformCoord(in, out);
+    }
+
+    @Override
+    public void setTransform(Object graphics, Transform transform) {
+        AndroidGraphics ag = (AndroidGraphics) graphics;
+        Transform existing = ag.getTransform();
+        if (existing == null) {
+            existing = transform == null ? Transform.makeIdentity() : transform.copy();
+            ag.setTransform(existing);
+        } else {
+            if (transform == null) {
+                existing.setIdentity();
+            } else {
+                existing.setTransform(transform);
+            }
+            ag.setTransform(existing); // sets dirty flag for transform
+        }
+
+    }
+
+    @Override
+    public com.codename1.ui.Transform getTransform(Object graphics) {
+        com.codename1.ui.Transform t = ((AndroidGraphics) graphics).getTransform();
+        if (t == null) {
+            return Transform.makeIdentity();
+        }
+        Transform t2 = Transform.makeIdentity();
+        t2.setTransform(t);
+        return t2;
+    }
+
+    @Override
+    public void getTransform(Object graphics, Transform transform) {
+        com.codename1.ui.Transform t = ((AndroidGraphics) graphics).getTransform();
+        if (t == null) {
+            transform.setIdentity();
+        } else {
+            transform.setTransform(t);
+        }
+    }
+
+
+    // END TRANSFORM STUFF
+
+
+    static Path cn1ShapeToAndroidPath(com.codename1.ui.geom.Shape shape, Path p) {
+        //Path p = new Path();
+        p.rewind();
+        
+        com.codename1.ui.geom.PathIterator it = shape.getPathIterator();
+        switch (it.getWindingRule()) {
+            case GeneralPath.WIND_EVEN_ODD:
+                p.setFillType(Path.FillType.EVEN_ODD);
+                break;
+            case GeneralPath.WIND_NON_ZERO:
+                p.setFillType(Path.FillType.WINDING);
+                break;
+        }
+        //p.setWindingRule(it.getWindingRule() == com.codename1.ui.geom.PathIterator.WIND_EVEN_ODD ? GeneralPath.WIND_EVEN_ODD : GeneralPath.WIND_NON_ZERO);
+        float[] buf = new float[6];
+        while (!it.isDone()) {
+            int type = it.currentSegment(buf);
+            switch (type) {
+                case com.codename1.ui.geom.PathIterator.SEG_MOVETO:
+                    p.moveTo(buf[0], buf[1]);
+                    break;
+                case com.codename1.ui.geom.PathIterator.SEG_LINETO:
+                    p.lineTo(buf[0], buf[1]);
+                    break;
+                case com.codename1.ui.geom.PathIterator.SEG_QUADTO:
+                    p.quadTo(buf[0], buf[1], buf[2], buf[3]);
+                    break;
+                case com.codename1.ui.geom.PathIterator.SEG_CUBICTO:
+                    p.cubicTo(buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+                    break;
+                case com.codename1.ui.geom.PathIterator.SEG_CLOSE:
+                    p.close();
+                    break;
+
+            }
+            it.next();
+        }
+
+        return p;
+    }
+
+    static Path cn1ShapeToAndroidPath(com.codename1.ui.geom.Shape shape) {
+        return cn1ShapeToAndroidPath(shape, new Path());
+    }
+
+    /**
+     * The ID used for a local notification that should actually trigger a background
+     * fetch.  This type of notification is handled specially by the {@link LocalNotificationPublisher}.  It
+     * doesn't display a notification to the user, but instead just calls the {@link #performBackgroundFetch() }
+     * method.
+     */
+    static final String BACKGROUND_FETCH_NOTIFICATION_ID="$$$CN1_BACKGROUND_FETCH$$$";
+
+
+    /**
+     * Calls the background fetch callback.  If the app is in teh background, this will
+     * check to see if the lifecycle class implements the {@link com.codename1.background.BackgroundFetch}
+     * interface.  If it does, it will execute its {@link com.codename1.background.BackgroundFetch#performBackgroundFetch(long, com.codename1.util.Callback) }
+     * method.
+     * @param blocking True if this should block until it is complete.
+     */
+    public static void performBackgroundFetch(boolean blocking) {
+
+        if (Display.getInstance().isMinimized()) {
+            // By definition, background fetch should only occur if the app is minimized.
+            // This keeps it consistent with the iOS implementation that doesn't have a 
+            // choice
+            final boolean[] complete = new boolean[1];
+            final Object lock = new Object();
+            final BackgroundFetch bgFetchListener = instance.getBackgroundFetchListener();
+            final long timeout = System.currentTimeMillis()+25000;
+            if (bgFetchListener != null) {
+                Display.getInstance().callSerially(new Runnable() {
+                    public void run() {
+                        bgFetchListener.performBackgroundFetch(timeout, new Callback<Boolean>() {
+
+                            @Override
+                            public void onSucess(Boolean value) {
+                                // On Android the OS doesn't care whether it worked or not
+                                // So we'll just consume this.
+                                synchronized (lock) {
+                                    complete[0] = true;
+                                    lock.notify();
+                                }
+                            }
+
+                            @Override
+                            public void onError(Object sender, Throwable err, int errorCode, String errorMessage) {
+                                com.codename1.io.Log.e(err);
+                                synchronized (lock) {
+                                    complete[0] = true;
+                                    lock.notify();
+                                }
+                            }
+
+                        });
+                    }
+                });
+
+            }
+
+            while (blocking && !complete[0]) {
+                Util.wait(lock, 1000);
+                if (!complete[0]) {
+                    System.out.println("Waiting for background fetch to complete.  Make sure your background fetch handler calls onSuccess() or onError() in the callback when complete");
+
+                }
+                if (System.currentTimeMillis() > timeout) {
+                    System.out.println("Background fetch exceeded time alotted.  Not waiting for its completion");
+                    break;
+                }
+
+            }
+
+
+        }
+    }
+
+    /**
+     * Starts the background fetch service.
+     */
+    public void startBackgroundFetchService() {
+        LocalNotification n = new LocalNotification();
+        n.setId(BACKGROUND_FETCH_NOTIFICATION_ID);
+        cancelLocalNotification(BACKGROUND_FETCH_NOTIFICATION_ID);
+        // We schedule a local notification
+        // First callback will be at the repeat interval
+        // We don't specify a repeat interval because the scheduleLocalNotification will 
+        // set that for us using the getPreferredBackgroundFetchInterval method.
+        scheduleLocalNotification(n, System.currentTimeMillis() + getPreferredBackgroundFetchInterval() * 1000, 0);
+    }
+
+    public void stopBackgroundFetchService() {
+        cancelLocalNotification(BACKGROUND_FETCH_NOTIFICATION_ID);
+    }
+
+
+    private boolean backgroundFetchInitialized;
+
+    @Override
+    public void setPreferredBackgroundFetchInterval(int seconds) {
+        int oldInterval = getPreferredBackgroundFetchInterval();
+        super.setPreferredBackgroundFetchInterval(seconds);
+
+        if (!backgroundFetchInitialized || oldInterval != seconds) {
+            backgroundFetchInitialized = true;
+            if (seconds > 0) {
+                startBackgroundFetchService();
+            } else {
+                stopBackgroundFetchService();
+            }
+        }
+    }
+
+
+
+    @Override
+    public boolean isBackgroundFetchSupported() {
+        return true;
+    }
+    public static BackgroundFetch backgroundFetchListener;
+
+    BackgroundFetch getBackgroundFetchListener() {
+        if (getActivity() != null && getActivity().getApp() instanceof BackgroundFetch) {
+            return (BackgroundFetch)getActivity().getApp();
+        } else if (backgroundFetchListener != null) {
+            return backgroundFetchListener;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns the fully qualified class name of the app's background fetch listener, or null
+     * when the app does not implement {@link com.codename1.background.BackgroundFetch}. The
+     * surfaces plumbing persists this name on publish so a home screen widget that rendered an
+     * exhausted timeline can start {@link BackgroundFetchHandler} and let the app republish
+     * fresh content while no activity exists.
+     *
+     * @return the listener class name or null
+     */
+    public static String getBackgroundFetchListenerClassName() {
+        if (instance == null) {
+            return null;
+        }
+        BackgroundFetch listener = instance.getBackgroundFetchListener();
+        return listener == null ? null : listener.getClass().getName();
+    }
+
+    public void scheduleLocalNotification(LocalNotification notif, long firstTime, int repeat) {
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            if(!checkForPermission("android.permission.POST_NOTIFICATIONS", "This is required to receive notifications")){
+                com.codename1.io.Log.e(new RuntimeException("Local notification was prevented the POST_NOTIFICATIONS permission was not granted by the user."));
+                return;
+            }
+        }
+        final Intent notificationIntent = new Intent(getContext(), LocalNotificationPublisher.class);
+        notificationIntent.setAction(getContext().getApplicationInfo().packageName + "." + notif.getId());
+        notificationIntent.putExtra(LocalNotificationPublisher.NOTIFICATION, createBundleFromNotification(notif));
+
+        Intent contentIntent = new Intent();
+        if (activityComponentName != null) {
+            contentIntent.setComponent(activityComponentName);
+        } else {
+            try {
+                contentIntent.setComponent(getContext().getPackageManager().getLaunchIntentForPackage(getContext().getApplicationInfo().packageName).getComponent());
+            } catch (Exception ex) {
+                System.err.println("Failed to get the component name for local notification.  Local notification may not work.");
+                ex.printStackTrace();
+            }
+        }
+        contentIntent.putExtra("LocalNotificationID", notif.getId());
+
+        if (BACKGROUND_FETCH_NOTIFICATION_ID.equals(notif.getId()) && getBackgroundFetchListener() != null) {
+            Context context = AndroidNativeUtil.getContext();
+
+            Intent intent = new Intent(context, BackgroundFetchHandler.class);
+            //there is an bug that causes this to not to workhttps://code.google.com/p/android/issues/detail?id=81812
+            //intent.putExtra("backgroundClass", getBackgroundLocationListener().getName());
+            //an ugly workaround to the putExtra bug 
+            intent.setData(Uri.parse("http://codenameone.com/a?" + getBackgroundFetchListener().getClass().getName()));
+            PendingIntent pendingIntent = getPendingIntent(context, 0,
+                    intent);
+            notificationIntent.putExtra(LocalNotificationPublisher.BACKGROUND_FETCH_INTENT, pendingIntent);
+
+        } else {
+            contentIntent.setData(Uri.parse("http://codenameone.com/a?LocalNotificationID="+Uri.encode(notif.getId())));
+        }
+        PendingIntent pendingContentIntent = createPendingIntent(getContext(), 0, contentIntent);
+
+        notificationIntent.putExtra(LocalNotificationPublisher.NOTIFICATION_INTENT, pendingContentIntent);
+        // carry the configured content intent as a template so the publisher can build
+        // a distinct per-action PendingIntent (with the action id and any remote input)
+        if (!notif.getActions().isEmpty()) {
+            notificationIntent.putExtra(LocalNotificationPublisher.NOTIFICATION_CONTENT_TEMPLATE, contentIntent);
+        }
+
+
+        PendingIntent pendingIntent = getBroadcastPendingIntent(getContext(), 0, notificationIntent);
+
+        AlarmManager alarmManager = (AlarmManager) getContext().getSystemService(Context.ALARM_SERVICE);
+        if (BACKGROUND_FETCH_NOTIFICATION_ID.equals(notif.getId())) {
+            alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, firstTime, getPreferredBackgroundFetchInterval() * 1000, pendingIntent);
+        } else {
+            if(repeat == LocalNotification.REPEAT_NONE){
+                alarmManager.set(AlarmManager.RTC_WAKEUP, firstTime, pendingIntent);
+
+            }else if(repeat == LocalNotification.REPEAT_MINUTE){
+
+                alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, firstTime, 60*1000, pendingIntent);
+
+            }else if(repeat == LocalNotification.REPEAT_HOUR){
+
+                alarmManager.setInexactRepeating(AlarmManager.RTC_WAKEUP, firstTime, AlarmManager.INTERVAL_HALF_HOUR, pendingIntent);
+
+            }else if(repeat == LocalNotification.REPEAT_DAY){
+
+                alarmManager.setInexactRepeating(AlarmManager.RTC_WAKEUP, firstTime, AlarmManager.INTERVAL_DAY, pendingIntent);
+
+            }else if(repeat == LocalNotification.REPEAT_WEEK){
+
+                alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, firstTime, AlarmManager.INTERVAL_DAY * 7, pendingIntent);
+
+            }
+        }
+    }
+
+    public void cancelLocalNotification(String notificationId) {
+        Intent notificationIntent = new Intent(getContext(), LocalNotificationPublisher.class);
+        notificationIntent.setAction(getContext().getApplicationInfo().packageName + "." + notificationId);
+
+        PendingIntent pendingIntent = getBroadcastPendingIntent(getContext(), 0, notificationIntent);
+        AlarmManager alarmManager = (AlarmManager) getContext().getSystemService(Context.ALARM_SERVICE);
+        alarmManager.cancel(pendingIntent);
+    }
+
+    static Bundle createBundleFromNotification(LocalNotification notif){
+        Bundle b = new Bundle();
+        b.putString("NOTIF_ID", notif.getId());
+        b.putString("NOTIF_TITLE", notif.getAlertTitle());
+        b.putString("NOTIF_BODY", notif.getAlertBody());
+        b.putString("NOTIF_SOUND", notif.getAlertSound());
+        b.putString("NOTIF_IMAGE", notif.getAlertImage());
+        b.putInt("NOTIF_NUMBER", notif.getBadgeNumber());
+        b.putString("NOTIF_CHANNEL", notif.getChannelId());
+        b.putString("NOTIF_GROUP", notif.getGroupId());
+        b.putBoolean("NOTIF_GROUP_SUMMARY", notif.isGroupSummary());
+        b.putBoolean("NOTIF_FULLSCREEN", notif.isFullScreenIntent());
+        b.putBoolean("NOTIF_TIME_SENSITIVE", notif.isTimeSensitive());
+        b.putBoolean("NOTIF_ONGOING", notif.isOngoing());
+        b.putInt("NOTIF_PROGRESS_MAX", notif.getProgressMax());
+        b.putInt("NOTIF_PROGRESS", notif.getProgress());
+        b.putBoolean("NOTIF_PROGRESS_INDETERMINATE", notif.isProgressIndeterminate());
+        b.putString("NOTIF_CUSTOM_VIEW", notif.getCustomView());
+        java.util.List<LocalNotification.Action> actions = notif.getActions();
+        if (!actions.isEmpty()) {
+            ArrayList<String> ids = new ArrayList<String>();
+            ArrayList<String> titles = new ArrayList<String>();
+            ArrayList<String> icons = new ArrayList<String>();
+            ArrayList<String> placeholders = new ArrayList<String>();
+            ArrayList<String> buttons = new ArrayList<String>();
+            for (LocalNotification.Action a : actions) {
+                ids.add(a.getId());
+                titles.add(a.getTitle() == null ? "" : a.getTitle());
+                icons.add(a.getIcon() == null ? "" : a.getIcon());
+                placeholders.add(a.getTextInputPlaceholder() == null ? "" : a.getTextInputPlaceholder());
+                buttons.add(a.getTextInputButtonText() == null ? "" : a.getTextInputButtonText());
+            }
+            b.putStringArrayList("NOTIF_ACTION_IDS", ids);
+            b.putStringArrayList("NOTIF_ACTION_TITLES", titles);
+            b.putStringArrayList("NOTIF_ACTION_ICONS", icons);
+            b.putStringArrayList("NOTIF_ACTION_PLACEHOLDERS", placeholders);
+            b.putStringArrayList("NOTIF_ACTION_BUTTONS", buttons);
+        }
+        LocalNotification.MessagingStyle ms = notif.getMessagingStyle();
+        if (ms != null) {
+            b.putString("NOTIF_MSG_SELF", ms.getSelfDisplayName());
+            b.putString("NOTIF_MSG_TITLE", ms.getConversationTitle());
+            b.putBoolean("NOTIF_MSG_GROUP", ms.isGroupConversation());
+            ArrayList<String> texts = new ArrayList<String>();
+            ArrayList<String> senders = new ArrayList<String>();
+            long[] times = new long[ms.getMessages().size()];
+            int i = 0;
+            for (LocalNotification.MessagingStyle.Message m : ms.getMessages()) {
+                texts.add(m.getText() == null ? "" : m.getText());
+                senders.add(m.getSenderName() == null ? "" : m.getSenderName());
+                times[i++] = m.getTimestamp();
+            }
+            b.putStringArrayList("NOTIF_MSG_TEXTS", texts);
+            b.putStringArrayList("NOTIF_MSG_SENDERS", senders);
+            b.putLongArray("NOTIF_MSG_TIMES", times);
+        }
+        return b;
+    }
+
+    static LocalNotification createNotificationFromBundle(Bundle b){
+        LocalNotification n = new LocalNotification();
+        n.setId(b.getString("NOTIF_ID"));
+        n.setAlertTitle(b.getString("NOTIF_TITLE"));
+        n.setAlertBody(b.getString("NOTIF_BODY"));
+        n.setAlertSound(b.getString("NOTIF_SOUND"));
+        n.setAlertImage(b.getString("NOTIF_IMAGE"));
+        n.setBadgeNumber(b.getInt("NOTIF_NUMBER"));
+        // new fields are guarded so bundles serialized by older builds still parse
+        if (b.containsKey("NOTIF_CHANNEL")) {
+            n.setChannelId(b.getString("NOTIF_CHANNEL"));
+        }
+        if (b.containsKey("NOTIF_GROUP")) {
+            n.setGroup(b.getString("NOTIF_GROUP"));
+        }
+        n.setGroupSummary(b.getBoolean("NOTIF_GROUP_SUMMARY", false));
+        n.setFullScreenIntent(b.getBoolean("NOTIF_FULLSCREEN", false));
+        n.setTimeSensitive(b.getBoolean("NOTIF_TIME_SENSITIVE", false));
+        n.setOngoing(b.getBoolean("NOTIF_ONGOING", false));
+        int progressMax = b.getInt("NOTIF_PROGRESS_MAX", 0);
+        if (progressMax > 0) {
+            n.setProgress(progressMax, b.getInt("NOTIF_PROGRESS", 0));
+        }
+        n.setIndeterminateProgress(b.getBoolean("NOTIF_PROGRESS_INDETERMINATE", false));
+        if (b.containsKey("NOTIF_CUSTOM_VIEW")) {
+            n.setCustomView(b.getString("NOTIF_CUSTOM_VIEW"));
+        }
+        ArrayList<String> ids = b.getStringArrayList("NOTIF_ACTION_IDS");
+        if (ids != null) {
+            ArrayList<String> titles = b.getStringArrayList("NOTIF_ACTION_TITLES");
+            ArrayList<String> icons = b.getStringArrayList("NOTIF_ACTION_ICONS");
+            ArrayList<String> placeholders = b.getStringArrayList("NOTIF_ACTION_PLACEHOLDERS");
+            ArrayList<String> buttons = b.getStringArrayList("NOTIF_ACTION_BUTTONS");
+            for (int i = 0; i < ids.size(); i++) {
+                String placeholder = placeholders != null ? emptyToNull(placeholders.get(i)) : null;
+                String button = buttons != null ? emptyToNull(buttons.get(i)) : null;
+                if (placeholder != null || button != null) {
+                    n.addInputAction(ids.get(i), titles.get(i), placeholder, button);
+                } else {
+                    String icon = icons != null ? emptyToNull(icons.get(i)) : null;
+                    n.addAction(new LocalNotification.Action(ids.get(i), titles.get(i), icon));
+                }
+            }
+        }
+        if (b.containsKey("NOTIF_MSG_SELF")) {
+            LocalNotification.MessagingStyle ms = n.asMessagingStyle(b.getString("NOTIF_MSG_SELF"));
+            ms.conversationTitle(b.getString("NOTIF_MSG_TITLE"));
+            ms.groupConversation(b.getBoolean("NOTIF_MSG_GROUP", false));
+            ArrayList<String> texts = b.getStringArrayList("NOTIF_MSG_TEXTS");
+            ArrayList<String> senders = b.getStringArrayList("NOTIF_MSG_SENDERS");
+            long[] times = b.getLongArray("NOTIF_MSG_TIMES");
+            if (texts != null) {
+                for (int i = 0; i < texts.size(); i++) {
+                    ms.addMessage(texts.get(i),
+                            times != null && i < times.length ? times[i] : 0,
+                            senders != null ? emptyToNull(senders.get(i)) : null);
+                }
+            }
+        }
+        return n;
+    }
+
+    private static String emptyToNull(String s) {
+        return s == null || s.length() == 0 ? null : s;
+    }
+
+    @Override
+    public void requestNotificationPermission(final NotificationPermissionRequest request, final NotificationPermissionCallback callback) {
+        if (callback == null) {
+            return;
+        }
+        final boolean granted;
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            granted = checkForPermission("android.permission.POST_NOTIFICATIONS", "This is required to receive notifications", true);
+        } else {
+            // notifications are allowed by default below Android 13
+            granted = true;
+        }
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                callback.notificationPermissionResult(new NotificationPermissionResult(granted
+                        ? NotificationPermissionResult.AuthorizationLevel.AUTHORIZED
+                        : NotificationPermissionResult.AuthorizationLevel.DENIED));
+            }
+        });
+    }
+
+    @Override
+    public void registerNotificationChannel(NotificationChannelBuilder builder) {
+        if (builder == null || android.os.Build.VERSION.SDK_INT < 26) {
+            return;
+        }
+        try {
+            NotificationManager nm = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            Class<?> clsChannel = Class.forName("android.app.NotificationChannel");
+            Constructor<?> ctor = clsChannel.getConstructor(String.class, CharSequence.class, int.class);
+            // map our 0..5 importance onto the platform IMPORTANCE_* (NONE=0 .. MAX=5)
+            Object channel = ctor.newInstance(builder.getId(), builder.getName(), builder.getImportance());
+            if (builder.getDescription() != null) {
+                clsChannel.getMethod("setDescription", String.class).invoke(channel, builder.getDescription());
+            }
+            clsChannel.getMethod("enableLights", boolean.class).invoke(channel, builder.isLightsEnabled());
+            if (builder.isLightsEnabled()) {
+                clsChannel.getMethod("setLightColor", int.class).invoke(channel, builder.getLightColor());
+            }
+            clsChannel.getMethod("enableVibration", boolean.class).invoke(channel, builder.isVibrationEnabled());
+            if (builder.getVibrationPattern() != null) {
+                clsChannel.getMethod("setVibrationPattern", long[].class).invoke(channel, (Object) builder.getVibrationPattern());
+            }
+            clsChannel.getMethod("setLockscreenVisibility", int.class).invoke(channel, builder.getLockscreenVisibility());
+            clsChannel.getMethod("setShowBadge", boolean.class).invoke(channel, builder.isShowBadge());
+            if (builder.getGroup() != null) {
+                clsChannel.getMethod("setGroup", String.class).invoke(channel, builder.getGroup());
+            }
+            String sound = builder.getSound();
+            if (sound != null && sound.length() > 0) {
+                sound = sound.toLowerCase();
+                Uri uri = Uri.parse("android.resource://" + getContext().getApplicationInfo().packageName + "/raw"
+                        + sound.substring(0, sound.indexOf(".")));
+                android.media.AudioAttributes attrs = new android.media.AudioAttributes.Builder()
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                        .build();
+                clsChannel.getMethod("setSound", Uri.class, android.media.AudioAttributes.class).invoke(channel, uri, attrs);
+            }
+            nm.getClass().getMethod("createNotificationChannel", clsChannel).invoke(nm, channel);
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+    }
+
+    @Override
+    public void deleteNotificationChannel(String channelId) {
+        if (channelId == null || android.os.Build.VERSION.SDK_INT < 26) {
+            return;
+        }
+        try {
+            NotificationManager nm = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            nm.getClass().getMethod("deleteNotificationChannel", String.class).invoke(nm, channelId);
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+    }
+
+    @Override
+    public void createNotificationChannelGroup(String groupId, String groupName) {
+        if (groupId == null || android.os.Build.VERSION.SDK_INT < 26) {
+            return;
+        }
+        try {
+            NotificationManager nm = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            Class<?> clsGroup = Class.forName("android.app.NotificationChannelGroup");
+            Constructor<?> ctor = clsGroup.getConstructor(String.class, CharSequence.class);
+            Object group = ctor.newInstance(groupId, groupName);
+            nm.getClass().getMethod("createNotificationChannelGroup", clsGroup).invoke(nm, group);
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+    }
+
+    @Override
+    public void subscribeToPushTopic(final String topic) {
+        invokeFirebaseTopic("subscribeToTopic", topic);
+    }
+
+    @Override
+    public void unsubscribeFromPushTopic(final String topic) {
+        invokeFirebaseTopic("unsubscribeFromTopic", topic);
+    }
+
+    private void invokeFirebaseTopic(String methodName, String topic) {
+        try {
+            Class<?> cls = Class.forName("com.google.firebase.messaging.FirebaseMessaging");
+            Object instance = cls.getMethod("getInstance").invoke(null);
+            cls.getMethod(methodName, String.class).invoke(instance, topic);
+        } catch (ClassNotFoundException notAvailable) {
+            com.codename1.io.Log.p("Firebase Cloud Messaging is not available; topic '" + topic
+                    + "' subscription must be handled server side");
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+    }
+
+    @Override
+    public boolean isReceiveSharedContentSupported() {
+        return true;
+    }
+
+    private static SharedContent pendingSharedContent;
+
+    /// Delivers shared content received from another app. If the CN1 app instance is
+    /// running it is dispatched immediately on the EDT; otherwise it is held until the app
+    /// finishes starting and `#deliverPendingSharedContent()` is invoked.
+    static void deliverSharedContent(SharedContent content) {
+        if (content == null) {
+            return;
+        }
+        Object app = CodenameOneImplementation.getCurrentApplicationInstance();
+        if (app != null && Display.isInitialized()) {
+            dispatchSharedContent(app, content);
+        } else {
+            pendingSharedContent = content;
+        }
+    }
+
+    /// Invoked once the app has started to flush any shared content that arrived before the
+    /// app instance existed.
+    public static void deliverPendingSharedContent() {
+        SharedContent c = pendingSharedContent;
+        pendingSharedContent = null;
+        Object app = CodenameOneImplementation.getCurrentApplicationInstance();
+        if (c != null && app != null) {
+            dispatchSharedContent(app, c);
+        }
+    }
+
+    private static void dispatchSharedContent(final Object app, final SharedContent content) {
+        if (!(app instanceof com.codename1.system.Lifecycle)) {
+            return;
+        }
+        Display.getInstance().callSerially(new Runnable() {
+            public void run() {
+                ((com.codename1.system.Lifecycle) app).onReceivedSharedContent(content);
+            }
+        });
+    }
+
+    // ---- Constraint-aware background work (JobScheduler) ----
+
+    @Override
+    public boolean isBackgroundWorkSupported() {
+        return android.os.Build.VERSION.SDK_INT >= 21;
+    }
+
+    private static int jobIdFor(String id) {
+        return (id.hashCode() & 0x7fffffff) % 1000000 + 1000;
+    }
+
+    @Override
+    public void scheduleBackgroundWork(WorkRequest request) {
+        if (android.os.Build.VERSION.SDK_INT < 21) {
+            return;
+        }
+        try {
+            android.app.job.JobScheduler scheduler =
+                    (android.app.job.JobScheduler) getContext().getSystemService(Context.JOB_SCHEDULER_SERVICE);
+            android.content.ComponentName component =
+                    new android.content.ComponentName(getContext(), CodenameOneJobService.class);
+            android.app.job.JobInfo.Builder builder =
+                    new android.app.job.JobInfo.Builder(jobIdFor(request.getId()), component);
+
+            if (request.isRequiresUnmeteredNetwork()) {
+                builder.setRequiredNetworkType(android.app.job.JobInfo.NETWORK_TYPE_UNMETERED);
+            } else if (request.isRequiresNetwork()) {
+                builder.setRequiredNetworkType(android.app.job.JobInfo.NETWORK_TYPE_ANY);
+            }
+            builder.setRequiresCharging(request.isRequiresCharging());
+            if (android.os.Build.VERSION.SDK_INT >= 23) {
+                builder.setRequiresDeviceIdle(request.isRequiresIdle());
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                builder.setRequiresBatteryNotLow(request.isRequiresBatteryNotLow());
+            }
+            if (request.isPeriodic()) {
+                builder.setPeriodic(Math.max(15 * 60 * 1000L, request.getMinIntervalMillis()));
+            } else {
+                if (request.getInitialDelayMillis() > 0) {
+                    builder.setMinimumLatency(request.getInitialDelayMillis());
+                }
+                builder.setOverrideDeadline(Math.max(request.getInitialDelayMillis(), 0) + 60 * 60 * 1000L);
+            }
+
+            PersistableBundle extras = new PersistableBundle();
+            extras.putString(CodenameOneJobService.EXTRA_WORKER_CLASS, request.getWorkerClass());
+            extras.putString(CodenameOneJobService.EXTRA_WORK_ID, request.getId());
+            for (java.util.Map.Entry<String, String> e : request.getInputData().entrySet()) {
+                extras.putString(CodenameOneJobService.INPUT_PREFIX + e.getKey(), e.getValue());
+            }
+            builder.setExtras(extras);
+            scheduler.schedule(builder.build());
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+    }
+
+    @Override
+    public void cancelBackgroundWork(String workId) {
+        if (android.os.Build.VERSION.SDK_INT < 21) {
+            return;
+        }
+        try {
+            android.app.job.JobScheduler scheduler =
+                    (android.app.job.JobScheduler) getContext().getSystemService(Context.JOB_SCHEDULER_SERVICE);
+            scheduler.cancel(jobIdFor(workId));
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+    }
+
+    @Override
+    public boolean isBackgroundProcessingSupported() {
+        return android.os.Build.VERSION.SDK_INT >= 21;
+    }
+
+    @Override
+    public void scheduleBackgroundProcessing(String id, long earliestBeginEpochMs, boolean requiresNetwork, boolean requiresPower, Runnable task) {
+        if (android.os.Build.VERSION.SDK_INT < 21 || task == null) {
+            return;
+        }
+        try {
+            CodenameOneJobService.registerProcessingRunnable(id, task);
+            android.app.job.JobScheduler scheduler =
+                    (android.app.job.JobScheduler) getContext().getSystemService(Context.JOB_SCHEDULER_SERVICE);
+            android.content.ComponentName component =
+                    new android.content.ComponentName(getContext(), CodenameOneJobService.class);
+            android.app.job.JobInfo.Builder builder =
+                    new android.app.job.JobInfo.Builder(jobIdFor("proc-" + id), component);
+            if (requiresNetwork) {
+                builder.setRequiredNetworkType(android.app.job.JobInfo.NETWORK_TYPE_ANY);
+            }
+            builder.setRequiresCharging(requiresPower);
+            long delay = earliestBeginEpochMs <= 0 ? 0 : Math.max(0, earliestBeginEpochMs - System.currentTimeMillis());
+            if (delay > 0) {
+                builder.setMinimumLatency(delay);
+            }
+            builder.setOverrideDeadline(delay + 60 * 60 * 1000L);
+            PersistableBundle extras = new PersistableBundle();
+            extras.putString(CodenameOneJobService.EXTRA_PROCESSING_ID, id);
+            builder.setExtras(extras);
+            scheduler.schedule(builder.build());
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+    }
+
+    @Override
+    public void cancelBackgroundProcessing(String id) {
+        CodenameOneJobService.unregisterProcessingRunnable(id);
+        if (android.os.Build.VERSION.SDK_INT < 21) {
+            return;
+        }
+        try {
+            android.app.job.JobScheduler scheduler =
+                    (android.app.job.JobScheduler) getContext().getSystemService(Context.JOB_SCHEDULER_SERVICE);
+            scheduler.cancel(jobIdFor("proc-" + id));
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+    }
+
+    // ---- Foreground service ----
+
+    @Override
+    public boolean isForegroundServiceSupported() {
+        return true;
+    }
+
+    @Override
+    public Object startForegroundService(String channelId, String title, String body, String iconName, ForegroundService.Task task, ForegroundService handle) {
+        int token = CodenameOneForegroundService.registerTask(task, handle, channelId, title, body, iconName);
+        try {
+            Intent intent = new Intent(getContext(), CodenameOneForegroundService.class);
+            intent.setAction(CodenameOneForegroundService.ACTION_START);
+            intent.putExtra(CodenameOneForegroundService.EXTRA_TOKEN, token);
+            intent.putExtra(CodenameOneForegroundService.EXTRA_CHANNEL, channelId);
+            intent.putExtra(CodenameOneForegroundService.EXTRA_TITLE, title);
+            intent.putExtra(CodenameOneForegroundService.EXTRA_BODY, body);
+            intent.putExtra(CodenameOneForegroundService.EXTRA_ICON, iconName);
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                getContext().startForegroundService(intent);
+            } else {
+                getContext().startService(intent);
+            }
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+        return Integer.valueOf(token);
+    }
+
+    @Override
+    public void updateForegroundServiceNotification(Object nativeHandle, String title, String body) {
+        try {
+            Intent intent = new Intent(getContext(), CodenameOneForegroundService.class);
+            intent.setAction(CodenameOneForegroundService.ACTION_UPDATE);
+            if (nativeHandle instanceof Integer) {
+                intent.putExtra(CodenameOneForegroundService.EXTRA_TOKEN, ((Integer) nativeHandle).intValue());
+            }
+            intent.putExtra(CodenameOneForegroundService.EXTRA_TITLE, title);
+            intent.putExtra(CodenameOneForegroundService.EXTRA_BODY, body);
+            getContext().startService(intent);
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+    }
+
+    @Override
+    public void stopForegroundService(Object nativeHandle) {
+        try {
+            Intent intent = new Intent(getContext(), CodenameOneForegroundService.class);
+            intent.setAction(CodenameOneForegroundService.ACTION_STOP);
+            if (nativeHandle instanceof Integer) {
+                intent.putExtra(CodenameOneForegroundService.EXTRA_TOKEN, ((Integer) nativeHandle).intValue());
+            }
+            getContext().startService(intent);
+        } catch (Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+    }
+
+    boolean brokenGaussian;
+    public Image gaussianBlurImage(Image image, float radius) {
+        try {
+            Bitmap outputBitmap = Bitmap.createBitmap((Bitmap)image.getImage());
+
+            RenderScript rs = RenderScript.create(getContext());
+            try {
+                ScriptIntrinsicBlur theIntrinsic = ScriptIntrinsicBlur.create(rs, Element.U8_4(rs));
+                Allocation tmpIn = Allocation.createFromBitmap(rs, (Bitmap)image.getImage());
+                Allocation tmpOut = Allocation.createFromBitmap(rs, outputBitmap);
+                theIntrinsic.setRadius(radius);
+                theIntrinsic.setInput(tmpIn);
+                theIntrinsic.forEach(tmpOut);
+                tmpOut.copyTo(outputBitmap);
+                tmpIn.destroy();
+                tmpOut.destroy();
+                theIntrinsic.destroy();
+            } finally {
+                rs.destroy();
+            }
+
+            return new NativeImage(outputBitmap);
+        } catch(Throwable t) {
+            brokenGaussian = true;
+            return image;
+        }
+    }
+
+    public boolean isGaussianBlurSupported() {
+        return (!brokenGaussian) && android.os.Build.VERSION.SDK_INT >= 11;
+    }
+
+    @Override
+    public boolean blurRegion(Object graphics, int x, int y, int width, int height, float radius) {
+        if (radius <= 0f || width <= 0 || height <= 0 || !isGaussianBlurSupported()) {
+            return radius <= 0f || width <= 0 || height <= 0;
+        }
+        // In-place CSS backdrop-filter:blur on a mutable-image target. Read/write the
+        // backing Bitmap directly at absolute coordinates (bypassing the canvas
+        // transform), Gaussian-blur the region via RenderScript. The live screen
+        // canvas has no backing Bitmap here -> returns false (component paints
+        // without the blur).
+        if (!(graphics instanceof AndroidGraphics)) {
+            return false;
+        }
+        Bitmap dest = ((AndroidGraphics) graphics).underlyingBitmap;
+        if (dest == null || !dest.isMutable()) {
+            return false;
+        }
+        try {
+            int rx = Math.max(0, x), ry = Math.max(0, y);
+            int rw = Math.min(width, dest.getWidth() - rx);
+            int rh = Math.min(height, dest.getHeight() - ry);
+            if (rw <= 0 || rh <= 0) {
+                return true;
+            }
+            int[] pix = new int[rw * rh];
+            dest.getPixels(pix, 0, rw, rx, ry, rw, rh);
+            Bitmap region = Bitmap.createBitmap(pix, rw, rh, Bitmap.Config.ARGB_8888);
+            Bitmap blurred = Bitmap.createBitmap(region);
+            RenderScript rs = RenderScript.create(getContext());
+            try {
+                ScriptIntrinsicBlur theIntrinsic = ScriptIntrinsicBlur.create(rs, Element.U8_4(rs));
+                Allocation tmpIn = Allocation.createFromBitmap(rs, region);
+                Allocation tmpOut = Allocation.createFromBitmap(rs, blurred);
+                // RenderScript blur radius is capped at 25.
+                theIntrinsic.setRadius(Math.min(25f, radius));
+                theIntrinsic.setInput(tmpIn);
+                theIntrinsic.forEach(tmpOut);
+                tmpOut.copyTo(blurred);
+                tmpIn.destroy();
+                tmpOut.destroy();
+                theIntrinsic.destroy();
+            } finally {
+                rs.destroy();
+            }
+            blurred.getPixels(pix, 0, rw, 0, 0, rw, rh);
+            dest.setPixels(pix, 0, rw, rx, ry, rw, rh);
+            return true;
+        } catch (Throwable t) {
+            brokenGaussian = true;
+            return false;
+        }
+    }
+
+    public static boolean checkForPermission(String permission, String description){
+        return checkForPermission(permission, description, false);
+    }
+
+    public static void setPermissionPromptCallback(PermissionPromptCallback callback) {
+        permissionPromptCallback = callback;
+    }
+
+    public static PermissionPromptCallback getPermissionPromptCallback() {
+        return permissionPromptCallback;
+    }
+
+    private static String getPermissionText(String key, String defaultValue) {
+        return UIManager.getInstance().localize(key, Display.getInstance().getProperty(key, defaultValue));
+    }
+
+    private static boolean showPermissionPrompt(String permission, String title, String body, String positiveButtonText, String negativeButtonText) {
+        if (permissionPromptCallback != null) {
+            return permissionPromptCallback.showPermissionPrompt(permission, title, body, positiveButtonText, negativeButtonText);
+        }
+        return Dialog.show(title, body, positiveButtonText, negativeButtonText);
+    }
+
+    private static void showPermissionMessage(String permission, String title, String body, String okButtonText) {
+        if (permissionPromptCallback != null) {
+            permissionPromptCallback.showPermissionMessage(permission, title, body, okButtonText);
+            return;
+        }
+        Dialog.show(title, body, okButtonText, null);
+    }
+
+    /**
+     * Return a list of all of the permissions that have been requested by the app (granted or no).
+     * This can be used to see which permissions are included in the manifest file.
+     * @return 
+     */
+    public static List<String> getRequestedPermissions() {
+        PackageManager pm = getContext().getPackageManager();
+        try
+        {
+            PackageInfo packageInfo = pm.getPackageInfo(getContext().getPackageName(), PackageManager.GET_PERMISSIONS);
+            String[] requestedPermissions = null;
+            if (packageInfo != null) {
+                requestedPermissions = packageInfo.requestedPermissions;
+                return Arrays.asList(requestedPermissions);
+            }
+            return new ArrayList<String>();
+        }
+        catch (PackageManager.NameNotFoundException e)
+        {
+            com.codename1.io.Log.e(e);
+            return new ArrayList<String>();
+        }
+    }
+    
+    public static boolean checkForPermission(String permission, String description, boolean forceAsk){
+        //before sdk 23 no need to ask for permission
+        if(android.os.Build.VERSION.SDK_INT < 23){
+            return true;
+        }
+
+        if (android.os.Build.VERSION.SDK_INT >= 30 && "android.permission.ACCESS_BACKGROUND_LOCATION".equals(permission)) {
+            if (android.support.v4.content.ContextCompat.checkSelfPermission(getContext(), permission) == PackageManager.PERMISSION_GRANTED) {
+                return true;
+            }
+            if (getActivity() == null) {
+                return false;
+            }
+
+            String prompt = getPermissionText(permission, description);
+            String title = getPermissionText("android.permission.ACCESS_BACKGROUND_LOCATION.title", "Requires permission");
+            String settingsBtn = getPermissionText("android.permission.ACCESS_BACKGROUND_LOCATION.settings", "Settings");
+            String cancelBtn = getPermissionText("android.permission.ACCESS_BACKGROUND_LOCATION.cancel", "Cancel");
+
+            if(showPermissionPrompt(permission, title, prompt, settingsBtn, cancelBtn)){
+                Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                Uri uri = Uri.fromParts("package", getContext().getPackageName(), null);
+                intent.setData(uri);
+                getActivity().startActivity(intent);
+
+                String explanationTitle = getPermissionText("android.permission.ACCESS_BACKGROUND_LOCATION.explanation_title", "Permission Required");
+                String explanationBody = getPermissionText("android.permission.ACCESS_BACKGROUND_LOCATION.explanation_body", "Please enable 'Allow all the time' in the settings, then press OK.");
+                String okBtn = getPermissionText("android.permission.ACCESS_BACKGROUND_LOCATION.ok", "OK");
+
+                showPermissionMessage(permission, explanationTitle, explanationBody, okBtn);
+                return android.support.v4.content.ContextCompat.checkSelfPermission(getActivity(), permission) == PackageManager.PERMISSION_GRANTED;
+            } else {
+                return false;
+            }
+        }
+
+        String prompt = getPermissionText(permission, description);
+
+        if (android.support.v4.content.ContextCompat.checkSelfPermission(getContext(),
+                permission)
+                != PackageManager.PERMISSION_GRANTED) {
+
+            if (getActivity() == null) {
+                return false;
+            }
+
+            // Should we show an explanation?
+            if (!forceAsk && android.support.v4.app.ActivityCompat.shouldShowRequestPermissionRationale(getActivity(),
+                    permission)) {
+
+                // Show an expanation to the user *asynchronously* -- don't block
+                String title = getPermissionText(permission + ".title", "Requires permission");
+                String askAgain = getPermissionText(permission + ".askAgain", "Ask again");
+                String dontAsk = getPermissionText(permission + ".dontAsk", "Don't Ask");
+                if(showPermissionPrompt(permission, title, prompt, askAgain, dontAsk)){
+                    return checkForPermission(permission, description, true);
+                }else {
+                    return false;
+                }
+            } else {
+
+                // No explanation needed, we can request the permission.
+                ((CodenameOneActivity)getActivity()).setRequestForPermission(true);
+                ((CodenameOneActivity)getActivity()).setWaitingForPermissionResult(true);
+                android.support.v4.app.ActivityCompat.requestPermissions(getActivity(),
+                        new String[]{permission},
+                        1);
+                //wait for a response
+                Display.getInstance().invokeAndBlock(new Runnable() {
+                    @Override
+                    public void run() {
+                        while(((CodenameOneActivity)getActivity()).isRequestForPermission()) {
+                            try {
+                                Thread.sleep(50);
+                            } catch (InterruptedException e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    }
+                });
+                //check again if the permission is given after the dialog was displayed
+                return android.support.v4.content.ContextCompat.checkSelfPermission(getActivity(),
+                        permission) == PackageManager.PERMISSION_GRANTED;
+
+            }
+        }
+        return true;
+    }
+
+    public boolean isJailbrokenDevice() {
+        try {
+            Runtime.getRuntime().exec("su");
+            return true;
+        } catch(Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+        return false;
+    }
+
+    @Override
+    public boolean isAttestationSupported() {
+        try {
+            Class.forName("com.google.android.play.core.integrity.IntegrityManagerFactory");
+            return true;
+        } catch(Throwable t) {
+            return false;
+        }
+    }
+
+    @Override
+    public AsyncResource<String> requestIntegrityToken(final String nonce) {
+        final AsyncResource<String> result = new AsyncResource<String>();
+        try {
+            Context context = getContext();
+            Class factory = Class.forName("com.google.android.play.core.integrity.IntegrityManagerFactory");
+            Object manager = factory.getMethod("create", Context.class).invoke(null, context);
+            Class requestClass = Class.forName("com.google.android.play.core.integrity.IntegrityTokenRequest");
+            Object builder = requestClass.getMethod("builder").invoke(null);
+            builder = builder.getClass().getMethod("setNonce", String.class).invoke(builder, nonce);
+            Object request = builder.getClass().getMethod("build").invoke(builder);
+            Class managerClass = Class.forName("com.google.android.play.core.integrity.IntegrityManager");
+            Object task = managerClass.getMethod("requestIntegrityToken", requestClass).invoke(manager, request);
+
+            Class taskClass = Class.forName("com.google.android.gms.tasks.Task");
+            Class onSuccessClass = Class.forName("com.google.android.gms.tasks.OnSuccessListener");
+            Class onFailureClass = Class.forName("com.google.android.gms.tasks.OnFailureListener");
+            final Class responseClass = Class.forName("com.google.android.play.core.integrity.IntegrityTokenResponse");
+
+            Object successListener = java.lang.reflect.Proxy.newProxyInstance(
+                    onSuccessClass.getClassLoader(), new Class[] { onSuccessClass },
+                    new java.lang.reflect.InvocationHandler() {
+                        public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) {
+                            try {
+                                Object response = args[0];
+                                Object token = responseClass.getMethod("token").invoke(response);
+                                // Tested rather than cast into the catch below: a
+                                // wrong type here is a bad token rather than a
+                                // failed call, and a reflective call's answer is
+                                // exactly the kind of value worth testing.
+                                if (token instanceof String) {
+                                    result.complete((String) token);
+                                } else {
+                                    result.error(new IllegalStateException(
+                                            "integrity token was not a string"));
+                                }
+                            } catch(Throwable t) {
+                                result.error(t);
+                            }
+                            return null;
+                        }
+                    });
+            Object failureListener = java.lang.reflect.Proxy.newProxyInstance(
+                    onFailureClass.getClassLoader(), new Class[] { onFailureClass },
+                    new java.lang.reflect.InvocationHandler() {
+                        public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) {
+                            Throwable err = (args != null && args.length > 0 && args[0] instanceof Throwable)
+                                    ? (Throwable) args[0] : new RuntimeException("Play Integrity request failed");
+                            result.error(err);
+                            return null;
+                        }
+                    });
+            taskClass.getMethod("addOnSuccessListener", onSuccessClass).invoke(task, successListener);
+            taskClass.getMethod("addOnFailureListener", onFailureClass).invoke(task, failureListener);
+        } catch(ClassNotFoundException notBundled) {
+            result.error(new UnsupportedOperationException(
+                    "Google Play Integrity is not bundled. Enable the android.playIntegrity build hint."));
+        } catch(Throwable t) {
+            result.error(t);
+        }
+        return result;
+    }
+
+    @Override
+    public boolean isDeviceCompromised() {
+        return getCompromiseReasons().length > 0;
+    }
+
+    /**
+     * Base64 SHA-256 digests of the certificates this APK is actually signed with.
+     *
+     * <p>Uses the v2/v3 signing-block API on API 28 and up, which reports the full
+     * signing lineage after a key rotation; below that only the legacy v1 signature
+     * is available. Note that under Play App Signing the digest seen here is
+     * Google's <em>app signing</em> key, not the developer's upload key -- comparing
+     * against the upload key is the classic way to make every production install
+     * report itself as repackaged.</p>
+     */
+    @Override
+    public String[] getAppSignerDigests() {
+        try {
+            Context ctx = getContext();
+            if (ctx == null) {
+                return new String[0];
+            }
+            PackageManager pm = ctx.getPackageManager();
+            String pkg = ctx.getPackageName();
+            Signature[] signatures = null;
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                // Reflection because the port compiles against an older android.jar
+                // than the devices it runs on, the same reason the Play Integrity
+                // call in this file is reflective.
+                signatures = signingCertificatesViaReflection(pm, pkg);
+            }
+            if (signatures == null) {
+                PackageInfo info = pm.getPackageInfo(pkg, PackageManager.GET_SIGNATURES);
+                signatures = info.signatures;
+            }
+            if (signatures == null) {
+                return new String[0];
+            }
+            java.util.ArrayList<String> out = new java.util.ArrayList<String>();
+            for (int i = 0; i < signatures.length; i++) {
+                MessageDigest md = MessageDigest.getInstance("SHA-256");
+                md.update(signatures[i].toByteArray());
+                out.add(com.codename1.util.Base64.encodeNoNewline(md.digest()));
+            }
+            return out.toArray(new String[out.size()]);
+        } catch (Throwable t) {
+            // Reporting nothing is better than failing a request over a
+            // package-manager quirk on some OEM build.
+            com.codename1.io.Log.e(t);
+            return new String[0];
+        }
+    }
+
+    /**
+     * PackageManager.GET_SIGNING_CERTIFICATES. Inlined because the port compiles
+     * against an android.jar that predates it.
+     */
+    private static final int FLAG_GET_SIGNING_CERTIFICATES = 0x08000000;
+
+    /**
+     * Reads the v2/v3 signing certificates on API 28+, or null when unavailable so
+     * the caller falls back to the legacy v1 signatures.
+     */
+    private static Signature[] signingCertificatesViaReflection(PackageManager pm, String pkg) {
+        try {
+            PackageInfo info = pm.getPackageInfo(pkg, FLAG_GET_SIGNING_CERTIFICATES);
+            java.lang.reflect.Field signingInfoField =
+                    PackageInfo.class.getField("signingInfo");
+            Object signingInfo = signingInfoField.get(info);
+            if (signingInfo == null) {
+                return null;
+            }
+            Class<?> signingInfoClass = signingInfo.getClass();
+            boolean multipleSigners = ((Boolean) signingInfoClass
+                    .getMethod("hasMultipleSigners").invoke(signingInfo)).booleanValue();
+            // With one signer the history includes the pre-rotation certificates,
+            // which a server comparing against an older build still needs to accept.
+            String method = multipleSigners
+                    ? "getApkContentsSigners"
+                    : "getSigningCertificateHistory";
+            return (Signature[]) signingInfoClass.getMethod(method).invoke(signingInfo);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    @Override
+    public String[] getCompromiseReasons() {
+        java.util.ArrayList<String> reasons = new java.util.ArrayList<String>();
+        if(isRootedViaRootBeer() || isJailbrokenDevice()) {
+            reasons.add("root");
+        }
+        try {
+            if(FridaDetectionUtil.isFridaDetected()) {
+                reasons.add("frida");
+            }
+        } catch(Throwable t) {
+            // detection must never crash the host app
+        }
+        if(isProbablyEmulator()) {
+            reasons.add("emulator");
+        }
+        return reasons.toArray(new String[reasons.size()]);
+    }
+
+    private boolean isRootedViaRootBeer() {
+        try {
+            Class rootBeerClass = Class.forName("com.scottyab.rootbeer.RootBeer");
+            Object rootBeer = rootBeerClass.getConstructor(Context.class).newInstance(getContext());
+            Object rooted = rootBeerClass.getMethod("isRooted").invoke(rootBeer);
+            return Boolean.TRUE.equals(rooted);
+        } catch(Throwable t) {
+            // RootBeer not bundled (android.rootCheck off) - caller falls back to the su probe
+            return false;
+        }
+    }
+
+    private boolean isProbablyEmulator() {
+        try {
+            String fingerprint = Build.FINGERPRINT;
+            if(fingerprint != null && (fingerprint.startsWith("generic") || fingerprint.startsWith("unknown")
+                    || fingerprint.contains("emulator"))) {
+                return true;
+            }
+            String model = Build.MODEL;
+            if(model != null && (model.contains("google_sdk") || model.contains("Emulator")
+                    || model.contains("Android SDK built for"))) {
+                return true;
+            }
+            String manufacturer = Build.MANUFACTURER;
+            if(manufacturer != null && manufacturer.contains("Genymotion")) {
+                return true;
+            }
+            String product = Build.PRODUCT;
+            if(product != null && (product.contains("sdk_gphone") || product.equals("google_sdk")
+                    || product.contains("emulator") || product.contains("simulator"))) {
+                return true;
+            }
+            String hardware = Build.HARDWARE;
+            if(hardware != null && (hardware.contains("goldfish") || hardware.contains("ranchu"))) {
+                return true;
+            }
+        } catch(Throwable t) {
+            // ignore
+        }
+        return false;
+    }
+
+    @Override
+    public String[] getEnabledAccessibilityServices() {
+        Context context = getContext();
+        if(context == null) {
+            return new String[0];
+        }
+        try {
+            AccessibilityManager am = (AccessibilityManager) context.getSystemService(Context.ACCESSIBILITY_SERVICE);
+            if(am != null) {
+                java.util.List<android.accessibilityservice.AccessibilityServiceInfo> list =
+                        am.getEnabledAccessibilityServiceList(
+                                android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK);
+                if(list != null && !list.isEmpty()) {
+                    java.util.ArrayList<String> ids = new java.util.ArrayList<String>();
+                    for(android.accessibilityservice.AccessibilityServiceInfo info : list) {
+                        String id = info.getId();
+                        if(id != null && id.length() > 0) {
+                            ids.add(id);
+                        }
+                    }
+                    return ids.toArray(new String[ids.size()]);
+                }
+            }
+        } catch(Throwable t) {
+            // fall through to the Settings.Secure based lookup below
+        }
+        try {
+            String enabled = Settings.Secure.getString(context.getContentResolver(),
+                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+            if(enabled != null && enabled.length() > 0) {
+                return enabled.split(":");
+            }
+        } catch(Throwable t) {
+            com.codename1.io.Log.e(t);
+        }
+        return new String[0];
+    }
+
+    @Override
+    public void setSecureScreen(final boolean secure) {
+        final Activity act = getActivity();
+        if(act == null) {
+            return;
+        }
+        act.runOnUiThread(new Runnable() {
+            public void run() {
+                try {
+                    if(secure) {
+                        act.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+                    } else {
+                        act.getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+                    }
+                } catch(Throwable t) {
+                    com.codename1.io.Log.e(t);
+                }
+            }
+        });
+    }
+
+    @Override
+    public boolean isHideOverlayWindowsSupported() {
+        // The permission half matters as much as the API level. Window.setHideOverlayWindows
+        // throws SecurityException without HIDE_OVERLAY_WINDOWS; reflection wraps it and the
+        // catch below only logs it, so reporting support on the API level alone would tell an
+        // app its native peers were protected when in fact nothing happened. It is a normal
+        // permission, granted at install once the manifest declares it, which the
+        // android.tapjackingGuard / android.hideOverlayWindows build hints arrange.
+        return Build.VERSION.SDK_INT >= 31 && hasHideOverlayWindowsPermission();
+    }
+
+    /** The last value passed to setHideOverlayWindows, replayed onto a recreated window. */
+    private boolean hideOverlayWindowsRequested;
+
+    private boolean hasHideOverlayWindowsPermission() {
+        try {
+            Context ctx = getContext();
+            if (ctx == null) {
+                return false;
+            }
+            return ctx.checkSelfPermission("android.permission.HIDE_OVERLAY_WINDOWS")
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    @Override
+    public void setHideOverlayWindows(final boolean hide) {
+        // Recorded before the guards below because it is a request, not a result: the flag
+        // lives on the Window, and a configuration change destroys and recreates the activity
+        // without touching this implementation instance. initSurface() replays it onto the new
+        // window, otherwise an app that hid overlays on a sensitive screen would come back from
+        // a rotation with them allowed again and no way to notice.
+        hideOverlayWindowsRequested = hide;
+        if (Build.VERSION.SDK_INT < 31) {
+            return;
+        }
+        if (!hasHideOverlayWindowsPermission()) {
+            // Said out loud rather than left to the swallowed SecurityException below: an app
+            // that calls this without the build hint would otherwise see no effect and no
+            // explanation for why its overlays were never hidden.
+            com.codename1.io.Log.p("Codename One: setHideOverlayWindows ignored, the app does "
+                    + "not hold android.permission.HIDE_OVERLAY_WINDOWS. Enable the "
+                    + "android.tapjackingGuard or android.hideOverlayWindows build hint.");
+            return;
+        }
+        final Activity act = getActivity();
+        if (act == null) {
+            return;
+        }
+        act.runOnUiThread(new Runnable() {
+            public void run() {
+                try {
+                    // Window.setHideOverlayWindows(boolean) is API 31 and absent from the
+                    // android.jar this port compiles against, so it is reached reflectively --
+                    // the same approach the port uses for the Play Integrity API.
+                    android.view.Window w = act.getWindow();
+                    if (w == null) {
+                        return;
+                    }
+                    java.lang.reflect.Method m = android.view.Window.class.getMethod(
+                            "setHideOverlayWindows", boolean.class);
+                    m.invoke(w, Boolean.valueOf(hide));
+                } catch (Throwable t) {
+                    com.codename1.io.Log.e(t);
+                }
+            }
+        });
+    }
+
+    @Override
+    public void announceForAccessibility(final Component cmp, final String text) {
+        final Activity act = getActivity();
+        if (act == null) {
+            return;
+        }
+        act.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                View view = null;
+                if (cmp instanceof PeerComponent) {
+                    Object peer = ((PeerComponent) cmp).getNativePeer();
+                    if (peer instanceof View) {
+                        view = (View) peer;
+                    }
+                }
+                if (view == null) {
+                    view = act.getWindow().getDecorView();
+                }
+                if (view == null) {
+                    return;
+                }
+                if (Build.VERSION.SDK_INT >= 16) {
+                    view.announceForAccessibility(text);
+                } else {
+                    AccessibilityManager manager = (AccessibilityManager) act.getSystemService(Context.ACCESSIBILITY_SERVICE);
+                    if (manager != null && manager.isEnabled()) {
+                        AccessibilityEvent event = AccessibilityEvent.obtain(AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED);
+                        event.getText().add(text);
+                        event.setSource(view);
+                        manager.sendAccessibilityEvent(event);
+                    }
+                }
+            }
+        });
+    }
+
+    @Override
+    public boolean isHighContrastEnabled() {
+        try {
+            AccessibilityManager manager = (AccessibilityManager)getContext()
+                    .getSystemService(Context.ACCESSIBILITY_SERVICE);
+            if (android.os.Build.VERSION.SDK_INT >= 21 && manager != null) {
+                Object enabled = AccessibilityManager.class.getMethod("isHighTextContrastEnabled")
+                        .invoke(manager);
+                return enabled instanceof Boolean && ((Boolean)enabled).booleanValue();
+            }
+        } catch (Throwable t) {
+            // Fall through to the secure settings used by older Android stubs.
+        }
+        return secureSettingEnabled("high_text_contrast_enabled")
+                || secureSettingEnabled("accessibility_display_high_text_contrast_enabled");
+    }
+
+    @Override
+    public boolean isDifferentiateWithoutColorEnabled() {
+        return secureSettingEnabled("accessibility_display_daltonizer_enabled");
+    }
+
+    @Override
+    public AccessibilityColorVisionDeficiency getColorVisionDeficiency() {
+        if (!secureSettingEnabled("accessibility_display_daltonizer_enabled")) {
+            return AccessibilityColorVisionDeficiency.NONE;
+        }
+        try {
+            int mode = Settings.Secure.getInt(getContext().getContentResolver(),
+                    "accessibility_display_daltonizer");
+            switch (mode) {
+                case 0: return AccessibilityColorVisionDeficiency.MONOCHROMACY;
+                case 11: return AccessibilityColorVisionDeficiency.PROTANOPIA;
+                case 12: return AccessibilityColorVisionDeficiency.DEUTERANOPIA;
+                case 13: return AccessibilityColorVisionDeficiency.TRITANOPIA;
+                default: return AccessibilityColorVisionDeficiency.UNKNOWN;
+            }
+        } catch (Throwable t) {
+            return AccessibilityColorVisionDeficiency.UNKNOWN;
+        }
+    }
+
+    @Override
+    public boolean isReduceMotionEnabled() {
+        try {
+            return Settings.Global.getFloat(getContext().getContentResolver(),
+                    Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    @Override
+    public boolean isBoldTextEnabled() {
+        try {
+            Object value = Configuration.class.getField("fontWeightAdjustment")
+                    .get(getContext().getResources().getConfiguration());
+            return value instanceof Integer && ((Integer)value).intValue() >= 300;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    @Override
+    public boolean isInvertColorsEnabled() {
+        return secureSettingEnabled("accessibility_display_inversion_enabled");
+    }
+
+    @Override
+    public boolean isGrayscaleEnabled() {
+        return getColorVisionDeficiency() == AccessibilityColorVisionDeficiency.MONOCHROMACY;
+    }
+
+    @Override
+    public boolean isScreenReaderEnabled() {
+        try {
+            AccessibilityManager manager = (AccessibilityManager)getContext()
+                    .getSystemService(Context.ACCESSIBILITY_SERVICE);
+            return manager != null && manager.isEnabled() && manager.isTouchExplorationEnabled();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private boolean secureSettingEnabled(String key) {
+        try {
+            return Settings.Secure.getInt(getContext().getContentResolver(), key, 0) == 1;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    @Override
+    public void accessibilityTreeChanged(final int changeType) {
+        final Activity act = getActivity();
+        if (act == null || accessibilityProvider == null) return;
+        act.runOnUiThread(new Runnable() {
+            public void run() {
+                if (accessibilityProvider != null) accessibilityProvider.invalidate(changeType);
+            }
+        });
+    }
+
+    @Override
+    public boolean isAccessibilityTreeSupported() {
+        return Build.VERSION.SDK_INT >= 16;
+    }
+
+    @Override
+    public boolean isAccessibilityTreeUpdateRequired() {
+        return accessibilityTreeUpdateRequired;
+    }
+
+    void setAccessibilityTreeUpdateRequired(boolean required) {
+        accessibilityTreeUpdateRequired = required;
+    }
+
+    // ================================================================
+    // Crypto bridge -- routes com.codename1.security onto the standard
+    // Android JCE provider.
+
+    private static java.security.SecureRandom androidSecureRandom;
+    private static final Object androidSecureRandomSync = new Object();
+
+    private static java.security.SecureRandom androidSecureRandom() {
+        synchronized (androidSecureRandomSync) {
+            if (androidSecureRandom == null) {
+                androidSecureRandom = new java.security.SecureRandom();
+            }
+            return androidSecureRandom;
+        }
+    }
+
+    @Override
+    public void secureRandomBytes(byte[] out) {
+        if (out == null) return;
+        androidSecureRandom().nextBytes(out);
+    }
+
+    @Override
+    public byte[] aesEncrypt(String transformation, byte[] key, byte[] iv, byte[] aad, byte[] plaintext) {
+        return androidAes(transformation, key, iv, aad, plaintext, javax.crypto.Cipher.ENCRYPT_MODE);
+    }
+
+    @Override
+    public byte[] aesDecrypt(String transformation, byte[] key, byte[] iv, byte[] aad, byte[] ciphertext) {
+        return androidAes(transformation, key, iv, aad, ciphertext, javax.crypto.Cipher.DECRYPT_MODE);
+    }
+
+    /// PBKDF2 through the JCE, over the password **bytes** the caller supplied.
+    ///
+    /// Not `SecretKeyFactory` with a `PBEKeySpec`, which takes a `char[]` and encodes it with
+    /// whichever rule the provider happens to use -- and the whole point of this derivation is
+    /// that Android, iOS and a browser produce identical bytes from identical input. The loop
+    /// below is RFC 8018 over `Mac`, which has no latitude in it, so the bytes are the ones the
+    /// portable fallback in `KdfProfile` and the browser's `deriveBits` produce.
+    @Override
+    public byte[] pbkdf2(String hashAlgorithm, byte[] password, byte[] salt, int iterations, int length) {
+        try {
+            String macName = "HmacSHA256";
+            if (hashAlgorithm != null && hashAlgorithm.indexOf("512") >= 0) {
+                macName = "HmacSHA512";
+            }
+            if (password == null || password.length == 0) {
+                // SecretKeySpec throws IllegalArgumentException for a zero-length key, which is
+                // not a GeneralSecurityException and would escape the catch below. Answering
+                // null is this method's own contract for "no native derivation here", so the
+                // caller falls back to the portable implementation, which zero-pads the key the
+                // way RFC 2104 says to.
+                return null;
+            }
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance(macName);
+            mac.init(new javax.crypto.spec.SecretKeySpec(password, macName));
+            int hashLength = mac.getMacLength();
+            int blocks = (length + hashLength - 1) / hashLength;
+            byte[] out = new byte[blocks * hashLength];
+            byte[] block = new byte[salt.length + 4];
+            System.arraycopy(salt, 0, block, 0, salt.length);
+            for (int index = 1; index <= blocks; index++) {
+                block[salt.length] = (byte) (index >>> 24);
+                block[salt.length + 1] = (byte) (index >>> 16);
+                block[salt.length + 2] = (byte) (index >>> 8);
+                block[salt.length + 3] = (byte) index;
+                byte[] u = mac.doFinal(block);
+                byte[] accumulated = new byte[hashLength];
+                System.arraycopy(u, 0, accumulated, 0, hashLength);
+                for (int round = 1; round < iterations; round++) {
+                    u = mac.doFinal(u);
+                    for (int iter = 0; iter < hashLength; iter++) {
+                        accumulated[iter] ^= u[iter];
+                    }
+                }
+                System.arraycopy(accumulated, 0, out, (index - 1) * hashLength, hashLength);
+                // Wiped as soon as it has been copied out. The portable implementation these
+                // mirror -- KdfProfile.pbkdf2Portable -- has always done this, and these two
+                // copies drifted from it: every one of these arrays holds the derived key, so
+                // SecureEnvelope wiping the array it is GIVEN cleared one copy of three.
+                //
+                // What cannot be wiped is each round's `u`: Mac.doFinal allocates a new array
+                // and the previous one is unreachable before there is anywhere to zero it from.
+                // That is inherent to the JCE shape rather than an omission here, and it is the
+                // same in the portable version.
+                java.util.Arrays.fill(accumulated, (byte) 0);
+                java.util.Arrays.fill(u, (byte) 0);
+            }
+            byte[] exact = new byte[length];
+            System.arraycopy(out, 0, exact, 0, length);
+            java.util.Arrays.fill(out, (byte) 0);
+            java.util.Arrays.fill(block, (byte) 0);
+            return exact;
+        } catch (java.security.GeneralSecurityException e) {
+            // Null, not an exception: the contract is "no native derivation here", and the caller
+            // falls back to the portable loop rather than failing the unlock.
+            return null;
+        }
+    }
+
+    private static byte[] androidAes(String transformation, byte[] key, byte[] iv, byte[] aad, byte[] input, int mode) {
+        try {
+            javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance(transformation);
+            javax.crypto.spec.SecretKeySpec keySpec = new javax.crypto.spec.SecretKeySpec(key, "AES");
+            String tu = transformation == null ? "" : transformation.toUpperCase();
+            if (tu.indexOf("GCM") >= 0) {
+                cipher.init(mode, keySpec, new javax.crypto.spec.GCMParameterSpec(128, iv));
+            } else if (iv != null) {
+                cipher.init(mode, keySpec, new javax.crypto.spec.IvParameterSpec(iv));
+            } else {
+                cipher.init(mode, keySpec);
+            }
+            if (aad != null && aad.length > 0) {
+                cipher.updateAAD(aad);
+            }
+            return cipher.doFinal(input);
+        } catch (java.security.GeneralSecurityException e) {
+            throw new RuntimeException("AES " + (mode == javax.crypto.Cipher.ENCRYPT_MODE ? "encrypt" : "decrypt") + " failed: " + e.getMessage());
+        }
+    }
+
+    /// The RSA transformations this port implements, matched exactly.
+    ///
+    /// A substring test for "OAEP" would answer every OAEP name -- including
+    /// RSA/ECB/OAEPWithSHA-1AndMGF1Padding -- with the SHA-256 parameters below,
+    /// producing ciphertext no standards-compliant peer could read under the name
+    /// it asked for. The native ports already accept only these two, so refusing
+    /// anything else here keeps every port answering the same question.
+    private static boolean cn1IsOaepTransformation(String transformation) {
+        return com.codename1.security.Cipher.RSA_OAEP_SHA256.equals(transformation);
+    }
+
+    private static void cn1CheckRsaTransformation(String transformation) {
+        if (!cn1IsOaepTransformation(transformation)
+                && !com.codename1.security.Cipher.RSA_PKCS1.equals(transformation)) {
+            throw new RuntimeException("unsupported cipher transformation: " + transformation);
+        }
+    }
+
+    /// The OAEP parameters every port agrees on.
+    ///
+    /// The JCE transformation name "OAEPWithSHA-256AndMGF1Padding" leaves MGF1 on
+    /// SHA-1 by default, which no other backend here can reproduce: Web Crypto's
+    /// RSA-OAEP uses one hash for the label and the mask, and so does Apple's
+    /// SecKey. Naming SHA-256 for both is the only pairing all six ports can
+    /// produce, so it is what the portable constant means -- stated explicitly
+    /// rather than inherited from a provider default.
+    private static javax.crypto.spec.OAEPParameterSpec cn1OaepParameters() {
+        return new javax.crypto.spec.OAEPParameterSpec("SHA-256", "MGF1",
+                java.security.spec.MGF1ParameterSpec.SHA256,
+                javax.crypto.spec.PSource.PSpecified.DEFAULT);
+    }
+
+    @Override
+    public byte[] rsaEncrypt(String transformation, byte[] publicKeyX509, byte[] plaintext) {
+        try {
+            javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance(transformation);
+            java.security.KeyFactory kf = java.security.KeyFactory.getInstance("RSA");
+            java.security.PublicKey key = kf.generatePublic(new java.security.spec.X509EncodedKeySpec(publicKeyX509));
+            cn1CheckRsaTransformation(transformation);
+            if (cn1IsOaepTransformation(transformation)) {
+                cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, key, cn1OaepParameters());
+            } else {
+                cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, key);
+            }
+            return cipher.doFinal(plaintext);
+        } catch (java.security.GeneralSecurityException e) {
+            throw new RuntimeException("RSA encrypt failed: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public byte[] rsaDecrypt(String transformation, byte[] privateKeyPkcs8, byte[] ciphertext) {
+        try {
+            javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance(transformation);
+            java.security.KeyFactory kf = java.security.KeyFactory.getInstance("RSA");
+            java.security.PrivateKey key = kf.generatePrivate(new java.security.spec.PKCS8EncodedKeySpec(privateKeyPkcs8));
+            cn1CheckRsaTransformation(transformation);
+            if (cn1IsOaepTransformation(transformation)) {
+                cipher.init(javax.crypto.Cipher.DECRYPT_MODE, key, cn1OaepParameters());
+            } else {
+                cipher.init(javax.crypto.Cipher.DECRYPT_MODE, key);
+            }
+            return cipher.doFinal(ciphertext);
+        } catch (java.security.GeneralSecurityException e) {
+            throw new RuntimeException("RSA decrypt failed: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public byte[] cryptoSign(String algorithm, String keyAlgorithm, byte[] privateKeyPkcs8, byte[] data) {
+        try {
+            java.security.KeyFactory kf = java.security.KeyFactory.getInstance(keyAlgorithm);
+            java.security.PrivateKey priv = kf.generatePrivate(new java.security.spec.PKCS8EncodedKeySpec(privateKeyPkcs8));
+            java.security.Signature sig = java.security.Signature.getInstance(algorithm);
+            sig.initSign(priv);
+            sig.update(data);
+            return sig.sign();
+        } catch (java.security.GeneralSecurityException e) {
+            throw new RuntimeException("sign failed: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public boolean cryptoVerify(String algorithm, String keyAlgorithm, byte[] publicKeyX509, byte[] data, byte[] signature) {
+        try {
+            java.security.KeyFactory kf = java.security.KeyFactory.getInstance(keyAlgorithm);
+            java.security.PublicKey pub = kf.generatePublic(new java.security.spec.X509EncodedKeySpec(publicKeyX509));
+            java.security.Signature sig = java.security.Signature.getInstance(algorithm);
+            sig.initVerify(pub);
+            sig.update(data);
+            return sig.verify(signature);
+        } catch (java.security.GeneralSecurityException e) {
+            throw new RuntimeException("verify failed: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public byte[][] generateRsaKeyPair(int bits) {
+        try {
+            java.security.KeyPairGenerator kpg = java.security.KeyPairGenerator.getInstance("RSA");
+            kpg.initialize(bits);
+            java.security.KeyPair kp = kpg.generateKeyPair();
+            return new byte[][]{ kp.getPublic().getEncoded(), kp.getPrivate().getEncoded() };
+        } catch (java.security.GeneralSecurityException e) {
+            throw new RuntimeException("RSA keypair generation failed: " + e.getMessage());
+        }
+    }
+}

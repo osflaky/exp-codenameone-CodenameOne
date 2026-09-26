@@ -1,0 +1,374 @@
+#!/usr/bin/env bash
+# Drive the CN1 input-validation app through tap / drag / long-press / typing on an
+# iOS simulator and assert the expected CN1IV:EVENT log lines appear.
+#
+# Usage:
+#   run-ios.sh <path-to-cn1-built.app>
+#
+# The .app bundle is produced by `mvn -P ios package` against the parent POM
+# in scripts/input-validation-app and the cn1-builder build server (or local
+# iOS build chain). This script is intentionally lean -- no screenshot
+# decoding, no chunked Base64, no comparison report. The only thing it cares
+# about is whether the OS-level taps reached Component listeners.
+set -euo pipefail
+
+iv_log() { echo "[run-ios] $1"; }
+
+if [ $# -lt 1 ]; then
+  iv_log "Usage: $0 <path-to-cn1-built.app>" >&2
+  exit 2
+fi
+
+APP_BUNDLE="$1"
+if [ ! -d "$APP_BUNDLE" ]; then
+  iv_log "App bundle not found: $APP_BUNDLE" >&2
+  exit 3
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+TESTS_DIR="$APP_DIR/ios-tests"
+ARTIFACTS_DIR="${ARTIFACTS_DIR:-${GITHUB_WORKSPACE:-$APP_DIR}/artifacts/input-validation-ios}"
+mkdir -p "$ARTIFACTS_DIR"
+LOG_FILE="$ARTIFACTS_DIR/device.log"
+XCODEBUILD_LOG="$ARTIFACTS_DIR/xcodebuild-test.log"
+# Must stay in step with the fallback path in InputValidationUITests.swift.
+# The test process cannot be told this path: neither an env var on the
+# xcodebuild command line nor TEST_RUNNER_CN1IV_SYNC_DIR reaches it (measured --
+# ProcessInfo saw nothing), so the Swift side finds the directory by that
+# hard-coded path alone. Pointing this script somewhere else does not move the
+# handshake, it removes it: waitForGate returns immediately when it has no
+# directory, so every gesture fires on a fixed delay and the run still reports
+# a full set of gate releases. Checked below rather than left as a trap.
+CN1IV_SYNC_DIR_DEFAULT=/tmp/cn1-input-validation-sync
+SYNC_DIR="${CN1IV_SYNC_DIR:-$CN1IV_SYNC_DIR_DEFAULT}"
+
+if [ "$SYNC_DIR" != "$CN1IV_SYNC_DIR_DEFAULT" ]; then
+  iv_log "CN1IV_SYNC_DIR is $SYNC_DIR but the XCUITest process can only look in" >&2
+  iv_log "$CN1IV_SYNC_DIR_DEFAULT, so the gesture handshake would be silently skipped." >&2
+  iv_log "Change the fallback in ios-tests/Sources/InputValidationUITests.swift too." >&2
+  exit 3
+fi
+
+if ! command -v xcrun >/dev/null 2>&1; then iv_log "xcrun not on PATH" >&2; exit 3; fi
+if ! command -v xcodebuild >/dev/null 2>&1; then iv_log "xcodebuild not on PATH" >&2; exit 3; fi
+if ! command -v xcodegen >/dev/null 2>&1; then
+  iv_log "xcodegen not on PATH. Install with: brew install xcodegen" >&2
+  exit 3
+fi
+
+# Read the app's actual bundle identifier from its Info.plist so we don't
+# guess wrong if the CN1 generator changes its default.
+BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_BUNDLE/Info.plist" 2>/dev/null || true)"
+if [ -z "$BUNDLE_ID" ]; then
+  iv_log "Could not read CFBundleIdentifier from $APP_BUNDLE/Info.plist" >&2
+  exit 3
+fi
+iv_log "Bundle id: $BUNDLE_ID"
+
+DEVICE_NAME="${CN1IV_DEVICE_NAME:-}"
+DEVICE_RUNTIME="${CN1IV_DEVICE_RUNTIME:-}"
+
+# Build a sorted (name, runtime, udid) list of available simulators. Newer
+# iOS runtimes sort last so we pick them by default.
+read_devices() {
+  xcrun simctl list devices available -j \
+    | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+rows = []
+for runtime, devs in data.get("devices", {}).items():
+    if "iOS-" not in runtime:
+        continue
+    for d in devs:
+        if d.get("isAvailable"):
+            rows.append((runtime, d["name"], d["udid"]))
+rows.sort()
+for r in rows:
+    print("\t".join(r))
+'
+}
+
+SIM_UDID=""
+if [ -n "$DEVICE_NAME" ]; then
+  iv_log "Locating simulator by name: $DEVICE_NAME"
+  while IFS=$'\t' read -r runtime name udid; do
+    if [ "$name" = "$DEVICE_NAME" ] && { [ -z "$DEVICE_RUNTIME" ] || [ "$runtime" = "$DEVICE_RUNTIME" ]; }; then
+      SIM_UDID="$udid"
+      break
+    fi
+  done < <(read_devices)
+fi
+
+if [ -z "$SIM_UDID" ]; then
+  # Fall back to the newest available iPhone (any model). XCode 16.4 only has
+  # iPhone 16; XCode 26 has iPhone 17. We'd rather adapt than fail-fast on a
+  # CI runner that doesn't have the exact device name we'd prefer.
+  iv_log "No exact device match -- picking the newest available iPhone"
+  while IFS=$'\t' read -r runtime name udid; do
+    case "$name" in
+      iPhone*) SIM_UDID="$udid"; DEVICE_NAME="$name"; DEVICE_RUNTIME="$runtime" ;;
+    esac
+  done < <(read_devices)
+fi
+
+if [ -z "$SIM_UDID" ]; then
+  iv_log "No iOS simulator available on this host" >&2
+  xcrun simctl list devices available >&2 || true
+  exit 3
+fi
+iv_log "Selected simulator: $DEVICE_NAME ($DEVICE_RUNTIME)"
+iv_log "Using simulator $SIM_UDID"
+
+# Boot the simulator if needed. `bootstatus -b` blocks until SpringBoard is up.
+xcrun simctl boot "$SIM_UDID" >/dev/null 2>&1 || true
+xcrun simctl bootstatus "$SIM_UDID" -b
+
+# Install the app fresh -- uninstall first so a stale bundle doesn't shadow the
+# new one when the bundle identifier collides.
+xcrun simctl uninstall "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+iv_log "Installing $APP_BUNDLE"
+xcrun simctl install "$SIM_UDID" "$APP_BUNDLE"
+
+# Start streaming os_log lines that came from the CN1 process (printf -> NSLog
+# on the iOS port routes through unified logging). Capture in the background;
+# we'll wait on the file after the XCUITest run.
+iv_log "Starting log stream -> $LOG_FILE"
+: > "$LOG_FILE"
+xcrun simctl spawn "$SIM_UDID" log stream \
+    --style compact --level debug \
+    --predicate '(processImagePath CONTAINS[c] "'"$BUNDLE_ID"'") OR (eventMessage CONTAINS "CN1IV:")' \
+    > "$LOG_FILE" 2>&1 &
+LOG_PID=$!
+cleanup() {
+  kill "$LOG_PID" 2>/dev/null || true
+  wait "$LOG_PID" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+# Generate the XCUITest Xcode project on demand. We don't check in pbxproj.
+iv_log "Generating XCUITest project via xcodegen"
+( cd "$TESTS_DIR" && xcodegen generate >> "$XCODEBUILD_LOG" 2>&1 )
+
+# Run the XCUITest suite. The Swift code uses XCUIApplication(bundleIdentifier:)
+# with a hard-coded id that mirrors common/codenameone_settings.properties --
+# xcodebuild `KEY=VALUE` args are build settings, not runtime env vars, so we
+# can't pass the bundle id through here. The driver verifies the installed
+# bundle id matches what the test will request before launching xcodebuild,
+# rather than trying to thread it into the test process.
+EXPECTED_BUNDLE_ID="com.codenameone.inputvalidation"
+if [ "$BUNDLE_ID" != "$EXPECTED_BUNDLE_ID" ]; then
+  iv_log "WARNING: installed bundle id ($BUNDLE_ID) does not match the value"
+  iv_log "WARNING: hard-coded in InputValidationUITests.swift ($EXPECTED_BUNDLE_ID)."
+  iv_log "WARNING: Update both or XCUITest will fail to launch the app."
+fi
+# `-resultBundlePath` captures the .xcresult so we can extract the actual
+# test failure reason post-hoc (without it, xcodebuild just prints
+# `** TEST FAILED **`).
+XCRESULT_BUNDLE="$ARTIFACTS_DIR/test.xcresult"
+rm -rf "$XCRESULT_BUNDLE"
+mkdir -p "$SYNC_DIR"
+rm -f "$SYNC_DIR/tap.go" "$SYNC_DIR/drag.go" "$SYNC_DIR/longpress.go" "$SYNC_DIR/keytype.go"
+rm -f "$SYNC_DIR/keytype.stop"
+rm -f "$SYNC_DIR/browserkeytype.go" "$SYNC_DIR/browserkeytype.stop"
+XCB_RC_FILE="$ARTIFACTS_DIR/xcodebuild.rc"
+rm -f "$XCB_RC_FILE"
+
+# The app's own transcript, which is the authoritative record -- the same file the
+# assertions at the end of this script fall back to. Resolved lazily and cached: the
+# container's Documents directory only exists once the app has run.
+CN1IV_EVENTS_FILE=""
+resolve_app_events_file() {
+  if [ -n "$CN1IV_EVENTS_FILE" ] && [ -f "$CN1IV_EVENTS_FILE" ]; then
+    return 0
+  fi
+  local container
+  container="$(xcrun simctl get_app_container "$SIM_UDID" "$BUNDLE_ID" data 2>/dev/null || true)"
+  [ -n "$container" ] || return 1
+  CN1IV_EVENTS_FILE="$(find "$container" -maxdepth 3 -name 'cn1iv-events.log' 2>/dev/null | head -n1)"
+  [ -n "$CN1IV_EVENTS_FILE" ] && [ -f "$CN1IV_EVENTS_FILE" ]
+}
+
+wait_for_log_marker() {
+  local needle="$1"
+  local timeout_seconds="${2:-45}"
+  local deadline=$((SECONDS + timeout_seconds))
+  local spin=0
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if grep -qE "$needle" "$LOG_FILE"; then
+      return 0
+    fi
+    # The live stream is not a channel this handshake can depend on. It attaches its
+    # predicate a few seconds late -- which the archive pass further down already
+    # compensates for -- and a CI run saw it deliver nothing whatsoever, so every
+    # gesture stalled behind a marker the app had in fact printed a second after
+    # startup. Ask the app directly instead. Throttled to once a second only while
+    # the path is still unknown, because each of those attempts spawns simctl;
+    # once resolved the check is a local grep, and the extra second of latency
+    # was enough for the keytype stop signal to lose its race with app exit.
+    spin=$((spin + 1))
+    if { [ -n "$CN1IV_EVENTS_FILE" ] || [ "$((spin % 5))" -eq 0 ]; } && resolve_app_events_file \
+        && grep -qE "$needle" "$CN1IV_EVENTS_FILE"; then
+      return 0
+    fi
+    if [ -f "$XCB_RC_FILE" ]; then
+      return 1
+    fi
+    sleep 0.2
+  done
+  return 1
+}
+
+release_xcui_step() {
+  local step="$1"
+  local timeout_seconds="${2:-240}"
+  local marker="CN1IV:READY:$step"
+  if wait_for_log_marker "$marker" "$timeout_seconds"; then
+    iv_log "Releasing XCUITest gesture after $marker"
+    : > "$SYNC_DIR/$step.go"
+    return 0
+  fi
+  iv_log "Timed out waiting for $marker before releasing XCUITest gesture"
+  return 1
+}
+
+iv_log "Running XCUITest"
+set +e
+(
+  set +e
+  CN1IV_SYNC_DIR="$SYNC_DIR" xcodebuild test \
+    -project "$TESTS_DIR/CN1InputValidationUITests.xcodeproj" \
+    -scheme CN1InputValidationUITests \
+    -destination "platform=iOS Simulator,id=$SIM_UDID" \
+    -resultBundlePath "$XCRESULT_BUNDLE" \
+    CODE_SIGNING_ALLOWED=NO
+  echo "$?" > "$XCB_RC_FILE"
+) | tee -a "$XCODEBUILD_LOG" &
+XCB_PIPE_PID=$!
+SYNC_FAILED=0
+# The app has to exist before any step deadline means anything. xcodebuild builds the
+# UI test target before it launches anything, which took just over four minutes on the
+# CI runner -- so the first step's own budget was spent waiting for a build, expired
+# four seconds before the app started, and the tap was never released. Every later step
+# then released on time against an XCUITest still blocked on the first one. Waited for
+# separately, and generously, so the per-step budgets measure what they are named for.
+if ! wait_for_log_marker "CN1IV:SUITE:STARTED" "${CN1IV_LAUNCH_TIMEOUT:-1200}"; then
+  iv_log "Timed out waiting for the app to start before releasing any gesture"
+  SYNC_FAILED=1
+fi
+release_xcui_step tap || SYNC_FAILED=1
+release_xcui_step drag || SYNC_FAILED=1
+release_xcui_step longpress || SYNC_FAILED=1
+release_xcui_step browserkeytype || SYNC_FAILED=1
+wait_for_log_marker 'CN1IV:(EVENT|TIMEOUT):browserkeytype' 120 || true
+: > "$SYNC_DIR/browserkeytype.stop"
+release_xcui_step keytype || SYNC_FAILED=1
+# The keytype driver types in a retry loop, because CN1 needs a moment to bring
+# the native editor up after the tap and keys typed before then are dropped.
+# Stop unnecessary retries once the step resolves. The app stays alive on iOS
+# until XCUITest terminates it, so delayed marker delivery cannot race app exit.
+wait_for_log_marker 'CN1IV:(EVENT|TIMEOUT):keytype' 120 || true
+: > "$SYNC_DIR/keytype.stop"
+wait "$XCB_PIPE_PID" >/dev/null 2>&1 || true
+if [ -f "$XCB_RC_FILE" ]; then
+  XCB_RC="$(cat "$XCB_RC_FILE")"
+else
+  XCB_RC=1
+fi
+set -e
+iv_log "xcodebuild test exit=$XCB_RC"
+
+# Extract the human-readable failure summary if the result bundle is present
+# so the artifact upload has something searchable beyond the opaque
+# "** TEST FAILED **" line in xcodebuild-test.log.
+if [ -d "$XCRESULT_BUNDLE" ]; then
+  iv_log "Extracting xcresult diagnostics"
+  xcrun xcresulttool get test-results summary --path "$XCRESULT_BUNDLE" --format json \
+    > "$ARTIFACTS_DIR/xcresult-summary.json" 2>/dev/null || true
+  xcrun xcresulttool get log --type action --path "$XCRESULT_BUNDLE" \
+    > "$ARTIFACTS_DIR/xcresult-action.log" 2>/dev/null || true
+fi
+
+# Give the log stream a beat to flush the final CN1IV:SUITE:FINISHED line.
+sleep 2
+cleanup
+trap - EXIT INT TERM
+
+# The live stream takes a few seconds to attach its predicate, and xcodebuild
+# can drive the first gestures before it is live -- a CI run lost the tap
+# event this way while XCUITest itself passed. `log show` reads the persisted
+# unified-log archive retroactively, so appending it recovers anything the
+# stream missed; keep the union as diagnostics and a fallback transcript.
+iv_log "Appending buffered device log (log show) to cover the stream attach window"
+xcrun simctl spawn "$SIM_UDID" log show --style compact --level debug \
+    --predicate '(processImagePath CONTAINS[c] "'"$BUNDLE_ID"'") OR (eventMessage CONTAINS "CN1IV:")' \
+    --last 30m >> "$LOG_FILE" 2>/dev/null || true
+
+# Unified logging DROPS messages under burst pressure (CI observed interleaved
+# CN1IV lines missing from both the stream and the archive), so the app also
+# writes its full event transcript to a file in its container; that file is the
+# authoritative record and is preferred for the event assertions below.
+ASSERTION_LOG="$LOG_FILE"
+APP_CONTAINER="$(xcrun simctl get_app_container "$SIM_UDID" "$BUNDLE_ID" data 2>/dev/null || true)"
+if [ -n "$APP_CONTAINER" ]; then
+  EVENTS_FILE="$(find "$APP_CONTAINER" -maxdepth 3 -name 'cn1iv-events.log' 2>/dev/null | head -n1)"
+  if [ -n "$EVENTS_FILE" ] && [ -f "$EVENTS_FILE" ]; then
+    iv_log "Appending app-side event transcript $EVENTS_FILE"
+    cp -f "$EVENTS_FILE" "$ARTIFACTS_DIR/cn1iv-events.log" 2>/dev/null || true
+    cat "$EVENTS_FILE" >> "$LOG_FILE"
+    # log show includes earlier launches, including the deliberately failing
+    # build in a before/after regression check. Assert this run's transcript
+    # when available so old successes or timeouts cannot change the result.
+    ASSERTION_LOG="$EVENTS_FILE"
+  else
+    iv_log "WARNING: app-side event transcript not found under $APP_CONTAINER"
+  fi
+else
+  iv_log "WARNING: could not resolve the app container for $BUNDLE_ID"
+fi
+
+# Assertion: each expected event must appear at least once in the log.
+REQUIRED_EVENTS=(
+  "CN1IV:READY:tap"
+  "CN1IV:EVENT:tap"
+  "CN1IV:READY:drag"
+  "CN1IV:EVENT:drag"
+  "CN1IV:READY:longpress"
+  "CN1IV:EVENT:longpress"
+  "CN1IV:READY:browserkeytype"
+  "CN1IV:EVENT:browserkeytype"
+  "CN1IV:READY:keytype"
+  "CN1IV:EVENT:keytype"
+  "CN1IV:SUITE:FINISHED"
+)
+FAILED=0
+for needle in "${REQUIRED_EVENTS[@]}"; do
+  if grep -q "$needle" "$ASSERTION_LOG"; then
+    iv_log "OK  $needle"
+  else
+    iv_log "MISS $needle"
+    FAILED=1
+  fi
+done
+
+if grep -qE 'CN1IV:TIMEOUT:' "$ASSERTION_LOG"; then
+  iv_log "Gesture timeouts detected in device log:"
+  grep -E 'CN1IV:TIMEOUT:' "$ASSERTION_LOG" | sed 's/^/  /'
+  FAILED=1
+fi
+
+if [ "$XCB_RC" -ne 0 ]; then
+  iv_log "xcodebuild test failed (rc=$XCB_RC) -- see $XCODEBUILD_LOG"
+  FAILED=1
+fi
+if [ "$SYNC_FAILED" -ne 0 ]; then
+  iv_log "XCUITest synchronization failed -- see $LOG_FILE"
+  FAILED=1
+fi
+
+if [ "$FAILED" -ne 0 ]; then
+  iv_log "Input-validation suite FAILED -- see $LOG_FILE"
+  exit 1
+fi
+
+iv_log "Input-validation suite PASSED"

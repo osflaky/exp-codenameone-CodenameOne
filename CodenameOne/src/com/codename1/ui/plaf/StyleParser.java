@@ -1,0 +1,3162 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.ui.plaf;
+
+import com.codename1.io.Log;
+import com.codename1.io.Util;
+import com.codename1.ui.Component;
+import com.codename1.ui.Display;
+import com.codename1.ui.Font;
+import com.codename1.ui.Image;
+import com.codename1.ui.util.Resources;
+import com.codename1.util.CaseInsensitiveOrder;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/// Parses Style strings into StyleInfo objects, which can be converted to Style objects at runtime.
+///
+/// This class
+/// is the basis for the inline style functionality:
+///
+/// - `Component#setInlineAllStyles(java.lang.String)`
+///
+/// - `Component#getInlineAllStyles()`
+///
+/// - `Component#setInlineSelectedStyles(java.lang.String)`
+///
+/// - `Component#getInlineSelectedStyles()`
+///
+/// - etc..
+///
+/// Style strings are strings which describe a style, and are in a particular format that `StyleParser` knows how to
+/// parse.  The general format of a style string is key1:value1; key2:value2; ... keyn:valuen;.  I.e. a set of key-value pairs
+/// with pairs separated by semi-colons, and keys and values separated by a colon.  This is very similar to CSS, but it is **NOT** CSS.
+/// Style string keys and values are closely related to the properties of the `Style` class and their associated values.
+///
+/// Supported Keys
+///
+/// The following keys are supported:
+///
+///
+/// - fgColor - The foreground color as a hex string.  E.g. ff0000.
+///
+/// - bgColor - The background color as a hex string. E.g. ff0000.
+///
+/// - transparency - The background transparency as an integer. 0-255.
+///
+/// - textDecoration - The text decoration.  One of underline, overline,
+/// 3d, 3d_lowered, 3d_shadow_north, strikethru, or none.
+///
+/// - opacity - The opacity as an integer.  0-255
+///
+/// - padding - The padding as a sequence of 1, 2, 3, or 4 values.  See "Padding and Margin Strings" below for details on the format.
+///
+/// - margin - The margin as a sequence of 1, 2, 3, or 4, values. See "Padding and Margin Strings" below for details on the format.
+///
+/// - font - The font.  See "Font Strings" below for details on the format.
+///
+/// - border - The border.  See "Border Strings" below for details on the format.
+///
+/// - bgType - The background type. See "Background Type Values" below for details on the available options.
+///
+/// Padding and Margin Strings
+///
+/// The padding and margin keys can take values the same format as is used for CSS margin and padding directives. That is the value
+///   can be expressed as a space-separated sequence of scalar values (i.e. float values with a unit suffix).  Some examples:
+///
+/// - padding:0px - Sets all padding to zero pixels.
+///
+/// - padding:2mm 1px - Sets vertical padding to 2 millimetres, and horizontal padding to 1 pixel.
+///
+/// - padding:2mm 1px inherit - Sets top padding to 1 millimetres,  horizontal padding to 1 pixel, and bottom padding to inherit the parent style's bottom padding.
+///
+/// - padding:1mm 2px inherit 4mm - Top padding=1 millimetre.  Right padding=2 pixels.  Bottom padding inherits parent style's bottom padding. Left padding=4 millimetres.
+///
+/// All of the examples above use padding, but the same format is used for margin.  They demonstrate the use of 1, 2, 3, and 4 value sequences, and their meaning. In general terms
+/// these formats can be described as:
+///
+/// -  - Sets padding on all sites to
+///
+/// -   - Top and bottom padding set to .  Left and right padding set to
+///
+/// -    - Top=.  Left and right = .  Bottom = bottom.
+///
+/// -     - Top=. Right=right. Bottom=bottom. Left=left.  In other words, values applied clock-wise, starting on top side.
+///
+/// Font Strings
+///
+/// Fonts strings can take any of the following formats:
+///
+/// -    - E.g. 3mm Arial.ttf /Arial.ttf or 12px native:MainRegular native:MainRegular
+///
+/// -   - E.g. 3mm Arial.ttf or 3mm native:ItalicBlack.
+///
+/// -  - E.g. 3mm or 12px.  When only specifying the size, the font family will be dictated by the parent style.
+///
+/// -   - E.g. Arial.ttf /Arial.ttf or native:MainBold native:MainBold.  When omitting font size (as this format does), the size
+/// is dictated by the parent style.
+///
+/// - | - E.g. Arial.ttf or /Arial.ttf, or native:MainRegular  Strings starting with a / are assumed to be files.  The corresponding font name
+/// is then derived by removing the slash and the trailing .ttf.  When omitting font size (as this format does), the size is dictated by the parent style.
+///
+/// Border Strings
+///
+/// The border property accepts several different formats for its value.  This is due to the many different kinds of
+/// borders that can be created.  The following are some of the formats.
+///
+/// **Line Border**
+///
+///  solid  - E.g. 1mm solid ff0000.   should be expressed as a scalar value with unit.  E.g. 1mm, or 2px.
+///  should be an RGB hex string.  E.g ff0000 for red.
+///
+/// **Dashed Border**
+///
+///  dashed  - E.g. 1mm dashed ff0000.   should be expressed as a scalar value with unit.  E.g. 1mm, or 2px.
+///  should be an RGB hex string.  E.g ff0000 for red.
+///
+/// **Dotted Border**
+///
+///  dotted  - E.g. 1mm dotted ff0000.   should be expressed as a scalar value with unit.  E.g. 1mm, or 2px.
+///  should be an RGB hex string.  E.g ff0000 for red.
+///
+/// **Underline Border**
+///
+///  underline  - E.g. 1mm underline ff0000.   should be expressed as a scalar value with unit.  E.g. 1mm, or 2px.
+///  should be an RGB hex string.  E.g ff0000 for red.
+///
+/// **Image Border**
+///
+/// image   ...  - A 9-piece image border.  The  ..  values are strings which refer to images either on the classpath, or in the theme resource file.
+/// If the image string starts with /, then it is assumed to be on the classpath.  The order of the images corresponds to the parameters of `com.codename1.ui.Image, com.codename1.ui.Image, com.codename1.ui.Image, com.codename1.ui.Image, com.codename1.ui.Image, com.codename1.ui.Image, com.codename1.ui.Image, com.codename1.ui.Image)`.
+///
+/// image    - A 9-piece image border, but with the images corresponding to the parameters of `com.codename1.ui.Image, com.codename1.ui.Image)`.
+///
+/// horizontalImage    - A 3-piece horizontal image border.  Image parameters correspond with `com.codename1.ui.Image, com.codename1.ui.Image)` parameters.
+///
+/// verticalImage    - A 3-piece horizontal image border.  Image parameters correspond with `com.codename1.ui.Image, com.codename1.ui.Image)` parameters.
+///
+/// splicedImage      - A 9-piece image border that is generated from a single image, but with inset values specifying where the image should be sliced to create the 9 sub-images.
+///
+/// **Parameters:**
+///
+/// -  The image to use.  If this begins with /, then the image will be found on the classpath.  Otherwise it will be found in the theme resource file.
+///
+/// - , , ,  - The insets along which  is sliced to generate the 9-subimages.  These values are
+/// expressed as a floating point number between 0.0 and 1.0, where 1.0 is the full width or height of the image depending on the orientation (horizontal or vertical) or the inset.  If image
+/// is 100 pixels by 100 pixels, then a top inset of 0.4 would cause a slice to occur at 40 pixels from the top of the image (i.e. the top-left, top, and top-right slices would each be 40 pixels high.
+///
+/// @author shannah
+public abstract class StyleParser {
+
+    public static final byte UNIT_INHERIT = 99;
+    private static final Map<String, Integer> BG_TYPES = createBgTypes();
+
+    /// Parses a style string into a Map
+    ///
+    /// #### Parameters
+    ///
+    /// - `out`
+    ///
+    /// - `str`
+    static StyleInfo parseString(StyleInfo out, String str) {
+        Map<String, String> map = parseString(new HashMap<String, String>(), str);
+        for (Map.Entry<String, String> e : map.entrySet()) {
+            out.values.put(e.getKey(), e.getValue());
+        }
+        return out;
+    }
+
+    static StyleInfo parseString(String str) {
+        return parseString(new StyleInfo(), str);
+    }
+
+    static Map<String, String> parseString(Map<String, String> out, String str) {
+        String[] rules = Util.split(str, ";");
+        for (String rule : rules) {
+            rule = rule.trim();
+            if (rule.length() == 0) {
+                continue;
+            }
+            int pos = rule.indexOf(":");
+            if (pos == -1) {
+                continue;
+            }
+            String key = rule.substring(0, pos);
+            if ("font".equals(key) && out.containsKey("font")) {
+                // We may need to merge font rules
+                FontInfo newFinfo = StyleParser.parseFont(new FontInfo(), rule.substring(pos + 1));
+                FontInfo origFinfo = StyleParser.parseFont(new FontInfo(), out.get("font"));
+                Float newSize = newFinfo.getSize();
+                if (newSize != null && newFinfo.getSizeUnit() != StyleParser.UNIT_INHERIT) {
+                    origFinfo.setSize(newSize);
+                    origFinfo.setSizeUnit(newFinfo.getSizeUnit());
+                }
+                if (newFinfo.getName() != null) {
+                    origFinfo.setName(newFinfo.getName());
+                }
+                if (newFinfo.getFile() != null) {
+                    origFinfo.setFile(newFinfo.getFile());
+                }
+                out.put(key, origFinfo.toString());
+            } else {
+                out.put(key, rule.substring(pos + 1));
+            }
+
+        }
+        return out;
+    }
+
+    static MarginInfo parseMargin(MarginInfo out, String margin) {
+        out.setValues(parseTRBLValue(margin));
+        return out;
+    }
+
+    static MarginInfo parseMargin(String margin) {
+        ScalarValue[] v = parseTRBLValue(margin);
+        if (v == null) {
+            return null;
+        }
+        return new MarginInfo(v);
+    }
+
+    static String parseMargin(Style baseStyle, String margin) {
+        ScalarValue[] vals = parseTRBLValue(margin);
+        StringBuilder sb = new StringBuilder();
+        if (vals[Component.TOP].getUnit() == UNIT_INHERIT) {
+            sb.append(baseStyle == null ? 0 : baseStyle.margin[Component.TOP]);
+        } else {
+            sb.append(vals[Component.TOP].getValue());
+        }
+        sb.append(",");
+        if (vals[Component.BOTTOM].getUnit() == UNIT_INHERIT) {
+            sb.append(baseStyle == null ? 0 : baseStyle.margin[Component.BOTTOM]);
+        } else {
+            sb.append(vals[Component.BOTTOM].getValue());
+        }
+        sb.append(",");
+        if (vals[Component.LEFT].getUnit() == UNIT_INHERIT) {
+            sb.append(baseStyle == null ? 0 : baseStyle.margin[Component.LEFT]);
+        } else {
+            sb.append(vals[Component.LEFT].getValue());
+        }
+        sb.append(",");
+        if (vals[Component.RIGHT].getUnit() == UNIT_INHERIT) {
+            sb.append(baseStyle == null ? 0 : baseStyle.margin[Component.RIGHT]);
+        } else {
+            sb.append(vals[Component.RIGHT].getValue());
+        }
+        return sb.toString();
+    }
+
+    static PaddingInfo parsePadding(PaddingInfo out, String padding) {
+        out.setValues(parseTRBLValue(padding));
+        return out;
+    }
+
+    static PaddingInfo parsePadding(String padding) {
+        ScalarValue[] v = parseTRBLValue(padding);
+        if (v == null) {
+            return null;
+        }
+        return new PaddingInfo(v);
+    }
+
+    static String parsePadding(Style baseStyle, String padding) {
+        ScalarValue[] vals = parseTRBLValue(padding);
+        StringBuilder sb = new StringBuilder();
+        if (vals[Component.TOP].getUnit() == UNIT_INHERIT) {
+            sb.append(baseStyle == null ? 0 : baseStyle.padding[Component.TOP]);
+        } else {
+            sb.append(vals[Component.TOP].getValue());
+        }
+        sb.append(",");
+        if (vals[Component.BOTTOM].getUnit() == UNIT_INHERIT) {
+            sb.append(baseStyle == null ? 0 : baseStyle.padding[Component.BOTTOM]);
+        } else {
+            sb.append(vals[Component.BOTTOM].getValue());
+        }
+        sb.append(",");
+        if (vals[Component.LEFT].getUnit() == UNIT_INHERIT) {
+            sb.append(baseStyle == null ? 0 : baseStyle.padding[Component.LEFT]);
+        } else {
+            sb.append(vals[Component.LEFT].getValue());
+        }
+        sb.append(",");
+        if (vals[Component.RIGHT].getUnit() == UNIT_INHERIT) {
+            sb.append(baseStyle == null ? 0 : baseStyle.padding[Component.RIGHT]);
+        } else {
+            sb.append(vals[Component.RIGHT].getValue());
+        }
+        return sb.toString();
+    }
+
+    static byte[] parsePaddingUnit(Style baseStyle, String padding) {
+        ScalarValue[] vals = parseTRBLValue(padding);
+        byte[] out = new byte[4];
+        for (int i = 0; i < 4; i++) {
+            if (vals[i].getUnit() == UNIT_INHERIT) {
+                out[i] = baseStyle == null ? Style.UNIT_TYPE_PIXELS : baseStyle.paddingUnit[i];
+            } else {
+                out[i] = vals[i].getUnit();
+            }
+        }
+        return out;
+    }
+
+    static byte[] parseMarginUnit(Style baseStyle, String margin) {
+        ScalarValue[] vals = parseTRBLValue(margin);
+        byte[] out = new byte[4];
+        for (int i = 0; i < 4; i++) {
+            if (vals[i].getUnit() == UNIT_INHERIT) {
+                out[i] = baseStyle == null ? Style.UNIT_TYPE_PIXELS : baseStyle.marginUnit[i];
+            } else {
+                out[i] = vals[i].getUnit();
+            }
+        }
+        return out;
+    }
+
+    static Integer parseAlignment(String alignment) {
+        if (Character.isDigit(alignment.charAt(0))) {
+            return Integer.parseInt(alignment);
+        } else if ("center".equalsIgnoreCase(alignment)) {
+            return Component.CENTER;
+        } else if ("left".equalsIgnoreCase(alignment)) {
+            return Component.LEFT;
+        } else if ("right".equalsIgnoreCase(alignment)) {
+            return Component.RIGHT;
+        }
+        return null;
+    }
+
+    private static String getAlignmentString(Integer alignment) {
+        if (alignment == null) {
+            return null;
+        }
+        switch (alignment) {
+            case Component.CENTER:
+                return "center";
+            case Component.LEFT:
+                return "left";
+            case Component.RIGHT:
+                return "right";
+            default:
+                return null;
+        }
+    }
+
+    private static float getMMValue(String val) {
+        ScalarValue v = parseSingleTRBLValue(val);
+        switch (v.getUnit()) {
+            case Style.UNIT_TYPE_PIXELS:
+                return (float) v.getValue() / Display.getInstance().convertToPixels(1f);
+            case Style.UNIT_TYPE_DIPS:
+                return (float) v.getValue();
+            case Style.UNIT_TYPE_SCREEN_PERCENTAGE:
+                return (float) Math.round(Display.getInstance().getDisplayWidth() * v.getValue() / 100.0)
+                        / Display.getInstance().convertToPixels(1f);
+            default:
+                return 0;
+        }
+    }
+
+    private static String parseStroke(BorderInfo out, String rem) {
+        // parse the stroke
+        int p1 = rem.indexOf("(");
+        int p2 = rem.indexOf(")");
+        if (p1 != -1 && p2 != -1) {
+            String strokeStr = rem.substring(p1 + 1, p2).trim();
+            String[] strokeArgs = Util.split(strokeStr, " ");
+            for (String strokeArg : strokeArgs) {
+                strokeArg = strokeArg.trim();
+                if (strokeArg.endsWith("mm") || strokeArg.endsWith("px")) {
+                    ScalarValue sv = parseScalarValue(strokeArg);
+                    out.width = (float) sv.value;
+                    out.widthUnit = sv.unit;
+                } else if (strokeArg.length() > 0) {
+                    //int strokeColor = Integer.parseInt(strokeArg, 16);
+                    if (strokeArg.length() == 8) {
+                        // there is an alpha bit
+                        out.setStrokeOpacity(Integer.parseInt(strokeArg.substring(0, 2), 16) & 0xff);
+                        out.setStrokeColor(Integer.parseInt(strokeArg.substring(2), 16) & 0xffffff);
+                    } else {
+                        out.setStrokeOpacity(0xff);
+                        out.setStrokeColor(Integer.parseInt(strokeArg, 16) & 0xffffff);
+                    }
+                }
+            }
+            rem = rem.substring(p2 + 1);
+        } else {
+
+            rem = rem.substring(6); // at least get past stroke
+        }
+        return rem;
+    }
+
+    private static String parseShadow(BorderInfo out, String rem) {
+        int p1 = rem.indexOf("(");
+        int p2 = rem.indexOf(")");
+        if (p1 != -1 && p2 != -1) {
+            String shadowStr = rem.substring(p1 + 1, p2);
+            String[] shadowArgs = Util.split(shadowStr, " ");
+            for (String shadowArg : shadowArgs) {
+                shadowArg = shadowArg.trim();
+                if (shadowArg.startsWith("shadowSpread:") || shadowArg.endsWith("mm") || shadowArg.endsWith("px")) {
+                    int colonPos = shadowArg.indexOf(":");
+                    if (colonPos != -1) {
+                        shadowArg = shadowArg.substring(colonPos + 1);
+                    }
+                    out.setShadowSpread(parseScalarValue(shadowArg));
+                } else if (shadowArg.startsWith("x:")) {
+                    out.setShadowX(Float.parseFloat(shadowArg.substring(shadowArg.indexOf(":") + 1).trim()));
+                } else if (shadowArg.startsWith("y:")) {
+                    out.setShadowY(Float.parseFloat(shadowArg.substring(shadowArg.indexOf(":") + 1).trim()));
+                } else if (shadowArg.startsWith("blur:")) {
+                    out.setShadowBlur(Float.parseFloat(shadowArg.substring(shadowArg.indexOf(":") + 1).trim()));
+                } else if (shadowArg.startsWith("opacity:")) {
+                    out.setShadowOpacity(Integer.parseInt(shadowArg.substring(shadowArg.indexOf(":") + 1).trim()));
+                }
+            }
+
+            if (out.getShadowSpread() == null) {
+                out.setShadowSpread(parseScalarValue("0.5mm"));
+            }
+            if (out.getShadowX() == null) {
+                out.setShadowX((float) 0.5);
+            }
+            if (out.getShadowY() == null) {
+                out.setShadowY((float) 0.5);
+            }
+            if (out.getShadowBlur() == null) {
+                out.setShadowBlur((float) 0.1);
+            }
+            if (out.getShadowOpacity() == null) {
+                out.setShadowOpacity(128);
+            }
+            rem = rem.substring(p2 + 1);
+        } else {
+            rem = rem.substring(6); // at least get past the shadow param
+        }
+        return rem;
+    }
+
+    private static BorderInfo parseRoundBorder(BorderInfo out, String args, String[] parts1) {
+        int plen = parts1.length;
+        out.setType("round");
+        if (plen > 1) {
+            int nextSpacePos;
+            String rem = args;
+            while ((nextSpacePos = rem.indexOf(" ")) != -1) {
+                rem = rem.substring(nextSpacePos + 1).trim();
+                if (rem.startsWith("rect")) {
+                    out.setRectangle(true);
+                } else if (rem.startsWith("stroke")) {
+                    rem = parseStroke(out, rem);
+
+                } else if (rem.startsWith("shadow")) {
+                    rem = parseShadow(out, rem);
+                } else if (rem.length() == 8 || rem.indexOf(" ") == 8) {
+                    String colorStr = rem.substring(0, 8);
+                    out.color = Integer.parseInt(colorStr.substring(2), 16) & 0xffffff;
+                    out.setOpacity(Integer.parseInt(colorStr.substring(0, 2), 16) & 0xff);
+                    rem = rem.substring(8);
+                } else {
+                    int spacePos = rem.indexOf(" ");
+
+                    String colorStr = rem;
+                    if (spacePos != -1) {
+                        colorStr = colorStr.substring(0, spacePos);
+                    }
+                    if (colorStr.length() > 0 && colorStr.length() <= 6) {
+                        out.color = Integer.parseInt(colorStr, 16) & 0xffffff;
+                        out.setOpacity(255);
+                    }
+                    if (rem.length() >= colorStr.length()) {
+                        rem = rem.substring(colorStr.length());
+                    }
+
+
+                }
+            }
+        }
+
+        return out;
+    }
+
+    private static BorderInfo parseRoundRectBorder(BorderInfo out, String args, String[] parts1) {
+        int plen = parts1.length;
+        out.setType("roundRect");
+        if (plen > 1) {
+            int nextSpacePos;
+            String rem = args;
+            while ((nextSpacePos = rem.indexOf(" ")) != -1) {
+                rem = rem.substring(nextSpacePos + 1).trim();
+                if (rem.startsWith("stroke")) {
+                    rem = parseStroke(out, rem);
+
+                } else if (rem.startsWith("shadow")) {
+                    rem = parseShadow(out, rem);
+                } else if (rem.startsWith("-") || rem.startsWith("+")) {
+                    boolean value = rem.charAt(0) == '+';
+                    String flagName = rem.substring(1);
+                    if (flagName.startsWith("top-only")) {
+                        out.setTopOnlyMode(value);
+                    } else if (flagName.startsWith("bottom-only")) {
+                        out.setBottomOnlyMode(value);
+                    } else if (flagName.startsWith("top-left")) {
+                        out.setTopLeftMode(value);
+                    } else if (flagName.startsWith("top-right")) {
+                        out.setTopRightMode(value);
+                    } else if (flagName.startsWith("bottom-left")) {
+                        out.setBottomLeftMode(value);
+                    } else if (flagName.startsWith("bottom-right")) {
+                        out.setBottomRightMode(value);
+                    }
+                } else if (rem.length() > 0 && Character.isDigit(rem.charAt(0))) {
+                    out.setCornerRadius(getMMValue(rem));
+                }
+            }
+        }
+
+        return out;
+    }
+
+    static BorderInfo parseBorder(BorderInfo out, String args) {
+        if (args == null) {
+            out.setType("empty");
+            return out;
+        }
+        args = args.trim();
+        if ("none".equals(args)) {
+            out.setType("empty");
+            return out;
+        }
+        String[] parts1 = Util.split(args, " ");
+        int plen = parts1.length;
+        if (plen == 0) {
+            out.setType("empty");
+            return out;
+        }
+
+        if (plen > 3 && ("image".equals(parts1[0]) || "horizontalImage".equals(parts1[0]) || "verticalImage".equals(parts1[0]))) {
+            out.setType(parts1[0]);
+
+            out.setImages(new String[plen - 1]);
+            for (int i = 1; i < plen; i++) {
+                out.getImages()[i - 1] = parts1[i];
+            }
+            return out;
+        }
+
+        if ("splicedImage".equals(parts1[0]) && plen == 6) {
+            out.setType(parts1[0]);
+            out.setSpliceImage(parts1[1]);
+            out.setSpliceInsets(parts1[2] + " " + parts1[3] + " " + parts1[4] + " " + parts1[5]);
+            return out;
+        }
+
+        if ("round".equals(parts1[0])) {
+            return parseRoundBorder(out, args, parts1);
+        }
+
+        if ("roundRect".equals(parts1[0])) {
+            return parseRoundRectBorder(out, args, parts1);
+        }
+
+        if (plen == 3) {
+            String type = parts1[1];
+            out.setColor(Integer.parseInt(parts1[2], 16));
+            ScalarValue thicknessVal = parseSingleTRBLValue(parts1[0]);
+            out.setWidth((float) thicknessVal.getValue());
+            out.setWidthUnit(thicknessVal.getUnit());
+            if (("solid".equals(type) || "line".equals(type))) {
+                out.setType("line");
+            } else if ("dashed".equals(type)) {
+                out.setType("dashed");
+            } else if ("dotted".equals(type)) {
+                out.setType("dotted");
+            } else if ("underline".equals(type)) {
+                out.setType("underline");
+            }
+            return out;
+        }
+
+        out.setType("empty");
+        return out;
+
+    }
+
+    static Border parseBorder(Resources theme, String args) {
+        BorderInfo info = parseBorder(new BorderInfo(), args);
+        return info.createBorder(theme);
+
+    }
+
+    private static Image getImage(Resources theme, String imageStr) {
+        Image im = null;
+
+        try {
+
+            if (imageStr.startsWith("/")) {
+                im = Image.createImage(imageStr);
+            } else {
+                im = theme.getImage(imageStr);
+            }
+
+
+        } catch (IOException ex) {
+            Log.p("failed to parse image");
+        }
+        return im;
+    }
+
+    private static FontInfo parseFontSize(FontInfo out, String arg) {
+        arg = arg.trim();
+        ScalarValue sizeVal = parseSingleTRBLValue(arg);
+        out.setSize((float) sizeVal.getValue());
+        out.setSizeUnit(sizeVal.getUnit());
+        return out;
+    }
+
+    private static FontInfo parseFontName(FontInfo out, String arg) {
+        arg = arg.trim();
+        if (arg.length() > 0 && arg.charAt(0) == '/') {
+            arg = arg.substring(1);
+        }
+        if (arg.indexOf('/') != -1) {
+            arg = arg.substring(0, arg.indexOf('/')).trim();
+        } else {
+            int len = arg.length();
+            if (len > 3 && arg.charAt(len - 4) == '.') {
+                arg = arg.substring(0, len - 4);
+            }
+        }
+        out.setName(arg);
+
+        return out;
+    }
+
+    /// True when the argument already names a font file rather than a bare
+    /// family, for either of the container extensions the runtime loads.
+    ///
+    /// Uses endsWith rather than comparing indexOf against length - 4: for a
+    /// name shorter than the suffix both sides are -1, so a three character
+    /// family like "Foo" would look as though it already carried an extension
+    /// and would be left without one.
+    private static boolean hasFontFileSuffix(String arg) {
+        return endsWithIgnoreCase(arg, ".ttf") || endsWithIgnoreCase(arg, ".otf");
+    }
+
+    /// Case-insensitive suffix test that doesn't route through toLowerCase, so
+    /// the result can't depend on the default locale.
+    private static boolean endsWithIgnoreCase(String value, String suffix) {
+        return value != null && value.length() >= suffix.length()
+                && value.regionMatches(true, value.length() - suffix.length(), suffix, 0, suffix.length());
+    }
+
+    private static FontInfo parseFontFile(FontInfo out, String arg) {
+        arg = arg.trim();
+        if (arg.indexOf('/') != -1) {
+            arg = arg.substring(arg.indexOf('/'));
+        }
+        if (arg.length() > 0 && arg.charAt(0) == '/') {
+            arg = arg.substring(1);
+        } else {
+            // A bare family name gets the default .ttf suffix, but an explicit
+            // .ttf/.otf is left alone -- appending to "Foo.otf" would ask for
+            // "Foo.otf.ttf" and lose the font.
+            arg = arg.indexOf("native:") == 0 ? arg :
+                    hasFontFileSuffix(arg) ? arg :
+                            arg + ".ttf";
+        }
+        out.setFile(arg);
+        return out;
+    }
+
+    private static boolean isFontSizeArg(String arg) {
+        return arg != null && arg.length() > 0 && Character.isDigit(arg.charAt(0));
+    }
+
+    static FontInfo parseFont(FontInfo out, String font) {
+        if (font == null || font.trim().length() == 0) {
+            return null;
+        }
+        font = font.trim();
+        String[] args = Util.split(font, " ");
+        int len = args.length;
+        if (len == 1) {
+            String arg = args[0].trim();
+            if (arg.length() == 0) {
+                out.setSize(null);
+                out.setSizeUnit(UNIT_INHERIT);
+                out.setFile(null);
+                out.setName(null);
+                return out;
+            }
+            if (isFontSizeArg(arg)) {
+                // This is a size
+                parseFontSize(out, arg);
+                out.setName(null);
+                out.setFile(null);
+                return out;
+
+            } else {
+                out.setSizeUnit(UNIT_INHERIT);
+                out.setSize(null);
+                parseFontName(out, arg);
+                parseFontFile(out, arg);
+
+            }
+        } else if (len == 2) {
+            if (isFontSizeArg(args[0])) {
+                parseFontSize(out, args[0]);
+                parseFontName(out, args[1]);
+                parseFontFile(out, args[1]);
+                return out;
+            } else {
+                out.setSize(null);
+                out.setSizeUnit(UNIT_INHERIT);
+                parseFontName(out, args[0]);
+                parseFontFile(out, args[1]);
+                return out;
+
+            }
+
+        } else if (len == 3) {
+            parseFontSize(out, args[0]);
+            parseFontName(out, args[1]);
+            parseFontFile(out, args[2]);
+            return out;
+        } else {
+            throw new IllegalArgumentException("Failed to parse font");
+        }
+        return out;
+    }
+
+    static Font parseFont(Style baseStyle, String font) {
+        if (font == null || font.trim().length() == 0) {
+            return null;
+        }
+        FontInfo finfo = parseFont(new FontInfo(), font);
+        return finfo.createFont(baseStyle);
+
+    }
+
+    private static ScalarValue[] parseTRBLValue(String val) {
+        ScalarValue[] out = new ScalarValue[4];
+        String[] parts = Util.split(val, " ");
+        int len = parts.length;
+        switch (len) {
+            case 1:
+                ScalarValue v = parseSingleTRBLValue(parts[0]);
+                for (int i = 0; i < 4; i++) {
+                    out[i] = v;
+                }
+                return out;
+
+            case 2: {
+                ScalarValue v1 = parseSingleTRBLValue(parts[0]);
+                ScalarValue v2 = parseSingleTRBLValue(parts[1]);
+                out[Component.TOP] = out[Component.BOTTOM] = v1;
+                out[Component.LEFT] = out[Component.RIGHT] = v2;
+                return out;
+            }
+            case 3: {
+                ScalarValue v1 = parseSingleTRBLValue(parts[0]);
+                ScalarValue v2 = parseSingleTRBLValue(parts[1]);
+                ScalarValue v3 = parseSingleTRBLValue(parts[2]);
+                out[Component.TOP] = v1;
+                out[Component.LEFT] = out[Component.RIGHT] = v2;
+                out[Component.BOTTOM] = v3;
+                return out;
+            }
+            case 4: {
+                ScalarValue v1 = parseSingleTRBLValue(parts[0]);
+                ScalarValue v2 = parseSingleTRBLValue(parts[1]);
+                ScalarValue v3 = parseSingleTRBLValue(parts[2]);
+                ScalarValue v4 = parseSingleTRBLValue(parts[3]);
+                out[Component.TOP] = v1;
+                out[Component.RIGHT] = v2;
+                out[Component.BOTTOM] = v3;
+                out[Component.LEFT] = v4;
+                return out;
+            }
+            default:
+                return null;
+        }
+    }
+
+    private static ScalarValue parseSingleTRBLValue(String val) {
+        val = val.trim();
+        int plen = val.length();
+        StringBuilder sb = new StringBuilder();
+        ScalarValue out = new ScalarValue();
+        boolean parsedValue = false;
+        for (int i = 0; i < plen; i++) {
+            char c = val.charAt(i);
+            if (!parsedValue && (c == '%' || c == 'm' || c == 'p' || c == 'i')) {
+                out.setValue((sb.length() > 0) ? Double.parseDouble(sb.toString()) : 0);
+                parsedValue = true;
+                sb.setLength(0);
+                sb.append(c);
+            } else {
+                sb.append(c);
+            }
+        }
+
+        if (parsedValue) {
+            String unitStr = sb.toString();
+            out.setUnit("mm".equals(unitStr) ? Style.UNIT_TYPE_DIPS :
+                    "%".equals(unitStr) ? Style.UNIT_TYPE_SCREEN_PERCENTAGE :
+                            "inherit".equals(unitStr) ? UNIT_INHERIT :
+                                    Style.UNIT_TYPE_PIXELS);
+        } else {
+            out.setUnit(Style.UNIT_TYPE_PIXELS);
+            out.setValue(Double.parseDouble(sb.toString()));
+        }
+        return out;
+
+    }
+
+    static Image parseBgImage(Resources theme, String val) {
+        if (val == null || val.trim().length() == 0) {
+            return null;
+        }
+        return getImage(theme, val);
+    }
+
+    private static Map<String, Integer> bgTypes() {
+        return BG_TYPES;
+    }
+
+    private static Map<String, Integer> createBgTypes() {
+        Map<String, Integer> map = new HashMap<String, Integer>();
+        Object[] types = new Object[]{
+                "image_aligned_bottom", (int) Style.BACKGROUND_IMAGE_ALIGNED_BOTTOM,
+                "image_aligned_top", (int) Style.BACKGROUND_IMAGE_ALIGNED_TOP,
+                "image_aligned_bottom_right", (int) Style.BACKGROUND_IMAGE_ALIGNED_BOTTOM_RIGHT,
+                "image_aligned_bottom_left", (int) Style.BACKGROUND_IMAGE_ALIGNED_BOTTOM_LEFT,
+                "image_aligned_top_right", (int) Style.BACKGROUND_IMAGE_ALIGNED_TOP_RIGHT,
+                "image_aligned_top_left", (int) Style.BACKGROUND_IMAGE_ALIGNED_TOP_LEFT,
+                "image_aligned_left", (int) Style.BACKGROUND_IMAGE_ALIGNED_LEFT,
+                "image_aligned_right", (int) Style.BACKGROUND_IMAGE_ALIGNED_RIGHT,
+                "image_aligned_center", (int) Style.BACKGROUND_IMAGE_ALIGNED_CENTER,
+                "image_scaled", (int) Style.BACKGROUND_IMAGE_SCALED,
+                "image_scaled_fill", (int) Style.BACKGROUND_IMAGE_SCALED_FILL,
+                "image_scaled_fit", (int) Style.BACKGROUND_IMAGE_SCALED_FIT,
+                "image_tile_both", (int) Style.BACKGROUND_IMAGE_TILE_BOTH,
+                "image_tile_horizontal", (int) Style.BACKGROUND_IMAGE_TILE_HORIZONTAL,
+                "image_tile_vertical", (int) Style.BACKGROUND_IMAGE_TILE_VERTICAL,
+                "image_tile_horizontal_align_bottom", (int) Style.BACKGROUND_IMAGE_TILE_HORIZONTAL_ALIGN_BOTTOM,
+                "image_tile_horizontal_align_top", (int) Style.BACKGROUND_IMAGE_TILE_HORIZONTAL_ALIGN_TOP,
+                "image_tile_horizontal_align_center", (int) Style.BACKGROUND_IMAGE_TILE_HORIZONTAL_ALIGN_CENTER,
+                "image_tile_vertical_align_left", (int) Style.BACKGROUND_IMAGE_TILE_VERTICAL_ALIGN_LEFT,
+                "image_tile_vertical_align_right", (int) Style.BACKGROUND_IMAGE_TILE_VERTICAL_ALIGN_RIGHT,
+                "image_tile_vertical_align_center", (int) Style.BACKGROUND_IMAGE_TILE_VERTICAL_ALIGN_CENTER,
+                "gradient_radial", (int) Style.BACKGROUND_GRADIENT_RADIAL,
+                "gradient_linear_horizontal", (int) Style.BACKGROUND_GRADIENT_LINEAR_HORIZONTAL,
+                "gradient_linear_vertical", (int) Style.BACKGROUND_GRADIENT_LINEAR_VERTICAL,
+                "gradient_linear", (int) Style.BACKGROUND_GRADIENT_LINEAR,
+                "gradient_radial_full", (int) Style.BACKGROUND_GRADIENT_RADIAL_FULL,
+                "gradient_conic", (int) Style.BACKGROUND_GRADIENT_CONIC,
+                "gradient_repeating_linear", (int) Style.BACKGROUND_GRADIENT_REPEATING_LINEAR,
+                "gradient_repeating_radial", (int) Style.BACKGROUND_GRADIENT_REPEATING_RADIAL,
+                "none", (int) Style.BACKGROUND_NONE
+        };
+        int len = types.length;
+        for (int i = 0; i < len; i += 2) {
+            map.put((String) types[i], (Integer) types[i + 1]);
+        }
+        return map;
+    }
+
+    /// Gets the available background type strings (which can be passed to `StyleInfo#setBgType(java.lang.String)`
+    public static List<String> getBackgroundTypes() {
+        ArrayList<String> out = new ArrayList<String>();
+        out.addAll(bgTypes().keySet());
+        Collections.sort(out, new CaseInsensitiveOrder());
+        return out;
+    }
+
+    private static <T, V> Map<T, V> flip(Map<V, T> map) {
+        Map<T, V> out = new HashMap<T, V>();
+        for (Map.Entry<V, T> e : map.entrySet()) {
+            out.put(e.getValue(), e.getKey());
+
+        }
+        return out;
+    }
+
+    static Integer parseBgType(String val) {
+
+        if (val == null || val.length() == 0) {
+            return null;
+        }
+        if (Character.isDigit(val.charAt(0))) {
+            return Integer.parseInt(val);
+        }
+        Map<String, Integer> bgTypes = bgTypes();
+        if (bgTypes.containsKey(val)) {
+            return bgTypes.get(val);
+        }
+
+        return null;
+    }
+
+    /// Checks if a string is a valid scalar value.  A scalar value should be in the
+    /// format  where  is an integer
+    /// or decimal number, and  is a unit - one of mm, px, or %.
+    ///
+    /// There is one special value: "inherit" which indicates that the scalar value just inherits from its
+    /// parent.
+    ///
+    /// #### Parameters
+    ///
+    /// - `val`: String value to validate.
+    ///
+    /// #### Returns
+    ///
+    /// True if the value is a valid scalar value.
+    public static boolean validateScalarValue(String val) {
+        try {
+            parseSingleTRBLValue(val);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /// Parses a string into a scalar value.  A scalar value should be in the
+    /// format  where  is an integer
+    /// or decimal number, and  is a unit - one of mm, px, or %.
+    ///
+    /// There is one special value: "inherit" which indicates that the scalar value just inherits from its
+    /// parent.
+    ///
+    /// #### Parameters
+    ///
+    /// - `val`: String that should be a valid scalar value.
+    public static ScalarValue parseScalarValue(String val) {
+        return parseSingleTRBLValue(val);
+    }
+
+    /// Gets a list of the background types that are supported.
+    public static List<String> getSupportedBackgroundTypes() {
+        ArrayList<String> out = new ArrayList<String>();
+        out.addAll(BG_TYPES.keySet());
+        return out;
+    }
+
+    private static String format(double d, int decimalPlaces) {
+        for (int i = 0; i < decimalPlaces; i++) {
+            d *= 10;
+        }
+        d = Math.round(d);
+        for (int i = 0; i < decimalPlaces; i++) {
+            d /= 10;
+        }
+
+        String dStr = String.valueOf(d);
+        int decPos = dStr.indexOf(".");
+        if (decPos != -1) {
+            int decLen = dStr.length() - decPos;
+            if (decLen > decimalPlaces) {
+                dStr = dStr.substring(0, dStr.length() - (decLen - decimalPlaces));
+
+            }
+        }
+        return dStr;
+    }
+
+    /// Encapsulates a scalar value with a unit.
+    public static class ScalarValue {
+        private byte unit;
+        private double value;
+
+
+        /// Creates a new scalar value given magnitude and unit.
+        ///
+        /// #### Parameters
+        ///
+        /// - `value`: The value to set.
+        ///
+        /// - `unit`: The unit of the value. One of `#UNIT_INHERIT`, `Style#UNIT_TYPE_DIPS`, `Style#UNIT_TYPE_PIXELS`, or `Style#UNIT_TYPE_SCREEN_PERCENTAGE`.
+        public ScalarValue(double value, byte unit) {
+            this.value = value;
+            this.unit = unit;
+        }
+
+        public ScalarValue() {
+        }
+
+        /// #### Returns
+        ///
+        /// the unit of the value.  One of `#UNIT_INHERIT`, `Style#UNIT_TYPE_DIPS`, `Style#UNIT_TYPE_PIXELS`, or `Style#UNIT_TYPE_SCREEN_PERCENTAGE`.
+        public byte getUnit() {
+            return unit;
+        }
+
+        /// #### Parameters
+        ///
+        /// - `unit`: the unit of the value.  One of `#UNIT_INHERIT`, `Style#UNIT_TYPE_DIPS`, `Style#UNIT_TYPE_PIXELS`, or `Style#UNIT_TYPE_SCREEN_PERCENTAGE`.
+        public void setUnit(byte unit) {
+            this.unit = unit;
+        }
+
+        /// #### Returns
+        ///
+        /// the value of the scalar.
+        public double getValue() {
+            return value;
+        }
+
+        /// #### Parameters
+        ///
+        /// - `value`: the value of the scalar.
+        public void setValue(double value) {
+            this.value = value;
+        }
+
+        /// Returns the scalar value in CN1 style string format.  E.g.  12mm, 3px, 5%, or inherit
+        @Override
+        public String toString() {
+            switch (unit) {
+                case UNIT_INHERIT:
+                    return "inherit";
+                case Style.UNIT_TYPE_DIPS:
+                    return value + "mm";
+                case Style.UNIT_TYPE_SCREEN_PERCENTAGE:
+                    return value + "%";
+                default:
+                    return ((int) Math.round(value)) + "px";
+            }
+        }
+
+        /// Formats this scalar value (including units) but rounding to the given number
+        /// of decimal places.
+        ///
+        /// #### Parameters
+        ///
+        /// - `decimalPlaces`
+        public String toString(int decimalPlaces) {
+            switch (unit) {
+                case UNIT_INHERIT:
+                    return "inherit";
+                case Style.UNIT_TYPE_DIPS:
+                    return StyleParser.format(value, decimalPlaces) + "mm";
+                case Style.UNIT_TYPE_SCREEN_PERCENTAGE:
+                    return StyleParser.format(value, decimalPlaces) + "%";
+                default:
+                    return ((int) Math.round(value)) + "px";
+            }
+        }
+
+        /// Gets the magnitude of this scalar value in pixels.
+        public int getPixelValue() {
+            switch (unit) {
+                case UNIT_INHERIT:
+                    return 0;
+                case Style.UNIT_TYPE_DIPS:
+                    return Display.getInstance().convertToPixels((float) value);
+                case Style.UNIT_TYPE_SCREEN_PERCENTAGE:
+                    return (int) (Display.getInstance().getDisplayWidth() * value / 100f);
+                default:
+                    return ((int) Math.round(value));
+            }
+        }
+
+    }
+
+    /// Encapculates a style string in structured format.
+    public static class StyleInfo {
+        Map<String, String> values;
+
+        /// Parses the given style strings and encapsulates their details in
+        /// a StyleInfo object.
+        ///
+        /// #### Parameters
+        ///
+        /// - `styleString`: One or more style strings.
+        public StyleInfo(String... styleString) {
+            if (styleString == null) {
+                this.values = new HashMap<String, String>();
+            } else {
+                HashMap<String, String> vals = new HashMap<String, String>();
+                for (String str : styleString) {
+                    if (str != null && str.length() > 0) {
+                        parseString(vals, str);
+                    }
+                }
+                this.values = vals;
+            }
+        }
+
+        /// Creates a new StyleInfo given the parsed Map of keys and values.
+        ///
+        /// #### Parameters
+        ///
+        /// - `values`
+        public StyleInfo(Map<String, String> values) {
+            this.values = values;
+        }
+
+        /// Creates a new StyleInfo.
+        public StyleInfo() {
+            this(new HashMap<String, String>());
+        }
+
+        /// Creates a new style info by copying styles from existing style info.
+        ///
+        /// #### Parameters
+        ///
+        /// - `info`: Style to copy.
+        public StyleInfo(StyleInfo info) {
+            this(info.toStyleString());
+        }
+
+        /// #### Returns
+        ///
+        /// The padding of the style.  Will return null if padding wasn't specified.
+        public PaddingInfo getPadding() {
+            if (values.containsKey("padding")) {
+                return parsePadding(values.get("padding"));
+            }
+            return null;
+        }
+
+        /// Sets the padding.
+        ///
+        /// #### Parameters
+        ///
+        /// - `padding`: A valid padding string.  E.g. "1mm", or "2mm 3px 0 5mm"
+        ///
+        /// #### Returns
+        ///
+        /// Self for chaining.
+        public StyleInfo setPadding(String padding) {
+            if (padding == null || padding.trim().length() == 0) {
+                values.remove("padding");
+            } else {
+                values.put("padding", padding);
+            }
+            return this;
+        }
+
+        /// #### Returns
+        ///
+        /// The margin of the style.  Will return null if margin wasn't specified.
+        public MarginInfo getMargin() {
+            if (values.containsKey("margin")) {
+                return parseMargin(values.get("margin"));
+            }
+            return null;
+        }
+
+        /// Sets the margin.
+        ///
+        /// #### Parameters
+        ///
+        /// - `margin`: A valid margin string.  E.g. "1mm", or "2mm 3px 0 0"
+        ///
+        /// #### Returns
+        ///
+        /// Self for chaining.
+        public StyleInfo setMargin(String margin) {
+            if (margin == null || margin.trim().length() == 0) {
+                values.remove("margin");
+            } else {
+                values.put("margin", margin);
+            }
+            return this;
+        }
+
+        /// #### Returns
+        ///
+        /// The border of the style.  Will return null if border wasn't specified.
+        public BorderInfo getBorder() {
+            if (values.containsKey("border")) {
+                return parseBorder(new BorderInfo(), values.get("border"));
+            }
+            return null;
+        }
+
+        /// Sets the border
+        ///
+        /// #### Parameters
+        ///
+        /// - `border`: A valid border string. E.g. "1px solid ff0000", or "splicedImage notes.png 0.25 0.25 0.25 0.25"
+        ///
+        /// #### Returns
+        ///
+        /// Self for chaining.
+        public StyleInfo setBorder(String border) {
+            if (border == null || border.trim().length() == 0) {
+                values.remove("border");
+            } else {
+                values.put("border", border);
+            }
+            return this;
+        }
+
+        /// #### Returns
+        ///
+        /// The font of the style.  Will return null if font wasn't specified.
+        public FontInfo getFont() {
+            if (values.containsKey("font")) {
+                return parseFont(new FontInfo(), values.get("font"));
+            }
+            return null;
+        }
+
+        /// Sets the font in the style info.
+        ///
+        /// #### Parameters
+        ///
+        /// - `font`: A valid font style string.  E.g. "2mm native:MainRegular"
+        ///
+        /// #### Returns
+        ///
+        /// Self for chaining.
+        public StyleInfo setFont(String font) {
+            values.put("font", font);
+            return this;
+        }
+
+        /// Sets the font size in the style.
+        ///
+        /// #### Parameters
+        ///
+        /// - `fontSize`: A valid font size.  E.g. "2mm"
+        ///
+        /// #### Returns
+        ///
+        /// Self for chaining.
+        public StyleInfo setFontSize(String fontSize) {
+            FontInfo finfo = getFont();
+            if (finfo == null) {
+                finfo = parseFont(new FontInfo(), fontSize);
+                if (finfo != null) {
+                    setFont(finfo.toString());
+                }
+            } else {
+                FontInfo tmp = parseFont(new FontInfo(), fontSize);
+                if (tmp != null) {
+                    finfo.setSize(tmp.getSize());
+                    finfo.setSizeUnit(tmp.getSizeUnit());
+                    setFont(finfo.toString());
+                } else {
+                    finfo.setSizeUnit(UNIT_INHERIT);
+                    setFont(finfo.toString());
+                }
+            }
+
+            return this;
+        }
+
+        /// Sets the font name.
+        ///
+        /// #### Parameters
+        ///
+        /// - `fontName`: A valid font name.  E.g. "native:MainRegular"
+        ///
+        /// #### Returns
+        ///
+        /// Self for chaining.
+        public StyleInfo setFontName(String fontName) {
+            FontInfo finfo = getFont();
+            if (finfo == null) {
+                finfo = parseFont(new FontInfo(), fontName);
+                if (finfo != null) {
+                    setFont(finfo.toString());
+                }
+            } else {
+                FontInfo tmp = parseFont(new FontInfo(), fontName);
+                if (tmp != null) {
+                    finfo.setName(tmp.getName());
+                    finfo.setFile(tmp.getFile());
+                    setFont(finfo.toString());
+                } else {
+                    finfo.setName(null);
+                    finfo.setFile(null);
+                    setFont(finfo.toString());
+                }
+            }
+            return this;
+        }
+
+        /// #### Returns
+        ///
+        /// The background color of the style.  Will return null if bgColor wasn't specified.
+        public Integer getBgColor() {
+            if (values.containsKey("bgColor")) {
+                return Integer.parseInt(values.get("bgColor"), 16);
+            }
+            return null;
+        }
+
+        /// Sets the background color.
+        ///
+        /// #### Parameters
+        ///
+        /// - `bgColor`: A valid color string.  E.g. "ff0000"
+        public StyleInfo setBgColor(String bgColor) {
+            if (bgColor == null || bgColor.trim().length() == 0) {
+                values.remove("bgColor");
+            } else {
+                values.put("bgColor", bgColor);
+            }
+            return this;
+        }
+
+        /// #### Returns
+        ///
+        /// The foreground color of the style.  Will return null if fgColor wasn't specified.
+        public Integer getFgColor() {
+            if (values.containsKey("fgColor")) {
+                return Integer.parseInt(values.get("fgColor"), 16);
+            }
+            return null;
+        }
+
+        /// Sets the foreground color.
+        ///
+        /// #### Parameters
+        ///
+        /// - `fgColor`: A valid color string.  E.g. "ff0000"
+        ///
+        /// #### Returns
+        ///
+        /// Self for chaining.
+        public StyleInfo setFgColor(String fgColor) {
+            if (fgColor == null || fgColor.trim().length() == 0) {
+                values.remove("fgColor");
+            } else {
+                values.put("fgColor", fgColor);
+            }
+            return this;
+        }
+
+        /// #### Returns
+        ///
+        /// The background transparency of the style.  Will return null if transparency wasn't specified.
+        public Integer getTransparency() {
+            if (values.containsKey("transparency")) {
+                return Integer.parseInt(values.get("transparency"));
+            }
+            return null;
+        }
+
+        /// Sets the transparency.
+        ///
+        /// #### Parameters
+        ///
+        /// - `transparency`: A valid transparency string (0-255).  E.g. "255"
+        ///
+        /// #### Returns
+        ///
+        /// Self for chaining.
+        public StyleInfo setTransparency(String transparency) {
+            if (transparency == null || transparency.trim().length() == 0) {
+                values.remove("transparency");
+            } else {
+                values.put("transparency", transparency);
+            }
+            return this;
+        }
+
+        /// #### Returns
+        ///
+        /// The opacity of the style.  Will return null if the opacity wasn't specified.
+        public Integer getOpacity() {
+            if (values.containsKey("opacity")) {
+                return Integer.parseInt(values.get("opacity"));
+            }
+            return null;
+        }
+
+        /// Sets the opacity.
+        ///
+        /// #### Parameters
+        ///
+        /// - `opacity`: A valid opacity string (0-255).  E.g. "255"
+        ///
+        /// #### Returns
+        ///
+        /// Self for chaining.
+        public StyleInfo setOpacity(String opacity) {
+            if (opacity == null || opacity.trim().length() == 0) {
+                values.remove("opacity");
+            } else {
+                values.put("opacity", opacity);
+            }
+            return this;
+        }
+
+        /// #### Returns
+        ///
+        /// @return The alignment of the style.  One of `Component#LEFT`, `Component#RIGHT`, `Component#CENTER`.  Or null if
+        /// alignment wasn't specified.
+        public Integer getAlignment() {
+            if (values.containsKey("alignment")) {
+                return parseAlignment(values.get("alignment"));
+            }
+            return null;
+        }
+
+        /// Sets the alignment for this style.  One of `Component#LEFT`, `Component#RIGHT`, `Component#CENTER`
+        ///
+        /// #### Parameters
+        ///
+        /// - `alignment`: One of `Component#LEFT`, `Component#RIGHT`, `Component#CENTER`
+        ///
+        /// #### Returns
+        ///
+        /// Self for chaining.
+        public StyleInfo setAlignment(int alignment) {
+            values.put("alignment", String.valueOf(alignment));
+            return this;
+        }
+
+        /// Sets the alignment for this style as a String.  Accepts either a string representation of the integer values for `Component#LEFT`, `Component#RIGHT`, `Component#CENTER`.  Or the
+        /// literal strings "center", "left", or "right".  Or null to unset this property.
+        ///
+        /// #### Parameters
+        ///
+        /// - `alignment`
+        public StyleInfo setAlignment(String alignment) {
+            if (alignment == null || alignment.length() == 0) {
+                values.remove("alignment");
+            } else {
+                values.put("alignment", alignment);
+            }
+            return this;
+        }
+
+        /// Returns the alignment as a string.  "center", "left", "right", or null.
+        public String getAlignmentAsString() {
+            return getAlignmentString(getAlignment());
+        }
+
+        /// Gets the background type.  Will return null if bgType wasn't specified.  Returns one of Style.BACKGROUND_XXX constants.
+        public Integer getBgType() {
+            if (values.containsKey("bgType")) {
+                return parseBgType(values.get("bgType"));
+            }
+            return null;
+        }
+
+        /// Sets the background type as a string.
+        ///
+        /// #### Parameters
+        ///
+        /// - `type`: A valid background type string.  E.g. "image_scaled_fit"
+        ///
+        /// #### Returns
+        ///
+        /// Self for chaining.
+        public StyleInfo setBgType(String type) {
+            values.put("bgType", type);
+            return this;
+        }
+
+        /// Sets the background type as one of the Style.BACKGROUND_XXX constants.
+        ///
+        /// #### Parameters
+        ///
+        /// - `i`: A background type.  One of Style.BACKGROUND_XXX constants.
+        ///
+        /// #### Returns
+        ///
+        /// Self for chaining.
+        public StyleInfo setBgType(Integer i) {
+            setBgType(flip(bgTypes()).get(i));
+            return this;
+        }
+
+        /// Gets the bgType as a string.
+        public String getBgTypeAsString() {
+            Integer bgType = getBgType();
+            if (bgType == null) {
+                return null;
+            }
+            Map<Integer, String> inverseMap = flip(bgTypes());
+            if (inverseMap.containsKey(bgType)) {
+                return inverseMap.get(bgType);
+            }
+            return null;
+        }
+
+        /// #### Returns
+        ///
+        /// The background image for the style.  Will return null if bgImage wasn't specified.
+        public ImageInfo getBgImage() {
+            if (values.containsKey("bgImage")) {
+                return new ImageInfo(values.get("bgImage"));
+            }
+            return null;
+
+        }
+
+        /// Sets the background image.
+        ///
+        /// #### Parameters
+        ///
+        /// - `bgImage`: A valid image string.  E.g. "notes.png" (to refer to the notes.png image in the theme), or "/notes.png" to refer to notes.png in the src directory.
+        ///
+        /// #### Returns
+        ///
+        /// Self for chaining.
+        public StyleInfo setBgImage(String bgImage) {
+            values.put("bgImage", bgImage);
+            return this;
+        }
+
+        /// #### Returns
+        ///
+        /// The text decoration of the style.  Will return null if textDecoration wasn't specified.  Returns one of Style.TEXT_DECORATION_XXX constants.
+        public Integer getTextDecoration() {
+            if (values.containsKey("textDecoration")) {
+                String val = values.get("textDecoration");
+                if ("3d".equalsIgnoreCase(val)) {
+                    return (int) Style.TEXT_DECORATION_3D;
+                }
+
+                if ("3d_lowered".equalsIgnoreCase(val)) {
+                    return (int) Style.TEXT_DECORATION_3D_LOWERED;
+                }
+
+                if ("3D_SHADOW_NORTH".equalsIgnoreCase(val)) {
+                    return (int) Style.TEXT_DECORATION_3D_SHADOW_NORTH;
+                }
+
+                if ("none".equalsIgnoreCase(val)) {
+                    return (int) Style.TEXT_DECORATION_NONE;
+                }
+
+                if ("overline".equalsIgnoreCase(val)) {
+                    return (int) Style.TEXT_DECORATION_OVERLINE;
+                }
+
+                if ("strikethru".equalsIgnoreCase(val)) {
+                    return (int) Style.TEXT_DECORATION_STRIKETHRU;
+                }
+
+                if ("underine".equalsIgnoreCase(val)) {
+                    return (int) Style.TEXT_DECORATION_UNDERLINE;
+                }
+
+            }
+            return null;
+        }
+
+        /// Gets the text decoration as a string.
+        ///
+        /// #### Returns
+        ///
+        /// A valid text decoration string or null.  Text decoration strings include "3d", "3d_lowered", "3d_shadow_north", "none", "strikethru", "overline", and "underline"
+        public String getTextDecorationAsString() {
+            if (values.containsKey("textDecoration")) {
+                return values.get("textDecoration");
+            }
+            return null;
+        }
+
+        /// Builds a style string that is encapsulated by this style object.  The output of this can be passed to methods like `Component#setInlineAllStyles(java.lang.String)`
+        ///
+        /// #### Returns
+        ///
+        /// A style string.
+        public String toStyleString() {
+            StringBuilder sb = new StringBuilder();
+            FontInfo finfo = getFont();
+            if (finfo != null) {
+                sb.append("font:").append(finfo).append("; ");
+            }
+            BorderInfo binfo = getBorder();
+            if (binfo != null) {
+                sb.append("border:").append(binfo).append("; ");
+            }
+
+            Integer bgColor = getBgColor();
+            if (bgColor != null) {
+                sb.append("bgColor:").append(Integer.toHexString(bgColor)).append("; ");
+            }
+
+            Integer fgColor = getFgColor();
+            if (fgColor != null) {
+                sb.append("fgColor:").append(Integer.toHexString(fgColor)).append("; ");
+            }
+
+            Integer transparency = getTransparency();
+            if (transparency != null) {
+                sb.append("transparency:").append(transparency).append("; ");
+            }
+
+            Integer opacity = getOpacity();
+            if (opacity != null) {
+                sb.append("opacity:").append(opacity).append("; ");
+            }
+
+            Integer bgType = getBgType();
+            if (bgType != null) {
+                sb.append("bgType:").append(getBgTypeAsString()).append("; ");
+            }
+
+            ImageInfo image = getBgImage();
+            if (image != null) {
+                sb.append("bgImage:").append(getBgImage().toString()).append("; ");
+            }
+
+            Integer alignment = getAlignment();
+            if (alignment != null) {
+                sb.append("alignment:").append(getAlignmentAsString()).append("; ");
+            }
+
+            MarginInfo margin = getMargin();
+            if (margin != null) {
+                sb.append("margin:").append(margin).append("; ");
+            }
+
+            PaddingInfo padding = getPadding();
+            if (padding != null) {
+                sb.append("padding:").append(padding).append("; ");
+            }
+
+            Integer textDecoration = getTextDecoration();
+            if (textDecoration != null) {
+                sb.append("textDecoration:").append(getTextDecorationAsString()).append("; ");
+            }
+
+            return sb.toString().trim();
+        }
+    }
+
+    /// Encapsulates an image that is referenced by a style string.
+    public static class ImageInfo {
+        private final String image;
+
+        /// Creates an ImageInfo to wrap the specified image.
+        ///
+        /// #### Parameters
+        ///
+        /// - `image`: @param image Either the path to an image on the classpath (signified by a leading '/', or
+        /// the name of an image that can be found in the theme resource file.
+        public ImageInfo(String image) {
+            this.image = image;
+        }
+
+        @Override
+        public String toString() {
+            return image;
+        }
+
+        /// Gets the image object that this image info references.
+        ///
+        /// #### Parameters
+        ///
+        /// - `theme`: @param theme The theme resource file to use to get the image.  Note: If the image name has a leading '/', then
+        /// the image will be loaded from the classpath.  Otherwise the theme resource file will be used.
+        public Image getImage(Resources theme) {
+            return StyleParser.getImage(theme, image);
+        }
+    }
+
+    /// Base class for style values that consist of 4 scalar values, such as padding and margin.
+    public static class BoxInfo {
+        protected ScalarValue[] values;
+
+        /// Creates a new box with the specified scalar values.
+        ///
+        /// #### Parameters
+        ///
+        /// - `values`: A 4-element array of scalar values.
+        public BoxInfo(ScalarValue[] values) {
+            if (values.length != 4) {
+                throw new IllegalArgumentException("BoxInfo expected 4-element array");
+            }
+            this.values = values;
+        }
+
+        /// Returns string of values in     format.
+        @Override
+        public String toString() {
+            return toString(Component.TOP) + " " + toString(Component.RIGHT) + " " + toString(Component.BOTTOM) + " " + toString(Component.LEFT);
+        }
+
+        /// Returns the string representation of one of the sides of the box.
+        ///
+        /// #### Parameters
+        ///
+        /// - `side`: One of `Component#TOP`, `Component#RIGHT`, `Component#BOTTOM`, `Component#LEFT`.
+        public String toString(int side) {
+            return values[side].toString();
+        }
+
+        /// Gets the scalar values of this box as a 4-element array.
+        public ScalarValue[] getValues() {
+            return values;
+        }
+
+        /// Sets the scalar values of this box as a 4-element array.
+        ///
+        /// #### Parameters
+        ///
+        /// - `values`
+        public void setValues(ScalarValue[] values) {
+            if (values.length != 4) {
+                throw new IllegalArgumentException("BoxInfo requires array with 4 values.");
+            }
+            this.values = values;
+        }
+
+        /// Gets a value for a side.
+        ///
+        /// #### Parameters
+        ///
+        /// - `side`: One of `Component#TOP`, `Component#RIGHT`, `Component#BOTTOM`, `Component#LEFT`.
+        ///
+        /// #### Returns
+        ///
+        /// The value portion of the scalar value.
+        public ScalarValue getValue(int side) {
+            return values[side];
+        }
+
+    }
+
+    /// Encapsulates information about the padding in a style string.
+    public static class PaddingInfo extends BoxInfo {
+
+        /// Creates a new PaddingInfo.
+        ///
+        /// #### Parameters
+        ///
+        /// - `values`: 4-element array of scalar values.  Indices are `Component#TOP`, `Component#BOTTOM`, `Component#LEFT` and `Component#RIGHT`.
+        public PaddingInfo(ScalarValue[] values) {
+            super(values);
+        }
+
+        /// Generates a 4-element float array with the padding values - in the same format as used in the theme resource files.  This will use the provided base style
+        /// to calculate the padding for sides that were specified as inherit.
+        ///
+        /// #### Parameters
+        ///
+        /// - `baseStyle`: The base style used to get the padding on sides where the style string specified inherit.
+        ///
+        /// #### Returns
+        ///
+        /// 4-element float array.
+        float[] createPadding(Style baseStyle) {
+            float[] out = new float[4];
+            for (int i = 0; i < 4; i++) {
+                out[i] = createPadding(baseStyle, i);
+            }
+            return out;
+
+        }
+
+        float createPadding(Style baseStyle, int side) {
+            ScalarValue v = values[side];
+            switch (v.unit) {
+                case UNIT_INHERIT: {
+                    int px = baseStyle.getPadding(side);
+                    byte[] units = baseStyle.getPaddingUnit();
+                    if (units == null) {
+                        return px;
+                    }
+                    switch (units[side]) {
+                        case Style.UNIT_TYPE_DIPS:
+                            return px / (float) Display.getInstance().convertToPixels(1f);
+                        default:
+                            return px;
+                    }
+                }
+                default:
+                    return (float) v.value;
+
+            }
+
+        }
+
+        byte[] createPaddingUnit(Style baseStyle) {
+            byte[] out = new byte[4];
+            for (int i = 0; i < 4; i++) {
+                out[i] = createPaddingUnit(baseStyle, i);
+            }
+            return out;
+
+        }
+
+        byte createPaddingUnit(Style baseStyle, int side) {
+            ScalarValue v = values[side];
+            switch (v.unit) {
+                case UNIT_INHERIT: {
+                    byte[] units = baseStyle.getPaddingUnit();
+                    if (units == null) {
+                        return Style.UNIT_TYPE_PIXELS;
+                    }
+                    return units[side];
+                }
+                default:
+                    return v.unit;
+
+            }
+        }
+    }
+
+    /// Encapsulates information about the padding in a style string.
+    public static class MarginInfo extends BoxInfo {
+        /// Creates a new MarginInfo.
+        ///
+        /// #### Parameters
+        ///
+        /// - `values`: 4-element array of scalar values.  Indices are `Component#TOP`, `Component#BOTTOM`, `Component#LEFT` and `Component#RIGHT`.
+        public MarginInfo(ScalarValue[] values) {
+            super(values);
+        }
+
+        float[] createMargin(Style baseStyle) {
+            float[] out = new float[4];
+            for (int i = 0; i < 4; i++) {
+                out[i] = createMargin(baseStyle, i);
+            }
+            return out;
+
+        }
+
+        float createMargin(Style baseStyle, int side) {
+            ScalarValue v = values[side];
+            switch (v.unit) {
+                case UNIT_INHERIT: {
+                    int px = baseStyle.getPadding(side);
+                    byte[] units = baseStyle.getMarginUnit();
+                    if (units == null) {
+                        return px;
+                    }
+                    switch (units[side]) {
+                        case Style.UNIT_TYPE_DIPS:
+                            return px / (float) Display.getInstance().convertToPixels(1f);
+                        default:
+                            return px;
+                    }
+                }
+                default:
+                    return (float) v.value;
+
+            }
+
+        }
+
+        byte[] createMarginUnit(Style baseStyle) {
+            byte[] out = new byte[4];
+            for (int i = 0; i < 4; i++) {
+                out[i] = createMarginUnit(baseStyle, i);
+            }
+            return out;
+
+        }
+
+        byte createMarginUnit(Style baseStyle, int side) {
+            ScalarValue v = values[side];
+            switch (v.unit) {
+                case UNIT_INHERIT: {
+                    byte[] units = baseStyle.getMarginUnit();
+                    if (units == null) {
+                        return Style.UNIT_TYPE_PIXELS;
+                    }
+
+                    return units[side];
+                }
+                default:
+                    return v.unit;
+
+            }
+        }
+    }
+
+    /// Encapsulates information about the border property of a style string.
+    public static class BorderInfo {
+
+        // Used for round and roundrect border
+        private Integer opacity;
+        private Integer strokeColor;
+        private Integer strokeOpacity;
+        private Integer shadowOpacity;
+        private Float shadowX;
+        private Float shadowY;
+        private Float shadowBlur;
+        private ScalarValue shadowSpread;
+
+        // Used for round border
+        private Boolean rectangle;
+
+        // Used for roundrect border
+        private Boolean topOnlyMode;
+        private Boolean bottomOnlyMode;
+        private Boolean topLeftMode;
+        private Boolean topRightMode;
+        private Boolean bottomLeftMode;
+        private Boolean bottomRightMode;
+        private Float cornerRadius;
+
+        /// The type of the border.  E.g. line, dashed, image, etc..
+        private String type;
+
+        /// Used only by splicedImage border.  The name/path of the image to use for the image border.
+        private String spliceImage;
+
+        /// Used by image, horizontalImage, and verticalImage borders.  The names of images to use for these types of borders.
+        private String[] images;
+
+        /// The inset string for a splicedImage border.
+        private String spliceInsets;
+
+        /// The thickness for line/dashed/dotted/underline border
+        private Float width;
+
+        /// The unit for line/dashed/dotted/underline border
+        private byte widthUnit;
+
+        /// The color for a line/dashed/dotted/underline border.
+        private Integer color;
+
+        private static double round(double d, int decimalPlaces) {
+            for (int i = 0; i < decimalPlaces; i++) {
+                d *= 10;
+            }
+            d = Math.round(d);
+            for (int i = 0; i < decimalPlaces; i++) {
+                d /= 10;
+            }
+
+            String dStr = String.valueOf(d);
+            int decPos = dStr.indexOf(".");
+            if (decPos != -1) {
+                int decLen = dStr.length() - decPos;
+                if (decLen > decimalPlaces) {
+                    dStr = dStr.substring(0, dStr.length() - (decLen - decimalPlaces));
+                    d = Double.parseDouble(dStr);
+                }
+            }
+
+            return d;
+        }
+
+        /// Form "splicedImage" type
+        private String splicedImageToString() {
+            return getType() + " " + getSpliceImage() + " " + getSpliceInsets();
+        }
+
+        /// For "image", "horizontalImage", and "verticalImage" types
+        private String imageToString() {
+            StringBuilder sb = new StringBuilder();
+            sb.append(getType()).append(" ");
+            for (String img : getImages()) {
+                sb.append(img).append(" ");
+            }
+            return sb.toString().trim();
+        }
+
+        /// Used for "line", "dashed", "dotted", and "underline" types.
+        private String lineToString() {
+            int color = getColor() == null ? 0 : getColor();
+            return widthString() + " " + lineTypeString() + " " + Integer.toHexString(color);
+        }
+
+        private void shadowToString(StringBuilder sb) {
+            sb.append("shadow(");
+            sb.append("opacity:").append(getShadowOpacity()).append(" ");
+            if (getShadowSpread() != null) {
+                sb.append("spread:").append(getShadowSpread().toString()).append(" ");
+            }
+            if (getShadowX() != null) {
+                sb.append("x:").append(round(getShadowX(), 3)).append(" ");
+            }
+            if (getShadowY() != null) {
+                sb.append("y:").append(round(getShadowY(), 3)).append(" ");
+            }
+            if (getShadowBlur() != null) {
+                sb.append("blur:").append(round(getShadowBlur(), 3)).append(" ");
+            }
+
+            sb.append(") ");
+        }
+
+        private void strokeToString(StringBuilder sb) {
+            sb.append("stroke(");
+            if (width != null) {
+                sb.append(widthString()).append(" ");
+            }
+            int c = getStrokeColor() & 0xffffff;
+            String hex = Integer.toHexString(c);
+            while (hex.length() < 6) {
+                hex = "0" + hex;
+            }
+            if (getStrokeOpacity() != null && getStrokeOpacity() != 255) {
+                String opacityStr = Integer.toHexString(getStrokeOpacity());
+                while (opacityStr.length() < 2) {
+                    opacityStr = "0" + opacityStr;
+                }
+                hex = opacityStr + hex;
+            }
+            sb.append(hex).append(") ");
+        }
+
+        private void colorToString(StringBuilder sb) {
+            String hex = color != null ? Integer.toHexString(color & 0xffffff) : "000000";
+            while (hex.length() < 6) {
+                hex = "0" + hex;
+            }
+
+            if (getOpacity() != null) {
+                String opacityStr = Integer.toHexString(getOpacity() & 0xff);
+                while (opacityStr.length() < 2) {
+                    opacityStr = "0" + opacityStr;
+                }
+                hex = opacityStr + hex;
+            }
+            sb.append(hex).append(" ");
+        }
+
+        /// Used for "round" type
+        private String roundToString() {
+            StringBuilder sb = new StringBuilder();
+
+            sb.append("round ");
+            if (color != null) {
+                colorToString(sb);
+            }
+            if (getShadowOpacity() != null && getShadowOpacity() != 0) {
+                shadowToString(sb);
+            }
+            if (width != null && width != 0 && getStrokeColor() != null) {
+                strokeToString(sb);
+
+            }
+            if (getRectangle() != null && getRectangle()) {
+                sb.append("rect").append(" ");
+            }
+
+            return sb.toString().trim();
+        }
+
+        private String roundRectToString() {
+            StringBuilder sb = new StringBuilder();
+
+            sb.append("roundRect ");
+            if (color != null) {
+                colorToString(sb);
+            }
+            if (getShadowOpacity() != null && getShadowOpacity() != 0) {
+                shadowToString(sb);
+            }
+            if (width != null && width != 0 && getStrokeColor() != null) {
+                strokeToString(sb);
+
+            }
+            if (getTopLeftMode() != null) {
+                String prefix = getTopLeftMode() ? "+" : "-";
+                sb.append(prefix).append("top-left ");
+            }
+            if (getTopRightMode() != null) {
+                String prefix = getTopRightMode() ? "+" : "-";
+                sb.append(prefix).append("top-right ");
+            }
+            if (getBottomLeftMode() != null) {
+                String prefix = getBottomLeftMode() ? "+" : "-";
+                sb.append(prefix).append("bottom-left ");
+            }
+            if (getBottomRightMode() != null) {
+                String prefix = getBottomRightMode() ? "+" : "-";
+                sb.append(prefix).append("bottom-right ");
+            }
+            if (getTopOnlyMode() != null) {
+                String prefix = getTopOnlyMode() ? "+" : "-";
+                sb.append(prefix).append("top-only ");
+            }
+            if (getBottomOnlyMode() != null) {
+                String prefix = getBottomOnlyMode() ? "+" : "-";
+                sb.append(prefix).append("bottom-only ");
+            }
+            if (cornerRadius != null) {
+                sb.append(round(cornerRadius, 2)).append("mm");
+            }
+            return sb.toString().trim();
+        }
+
+        /// Returns the border as a style string value.  This value is formatted in a way that can be parsed by the StyleParser.
+        @Override
+        public String toString() {
+            if ("splicedImage".equals(getType())) {
+                return splicedImageToString();
+            } else if ("image".equals(getType()) || "horizontalImage".equals(getType()) || "verticalImage".equals(getType())) {
+                return imageToString();
+            } else if ("line".equals(getType()) || "dashed".equals(getType()) || "dotted".equals(getType()) || "underline".equals(getType())) {
+                return lineToString();
+            } else if ("round".equals(getType())) {
+                return roundToString();
+            } else if ("roundRect".equals(getType())) {
+                return roundRectToString();
+            } else {
+                return "none";
+            }
+        }
+
+        /// Returns width as a string, including units.  If the width isn't set, this outputs "1px".
+        public String widthString() {
+            if (width == null) {
+                return "1px";
+            }
+            return getWidth() + widthUnitString();
+        }
+
+        /// Returns the border color as a hex string.  If no color is set, this returns the empty string.
+        public String colorString() {
+            if (color == null) {
+                return "";
+            }
+            return Integer.toHexString(color);
+        }
+
+        private String widthUnitString() {
+            switch (getWidthUnit()) {
+                case Style.UNIT_TYPE_DIPS:
+                    return "mm";
+                default:
+                    return "px";
+            }
+        }
+
+        private String lineTypeString() {
+            if ("line".equals(getType())) {
+                return "solid";
+            }
+            return getType();
+        }
+
+        private Border createLineBorder() {
+            if (this.getWidthUnit() == Style.UNIT_TYPE_DIPS) {
+                return Border.createLineBorder(getWidth(), getColor());
+            } else {
+                return Border.createLineBorder(getWidth().intValue(), getColor());
+            }
+        }
+
+        private Border createDashedBorder() {
+            if (this.getWidthUnit() == Style.UNIT_TYPE_DIPS) {
+                return Border.createDashedBorder(Display.getInstance().convertToPixels(getWidth()), getColor());
+            } else {
+                return Border.createDashedBorder(getWidth().intValue(), getColor());
+            }
+        }
+
+        private Border createDottedBorder() {
+            if (this.getWidthUnit() == Style.UNIT_TYPE_DIPS) {
+                return Border.createDottedBorder(Display.getInstance().convertToPixels(getWidth()), getColor());
+            } else {
+                return Border.createDottedBorder(getWidth().intValue(), getColor());
+            }
+        }
+
+        private Border createUnderlineBorder() {
+            if (this.getWidthUnit() == Style.UNIT_TYPE_DIPS) {
+                return Border.createUnderlineBorder(Display.getInstance().convertToPixels(getWidth()), getColor());
+            } else {
+                return Border.createUnderlineBorder(getWidth().intValue(), getColor());
+            }
+        }
+
+        private Border createImageBorder(Resources theme) {
+            int ilen = getImages().length;
+            if (ilen == 9) {
+                return Border.createImageBorder(getImage(theme, getImages()[0]),
+                        getImage(theme, getImages()[1]),
+                        getImage(theme, getImages()[2]),
+                        getImage(theme, getImages()[3]),
+                        getImage(theme, getImages()[4]),
+                        getImage(theme, getImages()[5]),
+                        getImage(theme, getImages()[6]),
+                        getImage(theme, getImages()[7]),
+                        getImage(theme, getImages()[8])
+                );
+            }
+            if (ilen == 3) {
+                return Border.createImageBorder(getImage(theme, getImages()[0]),
+                        getImage(theme, getImages()[1]),
+                        getImage(theme, getImages()[2])
+                );
+            }
+            return Border.createEmpty();
+        }
+
+        private Border createHorizontalImageBorder(Resources theme) {
+            return Border.createHorizonalImageBorder(getImage(theme, getImages()[0]),
+                    getImage(theme, getImages()[1]),
+                    getImage(theme, getImages()[2])
+            );
+        }
+
+        private Border createVerticalImageBorder(Resources theme) {
+            return Border.createVerticalImageBorder(getImage(theme, getImages()[0]),
+                    getImage(theme, getImages()[1]),
+                    getImage(theme, getImages()[2])
+            );
+        }
+
+        private Border createSplicedImageBorder(Resources theme) {
+            double[] insets = getSpliceInsets(new double[4]);
+            return Border.createImageSplicedBorder(getImage(theme, getSpliceImage()), insets[Component.TOP], insets[Component.RIGHT], insets[Component.BOTTOM], insets[Component.LEFT]);
+
+        }
+
+        private Border createRoundBorder() {
+            RoundBorder b = RoundBorder.create();
+            if (width != null) {
+                b.stroke(getWidthInPixels(), false);
+            }
+            if (getOpacity() != null) {
+                b.opacity(getOpacity());
+            }
+            if (getStrokeColor() != null) {
+                b.strokeColor(getStrokeColor());
+            }
+            if (getStrokeOpacity() != null) {
+                b.strokeOpacity(getStrokeOpacity());
+            }
+            if (getShadowOpacity() != null) {
+                b.shadowOpacity(getShadowOpacity());
+            }
+            if (getShadowSpread() != null) {
+                b.shadowSpread(getShadowSpread().getPixelValue(), false);
+            }
+            if (getShadowX() != null) {
+                b.shadowX(getShadowX());
+            }
+            if (getShadowY() != null) {
+                b.shadowY(getShadowY());
+            }
+            if (getShadowBlur() != null) {
+                b.shadowBlur(getShadowBlur());
+            }
+            if (getRectangle() != null && getRectangle()) {
+                b.rectangle(getRectangle());
+            }
+            if (color != null) {
+                b.color(color);
+            }
+            return b;
+        }
+
+        private Border createRoundRectBorder() {
+            RoundRectBorder b = RoundRectBorder.create();
+            if (width != null) {
+
+                b.stroke(getWidthInPixels(), false);
+            }
+            if (getStrokeColor() != null) {
+                b.strokeColor(getStrokeColor());
+            }
+            if (getStrokeOpacity() != null) {
+                b.strokeOpacity(getStrokeOpacity());
+            }
+            if (getShadowOpacity() != null) {
+                b.shadowOpacity(getShadowOpacity());
+            }
+            if (getShadowSpread() != null) {
+                ScalarValue sv = getShadowSpread();
+                switch (sv.unit) {
+                    case Style.UNIT_TYPE_PIXELS:
+                        b.shadowSpread(sv.getPixelValue());
+                        break;
+                    case Style.UNIT_TYPE_DIPS:
+                        b.shadowSpread((float) sv.getValue());
+                        break;
+                    default:
+                        break;
+                }
+            }
+            if (getShadowX() != null) {
+                b.shadowX(getShadowX());
+            }
+            if (getShadowY() != null) {
+                b.shadowY(getShadowY());
+            }
+            if (getShadowBlur() != null) {
+                b.shadowBlur(getShadowBlur());
+            }
+            if (getTopOnlyMode() != null) {
+                b.topOnlyMode(getTopOnlyMode());
+            }
+            if (getBottomOnlyMode() != null) {
+                b.bottomOnlyMode(getBottomOnlyMode());
+            }
+            if (getTopLeftMode() != null) {
+                b.topLeftMode(getTopLeftMode());
+            }
+            if (getTopRightMode() != null) {
+                b.topRightMode(getTopRightMode());
+            }
+            if (getBottomLeftMode() != null) {
+                b.bottomLeftMode(getBottomLeftMode());
+            }
+            if (getBottomRightMode() != null) {
+                b.bottomRightMode(getBottomRightMode());
+            }
+            if (cornerRadius != null) {
+                b.cornerRadius(cornerRadius);
+            }
+            return b;
+        }
+
+        /// Creates the border that is described by this border info.
+        ///
+        /// #### Parameters
+        ///
+        /// - `theme`: Theme resource file used to load images that are referenced.
+        ///
+        /// #### Returns
+        ///
+        /// A Border.
+        public Border createBorder(Resources theme) {
+            if (getType() == null || "empty".equals(getType()) || "none".equals(getType())) {
+                return Border.createEmpty();
+            }
+            if ("line".equals(getType())) {
+                return createLineBorder();
+            }
+            if ("dashed".equals(getType())) {
+                return createDashedBorder();
+            }
+            if ("dotted".equals(getType())) {
+                return createDottedBorder();
+            }
+            if ("underline".equals(getType())) {
+                return createUnderlineBorder();
+            }
+            if ("image".equals(getType())) {
+                return createImageBorder(theme);
+            }
+            if ("horizontalImage".equals(getType())) {
+                return createHorizontalImageBorder(theme);
+            }
+            if ("verticalImage".equals(getType())) {
+                return createVerticalImageBorder(theme);
+            }
+            if ("splicedImage".equals(getType())) {
+                return createSplicedImageBorder(theme);
+            }
+            if ("round".equals(getType())) {
+                return createRoundBorder();
+            }
+            if ("roundRect".equals(getType())) {
+                return createRoundRectBorder();
+            }
+            return Border.createEmpty();
+
+        }
+
+        /// For a splicedImage border, this gets the spliced insets as a 4-element array of double values.
+        ///
+        /// #### Parameters
+        ///
+        /// - `out`: An out parameter.  4-element array of insets.  Indices `Component#TOP`, `Component#BOTTOM`, `Component#LEFT`, and `Component#RIGHT`.
+        ///
+        /// #### Returns
+        ///
+        /// 4-element array of insets.  Indices `Component#TOP`, `Component#BOTTOM`, `Component#LEFT`, and `Component#RIGHT`.
+        public double[] getSpliceInsets(double[] out) {
+            String[] parts = Util.split(getSpliceInsets(), " ");
+
+            out[Component.TOP] = Double.parseDouble(parts[0]);
+            out[Component.RIGHT] = Double.parseDouble(parts[1]);
+            out[Component.BOTTOM] = Double.parseDouble(parts[2]);
+            out[Component.LEFT] = Double.parseDouble(parts[3]);
+            return out;
+        }
+
+        /// The border type.  E.g. line, dashed, dotted, underline, image, horizontalImage, verticalImage, splicedImage.
+        ///
+        /// #### Returns
+        ///
+        /// the type
+        public String getType() {
+            return type;
+        }
+
+        /// Sets the border type.
+        ///
+        /// #### Parameters
+        ///
+        /// - `type`: the type to set. E.g. line, dashed, dotted, underline, image, horizontalImage, verticalImage, splicedImage.
+        public void setType(String type) {
+            this.type = type;
+        }
+
+        /// The image to use for a splicedImage border.
+        ///
+        /// #### Returns
+        ///
+        /// the spliceImage
+        public String getSpliceImage() {
+            return spliceImage;
+        }
+
+        /// Sets the image to use for a splicedImage border.
+        ///
+        /// #### Parameters
+        ///
+        /// - `spliceImage`: the spliceImage to set
+        public void setSpliceImage(String spliceImage) {
+            this.spliceImage = spliceImage;
+        }
+
+        /// Gets the images to use for image, horizontalImage, and verticalImage borders.
+        ///
+        /// #### Returns
+        ///
+        /// the images
+        public String[] getImages() {
+            return images;
+        }
+
+        /// Sets the images used by image, horizontalImage, and verticalImage borders.
+        ///
+        /// #### Parameters
+        ///
+        /// - `images`: the images to set
+        public void setImages(String[] images) {
+            this.images = images;
+        }
+
+        /// For splicedImage border, this gets the splice insets as a single string.
+        ///
+        /// #### Returns
+        ///
+        /// the spliceInsets
+        public String getSpliceInsets() {
+            return spliceInsets;
+        }
+
+        /// Sest the splice insets for a splicedImage border.
+        ///
+        /// #### Parameters
+        ///
+        /// - `spliceInsets`: the spliceInsets to set
+        public void setSpliceInsets(String spliceInsets) {
+            this.spliceInsets = spliceInsets;
+        }
+
+        /// For a splicedImage border, sets the splice insets as a 4-element array.
+        ///
+        /// #### Parameters
+        ///
+        /// - `insets`: 4-element array.  Indices Component#TOP , Component#BOTTOM, Component#LEFT, and Component#RIGHT.
+        public void setSpliceInsets(double[] insets) {
+            this.spliceInsets = insets[Component.TOP] + " " + insets[Component.RIGHT] + " " + insets[Component.BOTTOM] + " " + insets[Component.LEFT];
+        }
+
+        /// Sets the splicedImage border insets as a 4-element array and rounds each entry to the specified number of decimal places
+        ///
+        /// #### Parameters
+        ///
+        /// - `insets`: 4-element array of insets.Indices Component#TOP , Component#BOTTOM, Component#LEFT, and Component#RIGHT.
+        ///
+        /// - `decimalPlaces`: Number of decimal places to round to.
+        public void setSpliceInsets(double[] insets, int decimalPlaces) {
+            this.spliceInsets =
+                    round(insets[Component.TOP], decimalPlaces) + " " +
+                            round(insets[Component.RIGHT], decimalPlaces) + " " +
+                            round(insets[Component.BOTTOM], decimalPlaces) + " " +
+                            round(insets[Component.LEFT], decimalPlaces);
+        }
+
+        /// For a line/dashed/dotted/underline/round border, the thickness value.
+        ///
+        /// #### Returns
+        ///
+        /// the width
+        ///
+        /// #### See also
+        ///
+        /// - #getWidthUnit()
+        public Float getWidth() {
+            return width;
+        }
+
+        /// For a line/dashed/dotted/underline/round border, gets the thickness value.
+        ///
+        /// #### Parameters
+        ///
+        /// - `width`: the width to set
+        ///
+        /// #### See also
+        ///
+        /// - #setWidthUnit(byte)
+        public void setWidth(Float width) {
+            this.width = width;
+        }
+
+        /// Gets the border thickness as a scalar value.  This is effectively the same
+        /// value as returned by `#getWidth()` and `#getWidthUnit()`
+        ///
+        /// #### Returns
+        ///
+        /// The thickness of the border.  Used with line, dashed, dotted, underline, and round borders.
+        public ScalarValue getThickness() {
+            return new ScalarValue(width == null ? 0 : width, widthUnit);
+        }
+
+        /// For line/dashed/dotted/underline border.  The thickness in pixels.
+        ///
+        /// #### See also
+        ///
+        /// - #getWidth()
+        ///
+        /// #### Returns
+        ///
+        /// The thickness in pixels of the border line.
+        public Integer getWidthInPixels() {
+            if (width == null) {
+                return null;
+            }
+            if (widthUnit == Style.UNIT_TYPE_DIPS) {
+                return Display.getInstance().convertToPixels(width);
+            } else {
+                return width.intValue();
+            }
+        }
+
+        /// For a line/dashed/dotted/underline/round border, gets the unit of the thickness value.
+        ///
+        /// #### Returns
+        ///
+        /// the widthUnit
+        ///
+        /// #### See also
+        ///
+        /// - #getWidth()
+        public byte getWidthUnit() {
+            return widthUnit;
+        }
+
+        /// For a line/dashed/dotted/underline/round border, sets the unit of the thickness value.
+        ///
+        /// #### Parameters
+        ///
+        /// - `widthUnit`: the widthUnit to set
+        ///
+        /// #### See also
+        ///
+        /// - #setWidth(java.lang.Float)
+        public void setWidthUnit(byte widthUnit) {
+            this.widthUnit = widthUnit;
+        }
+
+        /// For a line/dashed/dotted/underline/round border, sets the color.  For round border
+        /// this gets the fill color.  For line border variants, it gets the stroke color.
+        ///
+        /// #### Returns
+        ///
+        /// the color
+        public Integer getColor() {
+            return color;
+        }
+
+        /// For a line/dashed/dotted/underline/round border, gets the color.  For
+        /// round border, this sets the fill color.  For line border variants, it sets the stroke color.
+        ///
+        /// #### Parameters
+        ///
+        /// - `color`: the color to set
+        public void setColor(Integer color) {
+            this.color = color;
+        }
+
+        /// Gets the fill opacity of round border.  Only used for round border
+        ///
+        /// #### Returns
+        ///
+        /// the opacity The opacity of the round border.
+        public Integer getOpacity() {
+            return opacity;
+        }
+
+        /// Sets teh fill opacity of round border.  Only used for round border.
+        ///
+        /// #### Parameters
+        ///
+        /// - `opacity`: the opacity to set
+        public void setOpacity(Integer opacity) {
+            this.opacity = opacity;
+        }
+
+        /// Gets the stroke color for round border.  This is only used for round border.
+        /// Line border variants should use `#getColor()`
+        ///
+        /// #### Returns
+        ///
+        /// the strokeColor
+        public Integer getStrokeColor() {
+            return strokeColor;
+        }
+
+        /// Sets the stroke color for round border.  This is only used for round border.
+        /// Line border variants should use `#setColor(java.lang.Integer)`
+        ///
+        /// #### Parameters
+        ///
+        /// - `strokeColor`: the strokeColor to set
+        public void setStrokeColor(Integer strokeColor) {
+            this.strokeColor = strokeColor;
+        }
+
+        /// Gets the stroke opacity for round border.  This is only used for round border.
+        ///
+        /// #### Returns
+        ///
+        /// the strokeOpacity
+        public Integer getStrokeOpacity() {
+            return strokeOpacity;
+        }
+
+        /// Sets the stroke opacity for round border.  This is only used for round border.
+        ///
+        /// #### Parameters
+        ///
+        /// - `strokeOpacity`: the strokeOpacity to set
+        public void setStrokeOpacity(Integer strokeOpacity) {
+            this.strokeOpacity = strokeOpacity;
+        }
+
+        /// Sets the shadow opacity for round border.  This is only used for round border.
+        ///
+        /// #### Returns
+        ///
+        /// the shadowOpacity
+        public Integer getShadowOpacity() {
+            return shadowOpacity;
+        }
+
+        /// Sets the shadow opacity for round border.  This is only used for round border.
+        ///
+        /// #### Parameters
+        ///
+        /// - `shadowOpacity`: the shadowOpacity to set
+        public void setShadowOpacity(Integer shadowOpacity) {
+            this.shadowOpacity = shadowOpacity;
+        }
+
+        /// Gets the shadowX property of round border.
+        ///
+        /// #### Returns
+        ///
+        /// the shadowX
+        public Float getShadowX() {
+            return shadowX;
+        }
+
+        /// Sets the shadowX property of round border.
+        ///
+        /// #### Parameters
+        ///
+        /// - `shadowX`: the shadowX to set
+        public void setShadowX(Float shadowX) {
+            this.shadowX = shadowX;
+        }
+
+        /// Gets the shadowY property of round border.
+        ///
+        /// #### Returns
+        ///
+        /// the shadowY
+        public Float getShadowY() {
+            return shadowY;
+        }
+
+        /// Sets the shadowY property of round border.
+        ///
+        /// #### Parameters
+        ///
+        /// - `shadowY`: the shadowY to set
+        public void setShadowY(Float shadowY) {
+            this.shadowY = shadowY;
+        }
+
+        /// Gets the blur for round border.
+        ///
+        /// #### Returns
+        ///
+        /// the shadowBlur
+        public Float getShadowBlur() {
+            return shadowBlur;
+        }
+
+        /// Sets the blur for round border.
+        ///
+        /// #### Parameters
+        ///
+        /// - `shadowBlur`: the shadowBlur to set
+        public void setShadowBlur(Float shadowBlur) {
+            this.shadowBlur = shadowBlur;
+        }
+
+        /// Gets the shadow spread for round border.
+        ///
+        /// #### Returns
+        ///
+        /// the shadowSpread
+        public ScalarValue getShadowSpread() {
+            return shadowSpread;
+        }
+
+        /// Sets the shadow spread for round border.
+        ///
+        /// #### Parameters
+        ///
+        /// - `shadowSpread`: the shadowSpread to set
+        public void setShadowSpread(ScalarValue shadowSpread) {
+            this.shadowSpread = shadowSpread;
+        }
+
+        /// Sets the shadow spread for round border as a string.  String must be valid scalar
+        /// value.  E.g. 2mm, or 3px.
+        ///
+        /// #### Parameters
+        ///
+        /// - `val`
+        public void setShadowSpread(String val) {
+            this.shadowSpread = parseScalarValue(val);
+        }
+
+        /// Checks whether round border should grow to a rectangle.  Only used for round border.
+        ///
+        /// #### Returns
+        ///
+        /// the rectangle
+        public Boolean getRectangle() {
+            return rectangle;
+        }
+
+        /// Sets whether round border should grow to a rectangle.  Only used for round border.
+        ///
+        /// #### Parameters
+        ///
+        /// - `rectangle`: the rectangle to set
+        public void setRectangle(Boolean rectangle) {
+            this.rectangle = rectangle;
+        }
+
+        /// Used only for roundRect border.  The value to set for `RoundRectBorder#topOnlyMode(boolean)`.  Returns null
+        /// if this flag isn't set at all.
+        ///
+        /// #### Returns
+        ///
+        /// the topOnlyMode
+        public Boolean getTopOnlyMode() {
+            return topOnlyMode;
+        }
+
+        /// Used only for roundRect border.  The value to set for `RoundRectBorder#topOnlyMode(boolean)`.  Set to null to
+        /// not set this flag at all.
+        ///
+        /// #### Parameters
+        ///
+        /// - `topOnlyMode`: the topOnlyMode to set
+        public void setTopOnlyMode(Boolean topOnlyMode) {
+            this.topOnlyMode = topOnlyMode;
+        }
+
+        /// Used for roundRect border.  The value to set for `RoundRectBorder#bottomOnlyMode(boolean)`.  Returns null if
+        /// this property is ignored.
+        ///
+        /// #### Returns
+        ///
+        /// the bottomOnlyMode
+        public Boolean getBottomOnlyMode() {
+            return bottomOnlyMode;
+        }
+
+        /// Used for roundRect border. The value to set for `RoundRectBorder#bottomOnlyMode(boolean)`.  Set to null to
+        /// ignore this property.
+        ///
+        /// #### Parameters
+        ///
+        /// - `bottomOnlyMode`: the bottomOnlyMode to set
+        public void setBottomOnlyMode(Boolean bottomOnlyMode) {
+            this.bottomOnlyMode = bottomOnlyMode;
+        }
+
+        /// Used for roundRect border.  The value to set for `RoundRectBorder#topLeftMode(boolean)`.  Returns null if
+        /// this property is ignored.
+        ///
+        /// #### Returns
+        ///
+        /// the topLeftMode
+        public Boolean getTopLeftMode() {
+            return topLeftMode;
+        }
+
+        /// Used for roundRect border.  The value to set for `RoundRectBorder#topLeftMode(boolean)`.  Set null to ignore
+        /// property.
+        ///
+        /// #### Parameters
+        ///
+        /// - `topLeftMode`: the topLeftMode to set
+        public void setTopLeftMode(Boolean topLeftMode) {
+            this.topLeftMode = topLeftMode;
+        }
+
+        /// Used for roundRect border.  The value to set for `RoundRectBorder#topRightMode(boolean)`.  Returns null if
+        /// property is ignored.
+        ///
+        /// #### Returns
+        ///
+        /// the topRightMode
+        public Boolean getTopRightMode() {
+            return topRightMode;
+        }
+
+        /// Used for roundRect border.  The value to set for `RoundRectBorder#topRightMode(boolean)`.  Sets null to ignore
+        /// property.
+        ///
+        /// #### Parameters
+        ///
+        /// - `topRightMode`: the topRightMode to set
+        public void setTopRightMode(Boolean topRightMode) {
+            this.topRightMode = topRightMode;
+        }
+
+        /// Used for roundRect border.  The value to set for `RoundRectBorder#bottomLeftMode(boolean)`.  Returns null if
+        /// property is ignored.
+        ///
+        /// #### Returns
+        ///
+        /// the bottomLeftMode
+        public Boolean getBottomLeftMode() {
+            return bottomLeftMode;
+        }
+
+        /// Used for roundRect border.  The value to set for `RoundRectBorder#bottomLeftMode(boolean)`.  Set null to ignore
+        /// property.
+        ///
+        /// #### Parameters
+        ///
+        /// - `bottomLeftMode`: the bottomLeftMode to set
+        public void setBottomLeftMode(Boolean bottomLeftMode) {
+            this.bottomLeftMode = bottomLeftMode;
+        }
+
+        /// Used for roundRect border.  The value to set for `RoundRectBorder#bottomRightMode(boolean)`.  Returns null
+        /// if property is ignored.
+        ///
+        /// #### Returns
+        ///
+        /// the bottomRightMode
+        public Boolean getBottomRightMode() {
+            return bottomRightMode;
+        }
+
+        /// Used for roundRect border.  The value to set for `RoundRectBorder#bottomRightMode(boolean)`.  Set null to ignore
+        /// property.
+        ///
+        /// #### Parameters
+        ///
+        /// - `bottomRightMode`: the bottomRightMode to set
+        public void setBottomRightMode(Boolean bottomRightMode) {
+            this.bottomRightMode = bottomRightMode;
+        }
+
+        /// Used for roundRect border.  The corner radius.
+        ///
+        /// #### Returns
+        ///
+        /// the cornerRadius
+        ///
+        /// #### See also
+        ///
+        /// - RoundRectBorder#cornerRadius(float)
+        public Float getCornerRadius() {
+            return cornerRadius;
+        }
+
+        /// Used for roundRect border.  Sets the corner radius.
+        ///
+        /// #### Parameters
+        ///
+        /// - `cornerRadius`: the cornerRadius to set
+        ///
+        /// #### See also
+        ///
+        /// - RoundRectBorder#cornerRadius(float)
+        public void setCornerRadius(Float cornerRadius) {
+            this.cornerRadius = cornerRadius;
+        }
+
+        /// Used for roundRect border.  Sets the corner radius as a scalar value.  E.g. "2mm" or "2px'
+        ///
+        /// #### Parameters
+        ///
+        /// - `cornerRadius`: the cornerRadius to set
+        ///
+        /// #### See also
+        ///
+        /// - RoundRectBorder#cornerRadius(float)
+        ///
+        /// - #setCornerRadius(java.lang.Float)
+        ///
+        /// - #setCornerRadius(com.codename1.ui.plaf.StyleParser.ScalarValue)
+        ///
+        /// - RoundRectBorder#cornerRadius(float)
+        public void setCornerRadius(String cornerRadius) {
+            setCornerRadius(getMMValue(cornerRadius));
+        }
+
+        /// Used for roundRect border.  Sets the corner radius
+        ///
+        /// #### Parameters
+        ///
+        /// - `sv`: The corner radius to set.
+        ///
+        /// #### See also
+        ///
+        /// - #setCornerRadius(java.lang.Float)
+        ///
+        /// - #setCornerRadius(java.lang.String)
+        ///
+        /// - RoundRectBorder#cornerRadius(float)
+        public void setCornerRadius(ScalarValue sv) {
+            switch (sv.getUnit()) {
+                case Style.UNIT_TYPE_DIPS:
+                    setCornerRadius((float) sv.getValue());
+                    break;
+                default:
+                    setCornerRadius(sv.getPixelValue() / (float) Display.getInstance().convertToPixels(1f));
+            }
+        }
+    }
+
+    /// Encapsulates the value of the font property in a style string.
+    public static class FontInfo {
+        private Float size;
+        private byte sizeUnit;
+        private String name;
+        private String file;
+
+        /// Returns the font in a format that can be used as the value of the font property of a style string.
+        @Override
+        public String toString() {
+            return (sizeString("") + nameString(" ") + fileString(" ")).trim();
+        }
+
+        /// Gets the font size as a style string.  E.g. 18mm, or 12px.  If unit is inherit, this will just return an empty string.
+        ///
+        /// #### Parameters
+        ///
+        /// - `prefix`: String to prefix to the size.
+        public String sizeString(String prefix) {
+            if (getSize() == null) {
+                return prefix;
+            }
+            if (getSizeUnit() == Style.UNIT_TYPE_DIPS) {
+                return prefix + getSize() + unitString();
+            } else if (getSizeUnit() == StyleParser.UNIT_INHERIT) {
+                return prefix;
+            } else {
+                return prefix + getSize().intValue() + unitString();
+            }
+        }
+
+        /// Gets the size of the font in pixels.
+        ///
+        /// #### Parameters
+        ///
+        /// - `baseStyle`: The base style to use in case the font size isn't specified in the style string.
+        public float getSizeInPixels(Style baseStyle) {
+            if (getSize() == null || getSizeUnit() == UNIT_INHERIT) {
+                Font f = baseStyle.getFont();
+                if (f == null) {
+                    f = Font.getDefaultFont();
+                }
+
+                float pixS = f.getPixelSize();
+                if (pixS < 1) {
+                    pixS = f.getHeight();
+                }
+                return pixS;
+
+            } else {
+                switch (getSizeUnit()) {
+                    case Style.UNIT_TYPE_DIPS:
+                        return Display.getInstance().convertToPixels(getSize());
+                    default:
+                        return getSize();
+                }
+            }
+        }
+
+        private String unitString() {
+            switch (getSizeUnit()) {
+                case Style.UNIT_TYPE_DIPS:
+                    return "mm";
+                case Style.UNIT_TYPE_PIXELS:
+                    return "px";
+                default:
+                    return "px";
+            }
+        }
+
+        private String nameString(String prefix) {
+            if (getName() == null) {
+                return prefix;
+            }
+            return prefix + getName();
+        }
+
+        private String fileString(String prefix) {
+            if (getFile() == null) {
+                return prefix;
+            }
+            return prefix + getFile();
+        }
+
+        /// Gets the font size.
+        ///
+        /// #### Returns
+        ///
+        /// the size
+        ///
+        /// #### See also
+        ///
+        /// - #getSizeUnit()
+        public Float getSize() {
+            return size;
+        }
+
+        /// Sets the font size.
+        ///
+        /// #### Parameters
+        ///
+        /// - `size`: the size to set
+        ///
+        /// #### See also
+        ///
+        /// - #setSizeUnit(byte)
+        public void setSize(Float size) {
+            this.size = size;
+        }
+
+        /// Gets the font size unit.  One of `Style#UNIT_TYPE_DIPS`, `Style#UNIT_TYPE_PIXELS`, or `#UNIT_INHERIT`.
+        ///
+        /// #### Returns
+        ///
+        /// the sizeUnit
+        public byte getSizeUnit() {
+            return sizeUnit;
+        }
+
+        /// Sets the font size unit.  One of `Style#UNIT_TYPE_DIPS`, `Style#UNIT_TYPE_PIXELS`, or `#UNIT_INHERIT`.
+        ///
+        /// #### Parameters
+        ///
+        /// - `sizeUnit`: the sizeUnit to set
+        public void setSizeUnit(byte sizeUnit) {
+            this.sizeUnit = sizeUnit;
+        }
+
+        /// Gets the name of the font.
+        ///
+        /// #### Returns
+        ///
+        /// the name
+        public String getName() {
+            return name;
+        }
+
+        /// Sets the name of the font.
+        ///
+        /// #### Parameters
+        ///
+        /// - `name`: the name to set
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        /// Gets the font file name.  Should start with "/".
+        ///
+        /// #### Returns
+        ///
+        /// the file
+        public String getFile() {
+            return file;
+        }
+
+        /// Sets the font file name.  Should start with "/".
+        ///
+        /// #### Parameters
+        ///
+        /// - `file`: the file to set
+        public void setFile(String file) {
+            this.file = file;
+        }
+
+        /// Creates a font based on this font information.
+        ///
+        /// #### Parameters
+        ///
+        /// - `baseStyle`: The base style to use in cases where aspects of the font aren't explicitly specified in the style string.
+        ///
+        /// #### Returns
+        ///
+        /// A font.
+        public Font createFont(Style baseStyle) {
+            Font f;
+            if (name == null) {
+                if (baseStyle == null) {
+                    f = Font.getDefaultFont();
+                } else {
+                    f = baseStyle.getFont();
+                }
+            } else {
+                f = Font.createTrueTypeFont(name, file);
+            }
+            if (f == null || (getSize() != null && !f.isTTFNativeFont())) {
+                f = Font.createTrueTypeFont(Font.NATIVE_MAIN_REGULAR, Font.NATIVE_MAIN_REGULAR);
+            }
+            if (f != null) {
+                if (f.isTTFNativeFont()) {
+                    return f.derive(getSizeInPixels(baseStyle), f.getStyle());
+                } else {
+                    return Font.getDefaultFont();
+                }
+            } else {
+                return Font.getDefaultFont();
+            }
+        }
+    }
+
+}

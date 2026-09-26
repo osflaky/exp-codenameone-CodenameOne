@@ -1,0 +1,953 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+package com.codename1.ui;
+
+import com.codename1.junit.FormTest;
+import com.codename1.junit.TestLogger;
+import com.codename1.junit.UITestBase;
+import com.codename1.ui.animations.ComponentAnimation;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.geom.Dimension;
+import com.codename1.ui.layouts.BorderLayout;
+import com.codename1.ui.FontImage;
+import com.codename1.ui.plaf.UIManager;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class ToolbarTest extends UITestBase {
+    private static final int LIGHT_COLOR = 0xff0000;
+    private static final int DARK_COLOR = 0x00ff00;
+    private static final int FORM_MANAGER_COLOR = 0x0000ff;
+    private static final int SWAPPED_MANAGER_COLOR = 0x00ffff;
+
+    private boolean originalOnTop;
+    private boolean originalPermanent;
+    private Boolean originalDarkMode;
+    private boolean originalCentered;
+    private int originalCommandBehavior;
+
+    @BeforeEach
+    void captureStatics() {
+        originalOnTop = Toolbar.isOnTopSideMenu();
+        originalPermanent = Toolbar.isPermanentSideMenu();
+        originalDarkMode = Display.getInstance().isDarkMode();
+        originalCentered = Toolbar.isCenteredDefault();
+        originalCommandBehavior = Display.getInstance().getCommandBehavior();
+    }
+
+    @AfterEach
+    void restoreStatics() {
+        Display.getInstance().setDarkMode(originalDarkMode);
+        Toolbar.setPermanentSideMenu(originalPermanent);
+        Toolbar.setOnTopSideMenu(originalOnTop);
+        Toolbar.setCenteredDefault(originalCentered);
+        Display.getInstance().setCommandBehavior(originalCommandBehavior);
+    }
+
+    @FormTest
+    void sideMenuCommandRegistration() {
+        TestLogger.install();
+        try {
+            implementation.setBuiltinSoundsEnabled(false);
+            Display.getInstance().setCommandBehavior(Display.COMMAND_BEHAVIOR_SIDE_NAVIGATION);
+            Toolbar.setOnTopSideMenu(true);
+
+            Form form = Display.getInstance().getCurrent();
+            Toolbar toolbar = new Toolbar();
+            form.setToolbar(toolbar);
+            form.show();
+            form.getAnimationManager().flush();
+            flushSerialCalls();
+
+            final int[] invocation = {0};
+            Command command = toolbar.addCommandToSideMenu("Execute", null, evt -> invocation[0]++);
+
+            form.revalidate();
+            form.getAnimationManager().flush();
+            flushSerialCalls();
+
+            command.actionPerformed(new ActionEvent(command));
+            assertEquals(1, invocation[0], "Command action should invoke registered listener");
+
+            toolbar.openSideMenu();
+            form.getAnimationManager().flush();
+            flushSerialCalls();
+            awaitAnimations(form);
+            assertTrue(toolbar.isSideMenuShowing(), "Side menu should be showing after openSideMenu");
+
+            toolbar.closeSideMenu();
+            form.getAnimationManager().flush();
+            flushSerialCalls();
+            awaitAnimations(form);
+
+            toolbar.removeCommand(command);
+            assertEquals(1, TestLogger.getPrinted().size());
+            assertTrue(TestLogger.getPrinted().get(0).contains("WARNING: Display.setCommandBehavior() is deprecated"));
+        } finally {
+            TestLogger.remove();
+        }
+    }
+
+    private void awaitAnimations(Form form) {
+        CountDownLatch latch = new CountDownLatch(1);
+        form.getAnimationManager().flushAnimation(latch::countDown);
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+        try {
+            latch.await(1, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            fail("Interrupted while waiting for animations to finish");
+        }
+        flushSerialCalls();
+    }
+
+    @FormTest
+    void titleCenteringFollowsStaticSetting() {
+        implementation.setBuiltinSoundsEnabled(false);
+
+        Toolbar.setCenteredDefault(false);
+
+        Form form = new Form("Title", new BorderLayout());
+        Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        form.show();
+        form.getAnimationManager().flush();
+
+        assertFalse(toolbar.isTitleCentered(), "Title should not be centered when centeredDefault is false");
+
+        toolbar.setTitle("Hello");
+        toolbar.setTitleCentered(true);
+
+        assertTrue(toolbar.isTitleCentered(), "setTitleCentered(true) should center the title");
+    }
+
+    @FormTest
+    void rightBarCommandsAndTitleComponentCustomization() {
+        implementation.setBuiltinSoundsEnabled(false);
+
+        Form form = Display.getInstance().getCurrent();
+        Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        form.show();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+
+        Command right = toolbar.addMaterialCommandToRightBar("Settings", FontImage.MATERIAL_SETTINGS, evt -> {
+        });
+        Button rightButton = toolbar.findCommandComponent(right);
+        assertNotNull(rightButton, "Right bar command should create a visible button");
+
+        Label customTitle = new Label("Custom Title");
+        toolbar.setTitleComponent(customTitle);
+        assertSame(customTitle, toolbar.getTitleComponent());
+
+        toolbar.removeCommand(right);
+        assertNull(toolbar.findCommandComponent(right), "Removed command should no longer have a button");
+    }
+
+    @FormTest
+    void rightSideMenuCommandsDispatch() throws Exception {
+        implementation.setBuiltinSoundsEnabled(false);
+        Toolbar.setOnTopSideMenu(true);
+
+        Form form = new Form(new BorderLayout());
+        Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        form.show();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+
+        final int[] invocation = {0};
+        Command rightSide = toolbar.addCommandToRightSideMenu("RightMenu", null, evt -> invocation[0]++);
+
+        toolbar.openRightSideMenu();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+        awaitAnimations(form);
+
+        Button rightButton = toolbar.findCommandComponent(rightSide);
+        assertNotNull(rightButton, "Right side menu button should be created");
+
+        // Issue #4979: command dispatch from the side menu is deferred
+        // to the dispose-animation onFinish so the dim layered pane is
+        // fully detached before the command runs. The test EDT cannot
+        // tick wall-clock animations while blocked on the test body,
+        // so disable the dispose animation to make the deferred fire
+        // synchronous.
+        disableSideMenuAnimation(toolbar, "rightSidemenuDialog");
+
+        int px = rightButton.getAbsoluteX() + rightButton.getWidth() / 2;
+        int py = rightButton.getAbsoluteY() + rightButton.getHeight() / 2;
+        rightButton.pointerPressed(px, py);
+        rightButton.pointerReleased(px, py);
+        flushSerialCalls();
+
+        assertEquals(1, invocation[0], "Pointer events should fire right side menu command");
+
+        toolbar.closeRightSideMenu();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+        awaitAnimations(form);
+    }
+
+    private static void disableSideMenuAnimation(Toolbar toolbar, String dialogFieldName) throws Exception {
+        java.lang.reflect.Field dialogField = Toolbar.class.getDeclaredField(dialogFieldName);
+        dialogField.setAccessible(true);
+        Object dialog = dialogField.get(toolbar);
+        if (dialog == null) {
+            return;
+        }
+        java.lang.reflect.Method setAnimateShow = dialog.getClass().getMethod("setAnimateShow", boolean.class);
+        setAnimateShow.invoke(dialog, false);
+    }
+
+    @FormTest
+    void sideMenuAndOverflowCommands() {
+        implementation.setBuiltinSoundsEnabled(false);
+        Display.getInstance().setCommandBehavior(Display.COMMAND_BEHAVIOR_SIDE_NAVIGATION);
+        Toolbar.setOnTopSideMenu(true);
+
+        Form form = new Form(new BorderLayout());
+        Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        form.show();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+
+        final int[] sideInvocation = {0};
+        final int[] overflowInvocation = {0};
+        Command side = toolbar.addCommandToSideMenu("Side", null, evt -> sideInvocation[0]++);
+        Command overflow = toolbar.addCommandToOverflowMenu("Overflow", null, evt -> overflowInvocation[0]++);
+
+        toolbar.openSideMenu();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+        awaitAnimations(form);
+
+        Button sideButton = toolbar.findCommandComponent(side);
+        assertNotNull(sideButton, "Side menu should create a button for the command");
+        side.actionPerformed(new ActionEvent(side));
+        flushSerialCalls();
+
+        assertEquals(1, sideInvocation[0], "Side menu command should fire its listener");
+
+        overflow.actionPerformed(new ActionEvent(overflow));
+        flushSerialCalls();
+
+        assertEquals(1, overflowInvocation[0], "Overflow command should be invoked");
+    }
+
+    /// Regression test for issue #4912: after closing the hamburger
+    /// side menu the underlying Form remained "shaded" in the
+    /// simulator and the JS port. The Toolbar.class layered pane
+    /// carries a dim backdrop (bgTransparency over bgColor=0) that
+    /// is painted over the form while the menu is open. The dispose
+    /// onDisposed callback detached the pane and zeroed the tint,
+    /// but did not queue a form-level revalidate; the user's
+    /// confirmed workaround was to call form.revalidateLater() in
+    /// response to the close, and that workaround was promoted into
+    /// detachToolbarLayeredPane.
+    ///
+    /// The dispose animation is disabled via reflection so the
+    /// detach runs synchronously inside closeLeftSideMenu, and the
+    /// assertions check both that the pane is gone AND that the
+    /// form has been added back to the revalidate queue so the
+    /// next paint cycle overdraws any stale shaded pixels.
+    @FormTest
+    void closeLeftSideMenuClearsShadedBackdropAfterAnimation() throws Exception {
+        implementation.setBuiltinSoundsEnabled(false);
+        Toolbar.setOnTopSideMenu(true);
+
+        Form form = Display.getInstance().getCurrent();
+        Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        form.show();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+
+        toolbar.addCommandToSideMenu("Entry", null, evt -> { });
+
+        toolbar.openSideMenu();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+        awaitAnimations(form);
+        assertTrue(toolbar.isSideMenuShowing(), "Side menu should be showing after open");
+
+        Container pane = form.getFormLayeredPane(Toolbar.class, false);
+        int openTransparency = pane.getUnselectedStyle().getBgTransparency() & 0xff;
+        assertTrue(openTransparency > 0,
+                "Backdrop pane should be tinted while menu is open (was " + openTransparency + ")");
+
+        // Disable the dispose animation so closeLeftSideMenu runs the
+        // detach callback synchronously. The bug being tested is not
+        // about animation timing -- it is about whether the form is
+        // re-queued for layout/repaint once the dim pane is gone.
+        java.lang.reflect.Field dialogField = Toolbar.class.getDeclaredField("sidemenuDialog");
+        dialogField.setAccessible(true);
+        Object dialog = dialogField.get(toolbar);
+        java.lang.reflect.Method setAnimateShow = dialog.getClass().getMethod("setAnimateShow", boolean.class);
+        setAnimateShow.invoke(dialog, false);
+
+        // Drain any pending revalidate state so we can detect a fresh
+        // revalidate request triggered specifically by close.
+        flushSerialCalls();
+        boolean revalidatePendingBeforeClose = isFormInRevalidateQueue(form);
+
+        toolbar.closeLeftSideMenu();
+
+        assertNull(pane.getParent(),
+                "Toolbar layered pane should be detached once the synchronous dispose runs");
+        assertEquals(0, pane.getUnselectedStyle().getBgTransparency() & 0xff,
+                "Backdrop tint must be cleared so a stale reference cannot re-shade the form (issue #4912)");
+        assertFalse(toolbar.isSideMenuShowing(),
+                "Side menu should no longer be reported as showing after synchronous close");
+
+        assertTrue(isFormInRevalidateQueue(form) && !revalidatePendingBeforeClose,
+                "closeLeftSideMenu should queue a form revalidateLater after detaching the "
+                        + "shaded backdrop pane (issue #4912 -- without this the form stays "
+                        + "shaded until the user does something that forces a redraw)");
+    }
+
+    private static boolean isFormInRevalidateQueue(Form form) throws Exception {
+        java.lang.reflect.Field f = Form.class.getDeclaredField("pendingRevalidateQueue");
+        f.setAccessible(true);
+        Object queue = f.get(form);
+        if (queue instanceof java.util.Collection) {
+            return ((java.util.Collection<?>) queue).contains(form);
+        }
+        return false;
+    }
+
+    /// A component that counts how many times it is painted, used below to detect the
+    /// form being drawn twice into one paint pass.
+    private static final class PaintCounter extends Component {
+        private int paints;
+
+        @Override
+        public void paint(Graphics g) {
+            paints++;
+        }
+
+        @Override
+        protected Dimension calcPreferredSize() {
+            return new Dimension(120, 40);
+        }
+    }
+
+    /// An animation that stays in progress for a fixed number of steps, so the animation
+    /// queue can be held busy while something else mutates the hierarchy.
+    private static final class BlockingAnimation extends ComponentAnimation {
+        private int remaining;
+
+        BlockingAnimation(int steps) {
+            this.remaining = steps;
+        }
+
+        @Override
+        public boolean isInProgress() {
+            return remaining > 0;
+        }
+
+        @Override
+        protected void updateState() {
+            remaining--;
+        }
+    }
+
+    /// Steps the animation queue the way `Display`'s EDT loop does, through
+    /// `Form.repaintAnimations()`, until `until` is met or the budget runs out.
+    ///
+    /// Deliberately not `AnimationManager.flush()`, which every other side-menu test here
+    /// uses. `flush()` is only reached when a form is deinitialized, and it applies each
+    /// animation directly rather than letting the manager complete it -- so a test that
+    /// drains with it never takes the code path that this one is about.
+    private void stepAnimations(Form form, Callable<Boolean> until, long budgetMs) {
+        long deadline = System.currentTimeMillis() + budgetMs;
+        while (System.currentTimeMillis() < deadline) {
+            form.flushRevalidateQueue();
+            form.repaintAnimations();
+            flushSerialCalls();
+            try {
+                if (Boolean.TRUE.equals(until.call())) {
+                    return;
+                }
+                Thread.sleep(8);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception e) {
+                fail("condition threw: " + e);
+            }
+        }
+    }
+
+    private static int paintsInOnePass(Form form, PaintCounter body) {
+        Image target = Image.createImage(form.getWidth(), form.getHeight());
+        body.paints = 0;
+        form.paintComponent(target.getGraphics(), true);
+        return body.paints;
+    }
+
+    /// Issue #4912 -- the form left "shaded" after the on-top side menu closes -- came
+    /// back, and the guard above did not see it.
+    ///
+    /// That guard disables the dispose animation so `detachToolbarLayeredPane` runs
+    /// synchronously inside `closeLeftSideMenu`, and so does the #4979 guard below it.
+    /// The synchronous path is the one case that never had the bug. On the animated path
+    /// the detach runs from the dispose animation's completion callback, and its
+    /// `cnt.remove()` is therefore a mutation made *while the animation manager is
+    /// running*: if anything else is still queued at that moment, `Container` takes it as
+    /// a deferred removal, whose whole payload lives in `updateState()`. The manager only
+    /// steps the head of the queue while `isInProgress()` is true, and a deferred mutation
+    /// reports false from the moment it is queued -- so it was completed without ever
+    /// being applied and the dim backdrop pane was never taken out of the form.
+    ///
+    /// A pane left behind is visible twice over. It is a black fill at ~31% over the whole
+    /// form, and it keeps the form level layered pane non-empty, which makes that pane
+    /// paint the entire form a second time inside the form's own pass, compositing every
+    /// translucent pixel twice. Both read as a permanently shaded form, on every platform,
+    /// for as long as that form instance lives (issue #5606).
+    @FormTest
+    void closingTheSideMenuWhileAnotherAnimationRunsDetachesTheDimBackdrop() {
+        implementation.setBuiltinSoundsEnabled(false);
+        Toolbar.setOnTopSideMenu(true);
+
+        final Form form = new Form("Shade", new BorderLayout());
+        final Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        PaintCounter body = new PaintCounter();
+        form.add(BorderLayout.CENTER, body);
+        form.show();
+        flushSerialCalls();
+        toolbar.addCommandToSideMenu("Entry", null, evt -> { });
+        form.forceRevalidate();
+        flushSerialCalls();
+
+        assertEquals(1, paintsInOnePass(form, body),
+                "a form with nothing in its form level layered pane paints once per pass");
+
+        toolbar.openSideMenu();
+        stepAnimations(form, () -> !form.getAnimationManager().isAnimating(), 1200);
+        assertTrue(toolbar.isSideMenuShowing(), "Side menu should be showing after open");
+
+        toolbar.closeLeftSideMenu();
+        // Queued behind the dispose animation so the manager is still busy at the moment
+        // the dispose completion detaches the dim pane. Any real animation does this -- a
+        // ripple, an animateLayout, the transition of the form the command navigates to.
+        form.getAnimationManager().addAnimation(new BlockingAnimation(40));
+        stepAnimations(form, () -> !toolbar.isSideMenuShowing()
+                && form.getFormLayeredPaneIfExists() != null
+                && form.getFormLayeredPaneIfExists().getComponentCount() == 0, 2000);
+
+        assertFalse(toolbar.isSideMenuShowing(), "Side menu should be closed");
+        Container flp = form.getFormLayeredPaneIfExists();
+        assertNotNull(flp, "the form level layered pane exists once the side menu has used it");
+        assertEquals(0, flp.getComponentCount(),
+                "the side menu dim backdrop must be off the form once the menu is closed "
+                        + "(issue #4912/#5606 -- a layer left behind shades the form for good)");
+        assertEquals(1, paintsInOnePass(form, body),
+                "the form must still paint once per pass after the side menu is closed "
+                        + "(a second pass composites every translucent pixel twice)");
+    }
+
+    /// Regression test for issue #4979: tapping a command in the
+    /// on-top side menu used to run cmd.actionPerformed synchronously
+    /// right after kicking off the side menu's async dispose
+    /// animation. If the command then showed a modal Dialog (the
+    /// archetype's default `hello()` does exactly this) the Dialog's
+    /// event pump stole the EDT before the dispose animation could
+    /// advance, the detachToolbarLayeredPane onFinish never fired,
+    /// and the dim backdrop stayed visible after the Dialog was
+    /// dismissed.
+    ///
+    /// The fix routes the command-fire through the new
+    /// closeSideMenu(Runnable) onFinish, so the layered pane is
+    /// guaranteed to be detached *before* the command runs. The
+    /// assertion below checks that ordering directly: when the
+    /// command's listener fires, the Toolbar layered pane must
+    /// already be gone.
+    @FormTest
+    void sideMenuCommandFiresAfterLayeredPaneDetach() throws Exception {
+        implementation.setBuiltinSoundsEnabled(false);
+        Toolbar.setOnTopSideMenu(true);
+
+        Form form = Display.getInstance().getCurrent();
+        Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        form.show();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+
+        // Capture the *specific* dim layered-pane instance via this
+        // array so the listener can check that exact reference. We
+        // cannot just call form.getFormLayeredPane(Toolbar.class,
+        // false) inside the listener because that method is
+        // get-or-create — once the original pane is removed it would
+        // hand back a brand new attached Container.
+        final Container[] capturedPane = new Container[1];
+        final boolean[] paneAttachedWhenCommandFired = {true};
+        final int[] invocation = {0};
+        Command hello = toolbar.addCommandToSideMenu("Hello", null, evt -> {
+            Container p = capturedPane[0];
+            paneAttachedWhenCommandFired[0] = p != null && p.getParent() != null;
+            invocation[0]++;
+        });
+
+        toolbar.openSideMenu();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+        awaitAnimations(form);
+        assertTrue(toolbar.isSideMenuShowing(), "Side menu should be showing after open");
+        capturedPane[0] = form.getFormLayeredPane(Toolbar.class, false);
+        assertNotNull(capturedPane[0], "Toolbar layered pane must exist while menu is open");
+        assertNotNull(capturedPane[0].getParent(), "Layered pane must be attached while menu is open");
+
+        // Make the dispose synchronous so we don't depend on the
+        // animation thread inside the test; the bug we are pinning
+        // down is about ordering between the dispose onFinish and the
+        // command-fire, not about the animation duration.
+        disableSideMenuAnimation(toolbar, "sidemenuDialog");
+
+        // Dispatch through the same path the side-menu button click
+        // would take — the CommandWrapper.actionPerformed branch that
+        // does the close-then-fire dance.
+        Button helloButton = toolbar.findCommandComponent(hello);
+        assertNotNull(helloButton, "Side menu command should have a button while menu is open");
+        int px = helloButton.getAbsoluteX() + helloButton.getWidth() / 2;
+        int py = helloButton.getAbsoluteY() + helloButton.getHeight() / 2;
+        helloButton.pointerPressed(px, py);
+        helloButton.pointerReleased(px, py);
+        flushSerialCalls();
+
+        assertEquals(1, invocation[0], "Command listener should have fired exactly once");
+        assertFalse(paneAttachedWhenCommandFired[0],
+                "Issue #4979: command listener must run *after* the Toolbar layered pane "
+                        + "is detached so a modal Dialog opened by the command cannot leave "
+                        + "the dim backdrop visible behind it");
+    }
+
+    /// Regression test for the JavaScript port "ghost side menu +
+    /// previous preview visible as background" bug. closeLeftSideMenu
+    /// used to synchronously detach the Toolbar's FormLayeredPane
+    /// while the sidemenu dialog was still mid-animation, leaving the
+    /// dialog's peer tree orphaned on the JS port. The fix defers the
+    /// layered-pane detach until the dispose animation completes. The
+    /// assertion here is the behaviour shift: immediately after
+    /// closeLeftSideMenu returns (synchronously, before the dispose
+    /// animation can have run to completion), the pane must still be
+    /// attached. The old code detached synchronously.
+    @FormTest
+    void closeLeftSideMenuKeepsLayeredPaneAttachedDuringDispose() {
+        implementation.setBuiltinSoundsEnabled(false);
+        Toolbar.setOnTopSideMenu(true);
+
+        Form form = Display.getInstance().getCurrent();
+        Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        form.show();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+
+        toolbar.addCommandToSideMenu("Entry", null, evt -> { });
+
+        toolbar.openSideMenu();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+        awaitAnimations(form);
+        assertTrue(toolbar.isSideMenuShowing(), "Side menu should be showing after open");
+
+        Container pane = form.getFormLayeredPane(Toolbar.class, false);
+        assertNotNull(pane, "Toolbar layered pane must exist while menu is open");
+        assertNotNull(pane.getParent(), "Layered pane must be attached to the form tree while menu is open");
+
+        toolbar.closeLeftSideMenu();
+
+        // Pane must still be attached — the detach is deferred to the
+        // dispose onFinish so the dialog's peer teardown runs against
+        // a still-attached parent. The old pre-fix code would have
+        // nulled pane.getParent() before returning.
+        assertNotNull(pane.getParent(),
+                "Layered pane should stay attached while the dispose animation runs "
+                        + "(deferred detach regression — see Toolbar.detachToolbarLayeredPane)");
+    }
+
+    private static String hex(int color) {
+        return Integer.toHexString(0x1000000 | color).substring(1);
+    }
+
+    /// Installs the light/dark pair the CSS compiler emits for a
+    /// `@media (prefers-color-scheme: dark)` block: the plain UIID plus a
+    /// `$Dark`-prefixed override that only resolves once dark mode is on.
+    private void installLightAndDarkSideMenuTheme() {
+        java.util.Hashtable props = new java.util.Hashtable();
+        for (String uiid : new String[]{"SideCommand", "RightSideCommand",
+                "SideNavigationPanel", "RightSideNavigationPanel"}) {
+            props.put(uiid + ".fgColor", hex(LIGHT_COLOR));
+            props.put(uiid + ".bgColor", hex(LIGHT_COLOR));
+            props.put("$Dark" + uiid + ".fgColor", hex(DARK_COLOR));
+            props.put("$Dark" + uiid + ".bgColor", hex(DARK_COLOR));
+        }
+        UIManager.getInstance().addThemeProps(props);
+    }
+
+    /// The exact sequence the simulator's Simulate -> Dark Mode item runs
+    /// (`JavaSEPort.applyThemeOnlyRefresh`) and the sequence a CSS live update
+    /// ends with.
+    private void switchToDarkMode(Form form) {
+        Display.getInstance().setDarkMode(Boolean.TRUE);
+        UIManager.getInstance().refreshTheme();
+        form.refreshTheme(true);
+        form.revalidate();
+        flushSerialCalls();
+    }
+
+    /// Issue #5612 - the on-top side menu lives in a detached InteractionDialog
+    /// while it is closed, so a theme switch performed from the form left it
+    /// painted in the old theme.
+    @FormTest
+    void closedOnTopSideMenuFollowsThemeChange() {
+        implementation.setBuiltinSoundsEnabled(false);
+        Toolbar.setOnTopSideMenu(true);
+        installLightAndDarkSideMenuTheme();
+
+        Form form = new Form("t", new BorderLayout());
+        Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        form.show();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+
+        Command cmd = toolbar.addCommandToSideMenu("Item", null, evt -> {
+        });
+        form.revalidate();
+        flushSerialCalls();
+
+        Button b = toolbar.findCommandComponent(cmd);
+        assertNotNull(b, "The side menu command should have a button");
+        assertEquals(LIGHT_COLOR, b.getUnselectedStyle().getFgColor(), "Light theme should apply");
+
+        switchToDarkMode(form);
+
+        assertEquals(DARK_COLOR, b.getUnselectedStyle().getFgColor(),
+                "A closed on-top side menu must pick up the new theme");
+        assertEquals(DARK_COLOR, b.getParent().getUnselectedStyle().getBgColor(),
+                "The side navigation panel must pick up the new theme");
+    }
+
+    /// The right side menu is a second detached dialog with the same problem.
+    @FormTest
+    void closedOnTopRightSideMenuFollowsThemeChange() {
+        implementation.setBuiltinSoundsEnabled(false);
+        Toolbar.setOnTopSideMenu(true);
+        installLightAndDarkSideMenuTheme();
+
+        Form form = new Form("t", new BorderLayout());
+        Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        form.show();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+
+        Command cmd = new Command("Item");
+        toolbar.addCommandToRightSideMenu(cmd);
+        form.revalidate();
+        flushSerialCalls();
+
+        Button b = toolbar.findCommandComponent(cmd);
+        assertNotNull(b, "The right side menu command should have a button");
+        assertEquals(LIGHT_COLOR, b.getUnselectedStyle().getFgColor(), "Light theme should apply");
+
+        switchToDarkMode(form);
+
+        assertEquals(DARK_COLOR, b.getUnselectedStyle().getFgColor(),
+                "A closed on-top right side menu must pick up the new theme");
+    }
+
+    /// An open side menu is inside the form's layered pane, so the form's own
+    /// refresh pass covers it. Guards against the fix refreshing it a second
+    /// time or skipping it entirely.
+    @FormTest
+    void openOnTopSideMenuFollowsThemeChange() {
+        implementation.setBuiltinSoundsEnabled(false);
+        Toolbar.setOnTopSideMenu(true);
+        installLightAndDarkSideMenuTheme();
+
+        Form form = new Form("t", new BorderLayout());
+        Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        form.show();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+
+        Command cmd = toolbar.addCommandToSideMenu("Item", null, evt -> {
+        });
+        form.revalidate();
+        flushSerialCalls();
+
+        toolbar.openSideMenu();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+        assertTrue(toolbar.isSideMenuShowing(), "The side menu should be open");
+
+        Button b = toolbar.findCommandComponent(cmd);
+        assertNotNull(b, "The side menu command should have a button");
+
+        switchToDarkMode(form);
+
+        assertEquals(DARK_COLOR, b.getUnselectedStyle().getFgColor(),
+                "An open on-top side menu must pick up the new theme");
+
+        toolbar.closeSideMenu();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+    }
+
+    /// A form can carry its own UIManager. A closed side menu has no parent, so
+    /// Component.getUIManager falls back to the global singleton for it -- and
+    /// refreshing it against the global theme would reopen it in a theme the
+    /// rest of the form is not using.
+    @FormTest
+    void closedOnTopSideMenuResolvesAgainstTheFormsUIManager() {
+        implementation.setBuiltinSoundsEnabled(false);
+        Toolbar.setOnTopSideMenu(true);
+        installLightAndDarkSideMenuTheme();
+
+        UIManager formManager = UIManager.createInstance();
+        java.util.Hashtable formTheme = new java.util.Hashtable();
+        formTheme.put("SideCommand.fgColor", hex(FORM_MANAGER_COLOR));
+        formTheme.put("SideNavigationPanel.bgColor", hex(FORM_MANAGER_COLOR));
+        formManager.addThemeProps(formTheme);
+
+        Form form = new Form("t", new BorderLayout());
+        form.setUIManager(formManager);
+        Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        form.show();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+
+        Command cmd = toolbar.addCommandToSideMenu("Item", null, evt -> {
+        });
+        form.revalidate();
+        flushSerialCalls();
+
+        Button b = toolbar.findCommandComponent(cmd);
+        assertNotNull(b, "The side menu command should have a button");
+
+        form.refreshTheme(true);
+        flushSerialCalls();
+
+        assertEquals(FORM_MANAGER_COLOR, b.getUnselectedStyle().getFgColor(),
+                "A closed side menu must resolve against the form's UIManager, "
+                        + "not the global one");
+    }
+
+    /// Pinning the form's UIManager onto a closed menu means Container's own
+    /// manager now shadows the parent chain, so once pinned the menu stops
+    /// following the form by itself. Swapping the form's manager while the menu
+    /// is open has to update that pin, or the menu keeps the manager it was
+    /// pinned with and drifts away from the form it belongs to.
+    @FormTest
+    void openOnTopSideMenuFollowsALaterUIManagerSwap() {
+        implementation.setBuiltinSoundsEnabled(false);
+        Toolbar.setOnTopSideMenu(true);
+        installLightAndDarkSideMenuTheme();
+
+        UIManager firstManager = UIManager.createInstance();
+        java.util.Hashtable firstTheme = new java.util.Hashtable();
+        firstTheme.put("SideCommand.fgColor", hex(FORM_MANAGER_COLOR));
+        firstManager.addThemeProps(firstTheme);
+
+        UIManager secondManager = UIManager.createInstance();
+        java.util.Hashtable secondTheme = new java.util.Hashtable();
+        secondTheme.put("SideCommand.fgColor", hex(SWAPPED_MANAGER_COLOR));
+        secondManager.addThemeProps(secondTheme);
+
+        Form form = new Form("t", new BorderLayout());
+        form.setUIManager(firstManager);
+        Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        form.show();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+
+        Command cmd = toolbar.addCommandToSideMenu("Item", null, evt -> {
+        });
+        form.revalidate();
+        flushSerialCalls();
+
+        // Refreshing while the menu is closed is what pins firstManager on it.
+        form.refreshTheme(true);
+        flushSerialCalls();
+
+        Button b = toolbar.findCommandComponent(cmd);
+        assertNotNull(b, "The side menu command should have a button");
+        assertEquals(FORM_MANAGER_COLOR, b.getUnselectedStyle().getFgColor(),
+                "The closed menu should have taken the form's first UIManager");
+
+        toolbar.openSideMenu();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+        assertTrue(toolbar.isSideMenuShowing(), "The side menu should be open");
+
+        form.setUIManager(secondManager);
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+
+        assertEquals(SWAPPED_MANAGER_COLOR, b.getUnselectedStyle().getFgColor(),
+                "Swapping the form's UIManager while the menu is open must reach the menu");
+
+        toolbar.closeSideMenu();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+    }
+
+    /// An app may call the public refreshTheme on the toolbar itself, with no
+    /// form traversal behind it. An open menu is attached to the form at that
+    /// moment, but nothing else is going to refresh it, so the toolbar has to.
+    @FormTest
+    void openOnTopSideMenuFollowsDirectToolbarRefresh() {
+        implementation.setBuiltinSoundsEnabled(false);
+        Toolbar.setOnTopSideMenu(true);
+        installLightAndDarkSideMenuTheme();
+
+        Form form = new Form("t", new BorderLayout());
+        Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        form.show();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+
+        Command cmd = toolbar.addCommandToSideMenu("Item", null, evt -> {
+        });
+        form.revalidate();
+        flushSerialCalls();
+
+        toolbar.openSideMenu();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+        assertTrue(toolbar.isSideMenuShowing(), "The side menu should be open");
+
+        Button b = toolbar.findCommandComponent(cmd);
+        assertNotNull(b, "The side menu command should have a button");
+        assertEquals(LIGHT_COLOR, b.getUnselectedStyle().getFgColor(), "Light theme should apply");
+
+        Display.getInstance().setDarkMode(Boolean.TRUE);
+        UIManager.getInstance().refreshTheme();
+        toolbar.refreshTheme(true);
+        flushSerialCalls();
+
+        assertEquals(DARK_COLOR, b.getUnselectedStyle().getFgColor(),
+                "Refreshing the toolbar directly must reach the open side menu");
+
+        toolbar.closeSideMenu();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+    }
+
+    /// The side menu is refreshed whether or not the form walk already covered
+    /// it, which only works because a merging refresh is idempotent: it keeps
+    /// the modified attributes an app set in code and re-resolves the rest.
+    /// If that ever stops holding, the fix above starts corrupting styles.
+    @FormTest
+    void repeatedMergingRefreshIsIdempotent() {
+        implementation.setBuiltinSoundsEnabled(false);
+        Toolbar.setOnTopSideMenu(true);
+        installLightAndDarkSideMenuTheme();
+
+        Form form = new Form("t", new BorderLayout());
+        Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        form.show();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+
+        Command cmd = toolbar.addCommandToSideMenu("Item", null, evt -> {
+        });
+        form.revalidate();
+        flushSerialCalls();
+
+        Button b = toolbar.findCommandComponent(cmd);
+        assertNotNull(b, "The side menu command should have a button");
+        int inCodePadding = 17;
+        b.getAllStyles().setPadding(inCodePadding, inCodePadding, inCodePadding, inCodePadding);
+
+        Display.getInstance().setDarkMode(Boolean.TRUE);
+        UIManager.getInstance().refreshTheme();
+        form.refreshTheme(true);
+        flushSerialCalls();
+
+        int afterFirst = b.getUnselectedStyle().getFgColor();
+        assertEquals(DARK_COLOR, afterFirst, "The first refresh should apply the dark theme");
+        assertEquals(inCodePadding, b.getUnselectedStyle().getPaddingTop(),
+                "A refresh must keep the padding the app set in code");
+
+        for (int iter = 0; iter < 3; iter++) {
+            form.refreshTheme(true);
+            flushSerialCalls();
+        }
+
+        assertEquals(afterFirst, b.getUnselectedStyle().getFgColor(),
+                "Repeating the refresh must not change the resolved theme value");
+        assertEquals(inCodePadding, b.getUnselectedStyle().getPaddingTop(),
+                "Repeating the refresh must not drop the padding the app set in code");
+    }
+
+    /// The permanent side menu is part of the form, so it was never broken. The
+    /// fix must not double refresh it.
+    @FormTest
+    void permanentSideMenuFollowsThemeChange() {
+        implementation.setBuiltinSoundsEnabled(false);
+        Toolbar.setPermanentSideMenu(true);
+        installLightAndDarkSideMenuTheme();
+
+        Form form = new Form("t", new BorderLayout());
+        Toolbar toolbar = new Toolbar();
+        form.setToolbar(toolbar);
+        form.show();
+        form.getAnimationManager().flush();
+        flushSerialCalls();
+
+        Command cmd = toolbar.addCommandToSideMenu("Item", null, evt -> {
+        });
+        form.revalidate();
+        flushSerialCalls();
+
+        Button b = toolbar.findCommandComponent(cmd);
+        assertNotNull(b, "The side menu command should have a button");
+        assertEquals(LIGHT_COLOR, b.getUnselectedStyle().getFgColor(), "Light theme should apply");
+
+        switchToDarkMode(form);
+
+        assertEquals(DARK_COLOR, b.getUnselectedStyle().getFgColor(),
+                "A permanent side menu must pick up the new theme");
+    }
+}

@@ -1,0 +1,460 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.maven;
+
+
+import java.io.File;
+import java.util.Set;
+import java.util.TreeSet;
+import java.io.IOException;
+
+import org.apache.commons.io.FileUtils;
+import org.apache.maven.artifact.Artifact;
+import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.MojoFailureException;
+import org.apache.maven.plugins.annotations.LifecyclePhase;
+import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.plugins.annotations.ResolutionScope;
+import org.apache.tools.ant.taskdefs.Copy;
+import org.apache.tools.ant.taskdefs.Expand;
+import org.apache.tools.ant.taskdefs.Java;
+import org.apache.tools.ant.types.FileSet;
+
+import static com.codename1.maven.PathUtil.path;
+
+/**
+ * Compiles the project's CSS files, generating a theme.res file which is placed in the build/classes directory.
+ *
+ * **Notes**
+ *
+ * . This mojo is only run for application projects.  Libary projects support CSS but they don't compile them.
+ *   They just package them in a cn1css artifact which will be merged into the CSS for application projects that
+ *   use them.
+ * . The project must have the "codename1.cssTheme" property defined as "true" in either the pom.xml or the
+ *   codenameone_settings.properties.  Otherwise this mojo does nothing.
+ * . The CSS from cn1libs in dependencies is merged with the project CSS (located at src/main/css/theme.css) into
+ *   a build directory at target/css.  This merged file is then compiled to the output file in build/classes/theme.res.
+ *
+ * @author shannah
+ */
+@Mojo(name = "css", defaultPhase = LifecyclePhase.PROCESS_RESOURCES,
+        requiresDependencyResolution = ResolutionScope.COMPILE_PLUS_RUNTIME,
+        requiresDependencyCollection = ResolutionScope.COMPILE_PLUS_RUNTIME)
+public class CompileCSSMojo extends AbstractCN1Mojo {
+
+    /**
+     * Override the default DEBUG log level so the forked CSS compiler's stdout
+     * is visible in normal mvn output. When the CSS subprocess throws (e.g.
+     * StringIndexOutOfBoundsException in CN1CSSCLI), users currently only see
+     * the wrapper "An error occurred while compiling the CSS files" message
+     * with no usable detail unless they re-run with -X.
+     *
+     * Routed through createJava() (not the call site) so subclasses that
+     * override createJava() in tests still get to substitute their recording
+     * Java task without having to know about the log level.
+     */
+    @Override
+    public org.apache.tools.ant.taskdefs.Java createJava() {
+        return createJava(org.apache.maven.doxia.logging.Log.LEVEL_INFO);
+    }
+
+
+    @Override
+    protected void executeImpl() throws MojoExecutionException, MojoFailureException {
+        File cssDirectory = findCSSDirectory();
+        int themeCssLen = "theme.css".length();
+        if (cssDirectory != null && cssDirectory.isDirectory()) {
+            for (File file : cssDirectory.listFiles()) {
+                String fileName = file.getName();
+                if (fileName.endsWith("theme.css")) {
+                    executeImpl(fileName.substring(0, fileName.length() - themeCssLen));
+                }
+            }
+        }
+        warnAboutUnresolvedVectorReferences();
+    }
+
+    /**
+     * Says out loud when the compiled theme is carrying SVG placeholders that
+     * nothing will replace.
+     *
+     * <p>A {@code url(*.svg)} in theme CSS does not become an image at compile
+     * time. The CSS compiler drops a 1x1 transparent PNG under the file's name
+     * and the generated {@code SVGRegistry} swaps the real transcoded image in
+     * at startup. When no registry was generated the placeholder is what the
+     * app gets: a valid, fully transparent, 1x1 image. Every API downstream
+     * behaves normally -- {@code getImage} returns non-null, the label takes an
+     * icon, layout runs -- and the screen comes out blank.</p>
+     *
+     * <p>Ordinarily {@link AbstractCN1Mojo#ensureSvgTranscoderWired} has already
+     * repaired this, so reaching here means the assets are referenced by CSS but
+     * are not present as source files in this module: a name that no longer
+     * matches a file, or SVGs expected from a dependency. Neither is something
+     * to fail a build over, but neither should be silent, which is how it
+     * reached a device as a white screen.</p>
+     */
+    private void warnAboutUnresolvedVectorReferences() throws MojoExecutionException {
+        if (!isCN1ProjectDir() || properties == null) {
+            // AbstractCN1Mojo.execute() only loads properties for a CN1 project,
+            // so outside one this method is the only thing in the goal that
+            // would touch them -- and it turned a goal that quietly did nothing
+            // into a NullPointerException. executeImpl(String) guards itself the
+            // same way; this is the same goal and gets the same answer.
+            return;
+        }
+        if (properties.getProperty("codename1.cssTheme", null) == null) {
+            // executeImpl(String) compiles nothing for this project, so there
+            // is no theme and no placeholder in it. Warning here would send a
+            // developer after a runtime problem that cannot happen.
+            return;
+        }
+        File buildDir = new File(project.getBuild().getDirectory());
+        // Scope: this module's own src/main/css, which is exactly what the
+        // transcoder scans. CSS merged in from a cn1css dependency is
+        // deliberately not included. A library that ships vector assets ships
+        // its own SVGRegistry, under the same fixed name this module's would
+        // use, and nothing here can read a dependency's registrations -- so
+        // widening the scan would report a library's working images as broken
+        // placeholders on a healthy project. A warning that fires on working
+        // builds is worse than the one it would add. Two registries on one
+        // classpath is separately unsupported; see ensureSvgTranscoderWired.
+        SvgTranscodeRunner runner = newSvgTranscodeRunner();
+        Set<String> referenced = runner.cssReferencedVectorNames();
+        if (referenced.isEmpty()) {
+            return;
+        }
+
+        String registry = readGeneratedRegistry();
+        if (registry == null) {
+            if (compiledRegistryExists(buildDir)) {
+                // A registry was produced but its source is not on this
+                // module's source roots, so its contents cannot be read.
+                // Something will replace the placeholders; say nothing.
+                return;
+            }
+            getLog().warn("==========================================================");
+            getLog().warn("theme.css references " + referenced.size() + " SVG/Lottie image(s) but this");
+            getLog().warn("module generated no " + SvgTranscodeRunner.REGISTRY_CLASS_NAME + ", so every one of them");
+            getLog().warn("stays a 1x1 transparent placeholder and renders as nothing.");
+            getLog().warn("Put each file under src/main/css (or src/main/svg) so the");
+            getLog().warn("build-time transcoder can generate it.");
+            getLog().warn("==========================================================");
+            return;
+        }
+
+        Set<String> unresolved = new TreeSet<String>();
+        for (String name : referenced) {
+            if (!registry.contains("\"" + name + "\"")) {
+                unresolved.add(name);
+            }
+        }
+        if (unresolved.isEmpty()) {
+            return;
+        }
+        getLog().warn("==========================================================");
+        getLog().warn("theme.css references " + unresolved.size() + " SVG/Lottie image(s) that the");
+        getLog().warn("build-time transcoder did not generate, so they stay 1x1");
+        getLog().warn("transparent placeholders and render as nothing:");
+        for (String name : unresolved) {
+            getLog().warn("    " + name);
+        }
+        getLog().warn("Put each file under src/main/css (or src/main/svg) so the");
+        getLog().warn("build-time transcoder can generate it.");
+        getLog().warn("==========================================================");
+    }
+
+    /**
+     * The generated registry's source, or null when this module produced none.
+     *
+     * <p>Resolved through the module's compile source roots rather than by
+     * re-scanning the vector source directories. Two reasons, and each was a
+     * way of reporting a healthy project as broken. The transcoder registers
+     * its own output directory as a source root, so this finds that directory
+     * even for a build that configured {@code cn1.svg.outputDir} or
+     * {@code cn1.svg.sourceDirs} to somewhere this mojo would never have
+     * guessed. And the registry <em>source</em> exists as soon as the
+     * transcoder has run, whereas the compiled class does not appear until
+     * {@code compile} -- which the cn1app lifecycle schedules after the
+     * {@code css} goal, so a class-file check necessarily reported a
+     * successful repair as a total failure.</p>
+     *
+     * <p>The registry names every image it installs as a quoted resource
+     * filename, which is what the caller matches against. That is the real
+     * question here: not whether a file sits in some directory, but whether
+     * anything will replace this placeholder at runtime.</p>
+     */
+    private String readGeneratedRegistry() {
+        for (Object root : project.getCompileSourceRoots()) {
+            File candidate = SvgTranscodeRunner.registrySourceFile(
+                    new File(String.valueOf(root)), svgPackage());
+            if (candidate.isFile()) {
+                try {
+                    return FileUtils.readFileToString(candidate, "UTF-8");
+                } catch (IOException ex) {
+                    getLog().debug("Could not read " + candidate + ": " + ex.getMessage());
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean compiledRegistryExists(File buildDir) {
+        return new File(new File(buildDir, "classes"),
+                svgPackage().replace('.', File.separatorChar)
+                        + File.separator + SvgTranscodeRunner.REGISTRY_CLASS_NAME + ".class").isFile();
+    }
+
+    /**
+     * The localization directory is bundled into the same `theme.res` as the CSS rules
+     * (see the `-l` argument passed to `CN1CSSCLI` below). The shared
+     * {@link AbstractCN1Mojo#getCSSSourcesModificationTime} only walks `src/main/css`,
+     * so it would happily treat l10n edits as "no change" and let the up-to-date check
+     * at the top of {@link #executeImpl(String)} skip recompilation, leaving the user's
+     * `.properties` updates trapped in the stale `theme.res` until a `mvn clean` forces
+     * a rebuild. Roll the l10n directory's recursive modtime into the comparison so
+     * touching any `Messages.properties` invalidates the cached output.
+     */
+    protected long getLocalizationModificationTime() {
+        File localizationDir = findLocalizationDirectory();
+        if (localizationDir == null || !localizationDir.exists()) {
+            return 0L;
+        }
+        return lastModifiedRecursive(localizationDir, ALL_FILES_FILTER);
+    }
+
+    /**
+     * Gets the source CSS directory (src/main/css).  The theme.css file should be inside this directory.
+     * @return
+     */
+    protected File findCSSDirectory() {
+        for (String dir : project.getCompileSourceRoots()) {
+            File dirFile = new File(dir);
+            File cssSibling = new File(dirFile.getParentFile(), "css");
+            File themeCss = new File(cssSibling, "theme.css");
+            if (themeCss.exists()) {
+                return cssSibling;
+            }
+
+        }
+        return null;
+    }
+
+    protected File findLocalizationDirectory() {
+        if (project.getCompileSourceRoots() != null) {
+            for (String dir : project.getCompileSourceRoots()) {
+                File dirFile = new File(dir);
+                File parent = dirFile.getParentFile();
+                if (parent == null) {
+                    continue;
+                }
+                File localizationSibling = findLocalizationSibling(parent);
+                if (localizationSibling != null) {
+                    return localizationSibling;
+                }
+            }
+        }
+
+        File cn1ProjectDir = getCN1ProjectDir();
+        if (cn1ProjectDir != null) {
+            File sourceLocalization = findLocalizationSibling(new File(cn1ProjectDir, path("src", "main")));
+            if (sourceLocalization != null) {
+                return sourceLocalization;
+            }
+            File rootLocalization = findLocalizationSibling(cn1ProjectDir);
+            if (rootLocalization != null) {
+                return rootLocalization;
+            }
+        }
+
+        return null;
+    }
+
+    private File findLocalizationSibling(File parent) {
+        if (parent == null) {
+            return null;
+        }
+        File l10n = new File(parent, "l10n");
+        if (hasLocalizationDirectory(l10n)) {
+            return l10n;
+        }
+        File i18n = new File(parent, "i18n");
+        if (hasLocalizationDirectory(i18n)) {
+            return i18n;
+        }
+        return null;
+    }
+
+    /**
+     * Treats an existing l10n directory as a valid localization source.
+     * <p>This intentionally does not require `.properties` files up-front because
+     * the CSS flow can still rely on the directory even when bundles are generated later.</p>
+     */
+    private boolean hasLocalizationDirectory(File directory) {
+        return directory != null && directory.isDirectory();
+    }
+
+    private void executeImpl(String themePrefix) throws MojoExecutionException, MojoFailureException {
+        if (!isCN1ProjectDir()) {
+            return;
+        }
+        if (properties.getProperty("codename1.cssTheme", null) == null) {
+            getLog().info("CSS themes not activated for this project.  Skipping CSS compilation");
+            return;
+        }
+
+        File cssDirectory = findCSSDirectory(); // src/main/css
+        if (cssDirectory == null || !cssDirectory.exists()) {
+            getLog().warn("CSS compilation skipped because no CSS theme was found");
+            return;
+        }
+        File themeResOutput = new File(project.getBuild().getOutputDirectory() + File.separator + themePrefix + "theme.res");
+        // target/css
+        File cssBuildDir = new File(project.getBuild().getDirectory() + File.separator + "css");
+        cssBuildDir.mkdirs();
+
+        // target/css/theme.css - the merged CSS file
+        File mergeFile = new File(cssBuildDir, themePrefix + "theme.css");
+        mergeFile.getParentFile().mkdirs();
+        try {
+            long sourcesModTime = Math.max(getCSSSourcesModificationTime(),
+                    getLocalizationModificationTime());
+            if (themeResOutput.exists() && sourcesModTime < themeResOutput.lastModified()) {
+                getLog().info("CSS sources unchanged since last compile.  Skipping CSS compilation");
+                return;
+            }
+        } catch (IOException ex) {
+            throw new MojoExecutionException("Failed to check CSS file modification times", ex);
+        }
+
+        // Compile a comma-delimited list a CSS files that will be sent to the CSS compiler as inputs.
+        // We look through all dependency artifacts with the cn1css classifier, and add their
+        // theme.css to the input list.  (Codename One Library projects will include such an
+        // artifact if they have CSS files).
+        final StringBuilder inputs = new StringBuilder();
+
+        project.getArtifacts().forEach(artifact->{
+            if (artifact.hasClassifier() && "cn1css".equals(artifact.getClassifier())) {
+                File zip = findArtifactFile(artifact);
+                if (zip == null || !zip.exists()) {
+                    return;
+                }
+
+                File extracted = new File(zip.getParentFile(), zip.getName()+"-extracted");
+                getLog().debug("Checking for extracted CSS bundle "+extracted);
+                if (extracted.exists() && artifact.isSnapshot() && getLastModified(artifact) > extracted.lastModified()) {
+                    try {
+                        FileUtils.deleteDirectory(extracted);
+                    } catch (IOException ex){
+                        getLog().error(ex);
+                    }
+                }
+                if (!extracted.exists()) {
+                    getLog().debug("CSS bundle "+zip+" not extracted yet.  Extracting to "+extracted);
+                    // This is a cn1css artifact, which is a zip file.
+                    // We extract it so that we can access the files directly.
+                    Expand expand = (Expand)antProject.createTask("unzip");
+                    expand.setSrc(zip);
+                    expand.setDest(extracted);
+                    expand.execute();
+
+                }
+                if (extracted.exists()) {
+                    File extractedCssDir = new File(extracted, path("META-INF","codenameone", artifact.getGroupId(), artifact.getArtifactId(), "css"));
+                    if (extractedCssDir.exists()) {
+                        // We expect that the cn1css artifact has a theme.css file at its root
+                        // If found, we add it to the list of inputs.
+                        File theme = new File(extractedCssDir, themePrefix + "theme.css");
+                        if (theme.exists()) {
+                            if (inputs.length() > 0) {
+                                inputs.append(",");
+                            }
+                            inputs.append(theme.getAbsolutePath());
+                        }
+                    }
+
+                } else {
+                    getLog().debug("CSS bundle extraction must have failed for "+zip+" because after extraction it still doesn't exist at "+extracted);
+                }
+            }
+        });
+
+        // The project's theme.css file is added to the input list last so that it will result in it
+        // being last in the merged theme.css file (i.e. the application project CSS can override the
+        // CSS in dependent libraries.
+        File cssTheme = new File(cssDirectory, themePrefix + "theme.css");
+        if (cssTheme.exists()) {
+            if (inputs.length() > 0) {
+                inputs.append(",");
+            }
+            inputs.append(cssTheme.getAbsolutePath());
+        } else {
+            if (themePrefix.isEmpty() && inputs.length() > 0) {
+                throw new MojoFailureException("Cannot compile CSS for this project.  The project does not include a "+themePrefix+"-theme.css file in "+cssTheme+", but it includes dependencies that require CSS.  Please add a CSS file at "+cssTheme);
+
+            }
+            getLog().info("Skipping CSS compilation for because "+themePrefix + cssTheme+" does not exist");
+            return;
+        }
+
+
+
+        // Run the CSS compiler CLI. It lives in com.codenameone:codenameone-css-cli, a thin
+        // module that is a dependency of the codenameone-maven-plugin, so the version is
+        // pinned to the plugin rather than picked up from the designer_1.jar in the user's
+        // home directory. We launch it on a resolved classpath instead of `java -jar`
+        // against the designer's shaded artifact -- the CLI needs codenameone-javase for
+        // CEF rasterization, but nothing needs a 43MB shaded copy of it.
+        // The Java task is created via createJava() (overridden in this class to use INFO log
+        // level) so subprocess output -- including stack traces from CN1CSSCLI failures --
+        // shows up in normal mvn output instead of being hidden at DEBUG.
+        Java java = createJava();
+        java.setDir(getCN1ProjectDir());
+        java.setClasspath(new org.apache.tools.ant.types.Path(antProject, getCssCliClasspath()));
+        java.setClassname(CSS_CLI_MAIN_CLASS);
+        java.setFork(true);
+        java.setFailonerror(true);
+        java.createJvmarg().setValue("-Dcli=true");
+        java.createArg().setValue("-css");
+        java.createArg().setValue("-input");
+        java.createArg().setValue(inputs.toString());
+
+        java.createArg().setValue("-output");
+        java.createArg().setFile(themeResOutput);
+
+        java.createArg().setValue("-merge");
+        java.createArg().setFile(mergeFile);
+        File localizationDir = findLocalizationDirectory();
+        if (localizationDir != null) {
+            java.createArg().setValue("-l");
+            java.createArg().setFile(localizationDir);
+        }
+        int res = java.executeJava();
+        if (res != 0) {
+            throw new MojoExecutionException("An error occurred while compiling the CSS files.  Inputs: "+inputs+", output: " + new File(project.getBuild().getOutputDirectory() + File.separator + themePrefix + "theme.res") +", merge file: "+mergeFile);
+        }
+    }
+    
+    
+    
+    
+}

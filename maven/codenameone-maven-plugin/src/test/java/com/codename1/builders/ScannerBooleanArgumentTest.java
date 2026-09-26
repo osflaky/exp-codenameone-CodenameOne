@@ -1,0 +1,485 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.builders;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Handle;
+import org.objectweb.asm.Label;
+import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * What the class scanner can tell about a boolean argument.
+ *
+ * <p>Real bytecode rather than a hand-driven visitor, because the whole
+ * question is what javac emits and what ASM reports: a setter that
+ * switches a feature off looks exactly like one that switches it on
+ * unless the constant before the call is read, and the build's decision
+ * between "Bluetooth only" and "Health Connect, permissions, privacy
+ * policy, Play review" hangs on the difference.</p>
+ */
+class ScannerBooleanArgumentTest {
+
+    private static final String TARGET =
+            "com/codename1/health/sensors/SensorSessionOptions";
+
+    /** Records what the scanner reported for each call. */
+    private static final class Recorder implements Executor.ClassScanner {
+        private final List<String> calls = new ArrayList<String>();
+
+        @Override
+        public void usesClass(String cls) {
+        }
+
+        @Override
+        public void usesClassMethod(String cls, String method) {
+        }
+
+        @Override
+        public void implementsInterface(String cls, String iface) {
+        }
+
+        @Override
+        public void usesClassMethodWithBooleanArgument(String cls,
+                String method, Boolean value) {
+            if (TARGET.equals(cls)) {
+                calls.add(method + "=" + value);
+            }
+        }
+    }
+
+    /** Executor is abstract; the scan itself needs none of these. */
+    private static final class Scanner extends Executor {
+        @Override
+        public boolean build(File sourceZip, BuildRequest request) {
+            return false;
+        }
+
+        @Override
+        protected String getDeviceIdCode() {
+            return "";
+        }
+
+        @Override
+        protected String generatePeerComponentCreationCode(
+                String methodCallString) {
+            return "";
+        }
+
+        @Override
+        protected String convertPeerComponentToNative(String param) {
+            return "";
+        }
+    }
+
+    /**
+     * Emits a class whose single method makes the calls described by
+     * {@code args}: TRUE and FALSE become literals, null becomes a value
+     * loaded from a parameter, which is what a flag computed at runtime
+     * looks like.
+     */
+    private static void writeCaller(File dir, String name, Boolean... args)
+            throws Exception {
+        ClassWriter w = new ClassWriter(0);
+        w.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, "app/" + name, null,
+                "java/lang/Object", null);
+        MethodVisitor m = w.visitMethod(Opcodes.ACC_PUBLIC
+                | Opcodes.ACC_STATIC, "run", "(Z)V", null, null);
+        m.visitCode();
+        for (Boolean arg : args) {
+            m.visitTypeInsn(Opcodes.NEW, TARGET);
+            if (arg == null) {
+                m.visitVarInsn(Opcodes.ILOAD, 0);
+            } else {
+                m.visitInsn(arg.booleanValue()
+                        ? Opcodes.ICONST_1 : Opcodes.ICONST_0);
+            }
+            m.visitMethodInsn(Opcodes.INVOKEVIRTUAL, TARGET,
+                    "setWriteToStore", "(Z)L" + TARGET + ";", false);
+            m.visitInsn(Opcodes.POP);
+        }
+        m.visitInsn(Opcodes.RETURN);
+        m.visitMaxs(3, 1);
+        m.visitEnd();
+        w.visitEnd();
+
+        File pkg = new File(dir, "app");
+        assertTrue(pkg.isDirectory() || pkg.mkdirs());
+        OutputStream out = new FileOutputStream(new File(pkg, name + ".class"));
+        try {
+            out.write(w.toByteArray());
+        } finally {
+            out.close();
+        }
+    }
+
+    private static List<String> scan(File dir) throws Exception {
+        Recorder r = new Recorder();
+        new Scanner().scanClassesForPermissions(dir, r);
+        return r.calls;
+    }
+
+    @Test
+    void aLiteralArgumentIsReported(@TempDir File dir) throws Exception {
+        writeCaller(dir, "Literals", Boolean.TRUE, Boolean.FALSE);
+        List<String> calls = scan(dir);
+        assertEquals(2, calls.size(), "both calls must be reported: " + calls);
+        assertTrue(calls.contains("setWriteToStore=true"), calls.toString());
+        assertTrue(calls.contains("setWriteToStore=false"), calls.toString());
+    }
+
+    /**
+     * The boolean argument of a method that takes ANOTHER argument after it.
+     *
+     * <p>This is the shape of the API the hook exists for --
+     * {@code Camera.requestPermissions(boolean audio, SuccessCallback cb)}
+     * -- and it was the shape the scanner could not read. Tracking only the
+     * literal pushed IMMEDIATELY before the call meant the callback push
+     * cleared it, every such call reported null, and the consumer's
+     * "unknown counts as asking" fallback handed the microphone to
+     * video-only callers: the argument-aware narrowing was inert for the
+     * only API that has an argument to narrow on.</p>
+     */
+    @Test
+    void aBooleanFollowedByAnotherArgumentIsStillRead(@TempDir File dir)
+            throws Exception {
+        writeTwoArgCaller(dir, "TwoArg", false);
+        assertEquals("[requestPermissions=false]", scan(dir).toString());
+        writeTwoArgCaller(dir, "TwoArgTrue", true);
+        assertTrue(scan(dir).contains("requestPermissions=true"),
+                "the true case must read as true too");
+    }
+
+    /// The lambda form, which is how the API is actually called.
+    ///
+    /// javac compiles requestPermissions(false, event -> ...) as ICONST_0,
+    /// INVOKEDYNAMIC building the lambda, then the call. Clearing the tracked
+    /// values at the invokedynamic threw away the argument, so the narrowing
+    /// stayed inert for the shape everybody writes.
+    @Test
+    void aBooleanSurvivesTheLambdaBuiltAfterIt(@TempDir File dir)
+            throws Exception {
+        writeLambdaCaller(dir, "Lambda", false);
+        assertEquals("[requestPermissions=false]", scan(dir).toString());
+        writeLambdaCaller(dir, "LambdaTrue", true);
+        assertTrue(scan(dir).contains("requestPermissions=true"),
+                "the true case must read as true too");
+    }
+
+    /// The documented {@code requestPermissions(false, null)} form.
+    ///
+    /// javac emits ICONST_0, ACONST_NULL, then the call. ACONST_NULL used to
+    /// fall through to the catch-all that clears every tracked value, so the
+    /// flag was gone by the time the call was visited and the build reported
+    /// unknown -- which the consumer resolves as "asking for audio", giving a
+    /// camera-only app the microphone entitlement and usage description.
+    @Test
+    void aBooleanSurvivesANullArgumentAfterIt(@TempDir File dir)
+            throws Exception {
+        writeNullCallbackCaller(dir, "NullCb", false);
+        assertEquals("[requestPermissions=false]", scan(dir).toString());
+        writeNullCallbackCaller(dir, "NullCbTrue", true);
+        assertTrue(scan(dir).contains("requestPermissions=true"),
+                "the true case must read as true too");
+    }
+
+    /// The anonymous-class form.
+    ///
+    /// javac emits ICONST_0, NEW, DUP, INVOKESPECIAL &lt;init&gt;, then the
+    /// call. DUP cleared the tracked values, and the constructor cleared them
+    /// again, so this shape reported unknown for the same reason and with the
+    /// same cost as the null form.
+    @Test
+    void aBooleanSurvivesAnAnonymousCallbackBuiltAfterIt(@TempDir File dir)
+            throws Exception {
+        writeAnonymousCallbackCaller(dir, "AnonCb", false);
+        assertEquals("[requestPermissions=false]", scan(dir).toString());
+        writeAnonymousCallbackCaller(dir, "AnonCbTrue", true);
+        assertTrue(scan(dir).contains("requestPermissions=true"),
+                "the true case must read as true too");
+    }
+
+    /// {@code requestPermissions(<literal>, null)}.
+    private static void writeNullCallbackCaller(File dir, String name,
+            boolean value) throws Exception {
+        ClassWriter w = new ClassWriter(0);
+        w.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, "app/" + name, null,
+                "java/lang/Object", null);
+        MethodVisitor m = w.visitMethod(Opcodes.ACC_PUBLIC
+                | Opcodes.ACC_STATIC, "run", "()V", null, null);
+        m.visitCode();
+        m.visitInsn(value ? Opcodes.ICONST_1 : Opcodes.ICONST_0);
+        m.visitInsn(Opcodes.ACONST_NULL);
+        m.visitMethodInsn(Opcodes.INVOKESTATIC, TARGET,
+                "requestPermissions", "(ZLjava/lang/Object;)V", false);
+        m.visitInsn(Opcodes.RETURN);
+        m.visitMaxs(2, 0);
+        m.visitEnd();
+        w.visitEnd();
+        writeClass(dir, name, w);
+    }
+
+    /// {@code requestPermissions(<literal>, new Object())}, which is the
+    /// NEW / DUP / INVOKESPECIAL sequence an anonymous callback compiles to.
+    private static void writeAnonymousCallbackCaller(File dir, String name,
+            boolean value) throws Exception {
+        ClassWriter w = new ClassWriter(0);
+        w.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, "app/" + name, null,
+                "java/lang/Object", null);
+        MethodVisitor m = w.visitMethod(Opcodes.ACC_PUBLIC
+                | Opcodes.ACC_STATIC, "run", "()V", null, null);
+        m.visitCode();
+        m.visitInsn(value ? Opcodes.ICONST_1 : Opcodes.ICONST_0);
+        m.visitTypeInsn(Opcodes.NEW, "java/lang/Object");
+        m.visitInsn(Opcodes.DUP);
+        m.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/Object",
+                "<init>", "()V", false);
+        m.visitMethodInsn(Opcodes.INVOKESTATIC, TARGET,
+                "requestPermissions", "(ZLjava/lang/Object;)V", false);
+        m.visitInsn(Opcodes.RETURN);
+        m.visitMaxs(3, 0);
+        m.visitEnd();
+        w.visitEnd();
+        writeClass(dir, name, w);
+    }
+
+    /// Writes one generated class into the scanned tree.
+    private static void writeClass(File dir, String name, ClassWriter w)
+            throws Exception {
+        File pkg = new File(dir, "app");
+        assertTrue(pkg.isDirectory() || pkg.mkdirs());
+        OutputStream out = new FileOutputStream(new File(pkg, name + ".class"));
+        try {
+            out.write(w.toByteArray());
+        } finally {
+            out.close();
+        }
+    }
+
+    /// {@code requestPermissions(<literal>, () -> {})}, lambda and all.
+    private static void writeLambdaCaller(File dir, String name, boolean value)
+            throws Exception {
+        ClassWriter w = new ClassWriter(0);
+        w.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, "app/" + name, null,
+                "java/lang/Object", null);
+        MethodVisitor body = w.visitMethod(Opcodes.ACC_PRIVATE
+                | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
+                "lambda$run$0", "()V", null, null);
+        body.visitCode();
+        body.visitInsn(Opcodes.RETURN);
+        body.visitMaxs(0, 0);
+        body.visitEnd();
+
+        MethodVisitor m = w.visitMethod(Opcodes.ACC_PUBLIC
+                | Opcodes.ACC_STATIC, "run", "()V", null, null);
+        m.visitCode();
+        m.visitInsn(value ? Opcodes.ICONST_1 : Opcodes.ICONST_0);
+        Handle bootstrap = new Handle(Opcodes.H_INVOKESTATIC,
+                "java/lang/invoke/LambdaMetafactory", "metafactory",
+                "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;"
+                + "Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;"
+                + "Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)"
+                + "Ljava/lang/invoke/CallSite;", false);
+        // No captures, so the call site takes nothing and yields the listener.
+        m.visitInvokeDynamicInsn("run", "()Ljava/lang/Runnable;", bootstrap,
+                Type.getType("()V"),
+                new Handle(Opcodes.H_INVOKESTATIC, "app/" + name,
+                        "lambda$run$0", "()V", false),
+                Type.getType("()V"));
+        m.visitMethodInsn(Opcodes.INVOKESTATIC, TARGET,
+                "requestPermissions", "(ZLjava/lang/Runnable;)V", false);
+        m.visitInsn(Opcodes.RETURN);
+        m.visitMaxs(2, 0);
+        m.visitEnd();
+        w.visitEnd();
+
+        File pkg = new File(dir, "app");
+        assertTrue(pkg.isDirectory() || pkg.mkdirs());
+        OutputStream out = new FileOutputStream(new File(pkg, name + ".class"));
+        try {
+            out.write(w.toByteArray());
+        } finally {
+            out.close();
+        }
+    }
+
+    /** {@code requestPermissions(<literal>, someObject)}. */
+    private static void writeTwoArgCaller(File dir, String name, boolean value)
+            throws Exception {
+        ClassWriter w = new ClassWriter(0);
+        w.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, "app/" + name, null,
+                "java/lang/Object", null);
+        MethodVisitor m = w.visitMethod(Opcodes.ACC_PUBLIC
+                | Opcodes.ACC_STATIC, "run", "(Ljava/lang/Object;)V", null, null);
+        m.visitCode();
+        m.visitInsn(value ? Opcodes.ICONST_1 : Opcodes.ICONST_0);
+        m.visitVarInsn(Opcodes.ALOAD, 0);
+        m.visitMethodInsn(Opcodes.INVOKESTATIC, TARGET,
+                "requestPermissions", "(ZLjava/lang/Object;)V", false);
+        m.visitInsn(Opcodes.RETURN);
+        m.visitMaxs(2, 1);
+        m.visitEnd();
+        w.visitEnd();
+
+        File pkg = new File(dir, "app");
+        assertTrue(pkg.isDirectory() || pkg.mkdirs());
+        OutputStream out = new FileOutputStream(new File(pkg, name + ".class"));
+        try {
+            out.write(w.toByteArray());
+        } finally {
+            out.close();
+        }
+    }
+
+    /**
+     * A value that is not a literal reads as unknown, never as false: the
+     * caller treats unknown as the feature being on, and a false here
+     * would silently drop the permissions an app really needs.
+     */
+    @Test
+    void aComputedArgumentIsReportedAsUnknown(@TempDir File dir)
+            throws Exception {
+        writeCaller(dir, "Computed", new Boolean[] {null});
+        assertEquals("[setWriteToStore=null]", scan(dir).toString());
+    }
+
+    /**
+     * A constant that is merely the last thing pushed before a merge point
+     * is not this call's argument.
+     *
+     * <p>This is the shape javac emits for
+     * {@code setWriteToStore(flag ? true : false)}: the false arm is laid
+     * out last, so {@code ICONST_0} is the instruction physically before
+     * the call with only a label between them. Read as the argument, an
+     * app that enables write-through on one path would be built without
+     * the health stack.</p>
+     */
+    @Test
+    void aConstantReachingTheCallThroughABranchIsNotRead(@TempDir File dir)
+            throws Exception {
+        ClassWriter w = new ClassWriter(0);
+        w.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, "app/Branchy", null,
+                "java/lang/Object", null);
+        MethodVisitor m = w.visitMethod(Opcodes.ACC_PUBLIC
+                | Opcodes.ACC_STATIC, "run", "(Z)V", null, null);
+        m.visitCode();
+        m.visitTypeInsn(Opcodes.NEW, TARGET);
+        m.visitVarInsn(Opcodes.ILOAD, 0);
+        Label otherwise = new Label();
+        Label join = new Label();
+        m.visitJumpInsn(Opcodes.IFEQ, otherwise);
+        m.visitInsn(Opcodes.ICONST_1);
+        m.visitJumpInsn(Opcodes.GOTO, join);
+        m.visitLabel(otherwise);
+        m.visitInsn(Opcodes.ICONST_0);
+        m.visitLabel(join);
+        m.visitMethodInsn(Opcodes.INVOKEVIRTUAL, TARGET,
+                "setWriteToStore", "(Z)L" + TARGET + ";", false);
+        m.visitInsn(Opcodes.POP);
+        m.visitInsn(Opcodes.RETURN);
+        m.visitMaxs(3, 1);
+        m.visitEnd();
+        w.visitEnd();
+
+        File pkg = new File(dir, "app");
+        assertTrue(pkg.isDirectory() || pkg.mkdirs());
+        OutputStream out = new FileOutputStream(
+                new File(pkg, "Branchy.class"));
+        try {
+            out.write(w.toByteArray());
+        } finally {
+            out.close();
+        }
+
+        assertEquals("[setWriteToStore=null]", scan(dir).toString(),
+                "a constant that reaches the call through a branch must"
+                        + " not be read as the argument");
+    }
+
+    /**
+     * A method reference is reported too, as an unknown argument.
+     *
+     * <p>{@code options::setWriteToStore} supplies its argument wherever
+     * the reference is later called, which this instruction cannot see.
+     * Reporting nothing was worse than reporting unknown: a consumer that
+     * decides on the argument never heard about the call at all, and the
+     * app was built with no health stack for a setter it does enable.</p>
+     */
+    @Test
+    void aMethodReferenceIsReportedWithAnUnknownArgument(@TempDir File dir)
+            throws Exception {
+        ClassWriter w = new ClassWriter(0);
+        w.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, "app/Ref", null,
+                "java/lang/Object", null);
+        MethodVisitor m = w.visitMethod(Opcodes.ACC_PUBLIC
+                | Opcodes.ACC_STATIC, "run", "(L" + TARGET + ";)V", null,
+                null);
+        m.visitCode();
+        m.visitVarInsn(Opcodes.ALOAD, 0);
+        Handle metafactory = new Handle(Opcodes.H_INVOKESTATIC,
+                "java/lang/invoke/LambdaMetafactory", "metafactory",
+                "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;"
+                        + "Ljava/lang/invoke/MethodType;"
+                        + "Ljava/lang/invoke/MethodType;"
+                        + "Ljava/lang/invoke/MethodHandle;"
+                        + "Ljava/lang/invoke/MethodType;)"
+                        + "Ljava/lang/invoke/CallSite;", false);
+        Handle target = new Handle(Opcodes.H_INVOKEVIRTUAL, TARGET,
+                "setWriteToStore", "(Z)L" + TARGET + ";", false);
+        m.visitInvokeDynamicInsn("accept",
+                "(L" + TARGET + ";)Ljava/lang/Object;", metafactory,
+                Type.getType("(Ljava/lang/Object;)Ljava/lang/Object;"),
+                target,
+                Type.getType("(Ljava/lang/Object;)Ljava/lang/Object;"));
+        m.visitInsn(Opcodes.POP);
+        m.visitInsn(Opcodes.RETURN);
+        m.visitMaxs(3, 1);
+        m.visitEnd();
+        w.visitEnd();
+
+        File pkg = new File(dir, "app");
+        assertTrue(pkg.isDirectory() || pkg.mkdirs());
+        OutputStream out = new FileOutputStream(new File(pkg, "Ref.class"));
+        try {
+            out.write(w.toByteArray());
+        } finally {
+            out.close();
+        }
+
+        assertEquals("[setWriteToStore=null]", scan(dir).toString(),
+                "a method reference must reach the argument-aware"
+                        + " callback, or the call is invisible to it");
+    }
+}

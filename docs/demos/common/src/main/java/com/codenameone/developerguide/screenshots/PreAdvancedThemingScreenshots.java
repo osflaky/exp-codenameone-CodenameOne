@@ -1,0 +1,451 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codenameone.developerguide.screenshots;
+
+import com.codename1.components.SpanLabel;
+import com.codenameone.developerguide.snippets.generated.BasicsJava034Snippet;
+import com.codename1.ui.Button;
+import com.codename1.ui.Component;
+import com.codename1.ui.Container;
+import com.codename1.ui.Display;
+import com.codename1.ui.CN;
+import com.codename1.ui.FontImage;
+import com.codename1.ui.Font;
+import com.codename1.ui.Form;
+import com.codename1.ui.Graphics;
+import com.codename1.ui.Image;
+import com.codename1.ui.Label;
+import com.codename1.ui.TextArea;
+import com.codename1.ui.TextField;
+import com.codename1.ui.layouts.BorderLayout;
+import com.codename1.ui.layouts.BoxLayout;
+import com.codename1.ui.layouts.FlowLayout;
+import com.codename1.ui.layouts.GridBagConstraints;
+import com.codename1.ui.layouts.GridBagLayout;
+import com.codename1.ui.layouts.GridLayout;
+import com.codename1.ui.layouts.LayeredLayout;
+import com.codename1.ui.layouts.mig.MigLayout;
+import com.codename1.ui.plaf.Border;
+import com.codename1.ui.plaf.Style;
+import com.codename1.ui.table.TableLayout;
+import com.codename1.ui.util.ImageIO;
+
+import java.io.IOException;
+import java.io.OutputStream;
+
+/**
+ * Generates the app screenshots used before the Advanced Theming chapter.
+ */
+public final class PreAdvancedThemingScreenshots {
+    /// 409 wide, which is what FigureDevice.ANDROID renders at, so a layout
+    /// diagram sits beside a screenshot of a real component at the same
+    /// scale. These were 320x480, the HVGA size a simulator defaulted to in
+    /// 2009, and narrower than any phone the guide describes.
+    ///
+    /// The 2:3 shape is kept rather than the phone's 1:2.25. Rendered at the
+    /// phone's full height these become mostly white: a flow layout puts five
+    /// small blocks at the top and leaves the rest empty, which is a worse
+    /// picture of the layout than the small one was. What they draw is
+    /// unchanged either way -- these are schematic diagrams of where a layout
+    /// manager puts things, labelled blocks on white, and a real theme would
+    /// bury that under component chrome.
+    private static final int PORTRAIT_WIDTH = 409;
+    private static final int PORTRAIT_HEIGHT = 613;
+    private static final int LANDSCAPE_WIDTH = 613;
+    private static final int LANDSCAPE_HEIGHT = 409;
+    private static final int BLUE = 0x0b57d0;
+    private static final int GREEN = 0x06a806;
+    private static final int WHITE = 0xffffff;
+    private static final Font TITLE_FONT = screenshotFont(35);
+    private static final Font BLOCK_FONT = screenshotFont(24);
+    /// Sized to match the height the theme's own default font had (13px), so
+    /// pinning the face on components the block styling does not touch keeps
+    /// their layout exactly where it was.
+    private static final Font FIELD_FONT = screenshotFont(11);
+
+    /// Loads a figure font from the port's bundled Roboto rather than from the host.
+    ///
+    /// `Font.createSystemFont` resolves through `JavaSEPort.fontFaceSystem`, which is
+    /// "Arial" on macOS and Linux alike. Arial exists on a developer's Mac and not on a
+    /// stock CI runner, so AWT silently substitutes a different face and every glyph in
+    /// every figure changes -- which is why none of these screenshots could be
+    /// regenerated outside CI and byte-compared against what was committed. The
+    /// `native:` scheme reads `/com/codename1/impl/javase/Roboto-*.ttf` off the
+    /// classpath, so the result does not depend on what the machine happens to have
+    /// installed. It is also what this project's font rule requires everywhere.
+    private static Font screenshotFont(int pixelSize) {
+        Font font = Font.createTrueTypeFont("native:MainRegular", "native:MainRegular");
+        if (font == null) {
+            // Falling back to a host font would quietly restore the very
+            // non-determinism this exists to remove, so refuse instead.
+            throw new IllegalStateException(
+                    "the native font scheme is unavailable, so figures would render with a host font");
+        }
+        return font.derive(pixelSize, Font.STYLE_PLAIN);
+    }
+
+    private PreAdvancedThemingScreenshots() {
+    }
+
+    public interface ScreenshotSink {
+        OutputStream open(String fileName) throws IOException;
+    }
+
+    public static void generate(ScreenshotSink sink) throws IOException {
+        // JavaSEPort.loadTrueTypeFont has an earlier branch for native: fonts:
+        // when isIOS is set -- which loadSkinFile does for any skin whose
+        // systemFontFamily contains "helvetica" -- it resolves to the first
+        // INSTALLED SF or Helvetica family and never reaches the bundled Roboto.
+        // This generator never loads a skin, so that branch is not taken, and the
+        // measurement agrees: figures rendered on a Mac match the Linux runner
+        // byte for byte, which could not happen if one side were using Helvetica
+        // Neue. Guard it anyway, because a future change that loads a skin here
+        // would put the host's fonts back into the output without any other
+        // symptom.
+        String platform = Display.getInstance().getPlatformName();
+        if ("ios".equals(platform)) {
+            throw new IllegalStateException(
+                    "an iOS skin is active, so native: fonts would resolve to installed "
+                    + "system faces instead of the bundled ones and these figures would "
+                    + "stop being reproducible off this machine");
+        }
+
+        // MigLayout picks its default gaps from PlatformDefaults, which reads
+        // System.getProperty("os.name") and returns MAC_OSX, GNOME or WINDOWS_XP.
+        // The gaps differ per platform, so mig-layout.png came out with macOS
+        // spacing on a Mac and GNOME spacing on the Linux runner -- a 12.8% pixel
+        // difference that has nothing to do with fonts. Pin it so the figure shows
+        // the same thing wherever it is generated.
+        com.codename1.ui.layouts.mig.PlatformDefaults.setPlatform(
+                com.codename1.ui.layouts.mig.PlatformDefaults.GNOME);
+        write(sink, "flow-layout.png", flow("Flow Layout", Component.LEFT, Component.TOP), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+        write(sink, "flow-layout-center.png", flow("Flow Layout", Component.CENTER, Component.TOP), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+        write(sink, "flow-layout-right.png", flow("Flow Layout", Component.RIGHT, Component.TOP), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+        write(sink, "flow-layout-center-middle.png", flow("Flow Layout", Component.CENTER, Component.CENTER), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+        write(sink, "box-layout-y.png", boxY(), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+        write(sink, "box-layout-x.png", boxX(true), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+        write(sink, "box-layout-x-no-grow.png", boxX(false), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+        write(sink, "border-layout.png", border(false, false), LANDSCAPE_WIDTH, LANDSCAPE_HEIGHT);
+        write(sink, "border-layout-center.png", border(true, false), LANDSCAPE_WIDTH, LANDSCAPE_HEIGHT);
+        write(sink, "border-layout-RTL.png", border(false, true), LANDSCAPE_WIDTH, LANDSCAPE_HEIGHT);
+        write(sink, "grid-layout-2x2.png", grid(2, 2, "Grid 2x2 Layout"), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+        write(sink, "grid-layout-2x4.png", grid(2, 4, "Grid 2x4 Layout"), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+        write(sink, "grid-layout-autofit-portrait.png", gridAutofit("Grid Layout AutoFit"), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+        write(sink, "grid-layout-autofit-landscape.png", gridAutofit("Grid Layout AutoFit"), LANDSCAPE_WIDTH, LANDSCAPE_HEIGHT);
+        write(sink, "table-layout-2x2.png", table2x2(), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+        write(sink, "table-layout-enclose.png", tableEnclose(), LANDSCAPE_WIDTH, LANDSCAPE_HEIGHT);
+        write(sink, "table-layout-constraints.png", tableConstraints(), LANDSCAPE_WIDTH, LANDSCAPE_HEIGHT);
+        write(sink, "layered-layout.png", layeredCloseButton(), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+        write(sink, "guibuilder-2-insets-1.png", insetsLowerRight(), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+        write(sink, "guibuilder-2-insets-2.png", insetsCenterLeft(), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+        write(sink, "guibuilder-2-insets-3.png", insetsReference(), LANDSCAPE_WIDTH, LANDSCAPE_HEIGHT);
+        write(sink, "gridbag-layout.png", gridBag(), LANDSCAPE_WIDTH, LANDSCAPE_HEIGHT);
+        write(sink, "group-layout.png", groupLayout(), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+        write(sink, "mig-layout.png", migLayout(), PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
+    }
+
+    private static Form flow(String title, int align, int valign) {
+        Form hi = new Form(title, new FlowLayout(align, valign));
+        addDemoLabels(hi);
+        return hi;
+    }
+
+    private static Form boxY() {
+        Form hi = new Form("Box Y Layout", BoxLayout.y());
+        addDemoLabels(hi);
+        return hi;
+    }
+
+    private static Form boxX(boolean grow) {
+        int axis = grow ? BoxLayout.X_AXIS : BoxLayout.X_AXIS_NO_GROW;
+        Form hi = new Form(grow ? "Box X Layout" : "Box X No Grow", new BoxLayout(axis));
+        addDemoLabels(hi);
+        return hi;
+    }
+
+    private static Form border(boolean centerBehavior, boolean rtl) {
+        Form hi = new Form("Border Layout", new BorderLayout());
+        if (centerBehavior) {
+            ((BorderLayout) hi.getLayout()).setCenterBehavior(BorderLayout.CENTER_BEHAVIOR_CENTER);
+        }
+        hi.add(BorderLayout.CENTER, demoLabel("Center"))
+                .add(BorderLayout.SOUTH, demoLabel("South"))
+                .add(BorderLayout.NORTH, demoLabel("North"))
+                .add(BorderLayout.EAST, demoLabel(rtl ? "West" : "East"))
+                .add(BorderLayout.WEST, demoLabel(rtl ? "East" : "West"));
+        return hi;
+    }
+
+    private static Form grid(int rows, int columns, String title) {
+        Form hi = new Form(title, new GridLayout(rows, columns));
+        addDemoLabels(hi);
+        return hi;
+    }
+
+    private static Form gridAutofit(String title) {
+        Form hi = new Form(title, GridLayout.autoFit());
+        addDemoLabels(hi);
+        return hi;
+    }
+
+    private static Form table2x2() {
+        Form hi = new Form("Table Layout 2x2", new TableLayout(2, 2));
+        addDemoLabels(hi);
+        return hi;
+    }
+
+    private static Form tableEnclose() {
+        Form hi = new Form("TableLayout Enclose 2", new BorderLayout());
+        Container table = TableLayout.encloseIn(2,
+                demoLabel("First"),
+                demoLabel("Second"),
+                demoLabel("Third"),
+                demoLabel("Fourth"),
+                demoLabel("Fifth"));
+        hi.add(BorderLayout.CENTER, table);
+        return hi;
+    }
+
+    private static Form tableConstraints() {
+        TableLayout layout = new TableLayout(4, 3);
+        layout.setGrowHorizontally(true);
+        Form hi = new Form("Table Layout", layout);
+
+        TableLayout.Constraint title = layout.createConstraint();
+        title.setHorizontalSpan(3);
+        title.setHorizontalAlign(Component.CENTER);
+        hi.add(title, demoLabel("Invoice"));
+
+        hi.add(demoLabel("Item"));
+        hi.add(demoLabel("Qty"));
+        hi.add(demoLabel("Total"));
+        hi.add(demoLabel("Design"));
+        hi.add(demoLabel("2"));
+        hi.add(demoLabel("$120"));
+
+        TableLayout.Constraint notes = layout.createConstraint();
+        notes.setHorizontalSpan(2);
+        notes.setHeightPercentage(40);
+        hi.add(notes, demoSpanLabel("Notes span two columns"));
+        hi.add(demoButton("Pay"));
+        return hi;
+    }
+
+    private static Form layeredCloseButton() {
+        Form hi = new Form("Layered Layout");
+        Label settingsLabel = demoLabel("Settings");
+        settingsLabel.setIcon(FontImage.createMaterial(FontImage.MATERIAL_SETTINGS, settingsLabel.getUnselectedStyle()));
+        Button close = new Button("X");
+        close.setUIID("Container");
+        close.getAllStyles().setFgColor(0xd32f2f);
+        close.getAllStyles().setAlignment(Component.CENTER);
+        hi.add(LayeredLayout.encloseIn(settingsLabel, FlowLayout.encloseRight(close)));
+        return hi;
+    }
+
+    private static Form insetsLowerRight() {
+        Form f = new Form("Layered Insets", new BorderLayout());
+        Container cnt = new Container(new LayeredLayout());
+        cnt.add(demoButton("Submit"));
+        ((LayeredLayout) cnt.getLayout()).setInsets(cnt.getComponentAt(0), "auto 0 0 auto");
+        f.add(BorderLayout.CENTER, cnt);
+        return f;
+    }
+
+    private static Form insetsCenterLeft() {
+        Form f = new Form("Layered Insets", new BorderLayout());
+        Container cnt = new Container(new LayeredLayout());
+        cnt.add(demoButton("Submit"));
+        ((LayeredLayout) cnt.getLayout()).setInsets(cnt.getComponentAt(0), "auto auto auto 5mm");
+        f.add(BorderLayout.CENTER, cnt);
+        return f;
+    }
+
+    private static Form insetsReference() {
+        Form f = new Form("Layered References", new BorderLayout());
+        Container cnt = new Container(new LayeredLayout());
+        LayeredLayout ll = (LayeredLayout) cnt.getLayout();
+        Button btn = demoButton("Submit");
+        TextField tf = new TextField();
+        tf.setHint("Name");
+        cnt.add(tf).add(btn);
+        ll.setInsets(tf, "auto")
+                .setInsets(btn, "auto auto auto 0")
+                .setReferenceComponentLeft(btn, tf, 1f);
+        f.add(BorderLayout.CENTER, cnt);
+        return f;
+    }
+
+    private static Form gridBag() {
+        Form hi = new Form("GridBagLayout", new BorderLayout());
+        Container grid = new Container(new GridBagLayout());
+        GridBagConstraints c = new GridBagConstraints();
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 0.5;
+        c.gridx = 0;
+        c.gridy = 0;
+        grid.addComponent(c, demoButton("Button 1"));
+        c.gridx = 1;
+        grid.addComponent(c, demoButton("Button 2"));
+        c.gridx = 2;
+        grid.addComponent(c, demoButton("Button 3"));
+
+        c.gridx = 0;
+        c.gridy = 1;
+        c.gridwidth = 3;
+        grid.addComponent(c, demoButton("Long-Named Button 4"));
+
+        c.ipady = 40;
+        c.weighty = 1.0;
+        c.gridx = 1;
+        c.gridy = 2;
+        c.gridwidth = 2;
+        grid.addComponent(c, demoButton("5"));
+        hi.add(BorderLayout.CENTER, grid);
+        return hi;
+    }
+
+    private static Form groupLayout() {
+        return BasicsJava034Snippet.createForm();
+    }
+
+    private static Form migLayout() {
+        Form hi = new Form("MigLayout", new MigLayout("wrap 3", "[grow][grow][grow]", ""));
+        hi.add(demoLabel("First"));
+        hi.add("span 1 2,grow", demoLabel("Second"));
+        hi.add(demoLabel("Third"));
+        hi.add(demoLabel("Fourth"));
+        hi.add(demoLabel("Fifth"));
+        hi.add(demoLabel("Sixth"));
+        hi.add("span 2", demoLabel("Seventh"));
+        return hi;
+    }
+
+    private static void addDemoLabels(Container container) {
+        container.add(demoLabel("First"))
+                .add(demoLabel("Second"))
+                .add(demoLabel("Third"))
+                .add(demoLabel("Fourth"))
+                .add(demoLabel("Fifth"));
+    }
+
+    private static Label demoLabel(String text) {
+        Label label = new Label(text);
+        styleBlock(label);
+        return label;
+    }
+
+    private static SpanLabel demoSpanLabel(String text) {
+        SpanLabel label = new SpanLabel(text);
+        styleBlock(label);
+        return label;
+    }
+
+    private static Button demoButton(String text) {
+        Button button = new Button(text);
+        styleBlock(button);
+        return button;
+    }
+
+    private static void styleBlock(Component component) {
+        Style style = component.getAllStyles();
+        style.setBgTransparency(255);
+        style.setBgColor(GREEN);
+        style.setFgColor(WHITE);
+        style.setAlignment(Component.CENTER);
+        style.setFont(BLOCK_FONT);
+        style.setPaddingUnit(Style.UNIT_TYPE_DIPS);
+        style.setPadding(1, 1, 2, 2);
+        style.setMarginUnit(Style.UNIT_TYPE_PIXELS);
+        style.setMargin(1, 1, 1, 1);
+        style.setBorder(Border.createLineBorder(1, WHITE));
+    }
+
+    private static void prepare(Form form, int width, int height) {
+        CN.setWindowSize(width, height);
+        applyScreenshotStyle(form);
+        form.setScrollable(false);
+        form.show();
+        form.setWidth(width);
+        form.setHeight(height);
+        form.getContentPane().setWidth(width);
+        form.getContentPane().setHeight(Math.max(0, height - form.getTitleArea().getHeight()));
+        form.revalidate();
+    }
+
+    private static void applyScreenshotStyle(Form form) {
+        Style titleArea = form.getTitleArea().getAllStyles();
+        titleArea.setBgTransparency(255);
+        titleArea.setBgColor(BLUE);
+        titleArea.setPaddingUnit(Style.UNIT_TYPE_PIXELS);
+        titleArea.setPadding(0, 0, 0, 0);
+
+        Style title = form.getTitleStyle();
+        title.setFgColor(WHITE);
+        title.setBgTransparency(0);
+        title.setFont(TITLE_FONT);
+        title.setPaddingUnit(Style.UNIT_TYPE_PIXELS);
+        title.setPadding(4, 5, 0, 0);
+
+        applyBlockStyleToContent(form.getContentPane());
+    }
+
+    private static void applyBlockStyleToContent(Container container) {
+        for (int i = 0; i < container.getComponentCount(); i++) {
+            Component component = container.getComponentAt(i);
+            // Pin the font on EVERY component rather than on the types that also
+            // get block colours. Anything left on the theme's default font
+            // resolves through the host, and that is what made
+            // guibuilder-2-insets-3.png -- the only figure containing a
+            // TextField -- differ between a Mac and CI while the other 23
+            // matched byte for byte. Enumerating the types that carry text
+            // would leave the next one to be added broken in the same way.
+            component.getAllStyles().setFont(FIELD_FONT);
+            if (component instanceof TextArea) {
+                // The hint is painted by a Label that is not in the component
+                // tree, so the walk above never reaches it.
+                Label hint = ((TextArea) component).getHintLabel();
+                if (hint != null) {
+                    hint.getAllStyles().setFont(FIELD_FONT);
+                }
+            }
+            if (component instanceof Label || component instanceof Button) {
+                styleBlock(component);
+            }
+            if (component instanceof Container) {
+                applyBlockStyleToContent((Container) component);
+            }
+        }
+    }
+
+    private static void write(ScreenshotSink sink, String fileName, Form form, int width, int height) throws IOException {
+        prepare(form, width, height);
+        Image screenshot = Image.createImage(width, height, 0xffffff);
+        Graphics graphics = screenshot.getGraphics();
+        form.paintComponent(graphics, true);
+        try (OutputStream out = sink.open(fileName)) {
+            ImageIO.getImageIO().save(screenshot, out, ImageIO.FORMAT_PNG, 1);
+        }
+    }
+
+}

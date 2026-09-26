@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    
+    <parent>
+        <groupId>com.codenameone</groupId>
+        <artifactId>codenameone</artifactId>
+        <version>8.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.codenameone</groupId>
+    <artifactId>codenameone-core</artifactId>
+    <version>8.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <name>codenameone-core</name>
+    
+    <dependencies>
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>codenameone-factory</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+    <properties>
+        <java.version>1.5</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>1.5</maven.compiler.source>
+        <maven.compiler.target>1.5</maven.compiler.target>
+        <src.dir>../../CodenameOne/src</src.dir>
+       
+    </properties>
+    <build>
+        <sourceDirectory>${src.dir}</sourceDirectory>
+		<resources>
+		      <resource>
+                  <directory>${src.dir}</directory>
+                  <excludes>
+                      <exclude>**/*.java</exclude>
+                  </excludes>
+		      </resource>
+		    </resources>
+
+        <plugins>
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+
+                <configuration>
+                    <source>${maven.compiler.source}</source>
+                    <target>${maven.compiler.target}</target>
+                </configuration>
+            </plugin>
+        </plugins>
+
+    </build>
+    <profiles>
+        <profile>
+            <id>modern-jdk</id>
+            <activation>
+                <jdk>[9,)</jdk>
+            </activation>
+            <properties>
+                <maven.compiler.source>1.8</maven.compiler.source>
+                <maven.compiler.target>1.8</maven.compiler.target>
+            </properties>
+        </profile>
+        <!--
+            Opt-in Error Prone pass over CodenameOne/src. Run via
+            `mvn -Perrorprone install` on JDK 11+. Currently enforces
+            BanClassForName (see maven/errorprone-checks). Kept opt-in
+            because the framework's primary build runs on JDK 8 where
+            Error Prone cannot load.
+            -->
+        <profile>
+            <id>errorprone</id>
+            <properties>
+                <errorprone.version>2.27.1</errorprone.version>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <configuration>
+                            <source>1.8</source>
+                            <target>1.8</target>
+                            <encoding>UTF-8</encoding>
+                            <showWarnings>true</showWarnings>
+                            <!--
+                                Fork the compiler so the -J flags below
+                                reach a fresh javac JVM. Without forking,
+                                javac runs in the Maven process and the
+                                module exports never apply, leaving
+                                Error Prone's BaseErrorProneJavaCompiler
+                                unable to access jdk.compiler internals.
+                            -->
+                            <fork>true</fork>
+                            <compilerArgs combine.children="append">
+                                <arg>-XDcompilePolicy=simple</arg>
+                                <!--
+                                    -XepDisableAllChecks turns off Error
+                                    Prone's built-in rules so only the
+                                    checks we explicitly enable run. The
+                                    framework targets Java 1.5/1.8 idioms
+                                    and many built-in checks would fire on
+                                    legacy code we have no intention of
+                                    rewriting today.
+                                -->
+                                <arg>-Xplugin:ErrorProne -XepDisableAllChecks -Xep:BanClassForName:ERROR</arg>
+                                <!-- JDK 16+ closes javac internals; Error
+                                     Prone needs these to introspect the
+                                     AST. The -J prefix routes each flag to
+                                     the forked javac JVM. -->
+                                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED</arg>
+                                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED</arg>
+                                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED</arg>
+                                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED</arg>
+                                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED</arg>
+                                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED</arg>
+                                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED</arg>
+                                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED</arg>
+                                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED</arg>
+                                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED</arg>
+                                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED</arg>
+                            </compilerArgs>
+                            <annotationProcessorPaths>
+                                <path>
+                                    <groupId>com.google.errorprone</groupId>
+                                    <artifactId>error_prone_core</artifactId>
+                                    <version>${errorprone.version}</version>
+                                </path>
+                                <path>
+                                    <groupId>com.codenameone</groupId>
+                                    <artifactId>errorprone-checks</artifactId>
+                                    <version>${project.version}</version>
+                                </path>
+                            </annotationProcessorPaths>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+    
+</project>

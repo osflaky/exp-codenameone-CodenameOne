@@ -1,0 +1,598 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.components;
+
+import com.codename1.ui.Component;
+import com.codename1.ui.Dialog;
+import com.codename1.ui.CN;
+import com.codename1.ui.Display;
+import com.codename1.ui.FontImage;
+import com.codename1.ui.Form;
+import com.codename1.ui.Graphics;
+import com.codename1.ui.Image;
+import com.codename1.ui.Stroke;
+import com.codename1.ui.animations.CommonTransitions;
+import com.codename1.ui.animations.Motion;
+import com.codename1.ui.geom.Dimension;
+import com.codename1.ui.geom.GeneralPath;
+import com.codename1.ui.Container;
+import com.codename1.ui.layouts.BorderLayout;
+import com.codename1.ui.plaf.Style;
+import com.codename1.ui.plaf.UIManager;
+import com.codename1.ui.util.WeakHashMap;
+import com.codename1.ui.TopLevelContainer;
+
+/// Shows a "Washing Machine" infinite progress indication animation, to customize the image you can either
+/// use the infiniteImage theme constant or the `setAnimation` method. The image is rotated
+/// automatically so don't use an animated image or anything like that as it would fail with the rotation logic.
+///
+/// This class can be used in one of two ways either by embedding the component into the UI thru something
+/// like this:
+///
+/// ```java
+/// myContainer.add(new InfiniteProgress());
+/// ```
+///
+/// Notice that this can be used within a custom dialog too.
+///
+/// A second approach allows showing the infinite progress over the entire screen which blocks all input. This tints
+/// the background while the infinite progress rotates:
+///
+/// ```java
+/// Dialog ip = new InfiniteProgress().showInifiniteBlocking();
+///
+/// // do some long operation here using invokeAndBlock or do something in a separate thread and callback later
+/// // when you are done just call
+///
+/// ip.dispose();
+/// ```
+///
+/// @author Shai Almog
+public class InfiniteProgress extends Component {
+    /// Indicates whether infinite progress and pull to refresh work in the material
+    /// design mode by default
+    private static boolean defaultMaterialDesignMode;
+
+    /// The default color of the current material design progress spinner
+    private static int defaultMaterialDesignColor = 0x6200ee;
+    private final WeakHashMap<Integer, Image> cache = new WeakHashMap<Integer, Image>();
+    private Image animation;
+    private int angle = 0;
+    private int tick;
+    private int tintColor = 0x90000000;
+    /// Indicates whether this instance of infinite progress works in the material
+    /// design mode by default
+    private boolean materialDesignMode = defaultMaterialDesignMode;
+    /// The color of the current material design progress spinner
+    private int materialDesignColor = defaultMaterialDesignColor;
+    private Motion materialLengthAngle;
+    private boolean materialLengthDirection;
+    /// The animation rotates with EDT ticks, but not for every tick. To slow down the animation increase this
+    /// number and to speed it up reduce it to 1. It can't be 0 or lower.
+    private int tickCount = 3;
+    /// The angle to increase (in degrees naturally) in every tick count, reduce to 1 to make the animation perfectly
+    /// slow and smooth, increase to 45 to make it fast and jumpy. Its probably best to use a number that divides well
+    /// with 360 but that isn't a requirement. Valid numbers are anything between 1 and 359.
+    private int angleIncrease = 16;
+
+    /// Default constructor to define the UIID
+    public InfiniteProgress() {
+        setUIIDFinal("InfiniteProgress");
+    }
+
+    /// Indicates whether infinite progress and pull to refresh work in the material
+    /// design mode by default
+    ///
+    /// #### Returns
+    ///
+    /// the defaultMaterialDesignMode
+    public static boolean isDefaultMaterialDesignMode() {
+        return defaultMaterialDesignMode;
+    }
+
+    /// Indicates whether infinite progress and pull to refresh work in the material
+    /// design mode by default
+    ///
+    /// #### Parameters
+    ///
+    /// - `aDefaultMaterialDesignMode`: the defaultMaterialDesignMode to set
+    public static void setDefaultMaterialDesignMode(
+            boolean aDefaultMaterialDesignMode) {
+        defaultMaterialDesignMode = aDefaultMaterialDesignMode;
+    }
+
+    /// The default color of the current material design progress spinner
+    ///
+    /// #### Returns
+    ///
+    /// the defaultMaterialDesignColor
+    public static int getDefaultMaterialDesignColor() {
+        return defaultMaterialDesignColor;
+    }
+
+    /// The default color of the current material design progress spinner
+    ///
+    /// #### Parameters
+    ///
+    /// - `aDefaultMaterialDesignColor`: the defaultMaterialDesignColor to set
+    public static void setDefaultMaterialDesignColor(
+            int aDefaultMaterialDesignColor) {
+        defaultMaterialDesignColor = aDefaultMaterialDesignColor;
+    }
+
+    /// Shows the infinite progress over the whole screen, the blocking can be competed by calling `dispose()`
+    /// on the returned `Dialog`.
+    /// ```java
+    /// Dialog ip = new InfiniteProgress().showInifiniteBlocking();
+    ///
+    /// // do some long operation here using invokeAndBlock or do something in a separate thread and callback later
+    /// // when you are done just call
+    ///
+    /// ip.dispose();
+    /// ```
+    ///
+    /// #### Returns
+    ///
+    /// the dialog created for the blocking effect, disposing it will return to the previous form and remove the input block.
+    ///
+    /// #### Deprecated
+    ///
+    /// typo in method name please use `#showInfiniteBlocking()` instead
+    public Dialog showInifiniteBlocking() {
+        return showInfiniteBlocking();
+    }
+
+    /// Shows the infinite progress over the whole screen, the blocking can be competed by calling `dispose()`
+    /// on the returned `Dialog`.
+    /// ```java
+    /// Dialog ip = new InfiniteProgress().showInifiniteBlocking();
+    ///
+    /// // do some long operation here using invokeAndBlock or do something in a separate thread and callback later
+    /// // when you are done just call
+    ///
+    /// ip.dispose();
+    /// ```
+    ///
+    /// #### Returns
+    ///
+    /// the dialog created for the blocking effect, disposing it will return to the previous form and remove the input block.
+    public Dialog showInfiniteBlocking() {
+        // The top level the user is in, not the current form: on the desktop those
+        // differ, and the spinner was dimming the main window while the user waited in
+        // another one.
+        TopLevelContainer f = CN.getCurrentTopLevel();
+        if (f == null) {
+            Form nf = new Form();
+            nf.show();
+            f = nf;
+        }
+        Container hostCnt = f.asContainer();
+        // The original marker still decides it on a form: a nested spinner there sees
+        // the *first* spinner's own dialog as the current surface, and that dialog
+        // carries the marker. A hosted dialog never becomes the current top level, so
+        // on a window the marker could not be found however many spinners were up, and
+        // each new one re-tinted the window over the first one's choice.
+        Dialog d = new Dialog();
+        // Never a window of its own, whatever the application asked for globally. This
+        // one is shown modeless and does its blocking with the scrim the hosted path
+        // installs -- as a modeless operating system window it would install nothing,
+        // leave the surface behind it fully interactive, and let the user start the
+        // operation again while it span. Making it a modal window instead is not the
+        // answer either: the caller is handed this dialog and disposes it later, which
+        // a modal show would never let it reach.
+        d.setNativeWindowMode(false);
+        d.putClientProperty("isInfiniteProgress", true);
+        d.setTintColor(0x0);
+        d.setDialogUIID("Container");
+        d.setLayout(new BorderLayout());
+        d.addComponent(BorderLayout.CENTER, this);
+        // Claimed only once the spinner is actually in the dialog. addComponent throws
+        // if this spinner is already parented -- showInfiniteBlocking() called twice
+        // over, before the first dialog was disposed -- and the claim is given back when
+        // the spinner leaves a hierarchy, so one taken before it ever entered would
+        // never be given back: the host would keep a depth above zero for good and
+        // every later spinner on it would skip its tint.
+        boolean alreadyTinted = hostCnt.getClientProperty("isInfiniteProgress") != null;
+        Integer held = (Integer) hostCnt.getClientProperty(PROGRESS_DEPTH);
+        int depth = held == null ? 0 : held.intValue();
+        if (!alreadyTinted && depth == 0) {
+            f.setTintColor(tintColor);
+        }
+        hostCnt.putClientProperty(PROGRESS_DEPTH, Integer.valueOf(depth + 1));
+        // Released when this spinner leaves the hierarchy, which is what disposing the
+        // dialog does to it. Held per spinner rather than per host: each one is in
+        // exactly one dialog, so each releases exactly the count it took.
+        progressHost = hostCnt;
+        d.setTransitionInAnimator(CommonTransitions.createEmpty());
+        d.setTransitionOutAnimator(CommonTransitions.createEmpty());
+        d.setTopLevelHost(f);
+        d.showPacked(BorderLayout.CENTER, false);
+        if (!isInitialized()) {
+            // The show was refused rather than performed -- showModal returns at once
+            // while the application is minimized, and the dialog is never installed. The
+            // claim above is given back when this spinner leaves the hierarchy, and one
+            // that never entered it never leaves, so the count stayed up for good and
+            // every later spinner on this surface skipped its tint.
+            releaseProgressHost();
+        }
+        return d;
+    }
+
+    /// How many blocking spinners are up on a given surface.
+    private static final String PROGRESS_DEPTH = "cn1$infiniteProgressDepth";
+
+    /// The surface this spinner counted itself against, until it releases it.
+    private Container progressHost;
+
+    /// Gives back this spinner's claim on its host, once.
+    private void releaseProgressHost() {
+        Container h = progressHost;
+        if (h == null) {
+            return;
+        }
+        progressHost = null;
+        Integer held = (Integer) h.getClientProperty(PROGRESS_DEPTH);
+        int depth = held == null ? 0 : held.intValue() - 1;
+        h.putClientProperty(PROGRESS_DEPTH, depth <= 0 ? null : Integer.valueOf(depth));
+    }
+
+    /// True when this spinner's own top level is the one on screen.
+    ///
+    /// A `Window` is on screen in its own right, so comparing it against
+    /// `Display#getCurrent()` -- which only ever names a `Form` -- reported false for
+    /// every spinner in a window and stopped it animating and painting.
+    ///
+    /// #### Returns
+    ///
+    /// true when the surface holding this component is displayed
+    private boolean isOnDisplayedTopLevel() {
+        TopLevelContainer top = getTopLevelContainer();
+        return top != null && top.isTopLevelShowing();
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected void initComponent() {
+        super.initComponent();
+        if (animation == null) {
+            animation = UIManager.getInstance().getThemeImageConstant("infiniteImage");
+        }
+        registerForAnimation();
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected void deinitialize() {
+        releaseProgressHost();
+        // The fallback to the current form existed because deinitialize can run after
+        // the component has left its hierarchy. It threw outright in a window-only
+        // application, where there is no current form either -- and that threw during
+        // Window.dispose(), before the native peer and paint surface were released.
+        TopLevelContainer top = getTopLevelContainer();
+        if (top != null) {
+            top.deregisterAnimated(this);
+        } else {
+            Form current = Display.getInstance().getCurrent();
+            if (current != null) {
+                current.deregisterAnimated(this);
+            }
+        }
+        super.deinitialize();
+    }
+
+    /// Updates the progress animation.  This only updates if the InfiniteProgress is on the
+    /// currently displayed form and is visible.  If you need to update the progress animation
+    /// in another context, use `#animate(boolean)`.
+    ///
+    /// #### Returns
+    ///
+    /// true if it animated and should be repainted.
+    @Override
+    public boolean animate() {
+        return animate(false);
+    }
+
+    /// Updates the progress animation.
+    ///
+    /// #### Parameters
+    ///
+    /// - `force`: @param force If false, then the animation is only updated if the progress is visible and on
+    /// the current form.  True will force the update.
+    ///
+    /// #### Returns
+    ///
+    /// True if it animated and should be repainted.
+    ///
+    public boolean animate(boolean force) {
+        if (!force && (!isVisible() || !isOnDisplayedTopLevel())) { // PMD Fix: CollapsibleIfStatements merged visibility checks
+            return false;
+        }
+        // reduce repaint thrushing of the UI from the infinite progress
+        boolean val = super.animate() || tick % tickCount == 0;
+        tick++;
+        if (val) {
+            angle += angleIncrease;
+        }
+        return val;
+    }
+
+    private int getMaterialDesignSize() {
+        float dipCount = Float.parseFloat(getUIManager().
+                getThemeConstant("infiniteMaterialDesignSize", "6.667f"));
+
+        return Display.getInstance().convertToPixels(dipCount);
+    }
+
+    private int getMaterialImageSize() {
+        float dipCount = Float.parseFloat(getUIManager().
+                getThemeConstant("infiniteMaterialImageSize", "7"));
+
+        return Display.getInstance().convertToPixels(dipCount);
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected Dimension calcPreferredSize() {
+        if (materialDesignMode) {
+            int size = getMaterialDesignSize();
+            return new Dimension(getStyle().getHorizontalPadding() + size,
+                    getStyle().getVerticalPadding() + size);
+        }
+        if (animation == null) {
+            animation = UIManager.getInstance().getThemeImageConstant("infiniteImage");
+            if (animation == null) {
+                int size = getMaterialImageSize();
+                String f = getUIManager().getThemeConstant("infiniteDefaultColor", null);
+                int color = 0x777777;
+                if (f != null) {
+                    color = Integer.parseInt(f, 16);
+                }
+                FontImage fi = FontImage.createFixed("" + FontImage.MATERIAL_AUTORENEW,
+                        FontImage.getMaterialDesignFont(),
+                        color, size, size, 0);
+
+                animation = fi.toImage();
+            }
+        }
+        if (animation == null) {
+            return new Dimension(100, 100);
+        }
+        Style s = getStyle();
+        return new Dimension(s.getHorizontalPadding() + animation.getWidth(),
+                s.getVerticalPadding() + animation.getHeight());
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void paint(Graphics g) {
+        if (getTopLevelContainer() != null && !isOnDisplayedTopLevel()) {
+            return;
+        }
+        super.paint(g);
+        if (materialDesignMode) {
+            int size = getMaterialDesignSize();
+            int strokeWidth = Display.getInstance().convertToPixels(0.635f);
+            int oldColor = g.getColor();
+            g.setColor(materialDesignColor);
+            int oldAlpha = g.setAndGetAlpha(255);
+
+            Style s = getStyle();
+            GeneralPath gp = new GeneralPath();
+            if (materialLengthAngle == null || materialLengthAngle.isFinished()) {
+                materialLengthAngle = Motion.createEaseInOutMotion(
+                        10, 300, 1000);
+                materialLengthAngle.start();
+                materialLengthDirection = !materialLengthDirection;
+            }
+            int angleLength = materialLengthAngle.getValue();
+            double dr;
+            if (!materialLengthDirection) {
+                angleLength = 300 - angleLength;
+                dr = Math.toRadians((angle - angleLength) % 360);
+            } else {
+                dr = Math.toRadians(angle % 360);
+            }
+            double x = getX() + s.getPaddingLeft(isRTL());
+            double y = getY() + s.getPaddingTop();
+            //System.out.println("Arc x: " + x + " y: " + y + " width/height: " + size + " angle: " + angle + " endAngle: " + (angle % 180 + 45));
+            gp.arc(x, y, size, size, dr, Math.toRadians(angleLength));
+            Stroke st = new Stroke(strokeWidth, Stroke.CAP_ROUND, Stroke.JOIN_MITER, 1);
+            g.setAntiAliased(true);
+            g.drawShape(gp, st);
+            g.setColor(oldColor);
+            g.setAlpha(oldAlpha);
+            return;
+        }
+        if (animation == null) {
+            return;
+        }
+        int v = angle % 360;
+        Style s = getStyle();
+        /*if(g.isAffineSupported()) {
+            g.rotate(((float)v) / 57.2957795f, getAbsoluteX() + s.getPadding(LEFT) + getWidth() / 2, getAbsoluteY() + s.getPadding(TOP) + getHeight() / 2);
+            g.drawImage(getAnimation(), getX() + s.getPadding(LEFT), getY() + s.getPadding(TOP));
+            g.resetAffine();
+        } else {*/
+
+        Image rotated;
+        if (animation instanceof FontImage) {
+            rotated = animation.rotate(v);
+        } else {
+            Integer angle = Integer.valueOf(v); // PMD Fix: PrimitiveWrapperInstantiation avoid constructor
+            rotated = cache.get(angle);
+            if (rotated == null) {
+                rotated = animation.rotate(v);
+                cache.put(angle, rotated);
+            }
+        }
+        g.drawImage(rotated, getX() + s.getPaddingLeftNoRTL(), getY() + s.getPaddingTop());
+        //}
+    }
+
+    /// #### Returns
+    ///
+    /// the animation
+    public Image getAnimation() {
+        return animation;
+    }
+
+    /// Allows setting the image that will be rotated as part of this effect
+    ///
+    /// #### Parameters
+    ///
+    /// - `animation`: the animation to set
+    public void setAnimation(Image animation) {
+        this.animation = animation;
+        cache.clear();
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String[] getPropertyNames() {
+        return new String[]{"animation"};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Class[] getPropertyTypes() {
+        return new Class[]{Image.class};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Object getPropertyValue(String name) {
+        if ("animation".equals(name)) {
+            return animation;
+        }
+        return null;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String setPropertyValue(String name, Object value) {
+        if ("animation".equals(name)) {
+            this.animation = (Image) value;
+            cache.clear();
+            return null;
+        }
+        return super.setPropertyValue(name, value);
+    }
+
+    /// The tinting color of the screen when the showInfiniteBlocking method is invoked
+    ///
+    /// #### Returns
+    ///
+    /// the tintColor
+    public int getTintColor() {
+        return tintColor;
+    }
+
+    /// The tinting color of the screen when the showInfiniteBlocking method is invoked
+    ///
+    /// #### Parameters
+    ///
+    /// - `tintColor`: the tintColor to set
+    public void setTintColor(int tintColor) {
+        this.tintColor = tintColor;
+    }
+
+    /// The animation rotates with EDT ticks, but not for every tick. To slow down the animation increase this
+    /// number and to speed it up reduce it to 1. It can't be 0 or lower.
+    ///
+    /// #### Returns
+    ///
+    /// the tickCount
+    public int getTickCount() {
+        return tickCount;
+    }
+
+    /// The animation rotates with EDT ticks, but not for every tick. To slow down the animation increase this
+    /// number and to speed it up reduce it to 1. It can't be 0 or lower.
+    ///
+    /// #### Parameters
+    ///
+    /// - `tickCount`: the tickCount to set
+    public void setTickCount(int tickCount) {
+        this.tickCount = tickCount;
+    }
+
+    /// The angle to increase (in degrees naturally) in every tick count, reduce to 1 to make the animation perfectly
+    /// slow and smooth, increase to 45 to make it fast and jumpy. Its probably best to use a number that divides well
+    /// with 360 but that isn't a requirement. Valid numbers are anything between 1 and 359.
+    ///
+    /// #### Returns
+    ///
+    /// the angleIncrease
+    public int getAngleIncrease() {
+        return angleIncrease;
+    }
+
+    /// The angle to increase (in degrees naturally) in every tick count, reduce to 1 to make the animation perfectly
+    /// slow and smooth, increase to 45 to make it fast and jumpy. Its probably best to use a number that divides well
+    /// with 360 but that isn't a requirement. Valid numbers are anything between 1 and 359.
+    ///
+    /// #### Parameters
+    ///
+    /// - `angleIncrease`: the angleIncrease to set
+    public void setAngleIncrease(int angleIncrease) {
+        this.angleIncrease = angleIncrease;
+    }
+
+    /// Indicates whether this instance of infinite progress works in the material
+    /// design mode by default
+    ///
+    /// #### Returns
+    ///
+    /// the materialDesignMode
+    public boolean isMaterialDesignMode() {
+        return materialDesignMode;
+    }
+
+    /// Indicates whether this instance of infinite progress works in the material
+    /// design mode by default
+    ///
+    /// #### Parameters
+    ///
+    /// - `materialDesignMode`: the materialDesignMode to set
+    public void setMaterialDesignMode(boolean materialDesignMode) {
+        this.materialDesignMode = materialDesignMode;
+    }
+
+    /// The color of the current material design progress spinner
+    ///
+    /// #### Returns
+    ///
+    /// the materialDesignColor
+    public int getMaterialDesignColor() {
+        return materialDesignColor;
+    }
+
+    /// The color of the current material design progress spinner
+    ///
+    /// #### Parameters
+    ///
+    /// - `materialDesignColor`: the materialDesignColor to set
+    public void setMaterialDesignColor(int materialDesignColor) {
+        this.materialDesignColor = materialDesignColor;
+    }
+}

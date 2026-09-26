@@ -1,0 +1,572 @@
+/*
+ * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores
+ * CA 94065 USA or visit www.oracle.com if you need additional information or
+ * have any questions.
+ */
+package com.codename1.components;
+
+import com.codename1.ui.Button;
+import com.codename1.ui.Component;
+import com.codename1.ui.Container;
+import com.codename1.ui.Dialog;
+import com.codename1.ui.Display;
+import com.codename1.ui.FontImage;
+import com.codename1.ui.Form;
+import com.codename1.ui.TopLevelContainer;
+import com.codename1.ui.animations.CommonTransitions;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.geom.Dimension;
+import com.codename1.ui.layouts.BorderLayout;
+import com.codename1.ui.layouts.BoxLayout;
+import com.codename1.ui.layouts.FlowLayout;
+import com.codename1.ui.layouts.LayeredLayout;
+import com.codename1.ui.plaf.RoundBorder;
+import com.codename1.ui.plaf.Style;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/// Floating action buttons are a material design element used to promote a special action in a Form.
+/// They are represented as a floating circle with a flat icon floating above the UI typically in the bottom right
+/// area.
+///
+/// Simple use cases include just the button as a standalone:
+///
+/// ```java
+/// FloatingActionButton fab = FloatingActionButton.createFAB(FontImage.MATERIAL_ADD);
+/// fab.addActionListener(e -> ToastBar.showErrorMessage("Not implemented yet..."));
+/// fab.bindFabToContainer(hi.getContentPane());
+/// ```
+///
+/// The button can also nest sub actions
+///
+/// ```java
+/// FloatingActionButton fab = FloatingActionButton.createFAB(FontImage.MATERIAL_ADD);
+/// fab.createSubFAB(FontImage.MATERIAL_PEOPLE, "");
+/// fab.createSubFAB(FontImage.MATERIAL_IMPORT_CONTACTS, "");
+/// fab.bindFabToContainer(hi.getContentPane());
+/// ```
+///
+/// @author Chen
+public class FloatingActionButton extends Button {
+
+    /// The FloatingActionButton tries to size/pad itself automatically but
+    /// this means that manual padding is ignored. Setting this to false
+    /// disables that behavior
+    private static boolean autoSizing = true;
+    /// The default icon size for the fab
+    private static float fabDefaultSize = 3.8f;
+    private List<FloatingActionButton> subMenu;
+    /// The UIID of the sub action texts can be overriden. It defaults to `FloatingActionText`
+    private String floatingActionTextUIID = "FloatingActionText";
+    private String text;
+    private int shadowOpacity = 100;
+    private Dialog current;
+    private boolean rectangle;
+    private boolean isBadge;
+    private float sizeMm = fabDefaultSize;
+
+    /// Constructor
+    ///
+    /// #### Parameters
+    ///
+    /// - `icon`: one of the FontImage.MATERIAL_* constants
+    ///
+    /// - `text`: the text of the sub FloatingActionButton
+    ///
+    /// - `size`: the size in millimeters
+    protected FloatingActionButton(char icon, String text, float size) {
+        this(icon, text, "FloatingActionButton", size);
+    }
+
+    /// Constructor
+    ///
+    /// #### Parameters
+    ///
+    /// - `icon`: one of the FontImage.MATERIAL_* constants
+    ///
+    /// - `text`: the text of the sub FloatingActionButton
+    ///
+    /// - `uiid`: the uiid of the FAB
+    ///
+    /// - `size`: the size in millimeters
+    protected FloatingActionButton(char icon, String text, String uiid, float size) {
+        FontImage image = FontImage.createMaterial(icon, uiid, size);
+        setGap(0);
+        image.setBgTransparency(0);
+        sizeMm = size;
+        setIcon(image);
+        setText("");
+        this.text = text;
+        setUIIDFinal(uiid);
+        Style all = getAllStyles();
+        all.setAlignment(CENTER);
+        updateBorder();
+    }
+
+    /// This constructor is used by text badges
+    private FloatingActionButton(String text) {
+        super.setText(text);
+        rectangle = true;
+        shadowOpacity = 0;
+        setUIIDFinal("Badge");
+        updateBorder();
+        isBadge = true;
+    }
+
+    /// The default icon size for the fab icon in millimeters
+    ///
+    /// #### Returns
+    ///
+    /// the fabDefaultSize
+    public static float getIconDefaultSize() {
+        return fabDefaultSize;
+    }
+
+    /// The default icon size for the fab icon in millimeters
+    ///
+    /// #### Parameters
+    ///
+    /// - `aFabDefaultSize`: the fabDefaultSize to set
+    public static void setIconDefaultSize(float aFabDefaultSize) {
+        fabDefaultSize = aFabDefaultSize;
+    }
+
+    /// The FloatingActionButton tries to size/pad itself automatically but
+    /// this means that manual padding is ignored. Setting this to false
+    /// disables that behavior
+    ///
+    /// #### Returns
+    ///
+    /// the autoSizing
+    public static boolean isAutoSizing() {
+        return autoSizing;
+    }
+
+    /// The FloatingActionButton tries to size/pad itself automatically but
+    /// this means that manual padding is ignored. Setting this to false
+    /// disables that behavior
+    ///
+    /// #### Parameters
+    ///
+    /// - `aAutoSizing`: the autoSizing to set
+    public static void setAutoSizing(boolean aAutoSizing) {
+        autoSizing = aAutoSizing;
+    }
+
+    /// Creates a text badge
+    ///
+    /// #### Parameters
+    ///
+    /// - `text`: the text of the badge
+    ///
+    /// #### Returns
+    ///
+    /// a badge component
+    public static FloatingActionButton createBadge(String text) {
+        return new FloatingActionButton(text);
+    }
+
+    /// a factory method to create a FloatingActionButton.
+    ///
+    /// #### Parameters
+    ///
+    /// - `icon`: one of the FontImage.MATERIAL_* constants
+    ///
+    /// #### Returns
+    ///
+    /// a FloatingActionButton instance
+    public static FloatingActionButton createFAB(char icon) {
+        return new FloatingActionButton(icon, null, fabDefaultSize);
+    }
+
+    /// a factory method to create a FloatingActionButton.
+    ///
+    /// #### Parameters
+    ///
+    /// - `icon`: one of the FontImage.MATERIAL_* constants
+    ///
+    /// - `uiid`: the uiid for the fab
+    ///
+    /// #### Returns
+    ///
+    /// a FloatingActionButton instance
+    public static FloatingActionButton createFAB(char icon, String uiid) {
+        return new FloatingActionButton(icon, null, uiid, fabDefaultSize);
+    }
+
+    /// Overriden to update the icon
+    /// {@inheritDoc}
+    @Override
+    public void setUIID(String id) {
+        super.setUIID(id);
+        FontImage i = (FontImage) getIcon();
+        if (i != null) {
+            Style all = getAllStyles();
+            all.setAlignment(CENTER);
+            updateBorder();
+            FontImage image = FontImage.createMaterial(i.getText().charAt(0), id, sizeMm);
+            image.setBgTransparency(0);
+            setIcon(image);
+        }
+    }
+
+    private void updateBorder() {
+        // Material 3 made the FAB a rounded SQUARE (squircle). A theme that sets
+        // fabCornerRadiusMM gets a RoundRectBorder of that corner radius (with the
+        // component's own bg colour filling it) instead of the legacy full circle.
+        String cr = getUIManager().getThemeConstant("fabCornerRadiusMM", null);
+        if (cr != null) {
+            try {
+                float mm = Float.parseFloat(cr.trim());
+                getUnselectedStyle().setBorder(com.codename1.ui.plaf.RoundRectBorder.create()
+                        .cornerRadius(mm).shadowOpacity(shadowOpacity));
+                getSelectedStyle().setBorder(com.codename1.ui.plaf.RoundRectBorder.create()
+                        .cornerRadius(mm).shadowOpacity(shadowOpacity));
+                getPressedStyle().setBorder(com.codename1.ui.plaf.RoundRectBorder.create()
+                        .cornerRadius(mm).shadowOpacity(shadowOpacity));
+                return;
+            } catch (NumberFormatException ignore) {
+                // malformed constant -> fall through to the legacy circular FAB
+            }
+        }
+        getUnselectedStyle().setBorder(RoundBorder.create().
+                color(getUnselectedStyle().getBgColor()).
+                shadowOpacity(shadowOpacity).rectangle(rectangle));
+        getSelectedStyle().setBorder(RoundBorder.create().
+                color(getSelectedStyle().getBgColor()).
+                shadowOpacity(shadowOpacity).rectangle(rectangle));
+        getPressedStyle().setBorder(RoundBorder.create().
+                color(getPressedStyle().getBgColor()).
+                shadowOpacity(shadowOpacity).rectangle(rectangle));
+    }
+
+    /// We override this method to track style changes to the background color and map them to the border
+    ///
+    /// {@inheritDoc}
+    @Override
+    public void styleChanged(String propertyName, Style source) {
+        if (Style.BG_COLOR.equals(propertyName)) {
+            updateBorder();
+        }
+        if (getIcon() instanceof FontImage && Style.FG_COLOR.equals(propertyName)) {
+            FontImage i = (FontImage) getIcon();
+            FontImage image = FontImage.createMaterial(i.getText().charAt(0), "FloatingActionButton", sizeMm);
+            image.setBgTransparency(0);
+            setIcon(image);
+        }
+    }
+
+    /// Adds a sub FAB to the FloatingActionButton instance. Once pressed all its
+    /// sub FAB's are displayed.
+    ///
+    /// #### Parameters
+    ///
+    /// - `icon`: one of the FontImage.MATERIAL_* constants
+    ///
+    /// - `text`: the text of the sub FloatingActionButton
+    ///
+    /// #### Returns
+    ///
+    /// a FloatingActionButton instance for the sub FAB added
+    public FloatingActionButton createSubFAB(char icon, String text) {
+        FloatingActionButton sub = new FloatingActionButton(icon, text, 2.8f);
+        if (subMenu == null) {
+            subMenu = new ArrayList<FloatingActionButton>();
+        }
+        subMenu.add(sub);
+        return sub;
+    }
+
+    @Override
+    protected Dimension calcPreferredSize() {
+        if (autoSizing && getIcon() != null) {
+            // Material 3's standard FAB is a fixed 56dp square (24dp icon). A theme
+            // can pin that exact diameter via fabDiameterMM, which is more faithful
+            // than the legacy icon*11/4 (=2.75x) heuristic that yields ~71dp. Falls
+            // back to the heuristic when the constant is absent.
+            String diaMm = com.codename1.ui.plaf.UIManager.getInstance()
+                    .getThemeConstant("fabDiameterMM", null);
+            if (diaMm != null) {
+                try {
+                    int d = Display.getInstance().convertToPixels(Float.parseFloat(diaMm));
+                    if (d > 0) {
+                        return new Dimension(d, d);
+                    }
+                } catch (NumberFormatException ignore) {
+                    // malformed fabDiameterMM constant -> fall back to the icon-derived size
+                }
+            }
+            return new Dimension(getIcon().getWidth() * 11 / 4, getIcon().getHeight() * 11 / 4);
+        }
+        return super.calcPreferredSize();
+    }
+
+    /// This is a utility method to bind the FAB to a given Container, it will return a new container to add or will
+    /// use the layered pane if the container is a content pane.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cnt`: the Container to add the FAB to
+    ///
+    /// #### Returns
+    ///
+    /// a new Container that contains the cnt and the FAB on top or null in the case of a content pane
+    public Container bindFabToContainer(Component cnt) {
+        return bindFabToContainer(cnt, Component.RIGHT, Component.BOTTOM);
+    }
+
+    /// This is a utility method to bind the FAB to a given Container, it will return a new container to add or will
+    /// use the layered pane if the container is a content pane.
+    ///
+    /// #### Parameters
+    ///
+    /// - `cnt`: the Container to add the FAB to
+    ///
+    /// - `orientation`: one of Component.RIGHT/LEFT/CENTER
+    ///
+    /// - `valign`: one of Component.TOP/BOTTOM/CENTER
+    ///
+    /// #### Returns
+    ///
+    /// a new Container that contains the cnt and the FAB on top or null in the case of a content pane
+    public Container bindFabToContainer(Component cnt, int orientation, int valign) {
+        FlowLayout flow = new FlowLayout(orientation);
+        flow.setValign(valign);
+
+        // The top level rather than the form: getComponentForm() is null by design in a
+        // Window, so binding to a window's content pane fell through to the wrapper
+        // below and returned it unattached -- the button simply never appeared.
+        TopLevelContainer f = cnt.getTopLevelContainer();
+        if (f != null && (f.getContentPane() == cnt || f.asContainer() == cnt)) { //NOPMD CompareObjectsWithEquals
+            // special case for content pane installs the button directly on the content pane
+            Container layers = f.getLayeredPane(getClass(), true);
+            layers.setSafeArea(true);
+            layers.setLayout(flow);
+            layers.add(this);
+            return null;
+        }
+
+        Container conUpper = new Container(flow);
+        conUpper.add(this);
+        return LayeredLayout.encloseIn(cnt, conUpper);
+    }
+
+    /// Removes the floating action button from its parent
+    public void unbind() {
+        Container cnt = getParent();
+        remove();
+        if (cnt != null) {
+            cnt.remove();
+        }
+    }
+
+    @Override
+    public void setText(String text) {
+        if (isBadge) {
+            super.setText(text);
+        }
+        this.text = text;
+    }
+
+    @Override
+    protected void fireActionEvent(int x, int y) {
+        // The dialog this button is actually inside, found by walking up rather than by
+        // asking for the top level. A hosted dialog is parented in its window's layered
+        // pane, so the top level is that window and the dialog around the button was
+        // never seen: the button fired and left the dialog -- and a caller blocked on it
+        // -- open.
+        Dialog enclosing = enclosingDialog(this);
+        if (enclosing != null) {
+            // Disposed before the dispatch below, and the command still lands on it.
+            // Disposing takes the dialog out of the layer it was in, which leaves it
+            // parentless -- and a parentless Form is a command host -- so the walk up
+            // from this button in Button.fireActionEvent still reaches the dialog and
+            // records the command there, which is what a modal showDialog() returns.
+            // Guarded by aFabCommandInsideAHostedDialogIsStillRecordedOnIt.
+            enclosing.dispose();
+        } else {
+            // Nothing encloses it, so the only dialog it can mean is one showing over
+            // its own surface. Its own, not the process-wide current form: a button in a
+            // secondary window would otherwise dispose a dialog on the main window --
+            // activating a window does not change Display.getCurrent(), so the dialog it
+            // closed had nothing to do with the click.
+            TopLevelContainer top = getTopLevelContainer();
+            if (top == null || top instanceof Form) {
+                Form current = Display.getInstance().getCurrent();
+                if (current instanceof Dialog) {
+                    ((Dialog) current).dispose();
+                }
+            }
+        }
+        super.fireActionEvent(x, y);
+    }
+
+
+    /// The nearest dialog this component sits inside, if any.
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: the component to walk up from
+    ///
+    /// #### Returns
+    ///
+    /// the enclosing dialog, or null when nothing encloses it
+    private static Dialog enclosingDialog(Component c) {
+        Component probe = c;
+        while (probe != null) {
+            if (probe instanceof Dialog) {
+                return (Dialog) probe;
+            }
+            probe = probe.getParent();
+        }
+        return null;
+    }
+
+    @Override
+    public void released(int x, int y) {
+        super.released(x, y);
+
+        if (current != null) {
+            current.dispose();
+            current = null;
+        }
+        //if this fab has sub fab's display them
+        if (subMenu != null) {
+            // The top level, not the form: getComponentForm() is null by design inside
+            // a Window, and the tint calls below dereference it. Dialog is window aware
+            // now, so the submenu opens on whatever surface the button is actually on.
+            TopLevelContainer f = getTopLevelContainer();
+            if (f == null) {
+                return;
+            }
+            final Container con = createPopupContent(subMenu);
+            Dialog d = new Dialog();
+            // Framework chrome, never an operating system window: this popup is POSITIONED by the
+            // framework, and native window mode documents those margins as ignored, so in a window
+            // it comes out centred and loses the placement that is its whole point. See
+            // TooltipManager for the full note.
+            d.setNativeWindowMode(false);
+            d.setDialogUIID("Container");
+            d.getContentPane().setUIID("Container");
+            d.setLayout(new BorderLayout());
+            d.add(BorderLayout.CENTER, con);
+            for (FloatingActionButton next : subMenu) {
+                next.current = d;
+            }
+            d.setTransitionInAnimator(CommonTransitions.createEmpty());
+            d.setTransitionOutAnimator(CommonTransitions.createEmpty());
+            for (Component c : con) {
+                c.setVisible(false);
+            }
+            int oldTint = f.getTintColor();
+            f.setTintColor(0);
+            d.setBlurBackgroundRadius(-1);
+            d.addShowListener(new ReleaseActionListener(con));
+            showPopupDialog(d);
+            f.setTintColor(oldTint);
+            for (FloatingActionButton next : subMenu) {
+                next.remove();
+            }
+            con.removeAll();
+        }
+    }
+
+    /// Creates the popup content container to display on the dialog.
+    ///
+    /// #### Parameters
+    ///
+    /// - `fabs`: List of sub FloatingActionButton
+    ///
+    /// #### Returns
+    ///
+    /// a Container that contains all fabs
+    protected Container createPopupContent(List<FloatingActionButton> fabs) {
+        Container con = new Container(new BoxLayout(BoxLayout.Y_AXIS));
+        for (final FloatingActionButton next : subMenu) {
+            next.setPreferredW(getWidth());
+            Container c = new Container(new BorderLayout());
+            Button txt = new Button(next.text);
+            txt.setUIID(floatingActionTextUIID);
+            c.add(BorderLayout.CENTER, FlowLayout.encloseRight(txt));
+            c.add(BorderLayout.EAST, next);
+            con.add(c);
+            txt.addActionListener(new CreatePopupContentActionListener(next));
+        }
+        return con;
+    }
+
+    /// Shows the popup Dialog with the sub FABs.
+    ///
+    /// #### Parameters
+    ///
+    /// - `dialog`: the Dialog with all sub FAB's Components
+    protected void showPopupDialog(Dialog dialog) {
+        dialog.setPopupDirectionBiasPortrait(Boolean.TRUE);
+        dialog.showPopupDialog(this);
+    }
+
+    /// #### Returns
+    ///
+    /// the floatingActionTextUIID
+    public String getFloatingActionTextUIID() {
+        return floatingActionTextUIID;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `floatingActionTextUIID`: the floatingActionTextUIID to set
+    public void setFloatingActionTextUIID(String floatingActionTextUIID) {
+        this.floatingActionTextUIID = floatingActionTextUIID;
+    }
+
+    private static class ReleaseActionListener implements ActionListener<ActionEvent> {
+        private final Container con;
+
+        public ReleaseActionListener(Container con) {
+            this.con = con;
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent evt) {
+            for (Component c : con) {
+                c.setY(con.getHeight());
+                c.setVisible(true);
+            }
+            con.animateLayout(200);
+        }
+    }
+
+    private static class CreatePopupContentActionListener implements ActionListener<ActionEvent> {
+        private final FloatingActionButton next;
+
+        public CreatePopupContentActionListener(FloatingActionButton next) {
+            this.next = next;
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent evt) {
+            next.pressed();
+            next.released();
+        }
+    }
+}

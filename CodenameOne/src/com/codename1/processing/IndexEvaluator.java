@@ -1,0 +1,245 @@
+/*
+ * Copyright (c) 2012, Eric Coolman, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.processing;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Vector;
+
+/// Internal class, do not use.
+///
+/// This evaluator handles expressions that involve the index. Example:
+///
+/// `
+///
+///  Get the name of the second player
+///
+///  /tournament/player[2]/name
+///
+///  Get the name of the last player
+///
+///  /tournament/player[last()]/name
+///
+///  Get the name of the second last player
+///
+///  //player[last()-1]/name
+///
+///  Get players 4 and greater
+///
+///  //player[position() > 3]/name
+///
+///  Get players 0 to 4
+///
+///  //player[position() < 5]/name`
+///
+/// @author Eric Coolman
+class IndexEvaluator extends AbstractEvaluator {
+
+    static String FUNC_LAST = "last()";
+    static String FUNC_POSITION = "position()";
+
+    /// Construct with a full predicate expression.
+    ///
+    /// #### Parameters
+    ///
+    /// - `expr`: a full predicate expression
+    public IndexEvaluator(String expr) {
+        super(expr);
+    }
+
+    /// Select all elements from the array with an index less than the given
+    /// value.
+    ///
+    /// Example:
+    ///
+    /// `[position() < 5]`
+    ///
+    /// #### Parameters
+    ///
+    /// - `elements`: array of StructuredContent elements
+    ///
+    /// - `rvalue`: index value
+    ///
+    /// #### Returns
+    ///
+    /// an array of matching elements.
+    private List getByPositionLess(List elements, int rvalue) {
+        if (rvalue > elements.size()) {
+            return elements;
+        }
+        if (rvalue < 0) {
+            return null;
+        }
+        List array;
+        if (elements instanceof Vector) {
+            array = new Vector();
+        } else {
+            array = new ArrayList();
+        }
+        for (int i = 0; i < rvalue; i++) {
+            array.add(elements.get(i));
+        }
+        return array;
+    }
+
+    /// Select all elements from the array with an index greater than the given
+    /// value.
+    ///
+    /// Example:
+    ///
+    /// `[position() > 5]`
+    ///
+    /// #### Parameters
+    ///
+    /// - `elements`: array of StructuredContent elements
+    ///
+    /// - `rvalue`: index value
+    ///
+    /// #### Returns
+    ///
+    /// an array of matching elements.
+    private List getByPositionGreater(List elements, int rvalue) {
+        if (rvalue >= elements.size()) {
+            return null;
+        }
+        if (rvalue <= 0) {
+            return elements;
+        }
+        List array;
+        if (elements instanceof Vector) {
+            array = new Vector();
+        } else {
+            array = new ArrayList();
+        }
+        for (int i = rvalue; i < elements.size(); i++) {
+            array.add(elements.get(i));
+        }
+        return array;
+    }
+
+    /// Select a single element from an array, relative to the last element. Ie.
+    ///
+    /// `Fifth last element:
+    ///
+    ///  [last() - 5]
+    ///
+    ///  Last element:
+    ///
+    ///  [last()]`
+    ///
+    /// #### Parameters
+    ///
+    /// - `elements`: array of StructuredContent elements
+    ///
+    /// - `rvalue`: index value
+    ///
+    /// #### Returns
+    ///
+    /// an array of matching elements.
+    private StructuredContent getByLast(List elements, String expr) throws IllegalArgumentException {
+        int index = expr.indexOf("-");
+        if (index == -1) {
+            throw new IllegalArgumentException("Could not handle expression: " + expr);
+        }
+        String rvalue = expr.substring(index + 1).trim();
+        int dim = (elements.size() - 1) - Integer.parseInt(rvalue);
+        if (dim < 0) {
+            return null;
+        }
+        return (StructuredContent) elements.get(dim);
+    }
+
+    /// Whether the whole string is digits, so parseInt cannot throw on it.
+    ///
+    /// - `text`: the predicate text
+    ///
+    /// #### Returns
+    ///
+    /// true when every character is a digit
+    private static boolean isDigits(String text) {
+        String trimmed = text.trim();
+        if (trimmed.length() == 0) {
+            return false;
+        }
+        for (int i = 0; i < trimmed.length(); i++) {
+            if (!Character.isDigit(trimmed.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /* (non-Javadoc)
+     * @see com.codename1.path.impl.AbstractEvaluator#evaluateSingle(java.util.List, java.lang.String)
+     */
+    @Override
+    protected Object evaluateSingle(List elements, String expr) {
+        // isDigits rather than the inherited isNumeric, which now accepts a
+        // sign and a decimal point: parseInt below would throw on either.
+        // EvaluatorFactory only routes a digits-only predicate here today, so
+        // this is the guard rather than a fix, and it keeps the two from
+        // drifting apart again.
+        if (isDigits(expr)) {
+            int dim = Integer.parseInt(expr);
+            if ((dim < 0) || (dim >= elements.size())) {
+                return null;
+            }
+            return elements.get(dim);
+        } else if (expr.equals(FUNC_LAST)) {
+            if (elements.isEmpty()) {
+                return null;
+            }
+            return elements.get(elements.size() - 1);
+        } else if (expr.indexOf(FUNC_LAST) != -1) {
+            return getByLast(elements, expr);
+        } else if (expr.equals(FUNC_POSITION)) {
+            return elements;
+        }
+        return null;
+    }
+
+    /* (non-Javadoc)
+     * @see com.codename1.path.impl.AbstractEvaluator#evaluateLeftLessRight(java.util.List, java.lang.String, java.lang.String)
+     */
+    @Override
+    protected Object evaluateLeftLessRight(List elements, String lvalue,
+                                           String rvalue) {
+        if (FUNC_POSITION.equals(lvalue)) {
+            return getByPositionLess(elements, Integer.parseInt(rvalue));
+        }
+        return null;
+    }
+
+    /* (non-Javadoc)
+     * @see com.codename1.path.impl.AbstractEvaluator#evaluateLeftGreaterRight(java.util.List, java.lang.String, java.lang.String)
+     */
+    @Override
+    protected Object evaluateLeftGreaterRight(List elements, String lvalue,
+                                              String rvalue) {
+        if (FUNC_POSITION.equals(lvalue)) {
+            return getByPositionGreater(elements, Integer.parseInt(rvalue));
+        }
+        return null;
+    }
+
+}

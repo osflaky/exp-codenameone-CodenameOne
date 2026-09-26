@@ -1,0 +1,351 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+package com.codenameone.examples.hellocodenameone.tests;
+
+import com.codename1.testing.AbstractTest;
+import com.codename1.ui.AnimationManager;
+import com.codename1.ui.CN;
+import com.codename1.ui.Display;
+import com.codename1.ui.Form;
+import com.codename1.ui.util.UITimer;
+import com.codename1.ui.layouts.Layout;
+import com.codename1.testing.TestUtils;
+
+public abstract class BaseTest extends AbstractTest {
+    /// The device orientation (portrait-ness) observed at the suite's FIRST
+    /// capture -- the orientation every subsequent screenshot baseline was
+    /// recorded in. Phone suites start portrait; desktop/tv suites record
+    /// their fixed landscape aspect and the guard below never engages.
+    private static Boolean suiteBaselinePortrait;
+    private volatile boolean done;
+    private volatile boolean failed;
+    private volatile String failMessage;
+    /// Set the moment the capture pipeline hands off to
+    /// Cn1ssDeviceRunnerHelper.emitCurrentFormScreenshot. The runner consults
+    /// it on a timeout: false means the test died silently BEFORE any capture
+    /// was requested (the iOS Metal flake where a transient render-pipeline
+    /// stall swallows the whole show -> UITimer -> screenshot chain without a
+    /// single error line) and a one-shot retry is safe; true means a capture
+    /// is in flight and re-running would risk a duplicate/mislabelled emit.
+    private volatile boolean captureStarted;
+    /// Last stage the screenshot pipeline reached, logged by the runner when
+    /// a test times out so a silent stall pinpoints itself: created ->
+    /// show-completed -> settle-timer-fired -> capture-requested.
+    private volatile String captureStage = "created";
+
+    public boolean shouldTakeScreenshot() {
+        return true;
+    }
+
+    /// Whether the runner's one-shot silent-timeout retry may re-run this test.
+    ///
+    /// Override to false in any test that starts work which OUTLIVES runTest()
+    /// -- a `new Thread(...).start()` or a `Display.startThread(...)`. The
+    /// retry calls resetForRetry() and runs the test again on the same
+    /// instance, so a late done() from the first attempt's worker would
+    /// complete the SECOND attempt, advance the suite before it had really
+    /// finished, and let that worker's side effects bleed into later tests --
+    /// masking exactly the timeout the retry was meant to survive.
+    ///
+    /// CN.callSerially work does not count: finalizeTest runs on the EDT, so
+    /// anything queued by an earlier attempt has already been drained by the
+    /// time a retry is decided.
+    ///
+    /// Find the tests that must override this with:
+    ///   grep -lE 'new Thread[[:space:]]*\(' *Test.java   (that also call .start())
+    ///   grep -l  'startThread[[:space:]]*('  *Test.java
+    public boolean isRetrySafe() {
+        return true;
+    }
+
+    public synchronized void fail(String message) {
+        this.failed = true;
+        this.failMessage = message;
+        done();
+    }
+
+    public synchronized boolean isFailed() {
+        return failed;
+    }
+
+    public synchronized String getFailMessage() {
+        return failMessage;
+    }
+
+    protected Form createForm(String title, Layout layout, final String imageName) {
+        return new Form(title, layout) {
+            @Override
+            protected void onShowCompleted() {
+                captureStage = "show-completed";
+                registerReadyCallback(this, () -> awaitAnimationsThenScreenshot(this, imageName));
+            }
+        };
+    }
+
+    protected void registerReadyCallback(Form parent, Runnable run) {
+        // Android misses some images when the time is lower
+        UITimer.timer(1500, false, parent, run);
+    }
+
+    /// Wraps a component so a callback can run after its subtree has actually PAINTED, a
+    /// deterministic "content is on screen" signal. Event-driven components (the pure editors
+    /// report ready as soon as their backend initializes, typically before the first paint
+    /// flushes on the slower ports) capture too early with a plain ready callback and too
+    /// flakily with fixed settle timers; gating on the first real paint is exact on every port.
+    protected static final class FirstPaintGate extends com.codename1.ui.Container {
+        private final com.codename1.ui.Component content;
+        private Runnable pending;
+
+        public FirstPaintGate(com.codename1.ui.Component content) {
+            super(new com.codename1.ui.layouts.BorderLayout());
+            this.content = content;
+            add(com.codename1.ui.layouts.BorderLayout.CENTER, content);
+        }
+
+        /// Schedules {@code r} (serially on the EDT) after the next completed paint of this
+        /// container's subtree in which the content has real bounds. A paint that happens
+        /// before layout assigned the content its size draws nothing yet, so firing there
+        /// would capture an empty frame; instead ask for another cycle and fire on it.
+        public void runAfterNextPaint(Runnable r) {
+            pending = r;
+            revalidateLater();
+        }
+
+        @Override
+        public void paint(com.codename1.ui.Graphics g) {
+            super.paint(g);
+            if (pending != null) {
+                if (content.getWidth() <= 0 || content.getHeight() <= 0) {
+                    revalidateLater();
+                    return;
+                }
+                Runnable r = pending;
+                pending = null;
+                com.codename1.ui.CN.callSerially(r);
+            }
+        }
+    }
+
+    /// After the initial 1500ms settle, poll the form's AnimationManager until
+    /// it reports no in-flight animations, then take the screenshot. Guarded
+    /// by a max-wait so a runaway animation can't deadlock the suite.
+    private void awaitAnimationsThenScreenshot(Form form, String imageName) {
+        awaitSettledThenCapture(form, imageName, 0, this::done);
+    }
+
+    /// Capture {@code form} as {@code imageName} once it settles, then invoke
+    /// {@code onComplete} (instead of the default done()). Lets a single test
+    /// chain several screenshots - e.g. a watch-form-factor test that emits one
+    /// full-screen capture per variant rather than a single multi-tile grid.
+    protected void captureWhenSettled(Form form, String imageName, Runnable onComplete) {
+        awaitSettledThenCapture(form, imageName, 0, onComplete);
+    }
+
+    private void awaitSettledThenCapture(final Form form, final String imageName, final int waitedMs,
+                                         final Runnable onComplete) {
+        if (waitedMs == 0) {
+            captureStage = "settle-timer-fired";
+        }
+        AnimationManager am = form.getAnimationManager();
+        // Do not capture until the form we are meant to shoot is actually the current form.
+        // On the slow watchOS/tvOS simulators a form switch can lag onShowCompleted, so
+        // Display.screenshot() would grab the PREVIOUS test's form (observed: css-gradients
+        // capturing PaletteOverrideTheme_dark -> a "duplicate_image_with" wrong-form flake).
+        boolean wrongForm = Display.getInstance().getCurrent() != form;
+        // A leaked landscape orientation is "not settled": wait for the
+        // re-asserted portrait lock to land (its own, longer budget -- a
+        // starved simulator rotation can exceed the 5s animation cap).
+        boolean wrongOrientation = captureBlockedByOrientation(imageName, waitedMs);
+        boolean animating = wrongForm
+                || (am != null && am.isAnimating())
+                || Display.getInstance().isInTransition();
+        // Content the test itself knows has not arrived yet. Nothing above can
+        // see it: an asynchronous image decode leaves the form idle, the
+        // animation manager quiet and the right form current, so every existing
+        // condition reads "settled" while half the picture is missing.
+        boolean pendingContent = captureBlockedByPendingContent();
+        int waitCapMs = wrongOrientation ? 15000 : 5000;
+        if ((!animating && !wrongOrientation && !pendingContent) || waitedMs >= waitCapMs) {
+            long extra = extraSettleBeforeCaptureMillis();
+            if (extra > 0) {
+                // Heavy forms on the iOS Metal backend can have their first
+                // frame presented a beat after onShowCompleted + the animation
+                // settle, so Display.screenshot() reads the PREVIOUS form's
+                // still-current framebuffer -- the "DesktopMode captures the
+                // wrong form" race. Force a fresh paint and give the GPU a
+                // moment to present it before capturing. Opt-in per test
+                // (default 0) so no other baseline shifts.
+                form.repaint();
+                UITimer.timer((int) extra, false, form, () -> {
+                    markCaptureStarted();
+                    Cn1ssDeviceRunnerHelper.emitCurrentFormScreenshot(imageName, onComplete);
+                });
+                return;
+            }
+            markCaptureStarted();
+            Cn1ssDeviceRunnerHelper.emitCurrentFormScreenshot(imageName, onComplete);
+            return;
+        }
+        UITimer.timer(50, false, form, () -> awaitSettledThenCapture(form, imageName, waitedMs + 50, onComplete));
+    }
+
+    /// Extra delay (ms) inserted AFTER the form has settled and BEFORE the
+    /// screenshot, during which the form is repainted. Defaults to 0 (capture
+    /// immediately, unchanged behaviour). A test whose heavy form trips the iOS
+    /// Metal late-present race -- the screenshot grabbing the previous form's
+    /// framebuffer -- overrides this to force a fresh, fully-presented frame.
+    protected long extraSettleBeforeCaptureMillis() {
+        return 0;
+    }
+
+    /// Whether this test still has content that has not arrived, holding the
+    /// capture off until it has. Defaults to false, so no existing test changes.
+    ///
+    /// The settle loop watches the form, the animation manager, the transition
+    /// state and the orientation -- all of which report "ready" while an
+    /// asynchronous image decode is still outstanding, because nothing about a
+    /// pending decode makes the form busy. A test whose content arrives that way
+    /// cannot express the wait any other way, and the alternative it is left
+    /// with -- asking for repaints and hoping one lands after the decode -- is a
+    /// race it loses intermittently.
+    ///
+    /// Bounded by the same wait cap as everything else here: content that never
+    /// arrives still captures, and still fails, rather than hanging the suite.
+    protected boolean captureBlockedByPendingContent() {
+        return false;
+    }
+
+    /// Tests that INTENTIONALLY capture in a non-baseline orientation (the
+    /// landscape VR/360 tests) override this to true so the orientation guard
+    /// below does not fight their deliberate rotation.
+    protected boolean allowNonBaselineOrientationCapture() {
+        return false;
+    }
+
+    /// Orientation leak guard. An orientation-changing test whose
+    /// restore-to-portrait silently times out (observed: OrientationLock on a
+    /// starved iOS Metal runner) leaves the simulator landscape for every test
+    /// after it -- the next capture ships sideways pixels (VideoIODecodedFrames
+    /// delivered 2556x1179 against a portrait golden) and orientation-sensitive
+    /// tests wedge. Returns true while the device is NOT in the suite's
+    /// baseline orientation, and actively re-asserts the portrait lock (an
+    /// earlier lock issued mid-rotation-animation can be swallowed), so the
+    /// suite self-heals instead of failing on the innocent downstream test.
+    /// Callers poll this from their capture path and log a CN1SS:WARN so a
+    /// genuine restore failure attributes to the right place.
+    protected final boolean captureBlockedByOrientation(String imageName, int waitedMs) {
+        if (suiteBaselinePortrait == null) {
+            suiteBaselinePortrait = Boolean.valueOf(CN.isPortrait());
+        }
+        if (!suiteBaselinePortrait.booleanValue()
+                || !CN.canForceOrientation()
+                || allowNonBaselineOrientationCapture()
+                || CN.isPortrait()) {
+            return false;
+        }
+        // Re-assert the portrait lock about once a second while blocked; the
+        // 50ms/250ms pollers both hit the ==0 first pass immediately.
+        if (waitedMs % 1000 == 0) {
+            System.out.println("CN1SS:WARN:test=" + imageName
+                    + " capture blocked: device left in landscape by an earlier test;"
+                    + " re-asserting portrait lock (waited " + waitedMs + "ms)");
+            CN.lockOrientation(true);
+        }
+        return true;
+    }
+
+    protected synchronized void done() {
+        this.done = true;
+    }
+
+    public synchronized boolean isDone() {
+        return done;
+    }
+
+    public boolean isCaptureStarted() {
+        return captureStarted;
+    }
+
+    /// Tests that bypass createForm()'s capture chain and invoke
+    /// Cn1ssDeviceRunnerHelper.emit* directly must call this right before the
+    /// emit so the runner's silent-timeout retry never re-runs a test whose
+    /// capture is already in flight (a late emit after the rerun's form is up
+    /// would ship the wrong pixels under this test's name).
+    protected void markCaptureStarted() {
+        captureStarted = true;
+        captureStage = "capture-requested";
+    }
+
+    public String getCaptureStage() {
+        return captureStage;
+    }
+
+    /// Re-arms the instance so the runner can re-invoke prepare()/runTest()
+    /// after a silent timeout (timeout with no capture started). Only the
+    /// harness flags are reset; subclasses create a fresh Form per runTest()
+    /// call so no UI state needs unwinding here.
+    public synchronized void resetForRetry() {
+        done = false;
+        failed = false;
+        failMessage = null;
+        captureStarted = false;
+        captureStage = "retry-created";
+    }
+
+    /**
+     * <p>Lays out a Form that was built off-screen and sized with the raw setters, for
+     * painting into an Image.</p>
+     *
+     * <p>{@code layoutContainer()} is NOT enough and must not be used here.
+     * {@link com.codename1.ui.Container#layoutContainer()} lays out only when the container
+     * is already marked dirty -- it is {@code if (shouldLayout)} and nothing else -- and
+     * {@code setWidth}/{@code setHeight} are raw setters that mark nothing. A Form resized
+     * that way is therefore still "laid out", at whatever size it had when it was built,
+     * which is the display size.</p>
+     *
+     * <p>These captures used to survive that by accident. Adding a child marks the CONTENT
+     * PANE dirty and the flag propagates to the parent, but only on a transition -- see
+     * {@code Container.setShouldLayout}, which returns early when the value is unchanged --
+     * so whether the Form itself got marked depended on something else having touched it.
+     * Attaching the Toolbar was that something else.</p>
+     *
+     * <p>Desktop "native" title bar mode never attaches the Toolbar: the title goes to the
+     * OS window and the commands to the native menu bar. One invalidation disappeared with
+     * it, every off-screen host Form silently kept the display size, its children were laid
+     * out at 0x0, and ten animation filmstrips captured six empty cells in the Form's
+     * background colour. Empty cells are still a picture, so every one of those captures
+     * succeeded and the goldens would have recorded the blank.</p>
+     *
+     * <p>{@code forceRevalidate()} is the public API for "things changed underneath, lay
+     * this out again", and it does not depend on anything else having marked the tree.</p>
+     *
+     * @param host the off-screen Form or Container to lay out
+     */
+    protected static void layoutOffScreen(com.codename1.ui.Container host) {
+        if (host == null) {
+            return;
+        }
+        host.forceRevalidate();
+    }
+}

@@ -1,0 +1,192 @@
+/CodenameOne/nbproject/private/
+/CodenameOne/javadoc/
+/CodenameOneDesigner/nbproject/private/
+/Ports/Android/nbproject/private/
+/Ports/JavaSE/nbproject/private/
+/Factory/nbproject/private/
+/vm/ByteCodeTranslator/nbproject/private/
+/vm/JavaAPI/nbproject/private/
+/Factory/build/
+/CodenameOne/build/
+/Factory/dist/
+/CodenameOne/dist/
+/Ports/Android/build/
+/Ports/Android/dist/
+/Ports/JavaSE/build/
+*.skin
+*.jar
+*.class
+*.pyc
+**/__pycache__/
+**/private/*
+**/.idea/*
+# The cn1app-archetype ships project-level IDE configs (run / debug
+# configurations + recommended source roots) that need to land in the
+# generated project's .idea/. Un-ignore them so they stay checked in.
+!maven/cn1app-archetype/src/main/resources/archetype-resources/.idea
+!maven/cn1app-archetype/src/main/resources/archetype-resources/.idea/**
+**/build/*
+# `build` is a build directory everywhere except in com.codename1.build.shared,
+# where it is a Java package name. Without this a NEW source file there is
+# silently untracked -- git add skips it, the module compiles locally from the
+# working tree, and CI fails on a file nobody can see is missing. Keyed on the
+# package rather than on a module because more than one module uses it, and a
+# per-module list drifts: build-hint-tools was added later with the same
+# package and was ignored until a reviewer noticed.
+!**/src/main/java/com/codename1/build/**
+!**/src/test/java/com/codename1/build/**
+**/dist/*
+*.zip
+CodenameOneDesigner/src/version.properties
+*-storage-state.json
+*-storage-state.*.json
+/Ports/iOSPort/build/
+/Ports/iOSPort/dist/
+Ports/iOSPort/nbproject/private/private.xml
+/Ports/JavaSE/dist/
+
+*.nbm
+/vm/ByteCodeTranslator/build/
+/vm/ByteCodeTranslator/dist/
+/vm/JavaAPI/build/
+/vm/JavaAPI/dist/
+Ports/iOSPort/nbproject/private/private.properties
+CodenameOne/build.xml
+CodenameOne/build.xml
+Ports/iOSPort/nbproject/private/private.properties
+/Ports/JavaSEWithSVGSupport/nbproject/private/
+/Ports/JavaSEWithSVGSupport/build/
+/Ports/JavaSEWithSVGSupport/dist/
+nightly_builds/.DS_Store
+/tests/iOSTests/build/
+node_modules
+/tests/core/nbproject/private/
+/tests/core/dist/
+/tests/core/build/
+/tests/signin-demo/nbproject/private/
+/Ports/CLDC11/nbproject/private/
+/Ports/Android/CompatLibs/nbproject/private/
+/Ports/UWP/nbproject/private/
+/Ports/CLDC11/build/
+/Ports/CLDC11/dist/
+/Samples/SampleProjectTemplate/nbproject/private/
+/Samples/config
+**/.DS_Store
+**/build-impl.xml
+**/genfiles.properties
+**/private/private.properties
+.idea/
+# Same exception as for **/.idea/* above: keep the archetype's
+# bundled IDE configs versioned.
+!maven/cn1app-archetype/src/main/resources/archetype-resources/.idea
+!maven/cn1app-archetype/src/main/resources/archetype-resources/.idea/**
+.claude/
+target
+pom.xml.versionsBackup
+pom.xml.releaseBackup
+pom.xml.tag
+!maven/**/*.zip
+**/.flattened-pom.xml
+
+### BROKK'S CONFIGURATION ###
+.brokk/**
+/.brokk/workspace.properties
+/.brokk/sessions/
+/.brokk/dependencies/
+/.brokk/history.zip
+!.brokk/style.md
+!.brokk/review.md
+!.brokk/project.properties
+dependency-reduced-pom.xml
+
+/artifacts/
+
+# Hugo website generated artifacts
+/docs/website/generated/
+# scripts/website/build.sh rm -rf's this directory and rebuilds it from
+# docs/developer-guide on every run, so a committed copy is both duplicated
+# source and guaranteed stale. 485 files of it were committed by accident once.
+/docs/website/static/developer-guide/
+# The API reference is generated into the content tree by the Hugo doclet on
+# every run of scripts/website/build.sh, one file per documented type. Roughly
+# 1850 generated pages have no business in the history: the sources they are
+# rendered from are already committed.
+/docs/website/content/javadoc/
+/docs/website/static/javadoc-search.json
+# Left behind by the previous integration, which copied the whole standard
+# doclet tree into static/ and served it through a scoping script.
+/docs/website/static/javadoc/
+/docs/website/.hugo_build.lock
+/docs/website/hugo_stats.json
+/docs/website/resources/
+/docs/website/public/
+/docs/website/.cache/
+/docs/website/.venv/
+/docs/website/.venv-pagefind/
+/docs/website/.venv-video-refresh/
+/docs/website/.youtube-oauth-token.json
+/docs/website/client_secret.json
+/.playwright-cli
+package-lock.json
+package.json
+.claude/
+
+# Local screenshot/perf bench output
+/artifacts/
+/scripts/artifacts/
+# Local diagnostic playwright scripts (sidemenu-test, initializr-test, etc.)
+/scripts/*-test.mjs
+
+.guest-scratch/
+
+# Google Maps JS API key injected by CI for the GoogleWebMap screenshot test
+# (from the GOOGLE_MAPS_API_KEY secret). A secret value, never committed.
+/scripts/hellocodenameone/common/src/main/resources/google-maps-key.txt
+scripts/fidelity-app/common/src/main/resources/*ThemeDev.res
+
+# Native theme .res is copied into the fidelity-app bundle from Themes/ at
+# build time (common/pom.xml copy-native-themes); never commit the duplicate.
+scripts/fidelity-app/common/src/main/resources/iOSModernTheme.res
+scripts/fidelity-app/common/src/main/resources/iOSModern27Theme.res
+scripts/fidelity-app/common/src/main/resources/AndroidMaterialTheme.res
+/.m2/
+
+# Rendered from maven/build-hint-catalog by scripts/gen-build-hint-table.sh every
+# time the developer guide is built. Not checked in: a generated file living in
+# git invites a hand edit that the next regeneration silently discards, and needs
+# a drift gate to notice. Generating it on the fly removes both.
+docs/developer-guide/_generated-build-hints.adoc
+
+# Maven repository private to THIS checkout.
+#
+# Several CodenameOne checkouts live on the same machine and all install
+# com.codenameone:*:8.0-SNAPSHOT. Sharing ~/.m2 or /tmp/cn1-local-repo means a
+# build in another checkout silently overwrites this one's core jar mid-build,
+# and the symptom is "cannot find symbol" on a class this branch just added.
+# Build with -Dmaven.repo.local=$(pwd)/.m2-repo instead.
+/.m2-repo/
+
+# Generated by .github/scripts/generate-quality-report.py, uploaded as a CI
+# artifact rather than committed.
+quality-report.md
+# Rendered from the build hint annotations into each consuming module's
+# target/classes during its build. Never committed: a generated file in git
+# conflicts on every merge and there is nothing for a hand edit to survive in.
+cn1-build-hints.json
+
+# Local wrangler state from running the website worker tests.
+.wrangler/
+
+# Generated on demand by scripts/input-validation-app/drivers/run-ios.sh, which
+# runs `xcodegen generate` from the checked-in project.yml. A committed pbxproj
+# would be a second source of truth for the same target.
+/scripts/input-validation-app/ios-tests/*.xcodeproj/
+
+# Chapter Markdown and navigation are regenerated from the AsciiDoc book.
+/docs/website/content/developer-guide/chapters/
+/docs/website/data/developer-guide.json
+/docs/website/data/guide-links.json
+
+# Concatenated CSS the native-theme build feeds the compiler. Regenerated on
+# every run; the parts under native-themes/<theme>/*.css are the source.
+native-themes/*/target/

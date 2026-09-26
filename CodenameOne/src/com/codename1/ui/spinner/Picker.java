@@ -1,0 +1,2350 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+package com.codename1.ui.spinner;
+
+import com.codename1.components.InteractionDialog;
+import com.codename1.io.Log;
+import com.codename1.io.Util;
+import com.codename1.l10n.L10NManager;
+import com.codename1.l10n.SimpleDateFormat;
+import com.codename1.ui.Button;
+import com.codename1.ui.CN;
+import com.codename1.ui.Command;
+import com.codename1.ui.Component;
+import com.codename1.ui.ComponentSelector;
+import com.codename1.ui.Container;
+import com.codename1.ui.Dialog;
+import com.codename1.ui.Display;
+import com.codename1.ui.FontImage;
+import com.codename1.ui.Form;
+import com.codename1.ui.Graphics;
+import com.codename1.ui.Label;
+import com.codename1.ui.VirtualInputDevice;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.geom.Rectangle;
+import com.codename1.ui.layouts.BorderLayout;
+import com.codename1.ui.layouts.BoxLayout;
+import com.codename1.ui.layouts.FlowLayout;
+import com.codename1.ui.layouts.GridLayout;
+import com.codename1.ui.list.DefaultListModel;
+import com.codename1.ui.plaf.Border;
+import com.codename1.ui.plaf.RoundRectBorder;
+import com.codename1.ui.plaf.Style;
+import com.codename1.ui.plaf.UIManager;
+import com.codename1.ui.TopLevelContainer;
+
+import java.util.Calendar;
+import java.util.Date;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.ListIterator;
+
+import static com.codename1.ui.ComponentSelector.$;
+
+/// `Picker` is a component and API that allows either popping up a spinner or
+/// using the native picker API when applicable. This is quite important for some
+/// platforms where the native spinner behavior is very hard to replicate.
+///
+/// ```java
+/// Form hi = new Form("Picker", new BoxLayout(BoxLayout.Y_AXIS));
+/// Picker datePicker = new Picker();
+/// datePicker.setType(Display.PICKER_TYPE_DATE);
+/// Picker dateTimePicker = new Picker();
+/// dateTimePicker.setType(Display.PICKER_TYPE_DATE_AND_TIME);
+/// Picker timePicker = new Picker();
+/// timePicker.setType(Display.PICKER_TYPE_TIME);
+/// Picker stringPicker = new Picker();
+/// stringPicker.setType(Display.PICKER_TYPE_STRINGS);
+///
+/// datePicker.setDate(new Date());
+/// dateTimePicker.setDate(new Date());
+/// timePicker.setTime(10 * 60); // 10:00AM = Minutes since midnight
+/// stringPicker.setStrings("A Game of Thrones", "A Clash Of Kings", "A Storm Of Swords", "A Feast For Crows",
+///         "A Dance With Dragons", "The Winds of Winter", "A Dream of Spring");
+/// stringPicker.setSelectedString("A Game of Thrones");
+///
+/// hi.add(datePicker).add(dateTimePicker).add(timePicker).add(stringPicker);
+/// hi.show();
+/// ```
+///
+/// @author Shai Almog
+public class Picker extends Button {
+
+    /// Whether useLightweightPopup should default to true, this can be set via
+    /// the theme constant `lightweightPickerBool`
+    private static boolean defaultUseLightweightPopup;
+    private static boolean defaultLightweightModeSet;
+    private int type = Display.PICKER_TYPE_DATE;
+    private Object value = new Date();
+    private boolean showMeridiem;
+    private Object metaData;
+    private Object renderingPrototype = "XXXXXXXXXXXXXX";
+    private SimpleDateFormat formatter;
+    private int preferredPopupWidth;
+    private int preferredPopupHeight;
+    private int minuteStep = 5;
+    private int minHour = -1;
+    private int maxHour = -1;
+    private Date startDate;
+    private Date endDate;
+    private VirtualInputDevice currentInput;
+    /// Supplies the initial date shown by the picker when no explicit value has
+    /// been set via `setDate(Date)`. Resolved lazily each time the picker is
+    /// opened (or `getDate()` is called against an unset picker) so it can
+    /// depend on state that changes at runtime - e.g. a reminder picker whose
+    /// default tracks "one hour before the current due date" can keep returning
+    /// fresh values as the due date moves. Null means fall back to `new Date()`.
+    private DateGetter defaultDateGetter;
+    /// True once the picker's date has been pinned by an explicit `setDate(...)`
+    /// call (including `setDate(null)` to clear) or a successful user selection.
+    /// While false the picker treats `value` as a placeholder and prefers
+    /// `defaultDateGetter` (when set) as the displayed value, so callers can
+    /// install a default after construction and still see it take effect. Once
+    /// the caller has explicitly set a value - even `null` - `getDate()` returns
+    /// exactly that value; the default getter only continues to seed the popup
+    /// UI when the picker is opened with a `null` value. Issue #5024.
+    private boolean dateValueExplicitlySet;
+
+    // Variables to store the form's previous margins before showing
+    // the popup dialog so that we can restore them when the popup is disposed.
+    private byte[] tmpContentPaneMarginUnit;
+    private float tmpContentPaneBottomMargin;
+    /// Flag to indicate that the picker should prefer lightweight components
+    /// rather than native components.
+    private boolean useLightweightPopup;
+    private Runnable stopEditingCallback;
+    private boolean suppressPaint;
+    private final ArrayList<LightweightPopupButton> lightweightPopupButtons = new ArrayList<LightweightPopupButton>();
+    /// While the lightweight popup is on screen this points at the live spinner widget
+    /// so that setters propagate into the visible wheels and getters read the wheel
+    /// position. Null whenever the popup is not showing.
+    private InternalPickerWidget currentSpinner;
+    /// Container for `currentSpinner` while the lightweight popup is visible.
+    /// Public setters that stage a new live spinner value need to revalidate
+    /// this container so Spinner3D recalculates and paints the new wheel state.
+    private Container currentSpinnerContainer;
+    /// Snapshot of `value` taken right before the lightweight popup is shown.
+    /// Setter calls from custom popup buttons (e.g. a "+7 days" action that does
+    /// `setDate(getDate() + 7d)`) stage their result into `value`, but if the user
+    /// dismisses the popup with Cancel we roll `value` back to this snapshot so
+    /// `getDate()` returns what the picker held before editing began. Non-null only
+    /// while the popup is on screen.
+    private Object preEditValue;
+    /// Companion snapshot of `dateValueExplicitlySet` paired with `preEditValue`.
+    /// A custom popup button that calls `setDate(...)` flips the flag to true;
+    /// if the user then cancels we restore the original flag value so the next
+    /// open re-resolves the configured default getter instead of being stuck on
+    /// the staged date.
+    private boolean preEditDateValueExplicitlySet;
+
+    /// Functional interface that supplies the default `Date` to display when a
+    /// date-type picker is opened without an explicit value. Evaluated lazily
+    /// each time the default is needed so it can return a value that depends
+    /// on state that changes after the picker is constructed (e.g. "one hour
+    /// before the current due date").
+    ///
+    /// @see Picker#setDefaultDate(DateGetter)
+    /// @see Picker#setDefaultDate(Date)
+    public interface DateGetter {
+        /// Returns the default date the picker should show when no explicit
+        /// value has been set. Returning `null` falls back to the framework
+        /// default (`new Date()`).
+        Date get();
+    }
+
+    /// Placement options for custom lightweight popup buttons.
+    public static final class LightweightPopupButtonPlacement {
+        /// Place the custom button in the top button row between the `Cancel` and `Done` groups.
+        public static final int BETWEEN_CANCEL_AND_DONE = 0;
+        /// Place the custom button row directly above the spinner wheels.
+        public static final int ABOVE_SPINNER = 1;
+        /// Place the custom button row directly below the spinner wheels.
+        public static final int BELOW_SPINNER = 2;
+    }
+
+    private static final class LightweightPopupButton {
+        private final String text;
+        private final Runnable action;
+        private final int placement;
+        private final int alignment;
+
+        private LightweightPopupButton(String text, Runnable action, int placement, int alignment) {
+            this.text = text;
+            this.action = action;
+            this.placement = placement;
+            this.alignment = alignment;
+        }
+    }
+
+    /// Listener fired when a custom popup button is pressed. Static (rather than an anonymous
+    /// inner class) so it does not retain a reference to the enclosing `Picker`; the only
+    /// state it needs is the matching `LightweightPopupButton` whose `action` it invokes
+    /// and the spinner `Component` to refresh after the action runs. The spinner reference
+    /// is dropped along with the popup dialog so it does not outlive the editing session.
+    private static final class PopupButtonActionListener implements ActionListener {
+        private final LightweightPopupButton popupButton;
+        private final Container spinnerContainer;
+
+        private PopupButtonActionListener(LightweightPopupButton popupButton, Container spinnerContainer) {
+            this.popupButton = popupButton;
+            this.spinnerContainer = spinnerContainer;
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent evt) {
+            if (popupButton.action == null) {
+                return;
+            }
+            popupButton.action.run();
+            // Force a layout + repaint of the spinner so a setDate / setTime /
+            // setSelectedString / setDuration call inside the action propagates
+            // to the visible wheels. Spinner3D.setModel only flags the scroller
+            // as needing a new preferred size; on Android nothing else triggers
+            // the relayout, so the wheels stay stale until the user touches
+            // them. Issue #5019.
+            if (spinnerContainer != null) {
+                spinnerContainer.revalidate();
+                spinnerContainer.repaint();
+            }
+        }
+    }
+
+    private void refreshCurrentSpinnerContainer() {
+        if (currentSpinnerContainer != null) {
+            currentSpinnerContainer.revalidate();
+            currentSpinnerContainer.repaint();
+        } else if (currentSpinner instanceof Container) {
+            ((Container) currentSpinner).revalidate();
+            ((Container) currentSpinner).repaint();
+        } else if (currentSpinner instanceof Component) {
+            ((Component) currentSpinner).repaint();
+        }
+    }
+
+    /// Default constructor
+    public Picker() {
+        setUIIDFinal("Picker");
+        setPreferredTabIndex(0);
+
+        // Fixes iOS picker issue https://github.com/codenameone/CodenameOne/issues/3283
+        if (!defaultLightweightModeSet) {
+            defaultLightweightModeSet = true;
+            defaultUseLightweightPopup = "ios".equals(CN.getPlatformName());
+        }
+
+        if (!Display.getInstance().isNativePickerTypeSupported(Display.PICKER_TYPE_STRINGS)) {
+            // For platforms that don't support native pickers, we'll make lightweight mode
+            // the default.  This will result in these platforms using the new Spinner3D classes
+            // instead of the old Spinner classes
+            useLightweightPopup = true;
+        } else {
+            defaultUseLightweightPopup = getUIManager().isThemeConstant("lightweightPickerBool", defaultUseLightweightPopup);
+            useLightweightPopup = defaultUseLightweightPopup;
+        }
+        addActionListener(new ActionListener() {
+            private static final int COMMAND_DONE = 1;
+            private static final int COMMAND_NEXT = 2;
+            private static final int COMMAND_PREV = 3;
+            private static final int COMMAND_CANCEL = 4;
+
+            @Override
+            public void actionPerformed(ActionEvent evt) {
+                if (ignoreActionEvent(evt)) {
+                    // This was fired from the interaction dialog in lightweight mode
+                    // we don't want to re-handle it here.
+                    return;
+                }
+                if (isEditing()) {
+                    evt.consume();
+                    return;
+                }
+                // Snapshot the pre-tap state BEFORE applyDefaultDateIfNeeded()
+                // mutates `value`, so a Cancel can roll back to what the picker
+                // showed when the user tapped it (including a null placeholder
+                // that renders as "...") rather than to the just-staged default.
+                // The lightweight popup, native picker, and synchronous
+                // heavyweight Dialog branches below all use this snapshot - see
+                // the matching cancel-time restore in endEditing() (lightweight)
+                // and inline in this method (native + heavyweight). Issue #5014.
+                preEditValue = value;
+                preEditDateValueExplicitlySet = dateValueExplicitlySet;
+                // For date-type pickers that haven't been pinned with setDate, fold the
+                // resolved default into `value` before any show path reads it. Both
+                // showInteractionDialog() and the native/heavyweight branches below
+                // consume `value` directly, so a single priming step here is enough.
+                // The flag stays false so a Cancel that doesn't commit a new value
+                // still lets the next open re-resolve the default (useful when the
+                // getter returns a moving target like "due date - 1 hour").
+                applyDefaultDateIfNeeded();
+                // A picker inside a desktop window uses the lightweight popup even
+                // where a native one exists. Every native picker is attached to the
+                // application's main surface -- the Catalyst one sizes itself against
+                // the main scene's view -- so from a window it would open over the
+                // wrong window entirely. The lightweight popup is an InteractionDialog,
+                // which resolves its host from the component and lands in the right
+                // one.
+                boolean inWindow = getTopLevelContainer() instanceof com.codename1.ui.Window;
+                if ((useLightweightPopup || inWindow
+                        || !Display.getInstance().isNativePickerTypeSupported(type))
+                        && isLightweightModeSupportedForType(type)) {
+                    showInteractionDialog();
+                    evt.consume();
+                    return;
+                }
+
+                if (Display.getInstance().isNativePickerTypeSupported(type)) {
+
+                    switch (type) {
+                        case Display.PICKER_TYPE_DURATION:
+                        case Display.PICKER_TYPE_DURATION_HOURS:
+                        case Display.PICKER_TYPE_DURATION_MINUTES: {
+                            metaData = "minuteStep=" + minuteStep;
+                            break;
+                        }
+                        default:
+                            break;
+                    }
+
+                    setEnabled(false);
+                    Object val = Display.getInstance().showNativePicker(type, Picker.this, value, metaData);
+                    if (val != null) {
+                        value = val;
+                        markDateExplicitlySetIfDateType();
+                        updateValue();
+                    } else {
+                        // cancel pressed.   Don't send the rest of the events.
+                        // Roll back the default-date staging done before the
+                        // native picker was shown, otherwise a Cancel on the
+                        // first open of a setDefaultDate-configured picker
+                        // would pin today's date into `value`. Issue #5014.
+                        value = preEditValue;
+                        dateValueExplicitlySet = preEditDateValueExplicitlySet;
+                        updateValue();
+                        evt.consume();
+                    }
+                    preEditValue = null;
+                    preEditDateValueExplicitlySet = false;
+                    setEnabled(true);
+                } else {
+                    Dialog pickerDlg = new Dialog();
+                    // Framework chrome, never an operating system window: this popup is POSITIONED by the
+                    // framework, and native window mode documents those margins as ignored, so in a window
+                    // it comes out centred and loses the placement that is its whole point. See
+                    // TooltipManager for the full note.
+                    pickerDlg.setNativeWindowMode(false);
+                    pickerDlg.setDisposeWhenPointerOutOfBounds(true);
+                    pickerDlg.setLayout(new BorderLayout());
+                    Calendar cld = Calendar.getInstance();
+                    switch (type) {
+                        case Display.PICKER_TYPE_STRINGS: {
+                            GenericSpinner gs = new GenericSpinner();
+                            if (renderingPrototype != null) {
+                                gs.setRenderingPrototype((String) renderingPrototype);
+                            }
+                            String[] strArr = (String[]) metaData;
+                            gs.setModel(new DefaultListModel((Object[]) strArr));
+                            if (value != null) {
+                                int slen = strArr.length;
+                                for (int iter = 0; iter < slen; iter++) {
+                                    if (strArr[iter].equals(value)) {
+                                        gs.getModel().setSelectedIndex(iter);
+                                        break;
+                                    }
+                                }
+                            }
+                            if (showDialog(pickerDlg, gs)) {
+                                value = gs.getValue();
+                            } else {
+                                evt.consume();
+                            }
+                            break;
+                        }
+                        case Display.PICKER_TYPE_CALENDAR:
+                            showInteractionDialog();
+                            evt.consume();
+                            break;
+
+                        case Display.PICKER_TYPE_DATE: {
+                            DateSpinner ds = new DateSpinner();
+                            if (value == null) {
+                                cld.setTime(new Date());
+                            } else {
+                                cld.setTime((Date) value);
+                            }
+                            ds.setStartYear(UIManager.getInstance().getThemeConstant("pickerStartingDate", 1900));
+                            ds.setCurrentDay(cld.get(Calendar.DAY_OF_MONTH));
+                            ds.setCurrentMonth(cld.get(Calendar.MONTH) + 1);
+                            ds.setCurrentYear(cld.get(Calendar.YEAR));
+                            if (showDialog(pickerDlg, ds)) {
+
+                                cld.set(Calendar.DAY_OF_MONTH, ds.getCurrentDay());
+                                cld.set(Calendar.MONTH, ds.getCurrentMonth() - 1);
+                                cld.set(Calendar.YEAR, ds.getCurrentYear());
+                                value = cld.getTime();
+                                dateValueExplicitlySet = true;
+                            } else {
+                                // Roll back the default-date staging from
+                                // applyDefaultDateIfNeeded() so a Cancel on
+                                // an unset picker doesn't pin the default
+                                // into `value`. Issue #5014.
+                                value = preEditValue;
+                                dateValueExplicitlySet = preEditDateValueExplicitlySet;
+                                evt.consume();
+                            }
+                            preEditValue = null;
+                            preEditDateValueExplicitlySet = false;
+                            break;
+                        }
+                        case Display.PICKER_TYPE_TIME: {
+                            int v = ((Integer) value).intValue();
+                            int hour = v / 60;
+                            int minute = v % 60;
+                            TimeSpinner ts = new TimeSpinner();
+                            ts.setShowMeridiem(isShowMeridiem());
+                            if (showMeridiem && hour > 12) {
+                                ts.setCurrentMeridiem(true);
+                                ts.setCurrentHour(hour - 12);
+                            } else {
+                                ts.setCurrentHour(hour);
+                            }
+                            ts.setCurrentMinute(minute);
+                            if (showDialog(pickerDlg, ts)) {
+
+                                if (isShowMeridiem()) {
+                                    int offset = 0;
+                                    if (ts.getCurrentHour() == 12) {
+                                        if (!ts.isCurrentMeridiem()) {
+                                            offset = 12;
+                                        }
+                                    } else {
+                                        if (ts.isCurrentMeridiem()) {
+                                            offset = 12;
+                                        }
+                                    }
+                                    hour = ts.getCurrentHour() + offset;
+                                } else {
+                                    hour = ts.getCurrentHour();
+                                }
+                                value = Integer.valueOf(hour * 60 + ts.getCurrentMinute());
+                            } else {
+                                evt.consume();
+                            }
+                            break;
+                        }
+                        case Display.PICKER_TYPE_DATE_AND_TIME: {
+                            DateTimeSpinner dts = new DateTimeSpinner();
+                            cld.setTime((Date) value);
+                            dts.setCurrentDate((Date) value);
+                            dts.setShowMeridiem(isShowMeridiem());
+                            if (isShowMeridiem() && dts.isCurrentMeridiem()) {
+                                dts.setCurrentHour(cld.get(Calendar.HOUR));
+                            } else {
+                                dts.setCurrentHour(cld.get(Calendar.HOUR_OF_DAY));
+                            }
+                            dts.setCurrentMinute(cld.get(Calendar.MINUTE));
+                            if (showDialog(pickerDlg, dts)) {
+                                cld.setTime(dts.getCurrentDate());
+                                if (isShowMeridiem() && dts.isCurrentMeridiem()) {
+                                    cld.set(Calendar.AM_PM, Calendar.PM);
+                                    cld.set(Calendar.HOUR, dts.getCurrentHour());
+                                } else {
+                                    cld.set(Calendar.HOUR_OF_DAY, dts.getCurrentHour());
+                                }
+                                cld.set(Calendar.MINUTE, dts.getCurrentMinute());
+                                value = cld.getTime();
+                                dateValueExplicitlySet = true;
+                            } else {
+                                // Roll back the default-date staging from
+                                // applyDefaultDateIfNeeded() on Cancel.
+                                // Issue #5014.
+                                value = preEditValue;
+                                dateValueExplicitlySet = preEditDateValueExplicitlySet;
+                                evt.consume();
+                            }
+                            preEditValue = null;
+                            preEditDateValueExplicitlySet = false;
+                            break;
+                        }
+                        case Display.PICKER_TYPE_DURATION_HOURS:
+                        case Display.PICKER_TYPE_DURATION_MINUTES:
+                        case Display.PICKER_TYPE_DURATION: {
+                            long v = ((Long) value).longValue();
+                            int hour = (int) (v / 1000 / 60 / 60);
+                            int minute = (int) ((v / 1000 / 60) % 60);
+                            TimeSpinner ts = new TimeSpinner();
+                            ts.setDurationMode(true);
+                            if (type == Display.PICKER_TYPE_DURATION_HOURS) {
+                                ts.setMinutesVisible(false);
+                            } else if (type == Display.PICKER_TYPE_DURATION_MINUTES) {
+                                ts.setHoursVisible(false);
+                            }
+                            ts.setCurrentHour(hour);
+                            ts.setCurrentMinute(minute);
+                            ts.setMinuteStep(minuteStep);
+                            if (showDialog(pickerDlg, ts)) {
+
+                                value = Long.valueOf(ts.getCurrentHour() * 60L * 60 * 1000L +
+                                        ts.getCurrentMinute() * 60L * 1000L);
+                            } else {
+                                evt.consume();
+                            }
+                            break;
+                        }
+                        default:
+                            break;
+                    }
+                    updateValue();
+                }
+            }
+
+            private Spinner3D createStringPicker3D() {
+                Spinner3D out = new Spinner3D(new DefaultListModel<String>((String[]) metaData));
+                if (value != null) {
+                    out.setValue(value);
+                }
+                //out.refreshStyles();
+                return out;
+            }
+
+            private DateSpinner3D createDatePicker3D() {
+                DateSpinner3D out = new DateSpinner3D();
+                Date defaultValue = value == null ? new Date() : (Date) value;
+                if (startDate != null && endDate != null) {
+                    out.setDateRange(startDate, endDate);
+                    if (defaultValue.getTime() < startDate.getTime()) {
+                        defaultValue = startDate;
+                    }
+                    if (defaultValue.getTime() > endDate.getTime()) {
+                        defaultValue = startDate;
+                    }
+                } else if (startDate != null) {
+                    out.setDateRange(startDate, null);
+                    if (defaultValue.getTime() < startDate.getTime()) {
+                        defaultValue = startDate;
+                    }
+                } else if (endDate != null) {
+                    out.setDateRange(null, endDate);
+                    if (defaultValue.getTime() > endDate.getTime()) {
+                        defaultValue = endDate;
+                    }
+                }
+                if (value != null) {
+                    out.setValue(value);
+                } else {
+                    out.setValue(defaultValue);
+                }
+                return out;
+            }
+
+            private CalendarPicker createCalendarPicker() {
+
+                CalendarPicker out = new CalendarPicker();
+                if (value != null) {
+                    out.setValue(value);
+                } else {
+                    out.setValue(new Date());
+                }
+
+                return out;
+            }
+
+            private TimeSpinner3D createTimePicker3D() {
+                TimeSpinner3D out = new TimeSpinner3D(minuteStep);
+                out.setShowMeridiem(showMeridiem);
+                if (minHour >= 0 && minHour < 24 && maxHour > minHour) {
+                    out.setHourRange(minHour, maxHour);
+                }
+                if (value != null) {
+                    out.setValue(value);
+                } else {
+                    out.setValue(0);
+                }
+                return out;
+            }
+
+            private DateTimeSpinner3D createDateTimePicker3D() {
+                DateTimeSpinner3D out = new DateTimeSpinner3D(minuteStep);
+                out.setShowMeridiem(showMeridiem);
+                if (startDate != null) {
+                    out.setStartDate(startDate);
+                }
+                if (endDate != null) {
+                    out.setEndDate(endDate);
+                }
+                if (minHour >= 0 && minHour < 24 && maxHour > minHour) {
+                    out.setHourRange(minHour, maxHour);
+                }
+                if (value != null) {
+                    out.setValue(value);
+                } else {
+                    out.setValue(new Date());
+                }
+                return out;
+            }
+
+            private DurationSpinner3D createDurationPicker3D() {
+                DurationSpinner3D out = new DurationSpinner3D(
+                        type == Display.PICKER_TYPE_DURATION_MINUTES ? DurationSpinner3D.FIELD_MINUTE :
+                                type == Display.PICKER_TYPE_DURATION_HOURS ? DurationSpinner3D.FIELD_HOUR :
+                                        DurationSpinner3D.FIELD_HOUR | DurationSpinner3D.FIELD_MINUTE,
+                        minuteStep
+                );
+                if (value != null) {
+                    out.setValue(value);
+                } else {
+                    out.setValue(0);
+                }
+                return out;
+            }
+
+            private void endEditing(int command, InteractionDialog dlg, InternalPickerWidget spinner) {
+                currentInput = null;
+                if (currentSpinner == spinner) { //NOPMD CompareObjectsWithEquals
+                    // Clear before reading so external action listeners triggered by
+                    // fireActionEvent see getDate() return the just-committed value
+                    // rather than the (about-to-disappear) wheel state.
+                    currentSpinner = null;
+                    currentSpinnerContainer = null;
+                }
+                restoreContentPane();
+                if (command == COMMAND_CANCEL) {
+                    // Roll back any setX calls made while the popup was showing
+                    // (e.g. a custom "+7 days" button) so getDate() returns the
+                    // value the picker held before editing began.
+                    value = preEditValue;
+                    // Pair the rollback with the flag snapshot so a Cancel after a
+                    // setDate-firing custom button doesn't permanently pin the
+                    // date and silence future default-getter resolutions.
+                    dateValueExplicitlySet = preEditDateValueExplicitlySet;
+                    preEditValue = null;
+                    preEditDateValueExplicitlySet = false;
+                    updateValue();
+                    dlg.disposeToTheBottom();
+                } else {
+                    preEditValue = null;
+                    preEditDateValueExplicitlySet = false;
+                    value = spinner.getValue();
+                    markDateExplicitlySetIfDateType();
+                    updateValue();
+                    // (x, y) = (-99, -99) signals the built-in action listner
+                    // to ignore this event and just propagage it to external
+                    // listeners.  See ignoreActionEvent(ActionEvent)
+                    fireActionEvent(-99, -99);
+
+                    Component next = null;
+                    // Through the tab iterator rather than Form's getNextComponent /
+                    // getPreviousComponent: those are Form-only, but they are defined
+                    // as exactly this call, and getTabIterator is on TopLevelContainer.
+                    // Resolving a Form here left the Next and Previous buttons visible
+                    // in a window and doing nothing but closing the popup.
+                    TopLevelContainer f = getTopLevelContainer();
+                    if (f != null && Picker.this.isTraversable()) {
+                        if (command == COMMAND_NEXT) {
+                            next = f.getTabIterator(Picker.this).getNext();
+                        } else if (command == COMMAND_PREV) {
+                            next = f.getTabIterator(Picker.this).getPrevious();
+                        }
+                    }
+                    final Component nextToEdit = next;
+                    if (nextToEdit != null) {
+                        // Defer focus/edit until dispose completes so the next native editor
+                        // (e.g. Android EditText overlay) is positioned against the restored
+                        // content-pane geometry, not the picker's transient layout.
+                        dlg.disposeToTheBottom(new Runnable() {
+                            @Override
+                            public void run() {
+                                nextToEdit.requestFocus();
+                                nextToEdit.startEditingAsync();
+                            }
+                        });
+                    } else {
+                        dlg.disposeToTheBottom();
+                    }
+                }
+            }
+
+            private void showInteractionDialog() {
+                boolean isTablet = Display.getInstance().isTablet();
+                final InternalPickerWidget spinner;
+                switch (type) {
+                    case Display.PICKER_TYPE_STRINGS:
+                        spinner = createStringPicker3D();
+                        break;
+                    case Display.PICKER_TYPE_CALENDAR:
+                        spinner = createCalendarPicker();
+                        break;
+                    case Display.PICKER_TYPE_DATE:
+                        spinner = createDatePicker3D();
+                        break;
+                    case Display.PICKER_TYPE_TIME:
+                        spinner = createTimePicker3D();
+                        break;
+                    case Display.PICKER_TYPE_DATE_AND_TIME:
+                        spinner = createDateTimePicker3D();
+                        break;
+                    case Display.PICKER_TYPE_DURATION:
+                    case Display.PICKER_TYPE_DURATION_HOURS:
+                    case Display.PICKER_TYPE_DURATION_MINUTES:
+                        spinner = createDurationPicker3D();
+                        break;
+                    default:
+                        throw new IllegalArgumentException("Unsupported picker type " + type);
+                }
+                currentSpinner = spinner;
+                // The Cancel-restore snapshot (`preEditValue` /
+                // `preEditDateValueExplicitlySet`) is taken in the parent
+                // actionPerformed() *before* applyDefaultDateIfNeeded() runs,
+                // so it reflects the state the picker had when the user
+                // tapped it - not the post-default-staging `value`. Custom
+                // popup buttons that stage via setDate / setTime /
+                // setDuration / setSelectedString continue to be rolled back
+                // by endEditing(COMMAND_CANCEL) the same way. Issues #4897,
+                // #5014.
+                final InteractionDialog dlg = new InteractionDialog() {
+
+                    ActionListener keyListener;
+                    /// The top level the Tab listener was added to, kept so it is
+                    /// removed from that one rather than from whatever resolves later.
+                    TopLevelContainer keyListenerHost;
+
+                    @Override
+                    protected void initComponent() {
+                        final InteractionDialog self = this;
+                        super.initComponent();
+                        if (keyListener == null) {
+                            keyListener = new ActionListener() {
+
+                                @Override
+                                public void actionPerformed(ActionEvent evt) {
+                                    if (Display.getInstance().isShiftKeyDown()) {
+                                        endEditing(COMMAND_PREV, self, spinner);
+                                    } else {
+                                        endEditing(COMMAND_NEXT, self, spinner);
+                                    }
+
+                                }
+
+                            };
+                        }
+                        {
+                            keyListenerHost = getTopLevelContainer();
+                            if (keyListenerHost != null) {
+                                keyListenerHost.addKeyListener(9, keyListener);
+                            }
+                        }
+                    }
+
+                    @Override
+                    protected void deinitialize() {
+                        // Removed from the very top level it was added to. Resolving it
+                        // again here found a Form -- null in a window, then falling back
+                        // to the current form, which never had the listener -- so after
+                        // the picker was dismissed every Tab release still ran
+                        // endEditing() against the stale dialog and spinner.
+                        if (keyListenerHost != null && keyListener != null) {
+                            keyListenerHost.removeKeyListener(9, keyListener);
+                            keyListenerHost = null;
+                        }
+                        super.deinitialize();
+                    }
+
+
+                };
+                // Framework chrome, never an operating system window. This one is placed by
+                // hand -- setX/setY/setWidth/setHeight below, then show(top, bottom, left,
+                // right) -- and native window mode documents exactly those margins as
+                // ignored, so in a window the popup comes out centred and every placement
+                // variant collapses onto the same picture. Measured on the Windows port
+                // before this line existed: LightweightPickerButtons captured two of its
+                // four placements, the two it did capture were byte-identical, and the
+                // suite then timed out waiting for the other two.
+                dlg.setNativeWindowMode(false);
+                dlg.setOwner(Picker.this);
+                //dlg.setFormMode(!isTablet);
+                ComponentSelector.select("DialogTitle", dlg).getParent().setPadding(0).setMargin(0).setBorder(Border.createEmpty());
+                Component titleComponent = dlg.getTitleComponent();
+                // setVisible(false) only suppresses painting, it doesn't free the layout space. When the
+                // DialogTitle UIID has a border (e.g. a CSS border-radius) the border's minimum size is still
+                // allocated above the spinner, so setHidden(true) is required to truly collapse the title area.
+                titleComponent.setHidden(true);
+                titleComponent.setVisible(false);
+                ComponentSelector.select(titleComponent).setPadding(0).setMargin(0);
+                dlg.setUIID(isTablet ? "PickerDialogTablet" : "PickerDialog");
+                dlg.getUnselectedStyle().setBgColor(new Label("", "Spinner3DOverlay").getUnselectedStyle().getBgColor());
+                dlg.getUnselectedStyle().setBgTransparency(255);
+                if (isTablet) {
+
+                    dlg.getUnselectedStyle().setBorder(RoundRectBorder.create().cornerRadius(2f));
+
+                }
+
+                dlg.getContentPane().setLayout(new BorderLayout());
+
+                String dlgUiid = isTablet ? "PickerDialogContentTablet" : "PickerDialogContent";
+                dlg.getContentPane().setUIID(dlgUiid);
+                dlg.getContentPane().getUnselectedStyle().setBgColor(new Label("", "Spinner3DOverlay").getUnselectedStyle().getBgColor());
+
+
+                final Component spinnerC;
+
+
+                spinnerC = (Component) spinner;
+                Container wrapper = BorderLayout.center(spinnerC);
+                ComponentSelector.select(wrapper).addTags("SpinnerWrapper");
+                ComponentSelector.select(wrapper).selectAllStyles()
+                        .setBorder(Border.createEmpty())
+                        .setBgTransparency(0)
+                        .setMargin(0)
+                        .setPaddingMillimeters(3f, 0);
+                final Container spinnerContainer = spinnerC instanceof Container ? (Container) spinnerC : null;
+                currentSpinnerContainer = spinnerContainer;
+                Container topCustomButtons = createLightweightPopupButtonRow(LightweightPopupButtonPlacement.ABOVE_SPINNER, isTablet, spinnerContainer);
+                Container bottomCustomButtons = createLightweightPopupButtonRow(LightweightPopupButtonPlacement.BELOW_SPINNER, isTablet, spinnerContainer);
+                if (topCustomButtons != null || bottomCustomButtons != null) {
+                    Container spinnerSection = new Container(new BorderLayout());
+                    spinnerSection.add(BorderLayout.CENTER, wrapper);
+                    if (topCustomButtons != null) {
+                        spinnerSection.add(BorderLayout.NORTH, topCustomButtons);
+                    }
+                    if (bottomCustomButtons != null) {
+                        spinnerSection.add(BorderLayout.SOUTH, bottomCustomButtons);
+                    }
+                    dlg.getContentPane().add(BorderLayout.CENTER, spinnerSection);
+                } else {
+                    dlg.getContentPane().add(BorderLayout.CENTER, wrapper);
+                }
+
+
+                Button doneButton = new Button("Done", isTablet ? "PickerButtonTablet" : "PickerButton");
+                doneButton.addActionListener(new ActionListener() {
+
+                    @Override
+                    public void actionPerformed(ActionEvent evt) {
+                        endEditing(COMMAND_DONE, dlg, spinner);
+
+
+                    }
+
+                });
+                Button cancelButton = new Button("Cancel", isTablet ? "PickerButtonTablet" : "PickerButton");
+                cancelButton.addActionListener(new ActionListener() {
+
+                    @Override
+                    public void actionPerformed(ActionEvent evt) {
+                        endEditing(COMMAND_CANCEL, dlg, spinner);
+
+
+                    }
+
+                });
+
+                Button nextButton = null;
+                //final Component nextComponent = getNextFocusRight() != null ? getNextFocusRight() :
+                //        getNextFocusDown() != null ? getNextFocusDown() :
+                //        null;
+                TopLevelContainer tabTop = getTopLevelContainer();
+                ListIterator<Component> traversalIt = tabTop == null
+                        ? null : tabTop.getTabIterator(Picker.this);
+                if (Picker.this.isTraversable() && traversalIt.hasNext()) {
+                    nextButton = new Button("", isTablet ? "PickerButtonTablet" : "PickerButton");
+                    // Javascript port needs to know that this button is going to try to
+                    // focus a text field (possibly) so that it can prepare the text field
+                    // in the native event handler.  We use this client property to let it know... it
+                    // will handle the rest.
+                    nextButton.putClientProperty("$$focus", ((Form.TabIterator) traversalIt).getNext());
+                    FontImage.setMaterialIcon(nextButton, FontImage.MATERIAL_KEYBOARD_ARROW_DOWN);
+                    nextButton.addActionListener(new ActionListener() {
+
+                        @Override
+                        public void actionPerformed(ActionEvent evt) {
+                            endEditing(COMMAND_NEXT, dlg, spinner);
+
+                        }
+
+                    });
+                }
+
+                Button prevButton = null;
+
+                if (Picker.this.isTraversable() && traversalIt.hasPrevious()) {
+                    prevButton = new Button("", isTablet ? "PickerButtonTablet" : "PickerButton");
+
+                    // Javascript port needs to know that this button is going to try to
+                    // focus a text field (possibly) so that it can prepare the text field
+                    // in the native event handler.  We use this client property to let it know... it
+                    // will handle the rest.
+                    prevButton.putClientProperty("$$focus", ((Form.TabIterator) traversalIt).getPrevious());
+                    FontImage.setMaterialIcon(prevButton, FontImage.MATERIAL_KEYBOARD_ARROW_UP);
+                    prevButton.addActionListener(new ActionListener() {
+
+                        @Override
+                        public void actionPerformed(ActionEvent evt) {
+                            endEditing(COMMAND_PREV, dlg, spinner);
+
+                        }
+
+                    });
+                }
+
+
+                Container west = new Container(BoxLayout.x());
+                $(west).selectAllStyles().setMargin(0).setPadding(0).setBorder(Border.createEmpty()).setBgTransparency(0);
+                west.add(cancelButton);
+                if (prevButton != null) {
+                    west.add(prevButton);
+                }
+                if (nextButton != null) {
+                    west.add(nextButton);
+                }
+
+                Container centerButtons = createLightweightPopupButtonRow(LightweightPopupButtonPlacement.BETWEEN_CANCEL_AND_DONE, isTablet, spinnerContainer);
+                Container buttonBar = BorderLayout.centerEastWest(centerButtons, doneButton, west);
+                buttonBar.setUIID(isTablet ? "PickerButtonBarTablet" : "PickerButtonBar");
+                dlg.getContentPane().add(BorderLayout.NORTH, buttonBar);
+
+                // Through the top level. This used to insist on a Form, because the
+                // popup is an InteractionDialog and that was unsupported inside a
+                // Window -- so a picker in a window threw rather than opening over the
+                // wrong surface. InteractionDialog now takes an explicit host, so the
+                // reason for refusing is gone and a picker works in a window like any
+                // other component.
+                TopLevelContainer form = getTopLevelContainer();
+                if (form == null) {
+                    throw new RuntimeException("Attempt to show interaction dialog while button is not on form.  Illegal state");
+                }
+                dlg.setTopLevelHost(form);
+
+                // The popup is anchored to the very bottom of the screen, so on devices with a
+                // bottom inset (e.g. the iPhone home indicator) its bottom-most row would be drawn
+                // underneath the inset. Reserve that inset as bottom padding so the whole popup stays
+                // inside the safe area. When BELOW_SPINNER custom buttons exist the padding goes on
+                // their bar (so the bar's background extends through the inset and the buttons remain
+                // tappable above it); otherwise it goes on the content pane. See issue #5152.
+                Rectangle safeArea = form.getSafeArea();
+                // Measured against the surface the popup sits on, not the display: in
+                // a window those differ, and the inset would be computed from the
+                // wrong height.
+                int hostHeight = form instanceof com.codename1.ui.Window
+                        ? form.asContainer().getHeight()
+                        : Display.getInstance().getDisplayHeight();
+                int hostWidth = form instanceof com.codename1.ui.Window
+                        ? form.asContainer().getWidth()
+                        : Display.getInstance().getDisplayWidth();
+                int bottomInset = hostHeight - (safeArea.getY() + safeArea.getHeight());
+                if (bottomInset > 0) {
+                    Container insetTarget = bottomCustomButtons != null ? bottomCustomButtons : dlg.getContentPane();
+                    Style insetStyle = insetTarget.getAllStyles();
+                    insetStyle.setPaddingUnitBottom(Style.UNIT_TYPE_PIXELS);
+                    insetStyle.setPaddingBottom(insetTarget.getStyle().getPaddingBottom() + bottomInset);
+                }
+
+                final int top = Math.max(0, form.getContentPane().getHeight() - dlg.getPreferredH());
+                if (top == 0) {
+                    wrapper.getUnselectedStyle().setPaddingTop(0);
+                    wrapper.getUnselectedStyle().setPaddingBottom(0);
+                }
+                final int left = 0;
+                final int right = 0;
+                final int bottom = 0;
+                // The host's geometry, not the display's. Reposition animation is off,
+                // so these are the popup's starting bounds: taken from the display, a
+                // window of a different size got a bottom sheet that was the wrong
+                // width and started its slide from the wrong place.
+                dlg.setWidth(hostWidth);
+                dlg.setHeight(dlg.getPreferredH());
+                dlg.setY(hostHeight);
+                dlg.setX(0);
+                dlg.setRepositionAnimation(false);
+                registerAsInputDevice(dlg, spinner);
+                if (Display.getInstance().isTablet()) {
+                    getAnimationManager().flushAnimation(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            dlg.showPopupDialog(Picker.this);
+                        }
+
+                    });
+
+                } else {
+                    getAnimationManager().flushAnimation(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            dlg.show(top, bottom, left, right);
+                            padContentPane(top);
+                        }
+
+                    });
+
+                }
+
+            }
+
+
+            private boolean showDialog(Dialog pickerDlg, Component c) {
+                pickerDlg.addComponent(BorderLayout.CENTER, c);
+                Button ok = new Button(new Command("OK"));
+                final boolean[] userCanceled = new boolean[1];
+                Button cancel = new Button(new Command("Cancel") {
+                    @Override
+                    public void actionPerformed(ActionEvent evt) {
+                        userCanceled[0] = true;
+                        super.actionPerformed(evt);
+                    }
+                });
+                Container buttons = GridLayout.encloseIn(2, cancel, ok);
+                pickerDlg.addComponent(BorderLayout.SOUTH, buttons);
+                if (Display.getInstance().isTablet()) {
+                    pickerDlg.showPopupDialog(Picker.this);
+                } else {
+                    pickerDlg.show();
+                }
+                return !userCanceled[0];
+            }
+        });
+        updateValue();
+    }
+
+    private Container createLightweightPopupButtonRow(int placement, boolean isTablet, Container spinnerContainer) {
+        Container left = null;
+        Container center = null;
+        Container right = null;
+        for (LightweightPopupButton entry : lightweightPopupButtons) {
+            if (entry.placement != placement) {
+                continue;
+            }
+            Button button = new Button(entry.text, isTablet ? "PickerButtonTablet" : "PickerButton");
+            button.addActionListener(new PopupButtonActionListener(entry, spinnerContainer));
+            switch (entry.alignment) {
+                case Component.CENTER:
+                    if (center == null) {
+                        // FlowLayout(CENTER) so the buttons actually center inside
+                        // the BorderLayout.CENTER slot below; BoxLayout.x() would
+                        // pack them at the slot's left edge, which is the bug from
+                        // https://github.com/codenameone/CodenameOne/issues/4819.
+                        center = new Container(new FlowLayout(Component.CENTER, Component.CENTER));
+                        $(center).selectAllStyles().setMargin(0).setPadding(0).setBorder(Border.createEmpty()).setBgTransparency(0);
+                    }
+                    center.add(button);
+                    break;
+                case Component.RIGHT:
+                    if (right == null) {
+                        right = new Container(BoxLayout.x());
+                        $(right).selectAllStyles().setMargin(0).setPadding(0).setBorder(Border.createEmpty()).setBgTransparency(0);
+                    }
+                    right.add(button);
+                    break;
+                default:
+                    if (left == null) {
+                        left = new Container(BoxLayout.x());
+                        $(left).selectAllStyles().setMargin(0).setPadding(0).setBorder(Border.createEmpty()).setBgTransparency(0);
+                    }
+                    left.add(button);
+                    break;
+            }
+        }
+        if (left == null && center == null && right == null) {
+            return null;
+        }
+        Container row = BorderLayout.centerEastWest(center, right, left);
+        row.setUIID(isTablet ? "PickerButtonBarTablet" : "PickerButtonBar");
+        $(row).selectAllStyles().setMargin(0).setPadding(0).setBorder(Border.createEmpty()).setBgTransparency(0);
+        return row;
+    }
+
+    /// Adds a custom button to the lightweight picker popup in the default placement
+    /// between the `Cancel` and `Done` areas.
+    ///
+    /// #### Parameters
+    ///
+    /// - `text`: Button label.
+    /// - `action`: Action to run when the button is pressed.
+    public void addLightweightPopupButton(String text, Runnable action) {
+        addLightweightPopupButton(text, action, LightweightPopupButtonPlacement.BETWEEN_CANCEL_AND_DONE);
+    }
+
+    /// Adds a custom button to the lightweight picker popup with the default
+    /// `Component#LEFT` alignment.
+    ///
+    /// #### Parameters
+    ///
+    /// - `text`: Button label.
+    /// - `action`: Action to run when the button is pressed.
+    /// - `placement`: One of `LightweightPopupButtonPlacement#BETWEEN_CANCEL_AND_DONE`,
+    ///   `LightweightPopupButtonPlacement#ABOVE_SPINNER`, or `LightweightPopupButtonPlacement#BELOW_SPINNER`.
+    public void addLightweightPopupButton(String text, Runnable action, int placement) {
+        addLightweightPopupButton(text, action, placement, Component.LEFT);
+    }
+
+    /// Adds a custom button to the lightweight picker popup at a specific
+    /// horizontal alignment within its row. Buttons that share the same
+    /// `placement` and `alignment` are packed in declaration order; mixing
+    /// alignments lets you put some buttons on the left and others on the
+    /// right of the same row.
+    ///
+    /// #### Parameters
+    ///
+    /// - `text`: Button label.
+    /// - `action`: Action to run when the button is pressed.
+    /// - `placement`: One of `LightweightPopupButtonPlacement#BETWEEN_CANCEL_AND_DONE`,
+    ///   `LightweightPopupButtonPlacement#ABOVE_SPINNER`, or `LightweightPopupButtonPlacement#BELOW_SPINNER`.
+    /// - `alignment`: One of `Component#LEFT`, `Component#CENTER`, or `Component#RIGHT`.
+    public void addLightweightPopupButton(String text, Runnable action, int placement, int alignment) {
+        lightweightPopupButtons.add(new LightweightPopupButton(text, action, placement, alignment));
+    }
+
+    /// Removes all custom lightweight popup buttons that were previously added with
+    /// `#addLightweightPopupButton`.
+    public void clearLightweightPopupButtons() {
+        lightweightPopupButtons.clear();
+    }
+
+    /// Returns an immutable list of custom button labels currently configured for
+    /// the lightweight popup.
+    public List<String> getLightweightPopupButtonLabels() {
+        ArrayList<String> out = new ArrayList<String>();
+        for (LightweightPopupButton b : lightweightPopupButtons) {
+            out.add(b.text);
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    /// Whether useLightweightPopup should default to true, this can be set via
+    /// the theme constant `lightweightPickerBool`
+    ///
+    /// #### Returns
+    ///
+    /// the defaultUseLightweightPopup
+    public static boolean isDefaultUseLightweightPopup() {
+        return defaultUseLightweightPopup;
+    }
+
+    /// Whether useLightweightPopup should default to true, this can be set via
+    /// the theme constant `lightweightPickerBool`
+    ///
+    /// #### Parameters
+    ///
+    /// - `aDefaultUseLightweightPopup`: the defaultUseLightweightPopup to set
+    public static void setDefaultUseLightweightPopup(
+            boolean aDefaultUseLightweightPopup) {
+        defaultLightweightModeSet = true;
+        defaultUseLightweightPopup = aDefaultUseLightweightPopup;
+    }
+
+    /// Checks if the given type is supported in LightWeight mode.
+    ///
+    /// #### Parameters
+    ///
+    /// - `type`: The type.  Expects one of the Display.PICKER_XXX constants.
+    ///
+    /// #### Returns
+    ///
+    /// True if the given type is supported in lightweight mode.
+    private static boolean isLightweightModeSupportedForType(int type) {
+        switch (type) {
+            case Display.PICKER_TYPE_STRINGS:
+            case Display.PICKER_TYPE_DATE:
+            case Display.PICKER_TYPE_TIME:
+            case Display.PICKER_TYPE_DATE_AND_TIME:
+            case Display.PICKER_TYPE_DURATION:
+            case Display.PICKER_TYPE_DURATION_HOURS:
+            case Display.PICKER_TYPE_DURATION_MINUTES:
+            case Display.PICKER_TYPE_CALENDAR:
+                return true;
+            default:
+                break;
+        }
+        return false;
+    }
+
+    /// Sets the hour range for this picker.  Only applicable for types `Display#PICKER_TYPE_DATE_AND_TIME` and `Display#PICKER_TYPE_TIME`.
+    /// Also, only applicable to lightweight picker (i.e. `#isUseLightweightPopup()` == true.
+    ///
+    /// #### Parameters
+    ///
+    /// - `min`: The minimum hour to display (0-24) or -1 for no limit.
+    ///
+    /// - `max`: The maximum hour to display (0-24) or -1 for no limit
+    ///
+    /// #### See also
+    ///
+    /// - #getMinHour()
+    ///
+    /// - #getMaxHour()
+    public void setHourRange(int min, int max) {
+        if (showMeridiem && min >= 0 && min <= 24 && max > min) {
+            setShowMeridiem(false);
+        }
+        minHour = min;
+        maxHour = max;
+    }
+
+    /// Gets the minimum hour to show for time and datetime pickers.  Only applicable for types `Display#PICKER_TYPE_DATE_AND_TIME` and `Display#PICKER_TYPE_TIME`.
+    /// Also, only applicable to lightweight picker (i.e. `#isUseLightweightPopup()` == true.
+    ///
+    /// #### Returns
+    ///
+    /// The minimum hour.  0-24, or -1 for no limit.
+    ///
+    /// #### See also
+    ///
+    /// - #getMaxHour()
+    ///
+    /// - #setHourRange(int, int)
+    public int getMinHour() {
+        return minHour;
+    }
+
+    /// Gets the minimum hour to show for time and datetime pickers.  Only applicable for types `Display#PICKER_TYPE_DATE_AND_TIME` and `Display#PICKER_TYPE_TIME`.
+    /// Also, only applicable to lightweight picker (i.e. `#isUseLightweightPopup()` == true.
+    ///
+    /// #### Returns
+    ///
+    /// The minimum hour.  0-24, or -1 for no limit.
+    ///
+    /// #### See also
+    ///
+    /// - #getMinHour()
+    ///
+    /// - #setHourRange(int, int)
+    public int getMaxHour() {
+        return maxHour;
+    }
+
+    /// Gets the start date of the picker. Only applicable for types `Display#PICKER_TYPE_DATE_AND_TIME` and `Display#PICKER_TYPE_DATE`.
+    /// Also, only applicable to lightweight picker (i.e. `#isUseLightweightPopup()` == true.
+    ///
+    /// #### Returns
+    ///
+    /// @return The start date or null if there is none set.
+    ///
+    /// This does not apply to the time.  Only the date.  You can set the hour range using `int)`.
+    ///
+    /// #### See also
+    ///
+    /// - #getEndDate()
+    ///
+    /// - #setStartDate(java.util.Date)
+    ///
+    /// - #getMinHour()
+    public Date getStartDate() {
+        return this.startDate;
+    }
+
+    /// Sets the start date of the picker. Only applicable for types `Display#PICKER_TYPE_DATE_AND_TIME` and `Display#PICKER_TYPE_DATE`.
+    /// Also, only applicable to lightweight picker (i.e. `#isUseLightweightPopup()` == true.
+    ///
+    /// This does not affect the time.  Only the date.  You can set the hour range using `int)`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `start`: The start date.
+    ///
+    /// #### See also
+    ///
+    /// - #getStartDate()
+    ///
+    /// - #setEndDate(java.util.Date)
+    public void setStartDate(Date start) {
+        this.startDate = start;
+    }
+
+    /// Gets the end date of the picker. Only applicable for types `Display#PICKER_TYPE_DATE_AND_TIME` and `Display#PICKER_TYPE_DATE`.
+    /// Also, only applicable to lightweight picker (i.e. `#isUseLightweightPopup()` == true.
+    ///
+    /// #### Returns
+    ///
+    /// @return The end date or null if there is none set.
+    ///
+    /// This does not apply to the time.  Only the date.  You can set the hour range using `int)`.
+    ///
+    /// #### See also
+    ///
+    /// - #getStartDate()
+    ///
+    /// - #setEndDate(java.util.Date)
+    ///
+    /// - #getMaxHour()
+    public Date getEndDate() {
+        return this.endDate;
+    }
+
+    /// Sets the end date of the picker. Only applicable for types `Display#PICKER_TYPE_DATE_AND_TIME` and `Display#PICKER_TYPE_DATE`.
+    /// Also, only applicable to lightweight picker (i.e. `#isUseLightweightPopup()` == true.
+    ///
+    /// This does not affect the time.  Only the date.  You can set the hour range using `int)`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `end`: The end date.
+    ///
+    /// #### See also
+    ///
+    /// - #setStartDate(java.util.Date)
+    ///
+    /// - #getEndDate()
+    public void setEndDate(Date end) {
+        this.endDate = end;
+    }
+
+    /// Checks if this picker is in lightweight mode.  If this returns true, then the
+    /// picker will use cross-platform lightweight widgets instead of native widgets.
+    public boolean isUseLightweightPopup() {
+        return useLightweightPopup;
+    }
+
+    /// Sets the picker to use lightweight mode for its widgets.  With this mode enabled
+    /// the picker will use cross-platform lightweight widgets instead of native widgets.
+    ///
+    /// #### Parameters
+    ///
+    /// - `useLightweightPopup`
+    public void setUseLightweightPopup(boolean useLightweightPopup) {
+        this.useLightweightPopup = useLightweightPopup;
+    }
+
+    /// Check to see if the built-in action listener should ignore a given
+    /// action event.  This allows us to propagate action events
+    /// out of the Picker as opposed to detecting clicks on the picker button.
+    ///
+    /// #### Parameters
+    ///
+    /// - `evt`
+    private boolean ignoreActionEvent(ActionEvent evt) {
+        return evt.getX() == -99 && evt.getY() == -99;
+    }
+
+    @Override
+    public void startEditingAsync() {
+        fireActionEvent(-1, -1);
+    }
+
+    @Override
+    public void stopEditing(Runnable onFinish) {
+        stopEditingCallback = onFinish;
+        // Through the top level, as registerAsInputDevice registers it: resolving a
+        // Form here found nothing in a window, so stopEditing() did not close the
+        // picker and never ran its callback.
+        TopLevelContainer f = this.getTopLevelContainer();
+        if (f != null) {
+            if (f.getCurrentInputDevice() == currentInput) { //NOPMD CompareObjectsWithEquals
+                try {
+                    f.setCurrentInputDevice(null);
+                } catch (Throwable t) {
+                    Log.e(t);
+                }
+            }
+        }
+    }
+
+    @Override
+    public boolean isEditing() {
+        TopLevelContainer f = this.getTopLevelContainer();
+        return currentInput != null && f != null && f.getCurrentInputDevice() == currentInput; //NOPMD CompareObjectsWithEquals
+    }
+
+    @Override
+    public boolean isEditable() {
+        return isUseLightweightPopup();
+    }
+
+    /// Returns the type of the picker
+    ///
+    /// #### Returns
+    ///
+    /// @return one of Display.PICKER_TYPE_DATE, Display.PICKER_TYPE_DATE_AND_TIME, Display.PICKER_TYPE_STRINGS,
+    /// Display.PICKER_TYPE_DURATION, Display.PICKER_TYPE_DURATION_HOURS, Display.PICKER_TYPE_DURATION_MINUTES, or
+    /// Display.PICKER_TYPE_TIME
+    public int getType() {
+        return type;
+    }
+
+    /// Sets the type of the picker to one of Display.PICKER_TYPE_DATE, Display.PICKER_TYPE_DATE_AND_TIME, Display.PICKER_TYPE_STRINGS,
+    /// Display.PICKER_TYPE_DURATION, Display.PICKER_TYPE_DURATION_HOURS, Display.PICKER_TYPE_DURATION_MINUTES or
+    /// Display.PICKER_TYPE_TIME
+    ///
+    /// #### Parameters
+    ///
+    /// - `type`: the type
+    public void setType(int type) {
+        this.type = type;
+        switch (type) {
+            case Display.PICKER_TYPE_DATE:
+            case Display.PICKER_TYPE_DATE_AND_TIME:
+                if (!(value instanceof Date)) {
+                    // Switching from a non-date type drops whatever date the
+                    // user pinned earlier, so clear the "explicit" flag too -
+                    // a subsequent open should honor `defaultDateGetter` again.
+                    value = new Date();
+                    dateValueExplicitlySet = false;
+                }
+                break;
+            case Display.PICKER_TYPE_STRINGS:
+                if (value == null ||
+                        (!Util.instanceofObjArray(value) && !(value instanceof String[]))) {
+                    setStrings(" ");
+                }
+                break;
+            case Display.PICKER_TYPE_TIME:
+                if (!(value instanceof Integer)) {
+                    setTime(0);
+                }
+                break;
+            case Display.PICKER_TYPE_DURATION:
+            case Display.PICKER_TYPE_DURATION_HOURS:
+            case Display.PICKER_TYPE_DURATION_MINUTES:
+
+                if (!(value instanceof Long)) {
+                    setDuration(0L);
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    /// Returns the value currently visible to the user: the live spinner wheel value while
+    /// the lightweight popup is showing, otherwise the committed `value` field.
+    private Object currentValue() {
+        if (currentSpinner != null) {
+            return currentSpinner.getValue();
+        }
+        return value;
+    }
+
+    /// Returns the date, this value is used both for type date/date and time. Notice that this
+    /// value isn't used for time.
+    ///
+    /// While the lightweight popup is on screen this returns the value visible on the scroll
+    /// wheels (which only becomes the committed value once the user presses Done), so a custom
+    /// popup button can read it to compute a relative date. The native picker does not expose
+    /// the in-progress wheel state, so while a native picker is on screen this still returns
+    /// the last committed value.
+    ///
+    /// #### Returns
+    ///
+    /// the date object
+    public Date getDate() {
+        // If the popup is showing, the live wheel position wins regardless of
+        // whether a default is configured - the user is in the middle of
+        // editing and should see the in-flight value.
+        if (currentSpinner != null) {
+            return (Date) currentSpinner.getValue();
+        }
+        // No explicit setDate yet -> let the default getter take over so the
+        // value returned here matches what the picker would show if opened now.
+        // Once the caller has explicitly set a value (including null via
+        // setDate(null)) we return it as-is; the default is reserved for
+        // seeding the popup UI in applyDefaultDateIfNeeded(). Issue #5024.
+        if (!dateValueExplicitlySet && defaultDateGetter != null) {
+            return resolveDefaultDate();
+        }
+        return (Date) value;
+    }
+
+    /// Primes `value` with the resolved default before a date-type picker is
+    /// shown, so the existing show paths (which read `value` directly) display
+    /// the configured default. Applies whenever the picker has no usable date
+    /// to show - either the caller never pinned one with `setDate(Date)`, or
+    /// they explicitly cleared it with `setDate(null)`. Does nothing for
+    /// non-date types, when there's already a non-null pinned date, or when
+    /// no default getter has been configured - in that last case the picker
+    /// keeps the legacy behavior of showing whatever was in `value` (typically
+    /// the construction-time `new Date()`, or `null` after a `setDate(null)`).
+    /// Issue #5024.
+    private void applyDefaultDateIfNeeded() {
+        if (defaultDateGetter == null) {
+            return;
+        }
+        if (dateValueExplicitlySet && value != null) {
+            return;
+        }
+        switch (type) {
+            case Display.PICKER_TYPE_DATE:
+            case Display.PICKER_TYPE_DATE_AND_TIME:
+            case Display.PICKER_TYPE_CALENDAR:
+                Date d = defaultDateGetter.get();
+                if (d != null) {
+                    value = d;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    /// Marks the picker's date as explicitly chosen by the user once they have
+    /// successfully committed a value through any of the picker UIs. Pins the
+    /// default getter out so it doesn't keep overwriting the user's selection
+    /// on subsequent opens. Guarded on type so it doesn't pollute the flag for
+    /// non-date pickers (where the flag is unused anyway).
+    private void markDateExplicitlySetIfDateType() {
+        switch (type) {
+            case Display.PICKER_TYPE_DATE:
+            case Display.PICKER_TYPE_DATE_AND_TIME:
+            case Display.PICKER_TYPE_CALENDAR:
+                dateValueExplicitlySet = true;
+                break;
+            default:
+                break;
+        }
+    }
+
+    /// Sets the date, this value is used both for type date/date and time. Notice that this
+    /// value isn't used for time.
+    ///
+    /// If the lightweight popup is currently on screen the visible scroll wheels are also
+    /// moved to the new value, so a custom popup button can do `setDate(getDate() + n)` and
+    /// have the wheels reflect it (see `#addLightweightPopupButton(String, Runnable)`).
+    /// Such changes are *staged*: if the user dismisses the popup with Cancel the picker
+    /// rolls back to the date it held before the popup was shown; if the user presses Done
+    /// the staged value is committed.
+    /// The native picker is read-only while shown - calling `setDate` against a Picker whose
+    /// native popup is open updates the committed `value` but leaves the on-screen wheels
+    /// unchanged until the user dismisses and re-opens the picker.
+    ///
+    /// Passing `null` explicitly clears the picker's value: subsequent `getDate()` calls
+    /// return `null` (the picker text falls back to the `...` placeholder) until either
+    /// `setDate(non-null)` is called or the user opens the popup and commits a selection.
+    /// A configured `setDefaultDate` getter still seeds the popup wheels on the next open
+    /// so the user has a sensible starting point, but it no longer leaks into `getDate()`
+    /// as an unselected value. Issue #5024.
+    ///
+    /// #### Parameters
+    ///
+    /// - `d`: the new date, or `null` to clear the picker
+    public void setDate(Date d) {
+        value = d;
+        // Mark as explicitly set even when d is null, so getDate() returns the
+        // caller's chosen value (null included) instead of silently substituting
+        // the default getter's result. The default still primes the popup wheels
+        // through applyDefaultDateIfNeeded() when the picker is opened against a
+        // null value, so the UI keeps a usable starting point. Issue #5024.
+        dateValueExplicitlySet = true;
+        if (currentSpinner != null) {
+            currentSpinner.setValue(d);
+            refreshCurrentSpinnerContainer();
+        }
+        updateValue();
+    }
+
+    /// Installs a dynamic default for `PICKER_TYPE_DATE`, `PICKER_TYPE_DATE_AND_TIME`,
+    /// and `PICKER_TYPE_CALENDAR` pickers. The getter is consulted every time the
+    /// picker is opened or `getDate()` is called against a picker whose date has
+    /// not been pinned by `setDate(Date)`, so dependent defaults (e.g. a reminder
+    /// that should fire one hour before a separately-tracked due date) stay in
+    /// sync with the value they depend on. Passing `null` removes the default and
+    /// reverts to `new Date()`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `getter`: the supplier of the default date, or `null` to restore the
+    ///             framework default of `new Date()`
+    public void setDefaultDate(DateGetter getter) {
+        this.defaultDateGetter = getter;
+        updateValue();
+    }
+
+    /// Convenience overload that pins the picker's default to a fixed date.
+    /// Equivalent to passing a `DateGetter` that always returns `d`. Passing
+    /// `null` clears the default.
+    ///
+    /// #### Parameters
+    ///
+    /// - `d`: the fixed default date, or `null` to restore the framework default
+    public void setDefaultDate(Date d) {
+        setDefaultDate(d == null ? null : new FixedDateGetter(d));
+    }
+
+    /// Named static wrapper for the `setDefaultDate(Date)` overload. Static
+    /// (rather than an anonymous inner class) so it does not retain a hidden
+    /// reference to the enclosing `Picker`.
+    private static final class FixedDateGetter implements DateGetter {
+        private final Date date;
+
+        FixedDateGetter(Date date) {
+            this.date = date;
+        }
+
+        @Override
+        public Date get() {
+            return date;
+        }
+    }
+
+    /// Returns the `DateGetter` previously installed via
+    /// `setDefaultDate(DateGetter)` (or the wrapper produced by the `Date`
+    /// overload), or `null` if no default has been configured.
+    public DateGetter getDefaultDate() {
+        return defaultDateGetter;
+    }
+
+    /// Resolves the date to display when the picker is opened without an
+    /// explicit value: the configured default getter's result if non-null,
+    /// otherwise a fresh `new Date()`.
+    private Date resolveDefaultDate() {
+        if (defaultDateGetter != null) {
+            Date d = defaultDateGetter.get();
+            if (d != null) {
+                return d;
+            }
+        }
+        return new Date();
+    }
+
+    private String twoDigits(int i) {
+        if (i < 10) {
+            return "0" + i;
+        }
+        return "" + i;
+    }
+
+    private void restoreContentPane() {
+        Form f = getComponentForm();
+
+        if (tmpContentPaneMarginUnit != null && f != null) {
+            Container contentPane = f.getContentPane();
+            if (f.isFormBottomPaddingEditingMode()) {
+                Style style = contentPane.getStyle();
+                style.setMarginUnit(tmpContentPaneMarginUnit);
+                style.setMarginBottom(tmpContentPaneBottomMargin);
+                tmpContentPaneMarginUnit = null;
+                f.revalidate();
+                // If we remove the margin, it sometimes leaves the content pane
+                // in a negative scroll position - which leaves a gap at the top.
+                // Simulating a drag will trigger tensile drag to push the content
+                // back up to the top.
+                // See https://github.com/codenameone/CodenameOne/issues/2476
+                if (f.getContentPane().getScrollY() < 0) {
+                    f.getContentPane().pointerPressed(100, 100);
+                    f.getContentPane().pointerDragged(100, 100);
+                    f.getContentPane().pointerReleased(100, 100);
+                }
+            } else {
+                f.setOverrideInvisibleAreaUnderVKB(-1);
+            }
+        }
+    }
+
+    private void padContentPane(final int top) {
+        final Form f = getComponentForm();
+        if (f != null) {
+            f.getAnimationManager().flushAnimation(new Runnable() {
+                @Override
+                public void run() {
+                    Container contentPane = f.getContentPane();
+                    if (f.isFormBottomPaddingEditingMode()) {
+
+                        Style style = contentPane.getStyle();
+                        byte[] marginUnits = style.getMarginUnit();
+                        if (marginUnits == null) {
+                            marginUnits = new byte[]{
+                                    Style.UNIT_TYPE_PIXELS,
+                                    Style.UNIT_TYPE_PIXELS,
+                                    Style.UNIT_TYPE_PIXELS,
+                                    Style.UNIT_TYPE_PIXELS
+                            };
+                        }
+                        if (tmpContentPaneMarginUnit == null) {
+                            tmpContentPaneMarginUnit = new byte[4];
+                            System.arraycopy(marginUnits, 0, tmpContentPaneMarginUnit, 0, 4);
+                            tmpContentPaneBottomMargin = style.getMarginBottom();
+                        }
+
+
+                        marginUnits[Component.BOTTOM] = Style.UNIT_TYPE_PIXELS;
+                        style.setMarginUnit(marginUnits);
+                        style.setMarginBottom(Math.max(0, contentPane.getHeight() - top));
+                        f.revalidate();
+                    } else {
+                        f.setOverrideInvisibleAreaUnderVKB(Math.max(0, contentPane.getHeight() - top));
+                    }
+                    f.scrollComponentToVisible(Picker.this);
+                }
+
+            });
+
+
+        }
+    }
+
+    private void registerAsInputDevice(final InteractionDialog dlg, final InternalPickerWidget spinner) {
+
+        // Through the top level: this skipped every registration in a window, so an
+        // open picker reported isEditing() false, input-device replacement could not
+        // dismiss it, and stopEditing(onFinish) neither closed it nor ran its callback.
+        final TopLevelContainer f = this.getTopLevelContainer();
+        if (f != null) {
+            final ActionListener sizeChanged;
+            if (!Display.getInstance().isTablet()) {
+                sizeChanged = new ActionListener() {
+
+                    @Override
+                    public void actionPerformed(ActionEvent evt) {
+                        final int top = f.getContentPane().getHeight() - dlg.getPreferredH();
+                        if (top <= 0) {
+                            ComponentSelector.select(".SpinnerWrapper", dlg).setPadding(0);
+                        }
+                        final int left = 0;
+                        final int right = 0;
+                        final int bottom = 0;
+                        // As at the point of opening: the host's geometry rather than
+                        // the display's, so a resize re-lays the sheet out against the
+                        // window it lives in.
+                        dlg.setWidth(f.asContainer().getWidth());
+                        dlg.setHeight(dlg.getPreferredH());
+                        dlg.setY(f.asContainer().getHeight());
+                        dlg.setX(0);
+                        f.getAnimationManager().flushAnimation(new Runnable() {
+
+                            @Override
+                            public void run() {
+                                dlg.resize(top, bottom, left, right);
+                                padContentPane(top);
+
+
+                            }
+
+                        });
+                    }
+
+                };
+                f.addSizeChangedListener(sizeChanged);
+            } else {
+                sizeChanged = null;
+            }
+
+            try {
+                VirtualInputDevice nextInput = new VirtualInputDevice() { //NOPMD CloseResource - managed by Form#setCurrentInputDevice
+
+                    @Override
+                    public void close() throws Exception {
+                        // Only null the picker-wide fields if they still point at THIS popup.
+                        // When a second popup opens before the form has finished switching
+                        // input devices, Form#setCurrentInputDevice calls close() on the
+                        // previous device AFTER showInteractionDialog has already assigned
+                        // currentSpinner / currentInput to the new popup; unconditionally
+                        // nulling them here would clobber the new popup's live spinner and
+                        // break setX propagation.
+                        if (currentInput == this) { //NOPMD CompareObjectsWithEquals
+                            currentInput = null;
+                        }
+                        if (currentSpinner == spinner) { //NOPMD CompareObjectsWithEquals
+                            currentSpinner = null;
+                            currentSpinnerContainer = null;
+                        }
+                        if (sizeChanged != null) {
+                            f.removeSizeChangedListener(sizeChanged);
+                        }
+                        if (dlg.isShowing()) {
+                            restoreContentPane();
+                            dlg.disposeToTheBottom(new Runnable() {
+                                @Override
+                                public void run() {
+                                    if (stopEditingCallback != null) {
+                                        Runnable r = stopEditingCallback;
+                                        stopEditingCallback = null;
+                                        r.run();
+                                    }
+                                }
+                            });
+                        } else {
+                            stopEditingCallback = null;
+                        }
+                    }
+                };
+                f.setCurrentInputDevice(nextInput);
+                currentInput = nextInput;
+            } catch (Exception ex) {
+                Log.e(ex);
+                // Failed to edit string because the previous input device would not
+                // give up control
+            }
+        }
+    }
+
+    /// Returns the String array matching the metadata
+    ///
+    /// #### Returns
+    ///
+    /// a string array
+    public String[] getStrings() {
+        return (String[]) metaData;
+    }
+
+    /// Sets the string entries for the string picker.
+    ///
+    /// sample usage for this method below:
+    ///
+    /// ```java
+    /// Toolbar.setGlobalToolbar(true);
+    /// Form hi = new Form("Transitions", new BoxLayout(BoxLayout.Y_AXIS));
+    /// Style bg = hi.getContentPane().getUnselectedStyle();
+    /// bg.setBgTransparency(255);
+    /// bg.setBgColor(0xff0000);
+    /// Button showTransition = new Button("Show");
+    /// Picker pick = new Picker();
+    /// pick.setStrings("Slide", "SlideFade", "Cover", "Uncover", "Fade", "Flip");
+    /// pick.setSelectedString("Slide");
+    /// TextField duration = new TextField("10000", "Duration", 6, TextArea.NUMERIC);
+    /// CheckBox horizontal = CheckBox.createToggle("Horizontal");
+    /// pick.addActionListener((e) -> {
+    ///     String s = pick.getSelectedString().toLowerCase();
+    ///     horizontal.setEnabled(s.equals("slide") || s.indexOf("cover") > -1);
+    /// });
+    /// horizontal.setSelected(true);
+    /// hi.add(showTransition).
+    ///     add(pick).
+    ///     add(duration).
+    ///     add(horizontal);
+    ///
+    /// Form dest = new Form("Destination");
+    /// bg = dest.getContentPane().getUnselectedStyle();
+    /// bg.setBgTransparency(255);
+    /// bg.setBgColor(0xff);
+    /// dest.setBackCommand(
+    ///         dest.getToolbar().addCommandToLeftBar("Back", null, (e) -> hi.showBack()));
+    ///
+    /// showTransition.addActionListener((e) -> {
+    ///     int h = CommonTransitions.SLIDE_HORIZONTAL;
+    ///     if(!horizontal.isSelected()) {
+    ///         h = CommonTransitions.SLIDE_VERTICAL;
+    ///     }
+    ///     switch(pick.getSelectedString()) {
+    ///         case "Slide":
+    ///             hi.setTransitionOutAnimator(CommonTransitions.createSlide(h, true, duration.getAsInt(3000)));
+    ///             dest.setTransitionOutAnimator(CommonTransitions.createSlide(h, true, duration.getAsInt(3000)));
+    ///             break;
+    ///         case "SlideFade":
+    ///             hi.setTransitionOutAnimator(CommonTransitions.createSlideFadeTitle(true, duration.getAsInt(3000)));
+    ///             dest.setTransitionOutAnimator(CommonTransitions.createSlideFadeTitle(true, duration.getAsInt(3000)));
+    ///             break;
+    ///         case "Cover":
+    ///             hi.setTransitionOutAnimator(CommonTransitions.createCover(h, true, duration.getAsInt(3000)));
+    ///             dest.setTransitionOutAnimator(CommonTransitions.createCover(h, true, duration.getAsInt(3000)));
+    ///             break;
+    ///         case "Uncover":
+    ///             hi.setTransitionOutAnimator(CommonTransitions.createUncover(h, true, duration.getAsInt(3000)));
+    ///             dest.setTransitionOutAnimator(CommonTransitions.createUncover(h, true, duration.getAsInt(3000)));
+    ///             break;
+    ///         case "Fade":
+    ///             hi.setTransitionOutAnimator(CommonTransitions.createFade(duration.getAsInt(3000)));
+    ///             dest.setTransitionOutAnimator(CommonTransitions.createFade(duration.getAsInt(3000)));
+    ///             break;
+    ///         case "Flip":
+    ///             hi.setTransitionOutAnimator(new FlipTransition(-1, duration.getAsInt(3000)));
+    ///             dest.setTransitionOutAnimator(new FlipTransition(-1, duration.getAsInt(3000)));
+    ///             break;
+    ///     }
+    ///     dest.show();
+    /// });
+    /// hi.show();
+    /// ```
+    ///
+    /// #### Parameters
+    ///
+    /// - `strs`: string array
+    public void setStrings(String... strs) {
+        this.type = Display.PICKER_TYPE_STRINGS;
+        int slen = strs.length;
+        for (int i = 0; i < slen; i++) {
+            String str = strs[i];
+            strs[i] = getUIManager().localize(str, str);
+        }
+        metaData = strs;
+
+        if (!(value instanceof String)) {
+            value = null;
+        }
+        updateValue();
+    }
+
+    /// Returns the current string. While the lightweight popup is on screen this returns the
+    /// value visible on the scroll wheel; the native picker does not expose its in-progress
+    /// wheel state, so while a native picker is on screen this still returns the last
+    /// committed value.
+    ///
+    /// #### Returns
+    ///
+    /// the selected string
+    public String getSelectedString() {
+        return (String) currentValue();
+    }
+
+    /// Sets the current value in a string array picker. If the lightweight popup is on screen
+    /// the visible scroll wheel is also moved to the new value, and the change is *staged*:
+    /// a Cancel press rolls back to the value the picker held before the popup was shown,
+    /// while a Done press commits it. The native picker is read-only while shown so against
+    /// a native popup this updates only the committed value.
+    ///
+    /// #### Parameters
+    ///
+    /// - `str`: the current value
+    public void setSelectedString(String str) {
+        value = str;
+        if (currentSpinner != null) {
+            currentSpinner.setValue(str);
+            refreshCurrentSpinnerContainer();
+        }
+        updateValue();
+    }
+
+    /// Returns the index of the selected string. While the lightweight popup is on screen
+    /// this returns the index visible on the scroll wheel; the native picker still returns
+    /// the last committed index.
+    ///
+    /// #### Returns
+    ///
+    /// the selected string offset or -1
+    public int getSelectedStringIndex() {
+        Object current = currentValue();
+        int offset = 0;
+        if (current == null) {
+            for (String s : (String[]) metaData) {
+                if (s == null) {
+                    return offset;
+                }
+                offset++;
+            }
+            return -1;
+        }
+        for (String s : (String[]) metaData) {
+            if (current.equals(s)) {
+                return offset;
+            }
+            offset++;
+        }
+        return -1;
+    }
+
+    /// Sets the index of the selected string. If the lightweight popup is on screen the
+    /// visible wheel is also moved to the new value, and the change is *staged*: a Cancel
+    /// press rolls back to the value the picker held before the popup was shown, while a
+    /// Done press commits it. The native picker is read-only while shown so against a
+    /// native popup this updates only the committed value.
+    ///
+    /// #### Parameters
+    ///
+    /// - `index`: sets the index of the selected string
+    public void setSelectedStringIndex(int index) {
+        value = ((String[]) metaData)[index];
+        if (currentSpinner != null) {
+            currentSpinner.setValue(value);
+            refreshCurrentSpinnerContainer();
+        }
+        updateValue();
+    }
+
+    /// Updates the display value of the picker, subclasses can override this to invoke
+    /// set text with the right value
+    protected void updateValue() {
+        if (value == null) {
+            setText("...");
+            return;
+        }
+
+        if (getFormatter() != null) {
+            setText(formatter.format(value));
+            return;
+        }
+
+        switch (type) {
+            case Display.PICKER_TYPE_STRINGS: {
+                value = getUIManager().localize(value.toString(), value.toString());
+                setText(value.toString());
+                break;
+            }
+            case Display.PICKER_TYPE_CALENDAR:
+            case Display.PICKER_TYPE_DATE: {
+                setText(L10NManager.getInstance().formatDateShortStyle((Date) value));
+                break;
+            }
+            case Display.PICKER_TYPE_TIME: {
+                int v = ((Integer) value).intValue();
+                int hour = v / 60;
+                int minute = v % 60;
+                if (showMeridiem) {
+                    String text;
+                    if (hour >= 12) {
+                        text = "pm";
+                    } else {
+                        text = "am";
+                    }
+                    int cookedHour = hour <= 12 ? hour : hour - 12;
+                    if (cookedHour == 0) {
+                        cookedHour = 12;
+                    }
+                    setText(twoDigits(cookedHour) + ":" + twoDigits(minute) + text);
+                } else {
+                    setText(twoDigits(hour) + ":" + twoDigits(minute));
+                }
+                break;
+            }
+            case Display.PICKER_TYPE_DATE_AND_TIME: {
+                setText(L10NManager.getInstance().formatDateTimeShort((Date) value));
+                break;
+            }
+            case Display.PICKER_TYPE_DURATION_HOURS:
+            case Display.PICKER_TYPE_DURATION_MINUTES:
+            case Display.PICKER_TYPE_DURATION: {
+                long v = ((Long) value).longValue();
+                int hour = (int) (v / 60 / 60 / 1000);
+                int minute = (int) (v / 1000 / 60) % 60;
+                StringBuilder sb = new StringBuilder();
+                UIManager uim = getUIManager();
+                if (hour > 0) {
+                    sb.append(hour).append(" ")
+                            .append(hour > 1 ? uim.localize("hours", "hours") : uim.localize("hour", "hour"))
+                            .append(" ");
+                }
+                if (minute > 0) {
+                    sb.append(minute).append(" ")
+                            .append(minute > 1 ? uim.localize("minutes", "minutes") : uim.localize("minute", "minute"));
+
+                }
+                setText(sb.toString().trim());
+                if ("".equals(getText())) {
+                    setText("...");
+                }
+                break;
+            }
+            default:
+                break;
+
+        }
+    }
+
+    /// Convenience method equivalent to invoking setTime(hour * 60 + minute);
+    ///
+    /// #### Parameters
+    ///
+    /// - `hour`: the hour in 24hr format
+    ///
+    /// - `minute`: the minute within the hour
+    public void setTime(int hour, int minute) {
+        setTime(hour * 60 + minute);
+    }
+
+    /// This value is only used for time type and is ignored in the case of date and time where
+    /// both are embedded within the date. While the lightweight popup is on screen this
+    /// returns the value visible on the scroll wheels; the native picker still returns the
+    /// last committed value.
+    ///
+    /// #### Returns
+    ///
+    /// the time value as minutes since midnight e.g. 630 is 10:30am
+    public int getTime() {
+        return ((Integer) currentValue()).intValue();
+    }
+
+    /// This value is only used for time type and is ignored in the case of date and time where
+    /// both are embedded within the date. If the lightweight popup is on screen the visible
+    /// scroll wheels are also moved to the new value, and the change is *staged*: a Cancel
+    /// press rolls back to the value the picker held before the popup was shown, while a
+    /// Done press commits it. The native picker is read-only while shown so against a native
+    /// popup this updates only the committed value.
+    ///
+    /// #### Parameters
+    ///
+    /// - `time`: the time value as minutes since midnight e.g. 630 is 10:30am
+    public void setTime(int time) {
+        value = Integer.valueOf(time);
+        if (currentSpinner != null) {
+            currentSpinner.setValue(value);
+            refreshCurrentSpinnerContainer();
+        }
+        updateValue();
+    }
+
+    /// Sets the minute step size for PICKER_TYPE_DURATION, and PICKER_TYPE_DURATION_TIME types.
+    ///
+    /// #### Parameters
+    ///
+    /// - `step`: The step size in minutes.
+    public void setMinuteStep(int step) {
+        this.minuteStep = step;
+    }
+
+    /// Convenience method for setting duration in hours and minutes.
+    ///
+    /// #### Parameters
+    ///
+    /// - `hour`: The hours for duration.
+    ///
+    /// - `minute`: The minutes for duration.
+    ///
+    /// #### See also
+    ///
+    /// - #setDuration(long)
+    ///
+    /// - #getDuration()
+    ///
+    /// - #getDurationHours()
+    ///
+    /// - #getDurationMinutes()
+    public void setDuration(int hour, int minute) {
+        setDuration(hour * 60L * 60 * 1000L + minute * 60L * 1000L);
+    }
+
+    /// This value is used for the duration type. While the lightweight popup is on screen
+    /// this returns the value visible on the scroll wheels; the native picker still returns
+    /// the last committed value.
+    ///
+    /// #### Returns
+    ///
+    /// The duration in milliseconds.
+    ///
+    /// #### See also
+    ///
+    /// - #getDurationHours()
+    ///
+    /// - #getDurationMinutes()
+    public long getDuration() {
+        return (Long) currentValue();
+    }
+
+    /// This value is only used for duration type. If the lightweight popup is on screen the
+    /// visible scroll wheels are also moved to the new value, and the change is *staged*:
+    /// a Cancel press rolls back to the value the picker held before the popup was shown,
+    /// while a Done press commits it. The native picker is read-only while shown so against
+    /// a native popup this updates only the committed value.
+    ///
+    /// #### Parameters
+    ///
+    /// - `duration`: The duration value in milliseconds.
+    ///
+    /// #### See also
+    ///
+    /// - #setDuration(int, int)
+    ///
+    /// - #getDuration()
+    ///
+    /// - #getDurationHours()
+    ///
+    /// - #getDurationMinutes()
+    public void setDuration(long duration) {
+        value = Long.valueOf(duration);
+        if (currentSpinner != null) {
+            currentSpinner.setValue(value);
+            refreshCurrentSpinnerContainer();
+        }
+        updateValue();
+    }
+
+    /// Gets the duration hours.  Used only for duration type.
+    ///
+    /// #### Returns
+    ///
+    /// The duration hours.
+    ///
+    /// #### See also
+    ///
+    /// - #getDurationMinutes()
+    ///
+    /// - #getDuration()
+    public int getDurationHours() {
+        return (int) (getDuration() / 60 / 60 / 1000L);
+    }
+
+    /// Gets the duration minutes.  Used only for duration type.
+    ///
+    /// #### Returns
+    ///
+    /// The duration minutes.
+    ///
+    /// #### See also
+    ///
+    /// - #getDurationHours()
+    ///
+    /// - #getDuration()
+    public int getDurationMinutes() {
+        return (int) (getDuration() / 1000 / 60) % 60;
+    }
+
+    /// Indicates whether hours should be rendered as AM/PM or 24hr format
+    ///
+    /// #### Returns
+    ///
+    /// the showMeridiem
+    public boolean isShowMeridiem() {
+        return showMeridiem;
+    }
+
+    /// Indicates whether hours should be rendered as AM/PM or 24hr format
+    ///
+    /// #### Parameters
+    ///
+    /// - `showMeridiem`: the showMeridiem to set
+    public void setShowMeridiem(boolean showMeridiem) {
+        this.showMeridiem = showMeridiem;
+        updateValue();
+    }
+
+    /// When using a lightweight spinner this will be used as the rendering prototype
+    ///
+    /// #### Returns
+    ///
+    /// the renderingPrototype
+    public Object getRenderingPrototype() {
+        return renderingPrototype;
+    }
+
+    /// When using a lightweight spinner this will be used as the rendering prototype
+    ///
+    /// #### Parameters
+    ///
+    /// - `renderingPrototype`: the renderingPrototype to set
+    public void setRenderingPrototype(Object renderingPrototype) {
+        this.renderingPrototype = renderingPrototype;
+    }
+
+    /// Allows us to define a date format for the display of dates/times
+    ///
+    /// #### Returns
+    ///
+    /// the defined formatter
+    public SimpleDateFormat getFormatter() {
+        return formatter;
+    }
+
+    /// Allows us to define a date format for the display of dates/times
+    ///
+    /// #### Parameters
+    ///
+    /// - `formatter`: the new formatter
+    public void setFormatter(SimpleDateFormat formatter) {
+        this.formatter = formatter;
+        updateValue();
+    }
+
+    /// The preferred width of the popup dialog. This will only
+    /// be used on devices where the popup width and height are configurable, such
+    /// as the iPad or tablets.  On iPhone, the picker always spans the width of the
+    /// screen along the bottom.
+    public int getPreferredPopupWidth() {
+        return preferredPopupWidth;
+    }
+
+    /// The preferred width of the popup dialog for the picker.  This will only
+    /// be used on devices where the popup width and height are configurable, such
+    /// as the iPad or tablets.  On iPhone, the picker always spans the width of the
+    /// screen along the bottom.
+    ///
+    /// #### Parameters
+    ///
+    /// - `width`: The preferred width of the popup.
+    public void setPreferredPopupWidth(int width) {
+        this.preferredPopupWidth = width;
+    }
+
+    /// The preferred height of the popup dialog.  This will only
+    /// be used on devices where the popup width and height are configurable, such
+    /// as the iPad or tablets.  On iPhone, the picker always spans the width of the
+    /// screen along the bottom.
+    public int getPreferredPopupHeight() {
+        return preferredPopupHeight;
+    }
+
+    /// The preferred height of the popup dialog for the picker.  This will only
+    /// be used on devices where the popup width and height are configurable, such
+    /// as the iPad or tablets.  On iPhone, the picker always spans the width of the
+    /// screen along the bottom.
+    ///
+    /// #### Parameters
+    ///
+    /// - `height`: The preferred height of the popup.
+    public void setPreferredPopupHeight(int height) {
+        this.preferredPopupHeight = height;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String[] getPropertyNames() {
+        return new String[]{"Strings"};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Class[] getPropertyTypes() {
+        return new Class[]{String[].class};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String[] getPropertyTypeNames() {
+        return new String[]{"String []"};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Object getPropertyValue(String name) {
+        if ("Strings".equals(name)) {
+            return getStrings();
+        }
+        return null;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String setPropertyValue(String name, Object value) {
+        if ("Strings".equals(name)) {
+            setStrings((String[]) value);
+            return null;
+        }
+        return super.setPropertyValue(name, value);
+    }
+
+    /// Returns the value which works for all picker types
+    ///
+    /// #### Returns
+    ///
+    /// the value object
+    public Object getValue() {
+        return value;
+    }
+
+    @Override
+    public void paint(Graphics g) {
+        if (!suppressPaint) {
+            super.paint(g);
+        }
+    }
+
+    @Override
+    public Style getStyle() {
+        if (isEditing()) {
+            return getSelectedStyle();
+        }
+        return super.getStyle();
+    }
+
+    void setSuppressPaint(boolean suppress) {
+        suppressPaint = suppress;
+    }
+
+
+}

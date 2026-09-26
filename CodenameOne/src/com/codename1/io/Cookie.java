@@ -1,0 +1,207 @@
+/*
+ * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores
+ * CA 94065 USA or visit www.oracle.com if you need additional information or
+ * have any questions.
+ */
+
+package com.codename1.io;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
+/// A cookie for an HTTP request
+///
+/// @author Shai Almog
+public class Cookie implements Externalizable {
+    public static final String STORAGE_NAME = "Cookies";
+    private static boolean autoStored = true;
+
+    static {
+        Util.register("Cookie", Cookie.class);
+    }
+
+    private String name;
+    private String value;
+    private String domain;
+    private String path = "/";
+    private boolean secure = false;
+    private boolean httpOnly = false;
+    private long expires;
+
+    /// Returns true if the Cookies are auto stored to storage
+    ///
+    /// #### Returns
+    ///
+    /// autoStored
+    public static boolean isAutoStored() {
+        return autoStored;
+    }
+
+    /// This method configures the auto storage of cookies
+    ///
+    /// #### Parameters
+    ///
+    /// - `autoStored`
+    public static void setAutoStored(boolean autoStored) {
+        Cookie.autoStored = autoStored;
+    }
+
+    /// Clears all cookies history from storage
+    public static void clearCookiesFromStorage() {
+        if (Storage.getInstance().exists(Cookie.STORAGE_NAME)) {
+            Storage.getInstance().deleteStorageFile(Cookie.STORAGE_NAME);
+        }
+        // This is necessary to clear cookies on iOS
+        // https://github.com/codenameone/CodenameOne/issues/1422
+        Util.getImplementation().clearNativeCookies();
+    }
+
+    /// #### Returns
+    ///
+    /// the name
+    public String getName() {
+        return name;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `name`: the name to set
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public boolean isSecure() {
+        return this.secure;
+    }
+
+    public void setSecure(boolean secure) {
+        this.secure = secure;
+    }
+
+    public boolean isHttpOnly() {
+        return this.httpOnly;
+    }
+
+    public void setHttpOnly(boolean httpOnly) {
+        this.httpOnly = httpOnly;
+    }
+
+    public String getPath() {
+        return this.path;
+    }
+
+    public void setPath(String path) {
+        this.path = path;
+    }
+
+    /// #### Returns
+    ///
+    /// the value
+    public String getValue() {
+        return value;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `value`: the value to set
+    public void setValue(String value) {
+        this.value = value;
+    }
+
+    /// #### Returns
+    ///
+    /// the domain
+    public String getDomain() {
+        return domain;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `domain`: the domain to set
+    public void setDomain(String domain) {
+        this.domain = domain;
+    }
+
+    /// #### Returns
+    ///
+    /// the expires
+    public long getExpires() {
+        return expires;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `expires`: the expires to set
+    public void setExpires(long expires) {
+        this.expires = expires;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public int getVersion() {
+        return 1;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void externalize(DataOutputStream out) throws IOException {
+        out.writeUTF(name);
+        if (value != null) {
+            out.writeBoolean(true);
+            out.writeUTF(value);
+        } else {
+            out.writeBoolean(false);
+        }
+        if (domain != null) {
+            out.writeBoolean(true);
+            out.writeUTF(domain);
+        } else {
+            out.writeBoolean(false);
+        }
+        out.writeLong(expires);
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void internalize(int version, DataInputStream in) throws IOException {
+        name = in.readUTF();
+        if (in.readBoolean()) {
+            value = in.readUTF();
+        }
+        if (in.readBoolean()) {
+            domain = in.readUTF();
+        }
+        expires = in.readLong();
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String getObjectId() {
+        return "Cookie";
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String toString() {
+        return "name = " + name + " value = " + value + " domain = " + domain + "expires = " + expires + " secure = " + secure + " path = " + path;
+    }
+}

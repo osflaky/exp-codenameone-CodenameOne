@@ -1,0 +1,945 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.components;
+
+import com.codename1.io.Log;
+import com.codename1.media.AsyncMedia;
+import com.codename1.media.Media;
+import com.codename1.media.MediaManager;
+import com.codename1.ui.Button;
+import com.codename1.ui.Component;
+import com.codename1.ui.Container;
+import com.codename1.ui.Display;
+import com.codename1.ui.FontImage;
+import com.codename1.ui.Image;
+import com.codename1.ui.Slider;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.geom.Dimension;
+import com.codename1.ui.layouts.BorderLayout;
+import com.codename1.ui.layouts.FlowLayout;
+import com.codename1.ui.layouts.LayeredLayout;
+import com.codename1.ui.plaf.UIManager;
+import com.codename1.ui.util.UITimer;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Timer;
+import java.util.TimerTask;
+
+/// Video playback component with control buttons for back, play/pause and
+/// forward buttons. In the simulator those controls are implemented locally but on the
+/// device the native playback controls are used.
+///
+/// ```java
+/// final Form hi = new Form("MediaPlayer", new BorderLayout());
+/// hi.setToolbar(new Toolbar());
+/// Style s = UIManager.getInstance().getComponentStyle("Title");
+/// FontImage icon = FontImage.createMaterial(FontImage.MATERIAL_VIDEO_LIBRARY, s);
+/// hi.getToolbar().addCommandToRightBar(new Command("", icon) {
+/// @Override
+///     public void actionPerformed(ActionEvent evt) {
+///         Display.getInstance().openGallery((e) -> {
+///             if(e != null && e.getSource() != null) {
+///                 String file = (String)e.getSource();
+///                 try {
+///                     Media video = MediaManager.createMedia(file, true);
+///                     hi.removeAll();
+///                     hi.add(BorderLayout.CENTER, new MediaPlayer(video));
+///                     hi.revalidate();
+///                 } catch(IOException err) {
+///                     Log.e(err);
+///                 }
+///             }
+///         }, Display.GALLERY_VIDEO);
+///     }
+/// });
+/// hi.show();
+/// ```
+public class MediaPlayer extends Container {
+    private Image playIcon;
+    private Image pauseIcon;
+    private Image backIcon;
+    private Image fwdIcon;
+    private Image maxIcon;
+    private Container buttonsBar;
+    private boolean hideNativeVideoControls;
+    private boolean showControls = true;
+    private Runnable loopOnCompletion;
+    private Slider progress;
+    private UITimer progressUpdater;
+
+    /// Shows the buttons on top of the video
+    private boolean onTopMode = true;
+
+    /// Shows video position bar as a slider
+    private boolean seekBar = true;
+
+    /// UIID for the seekBar slider
+    private String seekBarUIID = null;
+
+    /// Includes a maximize icon in the bar to show the native player
+    private boolean maximize = true;
+
+    private boolean userSetIcons = false;
+    private Media video;
+    private String dataSource;
+
+    private String pendingDataURI;
+    private boolean autoplay;
+    private boolean loop;
+    //private Runnable onCompletion;
+
+    /// Empty constructor
+    public MediaPlayer() {
+        playIcon = FontImage.createMaterial(FontImage.MATERIAL_PLAY_ARROW, "Button", 3);
+        pauseIcon = FontImage.createMaterial(FontImage.MATERIAL_PAUSE, "Button", 3);
+        fwdIcon = FontImage.createMaterial(FontImage.MATERIAL_FAST_FORWARD, "Button", 3);
+        backIcon = FontImage.createMaterial(FontImage.MATERIAL_FAST_REWIND, "Button", 3);
+        maxIcon = FontImage.createMaterial(FontImage.MATERIAL_FULLSCREEN, "Button", 3);
+    }
+
+    /// Empty constructor
+    public MediaPlayer(Media video) {
+        this();
+        this.video = video;
+        updateLoopOnCompletionHandler();
+        //initUI();
+    }
+
+    /// On platforms that include native video player controls (Android and iOS), this indicates whether
+    /// these controls should be hidden for this media player.
+    ///
+    /// #### Returns
+    ///
+    /// true if native video player controls should be hidden.
+    ///
+    /// #### See also
+    ///
+    /// - Display#isNativeVideoPlayerControlsIncluded()
+    ///
+    /// - #setHideNativeVideoControls(boolean)
+    ///
+    /// - #usesNativeVideoControls()
+    public boolean isHideNativeVideoControls() {
+        return hideNativeVideoControls;
+    }
+
+    /// On platforms that include native video player controls (Android and iOS), this allows you
+    /// to hide those controls.
+    ///
+    /// #### Parameters
+    ///
+    /// - `hideNativeControls`: Set true to hide the native video controls for this player.
+    ///
+    /// #### See also
+    ///
+    /// - Display#isNativeVideoPlayerControlsIncluded()
+    ///
+    /// - #setHideNativeVideoControls(boolean)
+    ///
+    /// - #usesNativeVideoControls()
+    public void setHideNativeVideoControls(boolean hideNativeControls) {
+        this.hideNativeVideoControls = hideNativeControls;
+        if (video != null) {
+            video.setVariable(Media.VARIABLE_NATIVE_CONTRLOLS_EMBEDDED, !hideNativeControls && showControls);
+        }
+    }
+
+    /// Checks to see if this player uses native video controls.  For this to be true,
+    /// the platform must support native video controls (iOS and Android) (See `Display#isNativeVideoPlayerControlsIncluded()`
+    /// to find out if current platform supports this; **AND** `#isHideNativeVideoControls()`
+    /// must be false.
+    ///
+    /// Note: on IOS, the controls won't display until the video's `Media#prepare()`
+    /// is called.  This will happen automatically if `#isAutoplay()` is true, or if `Media#play()`
+    /// is called.
+    ///
+    /// #### Returns
+    ///
+    /// True if this player uses native video controls.
+    ///
+    /// #### See also
+    ///
+    /// - #isHideNativeVideoControls()
+    ///
+    /// - #setHideNativeVideoControls(boolean)
+    ///
+    /// - Display#isNativeVideoPlayerControlsIncluded()
+    public boolean usesNativeVideoControls() {
+        return Display.getInstance().isNativeVideoPlayerControlsIncluded() && !hideNativeVideoControls;
+    }
+
+    /// Shows the controls for this media player.  If the player is set to use
+    /// native controls, then this will show the native controls.  Otherwise it
+    /// shows the lightweight controls.
+    ///
+    /// Note: on IOS, the controls won't display until the video's `Media#prepare()`
+    /// is called.  This will happen automatically if `#isAutoplay()` is true, or if `Media#play()`
+    /// is called.
+    public void showControls() {
+        if (!showControls) {
+            showControls = true;
+            if (isInitialized()) {
+                buttonsBar.setVisible(true);
+                buttonsBar.setHidden(false);
+                animateLayoutFade(300, 0);
+            }
+        }
+        if (video != null && usesNativeVideoControls()) { // PMD Fix: CollapsibleIfStatements merged nested native control check
+            video.setVariable(Media.VARIABLE_NATIVE_CONTRLOLS_EMBEDDED, true);
+        }
+    }
+
+    /// Hides the controls for this media player.  If the player is set to use native
+    /// controls, then this will hide the native controls.  Otherwise it hides the
+    /// lightweight controls.
+    public void hideControls() {
+        if (showControls) {
+            showControls = false;
+            if (isInitialized()) {
+                buttonsBar.setVisible(false);
+                buttonsBar.setHidden(true);
+                animateLayoutFade(300, 0);
+            }
+        }
+        if (video != null && usesNativeVideoControls()) { // PMD Fix: CollapsibleIfStatements merged nested native control check
+            video.setVariable(Media.VARIABLE_NATIVE_CONTRLOLS_EMBEDDED, false);
+        }
+    }
+
+    /// Returns the Media Object of this MediaPlayer
+    public Media getMedia() {
+        return video;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected void initComponent() {
+        if (userSetIcons) {
+            Image play = UIManager.getInstance().getThemeImageConstant("mediaPlayImage");
+            if (play != null) {
+                playIcon = play;
+            }
+            Image pause = UIManager.getInstance().getThemeImageConstant("mediaPauseImage");
+            if (pause != null) {
+                pauseIcon = pause;
+            }
+            Image back = UIManager.getInstance().getThemeImageConstant("mediaBackImage");
+            if (back != null) {
+                backIcon = back;
+            }
+            Image fwd = UIManager.getInstance().getThemeImageConstant("mediaFwdImage");
+            if (fwd != null) {
+                fwdIcon = fwd;
+            }
+            Image max = UIManager.getInstance().getThemeImageConstant("mediaMaxImage");
+            if (max != null) {
+                maxIcon = max;
+            }
+
+        }
+        if (pendingDataURI != null) {
+            setDataSource(pendingDataURI);
+            pendingDataURI = null;
+        }
+        initUI();
+    }
+
+    private void checkProgressSlider() {
+        if (progressUpdater == null) {
+            // The top level rather than the form: getComponentForm() is null by design
+            // inside a Window, and UITimer dereferences what it is bound to -- so
+            // starting playback threw on the event dispatch thread after the media had
+            // already begun.
+            progressUpdater = UITimer.timer(50, true, getTopLevelContainer(),
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            float dur = video.getDuration();
+                            if (dur > 0) {
+                                float pos = video.getTime();
+                                int offset = (int) (pos / dur * 100.0f);
+                                if (offset > -1 && offset < 101 && progress != null) {
+                                    progress.setProgress(offset);
+                                }
+                            }
+                        }
+                    });
+        }
+    }
+
+    private void stopProgressSlider() {
+        if (progressUpdater != null) {
+            progressUpdater.cancel();
+            progressUpdater = null;
+        }
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected void deinitialize() {
+        super.deinitialize();
+        if (video != null && video.isPlaying()) {
+            video.pause();
+            stopProgressSlider();
+        }
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected Dimension calcPreferredSize() {
+        if (video == null && dataSource == null) {
+            return new Dimension(240, 320);
+        }
+        return super.calcPreferredSize();
+    }
+
+    /// Sets the maximize Button Icon
+    ///
+    /// #### Parameters
+    ///
+    /// - `maxIcon`
+    public void setMaxIcon(Image maxIcon) {
+        this.maxIcon = maxIcon;
+        userSetIcons = true;
+    }
+
+    /// Sets the data source of this video player
+    ///
+    /// #### Parameters
+    ///
+    /// - `uri`: @param uri the uri of the media can start with file://, http:// (can also
+    /// use rtsp:// although may not be supported on all target platforms)
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: if creation of media from the given URI has failed
+    public void setDataSource(String uri, Runnable onCompletion) throws IOException {
+        dataSource = uri;
+        video = MediaManager.createMedia(uri, true, onCompletion);
+        updateLoopOnCompletionHandler();
+        if (isInitialized()) {
+            initUI();
+        }
+    }
+
+    /// Convenience JavaBean method, see other version of this method
+    ///
+    /// #### Returns
+    ///
+    /// the data source uri
+    public String getDataSource() {
+        if (!isInitialized() && dataSource == null) {
+            return pendingDataURI;
+        }
+        return dataSource;
+    }
+
+    /// Convenience JavaBean method, see other version of this method
+    ///
+    /// #### Parameters
+    ///
+    /// - `uri`: the URL for the media
+    public void setDataSource(final String uri) {
+        if (!isInitialized()) {
+            pendingDataURI = uri;
+            return;
+        }
+        if (dataSource == null || !dataSource.equals(uri)) {
+            Display.getInstance().startThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        setDataSource(uri, null);
+                    } catch (Throwable t) {
+                        Log.e(t);
+                    }
+                }
+            }, "Media Thread").start();
+        }
+    }
+
+    /// Sets the data source of this video player
+    ///
+    /// #### Parameters
+    ///
+    /// - `is`: the stream containing the media data
+    ///
+    /// - `mimeType`: the type of the data in the stream
+    ///
+    /// #### Throws
+    ///
+    /// - `java.io.IOException`: if the creation of the Media has failed
+    public void setDataSource(InputStream is, String mimeType, Runnable onCompletion) throws IOException {
+
+        video = MediaManager.createMedia(is, mimeType, onCompletion);
+
+        updateLoopOnCompletionHandler();
+        if (isInitialized()) {
+            initUI();
+        }
+    }
+
+    private void initUI() {
+        removeAll();
+        if (onTopMode) {
+            setLayout(new LayeredLayout());
+        } else {
+            setLayout(new BorderLayout());
+        }
+
+        if (video != null && video.getVideoComponent() != null) {
+            Component videoComponent = video.getVideoComponent();
+            if (videoComponent != null) {
+                videoComponent.setUIID("Container");
+                if (onTopMode) {
+                    addComponent(videoComponent);
+                } else {
+                    addComponent(BorderLayout.CENTER, videoComponent);
+                }
+            }
+        }
+
+
+        if (seekBar) {
+            buttonsBar = new Container(new BorderLayout());
+            progress = new Slider();
+            progress.setEditable(true);
+            buttonsBar.addComponent(BorderLayout.CENTER,
+                    FlowLayout.encloseCenterMiddle(progress));
+            progress.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent evt) {
+                    float dur = video.getDuration();
+                    if (dur > 0 && progress != null) {
+                        float pos = progress.getProgress(evt);
+                        int t = (int) (pos / 100.0f * dur);
+                        video.setTime(t);
+                    }
+                }
+            });
+        } else {
+            buttonsBar = new Container(new FlowLayout(Container.CENTER));
+        }
+        if (onTopMode) {
+            addComponent(BorderLayout.south(buttonsBar));
+        } else {
+            addComponent(BorderLayout.SOUTH, buttonsBar);
+        }
+        if (usesNativeVideoControls() || !showControls) {
+            buttonsBar.setVisible(false);
+            buttonsBar.setHidden(true);
+        }
+
+        if (!seekBar) {
+            Button back = new Button();
+            back.setUIID("MediaPlayerBack");
+            if (backIcon != null) {
+                back.setIcon(backIcon);
+            } else {
+                back.setText("Back");
+            }
+            buttonsBar.addComponent(back);
+            back.addActionListener(new ActionListener() {
+
+                @Override
+                public void actionPerformed(ActionEvent evt) {
+                    if (video == null) {
+                        return;
+                    }
+                    int t = video.getTime();
+                    video.setTime(t - 2);
+                }
+            });
+        }
+
+        final Button play = new Button() {
+
+            private final ActionListener<AsyncMedia.MediaStateChangeEvent> stateChangeListener = new ActionListener<AsyncMedia.MediaStateChangeEvent>() {
+                @Override
+                public void actionPerformed(AsyncMedia.MediaStateChangeEvent evt) {
+                    updateIconAndText();
+                }
+            };
+
+
+            private void updateIconAndText() {
+                if (video != null && video.isPlaying()) { // PMD Fix: CollapsibleIfStatements merged null/playing checks
+                    if (getPauseIcon() != null) {
+                        this.setIcon(getPauseIcon());
+                    } else {
+                        this.setText("pause");
+                    }
+                } else {
+                    if (playIcon != null) {
+                        this.setIcon(playIcon);
+                    } else {
+                        this.setText("play");
+                    }
+                }
+            }
+
+            @Override
+            protected void initComponent() {
+                super.initComponent();
+                updateIconAndText();
+
+                if (video != null) {
+                    MediaManager.getAsyncMedia(video).addMediaStateChangeListener(stateChangeListener);
+                }
+            }
+
+            @Override
+            protected void deinitialize() {
+                if (video != null) {
+                    MediaManager.getAsyncMedia(video).removeMediaStateChangeListener(stateChangeListener);
+                }
+                super.deinitialize();
+            }
+
+
+        };
+        play.setUIID("MediaPlayerPlay");
+        if (playIcon != null) {
+            play.setIcon(playIcon);
+        } else {
+            play.setText("play");
+        }
+        if (autoplay && video != null && !video.isPlaying()) {
+            if (getPauseIcon() != null) {
+                play.setIcon(getPauseIcon());
+            } else {
+                play.setText("pause");
+            }
+            Timer t = new Timer();
+            t.schedule(new TimerTask() {
+                @Override
+                public void run() {
+                    if (isInitialized()) {
+                        Display.getInstance().callSerially(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (video != null && !video.isPlaying() && isInitialized()) {
+                                    video.play();
+                                    checkProgressSlider();
+                                }
+                            }
+                        });
+                    }
+                }
+
+            }, 300L);
+
+            //video.play();
+        }
+        play.addActionListener(new ActionListener() {
+
+            @Override
+            public void actionPerformed(ActionEvent evt) {
+                if (video == null) {
+                    return;
+                }
+                if (!video.isPlaying()) {
+                    video.play();
+                    checkProgressSlider();
+                    play.setUIID("MediaPlayerPause");
+                    if (getPauseIcon() != null) {
+                        play.setIcon(getPauseIcon());
+                    } else {
+                        play.setText("pause");
+                    }
+                    play.repaint();
+                } else {
+                    video.pause();
+                    stopProgressSlider();
+                    play.setUIID("MediaPlayerPlay");
+                    if (getPlayIcon() != null) {
+                        play.setIcon(getPlayIcon());
+                    } else {
+                        play.setText("play");
+                    }
+                    play.repaint();
+                }
+            }
+        });
+        Display.getInstance().callSerially(new Runnable() {
+            @Override
+            public void run() {
+                if (video != null && video.isPlaying()) {
+                    play.setUIID("MediaPlayerPause");
+                    if (getPauseIcon() != null) {
+                        play.setIcon(getPauseIcon());
+                    } else {
+                        play.setText("pause");
+                    }
+                } else if (video != null && !video.isPlaying()) {
+                    play.setUIID("MediaPlayerPlay");
+                    if (getPlayIcon() != null) {
+                        play.setIcon(getPlayIcon());
+                    } else {
+                        play.setText("play");
+                    }
+                }
+            }
+        });
+        if (seekBar) {
+            buttonsBar.addComponent(BorderLayout.WEST, play);
+        } else {
+            buttonsBar.addComponent(play);
+        }
+
+        //if(video == null || !video.isNativePlayerMode()){
+        if (!seekBar) {
+            Button fwd = new Button();
+            fwd.addActionListener(new ActionListener() {
+
+                @Override
+                public void actionPerformed(ActionEvent evt) {
+                    if (video == null) {
+                        return;
+                    }
+                    int t = video.getTime();
+                    video.setTime(t + 1);
+                }
+            });
+            fwd.setUIID("MediaPlayerFwd");
+            if (fwdIcon != null) {
+                fwd.setIcon(fwdIcon);
+            } else {
+                fwd.setText("fwd");
+            }
+            buttonsBar.addComponent(fwd);
+        }
+
+        if (maximize && video != null && video.isVideo()) {
+            Button max = new Button();
+            max.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent evt) {
+                    if (video == null) {
+                        return;
+                    }
+                    video.setNativePlayerMode(true);
+                }
+            });
+            max.setUIID("MediaPlayerMax");
+            if (maxIcon != null) {
+                max.setIcon(maxIcon);
+            } else {
+                max.setText("max");
+            }
+            if (seekBar) {
+                buttonsBar.addComponent(BorderLayout.EAST, max);
+            } else {
+                buttonsBar.addComponent(max);
+            }
+        }
+        //}
+        if (isInitialized()) {
+            revalidate();
+        }
+    }
+
+    public void run() {
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String[] getPropertyNames() {
+        return new String[]{"backIcon", "forwardIcon", "pauseIcon", "playIcon", "dataSource"};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Class[] getPropertyTypes() {
+        return new Class[]{Image.class, Image.class, Image.class, Image.class, String.class};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Object getPropertyValue(String name) {
+        if ("backIcon".equals(name)) {
+            return getBackIcon();
+        }
+        if ("forwardIcon".equals(name)) {
+            return getFwdIcon();
+        }
+        if ("playIcon".equals(name)) {
+            return getPlayIcon();
+        }
+        if ("pauseIcon".equals(name)) {
+            return getPauseIcon();
+        }
+        if ("dataSource".equals(name)) {
+            return getDataSource();
+        }
+        return super.getPropertyValue(name);
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String setPropertyValue(String name, Object value) {
+        if ("backIcon".equals(name)) {
+            this.backIcon = (Image) value;
+            return null;
+        }
+        if ("forwardIcon".equals(name)) {
+            this.fwdIcon = (Image) value;
+            return null;
+        }
+        if ("playIcon".equals(name)) {
+            this.playIcon = (Image) value;
+            return null;
+        }
+        if ("pauseIcon".equals(name)) {
+            this.pauseIcon = (Image) value;
+            return null;
+        }
+        if ("dataSource".equals(name)) {
+            setDataSource((String) value);
+            return null;
+        }
+        return super.setPropertyValue(name, value);
+    }
+
+    /// #### Returns
+    ///
+    /// the playIcon
+    public Image getPlayIcon() {
+        return playIcon;
+    }
+
+    /// Sets the play Button Icon
+    ///
+    /// #### Parameters
+    ///
+    /// - `playIcon`
+    public void setPlayIcon(Image playIcon) {
+        this.playIcon = playIcon;
+        userSetIcons = true;
+    }
+
+    /// #### Returns
+    ///
+    /// the pauseIcon
+    public Image getPauseIcon() {
+        return pauseIcon;
+    }
+
+    /// Sets the pause Button Icon
+    ///
+    /// #### Parameters
+    ///
+    /// - `pauseIcon`
+    public void setPauseIcon(Image pauseIcon) {
+        this.pauseIcon = pauseIcon;
+        userSetIcons = true;
+    }
+
+    /// #### Returns
+    ///
+    /// the backIcon
+    public Image getBackIcon() {
+        return backIcon;
+    }
+
+    /// Sets the back Button Icon
+    ///
+    /// #### Parameters
+    ///
+    /// - `backIcon`
+    public void setBackIcon(Image backIcon) {
+        this.backIcon = backIcon;
+        userSetIcons = true;
+    }
+
+    /// #### Returns
+    ///
+    /// the fwdIcon
+    public Image getFwdIcon() {
+        return fwdIcon;
+    }
+
+    /// Sets the forward Button Icon
+    ///
+    /// #### Parameters
+    ///
+    /// - `fwdIcon`
+    public void setFwdIcon(Image fwdIcon) {
+        this.fwdIcon = fwdIcon;
+        userSetIcons = true;
+    }
+
+    /// Sets playback to start automatically
+    ///
+    /// #### Returns
+    ///
+    /// the autoplay
+    public boolean isAutoplay() {
+        return autoplay;
+    }
+
+    /// Sets playback to start automatically
+    ///
+    /// #### Parameters
+    ///
+    /// - `autoplay`: the autoplay to set
+    public void setAutoplay(boolean autoplay) {
+        this.autoplay = autoplay;
+    }
+
+    /// Sets playback to loop
+    ///
+    /// #### Returns
+    ///
+    /// the loop
+    public boolean isLoop() {
+        return loop;
+    }
+
+    /// Sets playback to loop
+    ///
+    /// #### Parameters
+    ///
+    /// - `loop`: the loop to set
+    public void setLoop(boolean loop) {
+        if (loop != this.loop) {
+            this.loop = loop;
+            updateLoopOnCompletionHandler();
+        }
+    }
+
+    private void updateLoopOnCompletionHandler() {
+        if (isLoop() && loopOnCompletion == null) {
+            loopOnCompletion = new Runnable() {
+
+                @Override
+                public void run() {
+                    if (video != null) {
+                        video.setTime(0);
+                        video.play();
+                        checkProgressSlider();
+                    }
+                }
+
+            };
+        }
+        if (isLoop()) {
+            Display.getInstance().addCompletionHandler(video, loopOnCompletion);
+        } else {
+            if (loopOnCompletion != null) {
+                Display.getInstance().removeCompletionHandler(video, loopOnCompletion);
+            }
+        }
+    }
+
+    /*
+    class CompletionWrapper implements Runnable {
+        public void run() {
+            if(onCompletion != null) {
+                onCompletion.run();
+            }
+            if(isLoop()) {
+                try {
+                    setDataSource(dataSource, this);
+                } catch(IOException err) {
+                    Log.e(err);
+                }
+            }
+        }
+    }
+    */
+
+    /// Shows the buttons on top of the video
+    ///
+    /// #### Returns
+    ///
+    /// the onTopMode
+    public boolean isOnTopMode() {
+        return onTopMode;
+    }
+
+    /// Shows the buttons on top of the video
+    ///
+    /// #### Parameters
+    ///
+    /// - `onTopMode`: the onTopMode to set
+    public void setOnTopMode(boolean onTopMode) {
+        this.onTopMode = onTopMode;
+    }
+
+    /// Shows video position bar as a slider
+    ///
+    /// #### Returns
+    ///
+    /// the seekBar
+    public boolean isSeekBar() {
+        return seekBar;
+    }
+
+    /// Shows video position bar as a slider
+    ///
+    /// #### Parameters
+    ///
+    /// - `seekBar`: the seekBar to set
+    public void setSeekBar(boolean seekBar) {
+        this.seekBar = seekBar;
+    }
+
+    /// UIID for the seekBar slider
+    ///
+    /// #### Returns
+    ///
+    /// the seekBarUIID
+    public String getSeekBarUIID() {
+        return seekBarUIID;
+    }
+
+    /// UIID for the seekBar slider
+    ///
+    /// #### Parameters
+    ///
+    /// - `seekBarUIID`: the seekBarUIID to set
+    public void setSeekBarUIID(String seekBarUIID) {
+        this.seekBarUIID = seekBarUIID;
+    }
+
+    /// Includes a maximize icon in the bar to show the native player
+    ///
+    /// #### Returns
+    ///
+    /// the maximize
+    public boolean isMaximize() {
+        return maximize;
+    }
+
+    /// Includes a maximize icon in the bar to show the native player
+    ///
+    /// #### Parameters
+    ///
+    /// - `maximize`: the maximize to set
+    public void setMaximize(boolean maximize) {
+        this.maximize = maximize;
+    }
+}

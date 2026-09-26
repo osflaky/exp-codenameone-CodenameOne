@@ -1,0 +1,176 @@
+== Deep-Link Routing
+
+[[deep-link-routing-section,Deep-Link Routing Section]]
+Codename One can dispatch a deep link -- an iOS Universal Link, an Android
+App Link, a custom-scheme URL, a push-notification payload, or anything
+else the platform delivers as a URL -- to a specific `Form` by class or by
+static factory method. The same route table powers in-app navigation
+through `Navigation.navigate("/path")`, so the application chooses
+declarative or imperative per call site without maintaining two parallel
+maps.
+
+The application surface is two annotations plus a tiny `Navigation`
+class -- five static methods and one value type.
+
+=== Declare a route
+
+Annotate the target `Form` class:
+
+[source,java]
+----
+include::../demos/common/src/main/java/com/codenameone/developerguide/snippets/generated/DeepLinksRoutingJava001Snippet.java[tag=deep-links-routing-java-001,indent=0]
+----
+
+Or annotate a static factory method:
+
+[source,java]
+----
+include::../demos/common/src/main/java/com/codenameone/developerguide/snippets/generated/DeepLinksRoutingJava002Snippet.java[tag=deep-links-routing-java-002,indent=0]
+----
+
+Both forms are supported and a project can mix them. Path variables in
+the pattern (`:id`, `*`, `**`) are matched by name against parameters
+annotated with `@RouteParam`. Missing `@RouteParam` on a path-variable
+parameter fails the build.
+
+=== Path syntax
+
+|===
+|Pattern              |Matches                              |Bound
+
+|`/about`             |`/about`                             |--
+|`/users/:id`         |`/users/42`                          |`id = "42"`
+|`/files/*`           |`/files/photo.png` (one segment)     |`* = "photo.png"`
+|`/files/**`          |`/files/a/b/c` (catch-all)           |`* = "a/b/c"`
+|===
+
+Query string parameters are bound the same way as path variables. The
+build prefers a path-variable match for a given name and falls back to
+the query string when the pattern doesn't include that name.
+
+=== Navigate from app code
+
+The `Navigation` class is the imperative counterpart to `@Route`.
+Calling `Navigation.navigate("/users/42")` from anywhere in the app
+resolves the URL through the same generated route table that handles
+incoming deep links, builds the matching `Form`, pushes it onto the
+navigation stack, and shows it.
+
+
+The five-method surface (`navigate`, `back`, `getCurrent`, `getStack`,
+`popTo`) is everything the application sees -- the rest of the URL-to-
+form machinery is generated. Applications that prefer raw
+`new MyForm().show()` keep working unchanged; only URL-driven calls
+update the `Navigation` stack.
+
+=== How it works
+
+Codename One scans the project's compiled bytecode at build time and
+generates an internal dispatcher class from every `@Route` declaration.
+The dispatcher is bound into the per-platform application stub before
+`Display.init(...)`, so deep links delivered during launch see the route
+table immediately. The validation gate catches every problem in a single
+build run:
+
+* `@Route` declared on a class that doesn't extend `Form`
+* Pattern with no leading `/` or empty value
+* Path variable with no matching `@RouteParam` on the constructor /
+  factory
+* Duplicate pattern declared on two different targets
+* `@Route` on an abstract class or non-`public static` method
+
+=== iOS Universal Links
+
+Host an `apple-app-site-association` JSON file at
+`https://your.domain/.well-known/apple-app-site-association` over HTTPS
+without redirects. The plugin's `AasaBuilder` produces the payload:
+
+[source,json]
+----
+include::../demos/common/src/main/snippets/developer-guide/deep-links-routing.json[tag=deep-links-routing-json-001,indent=0]
+----
+
+
+Tell iOS which domains your app claims by setting the
+`ios.associatedDomains` build hint -- a comma-separated list of
+`applinks:` entries. The iOS builder writes the Associated Domains
+entitlement so the resulting `.ipa` is signed for those domains
+automatically.
+
+[source,properties]
+----
+include::../demos/common/src/main/snippets/developer-guide/deep-links-routing.properties[tag=deep-links-routing-properties-001,indent=0]
+----
+
+=== Android App Links
+
+Host an `assetlinks.json` file at
+`https://your.domain/.well-known/assetlinks.json`. The plugin's
+`AssetLinksBuilder` produces the payload:
+
+[source,json]
+----
+include::../demos/common/src/main/snippets/developer-guide/deep-links-routing.json[tag=deep-links-routing-json-002,indent=0]
+----
+
+
+Tell Android which URLs to intercept by setting the
+`android.xintent_filter` build hint. The Android builder injects the
+value into the manifest verbatim, so it's the whole `<intent-filter>`
+element, with `\n` for the line breaks:
+
+[source,properties]
+----
+include::../demos/common/src/main/snippets/developer-guide/deep-links-routing.properties[tag=deep-links-routing-properties-002,indent=0]
+----
+
+Three parts of that carry weight. `android:autoVerify="true"` is what makes
+Android fetch the `assetlinks.json` above at install time and route the link
+straight into your app. Leaving it out doesn't fall back to an app chooser:
+from Android 12 onward an unverified web link goes to the default browser, and
+your filter never sees it until the user turns the association on by hand under
+**Settings > Apps > Open by default**. The `<data>` element needs
+`android:scheme="https"` and the host, and narrowing it with
+`android:pathPrefix` keeps the app from claiming every URL on the domain. And
+the hint holds one value, so an app that also registers a custom scheme puts
+both `<intent-filter>` elements in the same string rather than setting the hint
+twice.
+
+The SHA-256 fingerprint comes from `keytool -list -v -keystore ...`, or
+from the Play Console under **Setup > App integrity** when using Play
+App Signing.
+
+=== Testing
+
+==== iOS Simulator
+
+[source,sh]
+----
+include::../demos/common/src/main/snippets/developer-guide/deep-links-routing.sh[tag=deep-links-routing-sh-001,indent=0]
+----
+
+==== Android Emulator
+
+[source,sh]
+----
+include::../demos/common/src/main/snippets/developer-guide/deep-links-routing.sh[tag=deep-links-routing-sh-002,indent=0]
+----
+
+==== Desktop Simulator
+
+Pass `--cn1-arg=https://example.com/users/42` on the run command, or use
+the simulator's URL-injection helper.
+
+=== Back-press guard
+
+Independent of deep linking, individual forms can intercept back / pop
+attempts so they can confirm before discarding unsaved work:
+
+[source,java]
+----
+include::../demos/common/src/main/java/com/codenameone/developerguide/snippets/generated/DeepLinksRoutingJava005Snippet.java[tag=deep-links-routing-java-005,indent=0]
+----
+
+The guard fires for the toolbar back button, the Android hardware back
+key, the iOS edge-swipe gesture, and any programmatic back navigation.
+`PopReason` distinguishes the trigger so a guard can be selective.

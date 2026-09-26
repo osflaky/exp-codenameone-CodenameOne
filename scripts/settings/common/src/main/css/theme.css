@@ -1,0 +1,587 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+/*
+ * Settings sits on the platform's own desktop theme -- Windows 11 Fluent, macOS Aqua or GNOME
+ * Adwaita, picked by @DesktopBuild(themeMode = "native") -- and styles itself in that theme's
+ * terms rather than in a palette of its own:
+ *
+ *  - Controls derive from the native UIID they are (cn1-derive: TextField, Button,
+ *    RaisedButton, GroupBox...), so borders, fills and focus rings are the platform's.
+ *  - Surfaces and text bind to the palette variables all three desktop themes declare
+ *    (--window-bg-color, --text-secondary-color and so on). The values in the Container rule
+ *    are only what a legacy base theme sees; with a desktop theme installed the runtime
+ *    retunes every bound color to that theme's value.
+ *  - Dark mode is the native one: the dark rules at the end are @media blocks the framework
+ *    resolves per style when CN.isDarkMode() says so. There are no "...Dark" UIIDs.
+ *
+ * The one deliberate departure is the brand: the accent is Codename One blue on every
+ * platform, and Save keeps the lime it has always had.
+ */
+#Constants {
+    includeNativeBool: true;
+    defaultSourceDPIInt: "0";
+    fadeScrollBarBool: false;
+    --accent-color: #2F6BFF;
+    --accent-color-dark: #4D86FF;
+    --accent-fg-color: #FFFFFF;
+    --accent-fg-color-dark: #FFFFFF;
+    --accent-pressed-color: #2456D6;
+    --accent-pressed-color-dark: #3C74EB;
+    --selection-color: #2F6BFF;
+    --selection-color-dark: #4D86FF;
+}
+
+/* The desktop themes' palette vocabulary. Declared here, outside #Constants, these are
+   only the compiler's values for var(): each use still records a binding to the name, and
+   at runtime the installed native theme's own @window-bg-color (and so on) replaces what is
+   baked in. Declaring them in #Constants instead would export them as theme constants,
+   which load after the native theme's and would pin every platform to these Fluent
+   values. They are what a legacy base theme, which declares none, ends up showing. */
+Container {
+    --window-bg-color: #F3F3F3;
+    --window-bg-color-dark: #202020;
+    --headerbar-bg-color: #F3F3F3;
+    --headerbar-bg-color-dark: #202020;
+    --control-bg-color: #FBFBFB;
+    --control-bg-color-dark: #2C2C2C;
+    --view-bg-color: #FFFFFF;
+    --view-bg-color-dark: #1F1F1F;
+    --text-color: #1A1A1A;
+    --text-color-dark: #FFFFFF;
+    --text-secondary-color: #5D5D5D;
+    --text-secondary-color-dark: #CFCFCF;
+    --separator-color: #E5E5E5;
+    --separator-color-dark: #2D2D2D;
+    background-color: transparent;
+    padding: 0;
+    margin: 0;
+}
+ContentPane, CenterAlignedContentPane {
+    background-color: transparent;
+    border-width: 0;
+    padding: 0;
+    margin: 0;
+}
+
+/* --- Window, chrome and navigation ----------------------------------------------------- */
+
+SettingsForm {
+    cn1-derive: Form;
+    background-color: var(--window-bg-color);
+    color: var(--text-color);
+    font-family: "native:MainRegular";
+    font-size: 3.4mm;
+}
+SettingsChrome {
+    background-color: var(--headerbar-bg-color);
+    color: var(--text-color);
+    border-bottom: 1px solid #E5E5E5;
+    padding: 2.6mm 3.2mm 2.6mm 3.2mm;
+}
+SettingsToolbarBrand {
+    background-color: transparent;
+    color: var(--text-color);
+    border-width: 0;
+    font-family: "native:MainBold";
+    font-size: 3.6mm;
+    padding: 1.4mm 0 1.4mm 0;
+    margin: 0 1.6mm 0 0;
+    text-align: left;
+}
+SettingsTitle {
+    background-color: transparent;
+    color: var(--text-color);
+    font-family: "native:MainBold";
+    font-size: 3.6mm;
+    padding: 0;
+    margin: 0;
+}
+SettingsMark {
+    background-color: transparent;
+    color: var(--text-color);
+    padding: 0;
+    margin: 0 1.6mm 0 0;
+    text-align: center;
+}
+SettingsAppName {
+    background-color: transparent;
+    color: var(--text-secondary-color);
+    border-width: 0;
+    font-family: "native:MainBold";
+    font-size: 3mm;
+    padding: 1.6mm 0 1.6mm 0;
+    margin: 0 1.8mm 0 0;
+    text-align: left;
+}
+SettingsPathChip {
+    cn1-derive: GroupBox;
+    background-color: var(--control-bg-color);
+    padding: 1.5mm 2mm 1.5mm 2mm;
+    margin: 0 1.5mm 0 0;
+}
+SettingsPathIcon {
+    background-color: transparent;
+    color: var(--text-secondary-color);
+    padding: 0 1.4mm 0 0;
+    margin: 0;
+    text-align: center;
+}
+SettingsPathText {
+    background-color: transparent;
+    color: var(--text-secondary-color);
+    font-size: 3mm;
+    padding: 0;
+    margin: 0;
+}
+SettingsToolbarButton {
+    cn1-derive: Button;
+    padding: 1.35mm;
+    margin: 0 0 0 1.5mm;
+    text-align: center;
+}
+SettingsSave {
+    cn1-derive: RaisedButton;
+    background-color: #B8D532;
+    color: #12233F;
+    font-family: "native:MainBold";
+    font-size: 3.1mm;
+    padding: 1.5mm 3.2mm 1.5mm 3.2mm;
+    margin: 0 0 0 1.5mm;
+    text-align: center;
+}
+SettingsSave.pressed {
+    cn1-derive: RaisedButton;
+    background-color: #A3BD2A;
+    color: #12233F;
+}
+
+SettingsRail {
+    background-color: var(--window-bg-color);
+    border-right: 1px solid #E5E5E5;
+    padding: 2.2mm 1.5mm 2.2mm 1.5mm;
+}
+SettingsRailItem, SettingsRailItemSelected {
+    cn1-derive: ListRenderer;
+    font-family: "native:MainBold";
+    font-size: 2.4mm;
+    padding: 1.5mm 1.8mm 1.4mm 1.8mm;
+    margin: 0 0 0.8mm 0;
+    text-align: center;
+}
+SettingsRailItem {
+    color: var(--text-secondary-color);
+}
+SettingsRailItemSelected {
+    background-color: var(--accent-color);
+    color: var(--accent-fg-color);
+}
+
+/* --- Pages ------------------------------------------------------------------------------ */
+
+SettingsPage {
+    background-color: var(--window-bg-color);
+    color: var(--text-color);
+    padding: 4.5mm 5.5mm 5mm 5.5mm;
+    margin: 0;
+}
+SettingsPageTitle {
+    background-color: transparent;
+    color: var(--text-color);
+    font-family: "native:MainBold";
+    font-size: 6mm;
+    padding: 0;
+    margin: 0 0 0.6mm 0;
+}
+SettingsSub {
+    background-color: transparent;
+    color: var(--text-secondary-color);
+    font-size: 3.2mm;
+    padding: 0;
+    margin: 0 0 4.2mm 0;
+}
+SettingsFieldGrid, SettingsFieldPair, SettingsFieldGroup {
+    background-color: transparent;
+    padding: 0;
+    margin: 0;
+}
+SettingsFieldGroup {
+    margin: 0 1.8mm 3.2mm 0;
+}
+SettingsFieldLabel {
+    background-color: transparent;
+    color: var(--text-secondary-color);
+    font-family: "native:MainBold";
+    font-size: 2.7mm;
+    padding: 0;
+    margin: 0 0 0.9mm 0;
+}
+/* Fields keep the native TextField's own padding and type size: TextHint is sized to
+   match it, so a field that restated either would draw its placeholder somewhere other
+   than where the typed text lands. */
+SettingsField, SettingsArea, SettingsFieldError {
+    cn1-derive: TextField;
+    margin: 0;
+}
+SettingsArea {
+    cn1-derive: TextArea;
+}
+/* A value the hint does not accept. The border is the one place Settings names a color
+   of its own for a control: every platform's destructive red reads on both appearances. */
+SettingsFieldError, SettingsFieldError.selected {
+    cn1-derive: TextField;
+    background-color: var(--view-bg-color);
+    color: var(--text-color);
+    border: 1px solid #D64545;
+    border-radius: 1mm;
+    margin: 0;
+}
+SettingsSearchBox {
+    cn1-derive: TextField;
+    margin: 0 0 3.2mm 0;
+}
+SettingsSearchBoxFocused {
+    cn1-derive: TextField;
+    background-color: var(--view-bg-color);
+    border: 2px solid #2F6BFF;
+    border-radius: 1mm;
+    margin: 0 0 3.2mm 0;
+}
+SettingsSearchIcon {
+    background-color: transparent;
+    color: var(--text-secondary-color);
+    border-width: 0;
+    padding: 0 1.5mm 0 0;
+    margin: 0;
+    text-align: center;
+}
+SettingsSearchField {
+    background-color: transparent;
+    color: var(--text-color);
+    border-width: 0;
+    font-size: 3.3mm;
+    padding: 0;
+    margin: 0;
+}
+SettingsSearchField.selected {
+    background-color: transparent;
+    color: var(--text-color);
+    border-width: 0;
+    font-size: 3.3mm;
+    padding: 0;
+    margin: 0;
+}
+/* The search field sits borderless inside SettingsSearchBox, which already carries the
+   field padding, so its placeholder must not add the native TextHint inset again. */
+SettingsSearchHint {
+    cn1-derive: TextHint;
+    padding: 0;
+    margin: 0;
+}
+SettingsFilterRow, SettingsList {
+    background-color: transparent;
+    padding: 0;
+    margin: 0;
+}
+SettingsHintSearchCell {
+    background-color: transparent;
+    padding: 0;
+    margin: 0 0 0 4mm;
+}
+
+SettingsIconDrop {
+    background-color: var(--control-bg-color);
+    border: 1px dashed #BFBFBF;
+    border-radius: 1mm;
+    padding: 2.6mm;
+    margin: 0 0 4mm 0;
+}
+SettingsIconPreview {
+    background: linear-gradient(135deg, #2F6BFF 0%, #2A8A8A 100%);
+    color: #FFFFFF;
+    border-radius: 2.7mm;
+    font-family: "native:MainBold";
+    font-size: 4mm;
+    padding: 0;
+    margin: 0 2.8mm 0 0;
+    text-align: center;
+}
+SettingsIconAction {
+    background-color: transparent;
+    padding: 0;
+    margin: 0 0 0 2.5mm;
+}
+SettingsDivider {
+    background-color: var(--separator-color);
+    padding: 0.12mm;
+    margin: 0 0 4mm 0;
+}
+SettingsSectionTag {
+    background-color: transparent;
+    color: var(--text-secondary-color);
+    font-family: "native:MainBold";
+    font-size: 2.3mm;
+    padding: 0;
+    margin: 0 0 2.2mm 0;
+}
+/* A Switch sizes its track and thumb from its font. The desktop themes leave the font to
+   the platform default, which the desktop stub keeps at the platform's small body size,
+   so the switch is sized here to sit level with the 3.3mm field text around it. */
+Switch {
+    font-size: 3mm;
+}
+SettingsToggleRow {
+    cn1-derive: GroupBox;
+    background-color: var(--control-bg-color);
+    color: var(--text-color);
+    padding: 0.8mm 2mm 0.8mm 2mm;
+    margin: 0;
+}
+
+/* --- Cards and rows ----------------------------------------------------------------------- */
+
+SettingsCard {
+    cn1-derive: GroupBox;
+    background-color: var(--control-bg-color);
+    color: var(--text-color);
+    padding: 3mm 3.2mm 3mm 3.2mm;
+    margin: 0 0 1.4mm 0;
+}
+/* A hint row is one of a handful that have to fit between a pinned search box
+   and a pager, so it spends less height on air than a card that scrolls. */
+SettingsRow {
+    cn1-derive: GroupBox;
+    background-color: var(--control-bg-color);
+    color: var(--text-color);
+    padding: 2.2mm 3.2mm 2.2mm 3.2mm;
+    margin: 0 0 1.2mm 0;
+}
+SettingsCardTitle, SettingsRowTitle {
+    background-color: transparent;
+    color: var(--text-color);
+    font-family: "native:MainBold";
+    font-size: 3.3mm;
+    padding: 0;
+    margin: 0;
+}
+SettingsRowMeta, SettingsRowText {
+    background-color: transparent;
+    color: var(--text-secondary-color);
+    font-size: 2.8mm;
+    padding: 0;
+    margin: 0;
+}
+SettingsCardRow {
+    cn1-derive: GroupBox;
+    padding: 2mm;
+    margin: 0 0 1.4mm 0;
+}
+SettingsHintEditor {
+    background-color: transparent;
+    padding: 0;
+    margin: 1.2mm 0 0 0;
+}
+SettingsHintKeyCell, SettingsHintValueCell {
+    background-color: transparent;
+    padding: 0;
+    margin: 0 1.2mm 0 0;
+}
+SettingsActiveBadge, SettingsExtensionTags {
+    background-color: var(--accent-color);
+    color: var(--accent-fg-color);
+    border-radius: 1.5mm;
+    font-family: "native:MainBold";
+    font-size: 2.2mm;
+    padding: 0.2mm 1mm 0.2mm 1mm;
+    margin: 0 0.9mm 0 0;
+}
+
+/* --- Buttons ------------------------------------------------------------------------------ */
+
+SettingsPrimary, SettingsExtensionPrimary {
+    cn1-derive: RaisedButton;
+    font-family: "native:MainBold";
+    font-size: 3.1mm;
+    padding: 1.6mm 3mm 1.6mm 3mm;
+    margin: 0;
+    text-align: center;
+}
+SettingsOutline {
+    cn1-derive: Button;
+    font-family: "native:MainBold";
+    font-size: 3.1mm;
+    padding: 1.6mm 2.4mm 1.6mm 2.4mm;
+    margin: 0;
+    text-align: center;
+}
+SettingsSmallIconButton {
+    cn1-derive: Button;
+    padding: 1.4mm;
+    margin: 0 0 0 2.2mm;
+    text-align: center;
+}
+
+/* --- Popup menu and dialogs --------------------------------------------------------------- */
+
+SettingsPopupMenu {
+    cn1-derive: PopupContentPane;
+    padding: 0;
+    margin: 0;
+}
+SettingsPopupItem {
+    background-color: transparent;
+    border-bottom: 1px solid #E5E5E5;
+    padding: 0;
+    margin: 0;
+}
+SettingsPopupLabel, SettingsPopupToggleLabel {
+    background-color: transparent;
+    color: var(--text-color);
+    border-width: 0;
+    font-family: "native:MainBold";
+    font-size: 3.1mm;
+    padding: 3.5mm 2.6mm 3.5mm 2.6mm;
+    margin: 0;
+    text-align: left;
+}
+SettingsPopupIcon {
+    background-color: transparent;
+    color: var(--text-secondary-color);
+    border-width: 0;
+    padding: 3.5mm 2.6mm 3.5mm 1mm;
+    margin: 0;
+    text-align: center;
+}
+SettingsDialogContent {
+    cn1-derive: DialogBody;
+    padding: 4mm;
+}
+
+/* --- Extensions --------------------------------------------------------------------------- */
+
+SettingsExtensionGrid, SettingsExtensionRow, SettingsExtensionBody {
+    background-color: transparent;
+    padding: 0;
+    margin: 0;
+}
+SettingsExtensionRow {
+    margin: 0 0 2.4mm 0;
+}
+SettingsExtensionCard {
+    cn1-derive: GroupBox;
+    background-color: var(--control-bg-color);
+    color: var(--text-color);
+    padding: 4mm;
+    margin: 0 1.2mm 0 1.2mm;
+}
+SettingsExtensionTitle {
+    background-color: transparent;
+    color: var(--text-color);
+    font-family: "native:MainBold";
+    font-size: 4mm;
+    padding: 0;
+    margin: 0 0 1.8mm 0;
+}
+SettingsExtensionText {
+    background-color: transparent;
+    color: var(--text-color);
+    font-size: 3.1mm;
+    padding: 0;
+    margin: 0;
+}
+SettingsExtensionMetaGrid, SettingsExtensionMetaColumn {
+    background-color: transparent;
+    padding: 0;
+    margin: 1.8mm 0 1.4mm 0;
+}
+SettingsExtensionMetaLabel {
+    background-color: transparent;
+    color: var(--text-secondary-color);
+    font-size: 2.6mm;
+    padding: 0;
+    margin: 0 0 0.35mm 0;
+}
+SettingsExtensionMetaValue {
+    background-color: transparent;
+    color: var(--text-color);
+    font-family: "native:MainBold";
+    font-size: 2.9mm;
+    padding: 0;
+    margin: 0;
+}
+SettingsExtensionMeta, SettingsExtensionWarning {
+    background-color: transparent;
+    color: var(--text-secondary-color);
+    font-size: 2.6mm;
+    padding: 0;
+    margin: 0;
+}
+SettingsExtensionTagRow {
+    background-color: transparent;
+    padding: 0;
+    margin: 0 0 1.8mm 0;
+}
+
+/* --- Dark appearance ---------------------------------------------------------------------- */
+/* Only what binds to a palette variable, or names a color outright, needs restating here.
+   Everything that derives from a native UIID picks up that UIID's own dark style. */
+@media (prefers-color-scheme: dark) {
+    SettingsForm { background-color: var(--window-bg-color-dark); color: var(--text-color-dark); }
+    SettingsChrome { background-color: var(--headerbar-bg-color-dark); color: var(--text-color-dark); border-bottom: 1px solid #3A3A3A; }
+    SettingsToolbarBrand { color: var(--text-color-dark); }
+    SettingsTitle { color: var(--text-color-dark); }
+    SettingsMark { color: var(--text-color-dark); }
+    SettingsAppName { color: var(--text-secondary-color-dark); }
+    SettingsPathChip { background-color: var(--control-bg-color-dark); }
+    SettingsPathIcon { color: var(--text-secondary-color-dark); }
+    SettingsPathText { color: var(--text-secondary-color-dark); }
+    SettingsRail { background-color: var(--window-bg-color-dark); border-right: 1px solid #3A3A3A; }
+    SettingsRailItem { color: var(--text-secondary-color-dark); }
+    SettingsRailItemSelected { background-color: var(--accent-color-dark); color: var(--accent-fg-color-dark); }
+    SettingsPage { background-color: var(--window-bg-color-dark); color: var(--text-color-dark); }
+    SettingsPageTitle { color: var(--text-color-dark); }
+    SettingsSub { color: var(--text-secondary-color-dark); }
+    SettingsFieldLabel { color: var(--text-secondary-color-dark); }
+    SettingsFieldError, SettingsFieldError.selected { background-color: var(--view-bg-color-dark); color: var(--text-color-dark); border: 1px solid #D96A6A; border-radius: 1mm; }
+    SettingsSearchBoxFocused { background-color: var(--view-bg-color-dark); border: 2px solid #4D86FF; border-radius: 1mm; }
+    SettingsSearchIcon { color: var(--text-secondary-color-dark); }
+    SettingsSearchField, SettingsSearchField.selected { color: var(--text-color-dark); }
+    SettingsIconDrop { background-color: var(--control-bg-color-dark); border: 1px dashed #5A5A5A; border-radius: 1mm; }
+    SettingsDivider { background-color: var(--separator-color-dark); }
+    SettingsSectionTag { color: var(--text-secondary-color-dark); }
+    SettingsToggleRow { background-color: var(--control-bg-color-dark); color: var(--text-color-dark); }
+    SettingsCard { background-color: var(--control-bg-color-dark); color: var(--text-color-dark); }
+    SettingsRow { background-color: var(--control-bg-color-dark); color: var(--text-color-dark); }
+    SettingsCardTitle, SettingsRowTitle { color: var(--text-color-dark); }
+    SettingsRowMeta, SettingsRowText { color: var(--text-secondary-color-dark); }
+    SettingsActiveBadge, SettingsExtensionTags { background-color: var(--accent-color-dark); color: var(--accent-fg-color-dark); }
+    SettingsSave { background-color: #B8D532; color: #12233F; }
+    SettingsPopupItem { border-bottom: 1px solid #3A3A3A; }
+    SettingsPopupLabel, SettingsPopupToggleLabel { color: var(--text-color-dark); }
+    SettingsPopupIcon { color: var(--text-secondary-color-dark); }
+    SettingsExtensionCard { background-color: var(--control-bg-color-dark); color: var(--text-color-dark); }
+    SettingsExtensionTitle { color: var(--text-color-dark); }
+    SettingsExtensionText { color: var(--text-color-dark); }
+    SettingsExtensionMetaLabel { color: var(--text-secondary-color-dark); }
+    SettingsExtensionMetaValue { color: var(--text-color-dark); }
+    SettingsExtensionMeta, SettingsExtensionWarning { color: var(--text-secondary-color-dark); }
+}

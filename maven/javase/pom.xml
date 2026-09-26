@@ -1,0 +1,432 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <parent>
+        <groupId>com.codenameone</groupId>
+        <artifactId>codenameone</artifactId>
+        <version>8.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>codenameone-javase</artifactId>
+    <version>8.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <description>JavaSE port for Codename One</description>
+    <name>codenameone-javase</name>
+    <url>https://www.codenameone.com</url>
+
+    <licenses>
+        <license>
+            <name>GPL v2 With Classpath Exception</name>
+            <url>https://openjdk.java.net/legal/gplv2+ce.html</url>
+            <distribution>repo</distribution>
+            <comments>A business-friendly OSS license</comments>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>shai</id>
+            <name>Shai Almog</name>
+            <email>shai.almog@codenameone.com</email>
+            <timezone>+4</timezone>
+        </developer>
+        <developer>
+            <id>chen</id>
+            <name>Chen Fishbein</name>
+            <email>chen.fishbein@codenameone.com</email>
+            <timezone>+4</timezone>
+        </developer>
+        <developer>
+            <id>shannah</id>
+            <name>Steve Hannah</name>
+            <email>steve.hannah@codenameone.com</email>
+            <timezone>-8</timezone>
+        </developer>
+    </developers>
+
+    <scm>
+        <url>https://github.com/codenameone/CodenameOne</url>
+        <connection>scm:git:git@github.com:codenameone/CodenameOne.git</connection>
+    </scm>
+    <profiles>
+        <profile>
+            <id>local-dev-javase</id>
+            <!--
+              Activate whenever cn1.binaries is in play, mirroring the
+              maven/android compile-android profile. The old activation only
+              fired on -Dcodename1.platform=javase, which scripts/setup-workspace.sh
+              passes to its first mvn invocation but not to the second (the
+              codenameone-maven-plugin -am build). That second pass would then
+              rebuild javase without jcef / jfxrt on the classpath and break on
+              the simulator's CEF / JavaFX sources whenever any earlier change
+              tripped incremental compilation into a full rebuild, e.g. the
+              new com/codename1/testing/junit/ sources in this PR.
+            -->
+            <activation>
+                <file><exists>${cn1.binaries}</exists></file>
+                <property><name>cn1.binaries</name></property>
+            </activation>
+            <dependencies>
+        <!-- Build-time only: it runs the generator below and must never reach a
+             built app, because it pulls in ASM and ParparVM parses every class
+             in an app jar. -->
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>codenameone-build-hint-tools</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+                <dependency>
+                    <groupId>com.codenameone</groupId>
+                    <artifactId>jfxrt</artifactId>
+                    <version>8</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/jfxrt.jar</systemPath>
+                    <optional>true</optional>
+                </dependency>
+            </dependencies>
+        </profile>
+        <!--
+            Opt-in dev convenience: rebuild the libcn1ble shared library from
+            source (needs a Rust toolchain) and stage it for THIS host so the
+            simulator's native Bluetooth backend loads the just-built library.
+            Normal builds consume the prebuilt libraries from cn1-binaries
+            (the ${cn1.binaries}/ble resource mapping) instead. The library
+            layout mirrors BleLibraryResolver: macos/libcn1ble.dylib (any
+            arch), {linux,windows}/{x64,arm64}/ per-arch.
+        -->
+        <profile>
+            <id>build-ble-helper</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-antrun-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>build-ble-lib</id>
+                                <phase>generate-resources</phase>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                                <configuration>
+                                    <target>
+                                        <property name="ble.lib.dir" location="${project.basedir}/../../Ports/JavaSE/native/cn1-ble-helper"/>
+                                        <exec executable="cargo" dir="${ble.lib.dir}" failonerror="true">
+                                            <arg value="build"/>
+                                            <arg value="--release"/>
+                                        </exec>
+                                        <condition property="ble.arch" value="arm64" else="x64">
+                                            <os arch="aarch64"/>
+                                        </condition>
+                                        <!-- macOS: one universal-capable dylib, no arch subdir -->
+                                        <condition property="ble.mac"><os family="mac"/></condition>
+                                        <condition property="ble.win"><os family="windows"/></condition>
+                                        <copy file="${ble.lib.dir}/target/release/libcn1ble.dylib" tofile="${project.build.outputDirectory}/com/codename1/impl/javase/bluetooth/native/macos/libcn1ble.dylib" overwrite="true" failonerror="false">
+                                            <fileset file="${ble.lib.dir}/target/release/libcn1ble.dylib"/>
+                                        </copy>
+                                        <copy file="${ble.lib.dir}/target/release/cn1ble.dll" tofile="${project.build.outputDirectory}/com/codename1/impl/javase/bluetooth/native/windows/${ble.arch}/cn1ble.dll" overwrite="true" failonerror="false">
+                                            <fileset file="${ble.lib.dir}/target/release/cn1ble.dll"/>
+                                        </copy>
+                                        <copy file="${ble.lib.dir}/target/release/libcn1ble.so" tofile="${project.build.outputDirectory}/com/codename1/impl/javase/bluetooth/native/linux/${ble.arch}/libcn1ble.so" overwrite="true" failonerror="false">
+                                            <fileset file="${ble.lib.dir}/target/release/libcn1ble.so"/>
+                                        </copy>
+                                    </target>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+    <dependencies>
+        <dependency>
+            <groupId>me.friwi</groupId>
+            <artifactId>jcefmaven</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>commons-io</groupId>
+                    <artifactId>commons-io</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- commons-compress 1.28.0, which JCEF Maven 146 uses to extract the
+             native bundles, calls AbstractStreamBuilder.getInputStream() and
+             requires Commons IO 2.20.0 (its own declared dependency). An older
+             Commons IO on the classpath throws IllegalAccessError from
+             GzipCompressorInputStream during native extraction. The root
+             reactor's dependencyManagement pins commons-io to this same version;
+             this direct pin keeps standalone consumers of codenameone-javase (who
+             don't inherit the reactor's dependencyManagement) on 2.20.0 too. Keep
+             both in sync with commons-compress when bumping jcefmaven.version. -->
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>2.20.0</version>
+        </dependency>
+        <!--
+            The build hint data the simulator's hint editor reads. Device-safe
+            by construction: this artifact holds the model and the data and
+            nothing that touches ASM or the host JDK. Depending on it beats
+            keeping a second copy of the generated JSON in this module, which
+            was one more file to conflict over and one more thing to drift.
+        -->
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>codenameone-build-hint-catalog</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>codenameone-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Version comes from the parent's dependencyManagement, which tracks
+             ${project.version}. This is the shaded SQLite JDBC driver; it carries the
+             engine the simulator uses to read encrypted databases. -->
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.jhlabs</groupId>
+            <artifactId>filters</artifactId>
+            <version>2.0.235-1</version>
+        </dependency>
+        <!-- JOGL provides the real OpenGL backend for the simulator's 3D
+             (com.codename1.gpu) API. The "-main" meta artifacts pull in the
+             cross-platform native jars. The 3D backend creates JavaSEJoglSurface
+             inside a try/catch, so a missing or failed JOGL native never breaks
+             simulator startup; it falls back to the software renderer. -->
+        <dependency>
+            <groupId>org.jogamp.jogl</groupId>
+            <artifactId>jogl-all-main</artifactId>
+            <version>${jogl.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jogamp.gluegen</groupId>
+            <artifactId>gluegen-rt-main</artifactId>
+            <version>${jogl.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>javax.media</groupId>
+            <artifactId>jmf</artifactId>
+            <version>2.1.1e</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- JUnit Jupiter is "provided" so com.codename1.testing.junit.*
+             support classes compile against it, but downstream apps must
+             add their own JUnit dependency in test scope. This keeps the
+             simulator's runtime classpath free of JUnit for apps that
+             don't write JUnit tests. -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>1.7</maven.compiler.source>
+        <maven.compiler.target>1.7</maven.compiler.target>
+        <src.dir>../../Ports/JavaSE/src</src.dir>
+        <!-- JOGL 2.6.0 is on Maven Central and ships a universal (Intel + Apple
+             Silicon) macOS natives jar (natives-macosx-universal), so it covers
+             arm64 without the JogAmp repository. Earlier 2.5.0 had the arm64
+             natives but only on jogamp.org, whose intermittent timeouts flaked
+             the build; 2.3.2 on Central is Intel-only. -->
+        <jogl.version>2.6.0</jogl.version>
+    </properties>
+
+    <build>
+        <sourceDirectory>${src.dir}</sourceDirectory>
+        <resources>
+            <resource>
+                <directory>${src.dir}</directory>
+                <excludes>
+                    <exclude>**/*.java</exclude>
+                </excludes>
+            </resource>
+            <resource>
+                <directory>${cn1.binaries}/ble</directory>
+                <targetPath>com/codename1/impl/javase/bluetooth/native</targetPath>
+                <excludes>
+                    <!-- maintainer docs live next to the binaries in
+                         cn1-binaries; no reason to ship them to apps -->
+                    <exclude>**/*.md</exclude>
+                </excludes>
+            </resource>
+        </resources>
+        <plugins>
+            <!-- The build hint data file, rendered from the annotations in
+                 CodenameOne/src into this module's own classes. Generated rather
+                 than checked in, because a committed generated file conflicts on
+                 every merge and there is nothing for a hand edit to survive in.
+                 classpathScope=compile so that build-hint-tools resolves from the
+                 reactor: a plugin level dependency would have to come from the
+                 repository, which is a chicken and egg on a clean checkout. -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.0.0</version>
+                <executions>
+                    <execution>
+                        <id>cn1-generate-build-hint-data</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>com.codename1.build.shared.BuildHintCodeGenerator</mainClass>
+                            <classpathScope>compile</classpathScope>
+                            <!-- combine.self=override so a plugin level
+                                 configuration cannot merge into this one. The
+                                 Settings module's javase profile declares this
+                                 same plugin with its own <arguments> holding a
+                                 <classpath/> element, and Maven merged that
+                                 Object into this String array: "can not cast one
+                                 of the elements of java.lang.Object[]". Only
+                                 with -Dcodename1.platform=javase, which is why a
+                                 plain local build never saw it. -->
+                            <arguments combine.self="override">
+                                <argument>${project.basedir}/../../CodenameOne/src</argument>
+                                <argument>${project.build.outputDirectory}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.4.0</version>
+                <executions>
+                    <execution>
+                        <id>add-database-conformance-suite</id>
+                        <phase>generate-test-sources</phase>
+                        <goals><goal>add-test-source</goal></goals>
+                        <configuration>
+                            <sources>
+                                <!-- Shared with the on-device harness, which adds the same
+                                     directory as a main source. Test scope here, so it compiles
+                                     for SEDatabaseConformanceTest and never enters the port jar. -->
+                                <source>${project.basedir}/../../tests/conformance/java</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>build-skins</id>
+                        <phase>process-resources</phase>
+                        <configuration>
+                            <target>
+                                <echo>Installing iPhoneX.skin</echo>
+                                <mkdir dir="${project.build.directory}/skins"/>
+                                <!-- The Windows screenshot-capture job builds JavaSE
+                                     from a clean workspace and needs this skin before
+                                     tests can run. GitHub archive fetches occasionally
+                                     fail at connection time, so retry the required
+                                     download instead of failing before assertions run. -->
+                                <get src="https://github.com/codenameone/codenameone-skins/archive/master.zip" dest="${project.build.directory}/skins/master.zip" skipexisting="true" retries="5"/>
+                                <unzip src="${project.build.directory}/skins/master.zip" dest="${project.build.directory}/skins"/>
+                                <move file="${project.build.directory}/skins/codenameone-skins-master" tofile="${project.build.directory}/skins/codenameone-skins" />
+                                <ant dir="${project.build.directory}/skins/codenameone-skins" inheritAll="false" useNativeBasedir="true">
+                                    <property name="cn1.path" location="${project.basedir}/../.."/>
+                                </ant>
+                                <copy file="${project.build.directory}/skins/codenameone-skins/OTA/iPhoneX.skin" todir="${project.build.outputDirectory}"/>
+                                <!-- Watch skins (Apple Watch 41/45mm, Wear round and
+                                     square). Generated rather than committed: *.skin
+                                     is gitignored repository-wide, so a checked-in
+                                     binary would silently not exist for anyone else.
+                                     GenerateWatchSkins draws the bezel art and lifts
+                                     the theme .res out of the iPhoneX skin fetched
+                                     just above, so this must run after that copy. -->
+                                <echo>Generating watch skins</echo>
+                                <mkdir dir="${project.build.directory}/watch-skins-classes"/>
+                                <javac srcdir="${project.basedir}/../../tools/watch-skins"
+                                       destdir="${project.build.directory}/watch-skins-classes"
+                                       includeantruntime="false"
+                                       fork="true"
+                                       nowarn="true"/>
+                                <java classname="GenerateWatchSkins" fork="true" failonerror="true">
+                                    <classpath>
+                                        <pathelement location="${project.build.directory}/watch-skins-classes"/>
+                                    </classpath>
+                                    <arg value="${project.build.directory}/skins/codenameone-skins/OTA/iPhoneX.skin"/>
+                                    <arg value="${project.build.outputDirectory}"/>
+                                    <!-- The Wear skins embed Android's theme, not the one lifted
+                                         out of iPhoneX.skin: the simulator's "Embedded" native
+                                         theme option falls back to whatever a skin carries, so an
+                                         iOS theme there would style the Wear preview as iOS at
+                                         exactly the moment the platform look was asked for.
+                                         Passed from Themes/ rather than read out of the output
+                                         directory, because the themes below are copied there
+                                         after this task runs. -->
+                                    <arg value="${project.basedir}/../../Themes/AndroidMaterialTheme.res"/>
+                                </java>
+                                <!-- Bundle every shipped native theme into the
+                                     simulator fat jar so JavaSEPort.loadSkinFile can
+                                     load the right .res based on the current skin's
+                                     platformName (or the Simulator "Native Theme"
+                                     menu override). All .res files are committed
+                                     under Themes/; the modern pair is regenerated
+                                     by .github/workflows/native-themes-sync.yml. -->
+                                <copy todir="${project.build.outputDirectory}">
+                                    <fileset dir="${project.basedir}/../../Themes">
+                                        <include name="iOSModernTheme.res"/>
+                                        <include name="iOSModern27Theme.res"/>
+                                        <include name="AndroidMaterialTheme.res"/>
+                                        <include name="GnomeAdwaitaTheme.res"/>
+                                        <include name="WindowsFluentTheme.res"/>
+                                        <include name="MacOSAquaTheme.res"/>
+                                        <include name="iPhoneTheme.res"/>
+                                        <include name="iOS7Theme.res"/>
+                                        <include name="androidTheme.res"/>
+                                        <include name="android_holo_light.res"/>
+                                    </fileset>
+                                </copy>
+                            </target>
+                        </configuration>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <version>2.4.1</version>
+                <configuration>
+                    <!-- Built for local use but deliberately NOT attached: nothing consumes
+                         the published codenameone-javase jar-with-dependencies (29MB of
+                         shaded deps per release). Verified across this repo plus BuildDaemon,
+                         BuildCloud, BuildClient, OfflineBuilder and Deploy. -->
+                    <attach>false</attach>
+                    <descriptorRefs>
+                        <descriptorRef>jar-with-dependencies</descriptorRef>
+                    </descriptorRefs>
+                    <archive>
+                        <manifest>
+                            <mainClass>com.codename1.impl.javase.Simulator</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>make-assembly</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

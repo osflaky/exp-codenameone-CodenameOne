@@ -1,0 +1,127 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.health;
+
+import java.util.HashMap;
+import java.util.Map;
+
+/// One bucket of an [AggregateQuery] result: a span of time and the
+/// metrics computed over it.
+///
+/// #### A missing value is null, never zero
+///
+/// [#get(HealthDataType,AggregateMetric)] returns `null` when the bucket
+/// held no data. That distinction matters: a day with no step data and a
+/// day on which the user genuinely took no steps are different facts, and
+/// collapsing them into `0` turns "we don't know" into "you did nothing".
+/// Every health app that gets this wrong draws the same wrong chart --
+/// a flat line through the days the phone was left at home.
+///
+/// ```java
+/// HealthQuantity total = bucket.get(HealthDataType.STEPS, AggregateMetric.TOTAL);
+/// if (total == null) {
+///     renderNoDataMarker(bucket.getBucketStartMillis());
+/// } else {
+///     renderBar(total.getValue(HealthUnit.COUNT));
+/// }
+/// ```
+public final class AggregateResult {
+
+    private final long bucketStartMillis;
+    private final long bucketEndMillis;
+    private final Map<String, HealthQuantity> values =
+            new HashMap<String, HealthQuantity>();
+    private final Map<String, Integer> counts = new HashMap<String, Integer>();
+
+    /// Creates an empty bucket spanning `[start, end)`.
+    public AggregateResult(long bucketStartMillis, long bucketEndMillis) {
+        this.bucketStartMillis = bucketStartMillis;
+        this.bucketEndMillis = bucketEndMillis;
+    }
+
+    /// Inclusive start of this bucket, epoch millis UTC.
+    public long getBucketStartMillis() {
+        return bucketStartMillis;
+    }
+
+    /// Exclusive end of this bucket, epoch millis UTC.
+    public long getBucketEndMillis() {
+        return bucketEndMillis;
+    }
+
+    /// The computed value, or `null` when this bucket held no data for
+    /// that type and metric. See the class documentation -- do not
+    /// substitute zero.
+    public HealthQuantity get(HealthDataType type, AggregateMetric metric) {
+        if (type == null || metric == null) {
+            return null;
+        }
+        return values.get(key(type, metric));
+    }
+
+    /// How many samples contributed to `type` in this bucket. Zero is a
+    /// real answer here, unlike [#get(HealthDataType,AggregateMetric)].
+    public int getSampleCount(HealthDataType type) {
+        if (type == null) {
+            return 0;
+        }
+        Integer n = counts.get(type.getId());
+        return n == null ? 0 : n.intValue();
+    }
+
+    /// `true` when no metric in this bucket produced a value.
+    public boolean isEmpty() {
+        return values.isEmpty();
+    }
+
+    /// Records a computed value. Called by [HealthStore] and by ports; a
+    /// null value clears the entry rather than storing a placeholder.
+    public void put(HealthDataType type, AggregateMetric metric,
+            HealthQuantity value) {
+        if (type == null || metric == null) {
+            return;
+        }
+        if (value == null) {
+            values.remove(key(type, metric));
+        } else {
+            values.put(key(type, metric), value);
+        }
+    }
+
+    /// Records how many samples contributed to `type`.
+    public void setSampleCount(HealthDataType type, int count) {
+        if (type != null) {
+            counts.put(type.getId(), Integer.valueOf(count));
+        }
+    }
+
+    private static String key(HealthDataType type, AggregateMetric metric) {
+        return type.getId() + '\0' + metric.name();
+    }
+
+    @Override
+    public String toString() {
+        return "AggregateResult[" + bucketStartMillis + ".."
+                + bucketEndMillis + " " + values.size() + " values]";
+    }
+}

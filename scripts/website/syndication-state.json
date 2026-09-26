@@ -1,0 +1,2262 @@
+{
+  "_comment": "Tracks blog posts syndicated by scripts/website/syndicate_blog_posts.py and syndicate_browser_posts.py. Keyed by post slug. Each platform sub-object records the remote URL/id and ISO timestamp once syndication succeeds.",
+  "posts": {
+    "liquid-glass-material-3-modern-native-themes": {
+      "devto": {
+        "id": 3620800,
+        "url": "https://dev.to/codenameone/liquid-glass-material-3-and-a-lot-of-plumbing-2jkk",
+        "syndicated_at": "2026-05-06T13:08:18+00:00"
+      },
+      "hashnode": {
+        "id": "69fb2f0263ebe40f84df66db",
+        "url": "https://debugagent.com/liquid-glass-material-3-and-a-lot-of-plumbing",
+        "syndicated_at": "2026-05-06T12:24:00+00:00"
+      },
+      "foojay": {
+        "id": 123690,
+        "url": "https://foojay.io/wp-admin/post.php?post=123690&action=edit",
+        "preview_url": "https://foojay.io/?p=123690",
+        "featured_media_id": 123689,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-05-08T13:34:19+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/234eb2fad73d/edit",
+        "syndicated_at": "2026-05-09T11:28:11+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3653548/edit.html",
+        "syndicated_at": "2026-05-09T16:48:46+00:00"
+      }
+    },
+    "metal-and-skins": {
+      "devto": {
+        "id": 3678044,
+        "url": "https://dev.to/codenameone/metal-and-skins-4e00",
+        "syndicated_at": "2026-05-15T13:34:26+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/draft/67a41962e690bb4ecd9fd9b8",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-05-15T18:42:17+00:00"
+      },
+      "foojay": {
+        "id": 123840,
+        "url": "https://foojay.io/wp-admin/post.php?post=123840&action=edit",
+        "preview_url": "https://foojay.io/?p=123840",
+        "featured_media_id": 123839,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-05-16T13:31:58+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/f08d6680b1cf/edit",
+        "syndicated_at": "2026-05-18T13:52:17+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3655676/edit.html",
+        "syndicated_at": "2026-05-18T13:53:16+00:00"
+      }
+    },
+    "skills-java17-and-theme-accents": {
+      "devto": {
+        "id": 3726146,
+        "url": "https://dev.to/codenameone/skills-java-17-and-theme-accents-59dp",
+        "syndicated_at": "2026-05-22T13:46:38+00:00"
+      },
+      "foojay": {
+        "id": 123913,
+        "url": "https://foojay.io/wp-admin/post.php?post=123913&action=edit",
+        "preview_url": "https://foojay.io/?p=123913",
+        "featured_media_id": 123912,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-05-22T13:47:26+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/a92f2e65c4b5/edit",
+        "syndicated_at": "2026-05-22T15:01:26+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3655800/edit.html",
+        "syndicated_at": "2026-05-22T15:02:38+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmpvyqtam00051sjk98woaz8u",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a07e19fea8975272b6efaf2",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-02T01:33:02+00:00"
+      }
+    },
+    "nfc-crypto-biometrics-and-build-cloud": {
+      "devto": {
+        "id": 3778808,
+        "url": "https://dev.to/codenameone/nfc-crypto-biometrics-and-a-new-build-cloud-119j",
+        "syndicated_at": "2026-05-29T14:01:41+00:00"
+      },
+      "foojay": {
+        "id": 124003,
+        "url": "https://foojay.io/wp-admin/post.php?post=124003&action=edit",
+        "preview_url": "https://foojay.io/?p=124003",
+        "featured_media_id": 124002,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-05-29T14:02:56+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/b7dab4277d90/edit",
+        "syndicated_at": "2026-05-29T15:01:20+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3657524/edit.html",
+        "syndicated_at": "2026-05-31T15:01:20+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmpvyt0pa00061sjkhsqh5xji",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a1e32e181824da877d77d72",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-02T01:34:44+00:00"
+      }
+    },
+    "metal-default-new-build-cloud-and-a-new-format": {
+      "devto": {
+        "id": 3828546,
+        "url": "https://dev.to/codenameone/metal-default-a-new-build-cloud-and-a-new-format-11hg",
+        "syndicated_at": "2026-06-05T13:58:05+00:00"
+      },
+      "foojay": {
+        "id": 124128,
+        "url": "https://foojay.io/wp-admin/post.php?post=124128&action=edit",
+        "preview_url": "https://foojay.io/?p=124128",
+        "featured_media_id": 124127,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-06-05T13:59:11+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/1945f698dd28/edit",
+        "syndicated_at": "2026-06-05T15:01:09+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3658581/edit.html",
+        "syndicated_at": "2026-06-05T15:02:20+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmq120nmg001h1sq14zpg0q1j",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a22e50abdc172ef8847e8b0",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-05T15:03:31+00:00"
+      }
+    },
+    "developer-workflow-debug-and-junit": {
+      "devto": {
+        "id": 3835213,
+        "url": "https://dev.to/codenameone/on-device-debugging-and-junit-5-245",
+        "syndicated_at": "2026-06-06T13:32:21+00:00"
+      },
+      "foojay": {
+        "id": 124137,
+        "url": "https://foojay.io/wp-admin/post.php?post=124137&action=edit",
+        "preview_url": "https://foojay.io/?p=124137",
+        "featured_media_id": 124136,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-06-06T13:33:29+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/57036bf1aeaf/edit",
+        "syndicated_at": "2026-06-06T15:01:49+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmq2hhs3v00031spqd70cf2w9",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a2436bae769bc0019e10426",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-06T15:04:35+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3656694/edit.html",
+        "syndicated_at": "2026-06-06T15:14:17+00:00"
+      }
+    },
+    "platform-apis-in-the-core": {
+      "devto": {
+        "id": 3841163,
+        "url": "https://dev.to/codenameone/ai-oauth-and-other-platform-apis-in-the-core-nd2",
+        "syndicated_at": "2026-06-07T13:32:48+00:00"
+      },
+      "foojay": {
+        "id": 124141,
+        "url": "https://foojay.io/wp-admin/post.php?post=124141&action=edit",
+        "preview_url": "https://foojay.io/?p=124141",
+        "featured_media_id": 124140,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-06-07T13:33:49+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/362f74616708/edit",
+        "syndicated_at": "2026-06-07T15:01:52+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3656699/edit.html",
+        "syndicated_at": "2026-06-07T15:18:55+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmq3xhm4u000i1spq2hgddqg6",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a258bea0d543e9c5d254f2a",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-07T15:20:02+00:00"
+      }
+    },
+    "build-time-codegen": {
+      "devto": {
+        "id": 3849555,
+        "url": "https://dev.to/codenameone/openapi-orm-svg-and-lottie-56ea",
+        "syndicated_at": "2026-06-08T14:32:08+00:00"
+      },
+      "foojay": {
+        "id": 124152,
+        "url": "https://foojay.io/wp-admin/post.php?post=124152&action=edit",
+        "preview_url": "https://foojay.io/?p=124152",
+        "featured_media_id": 124151,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-06-08T14:33:02+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/ab7837351417/edit",
+        "syndicated_at": "2026-06-08T15:01:39+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3656726/edit.html",
+        "syndicated_at": "2026-06-08T15:02:43+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmq5ccmj900000bjehn2p1zvu",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a26d99db1bc3cdb83ac9ac3",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-08T15:03:50+00:00"
+      }
+    },
+    "we-will-not-sabotage-your-code": {
+      "devto": {
+        "id": 3866356,
+        "url": "https://dev.to/codenameone/we-will-not-sabotage-your-code-1k4k",
+        "syndicated_at": "2026-06-10T14:07:55+00:00"
+      },
+      "foojay": {
+        "id": 124169,
+        "url": "https://foojay.io/wp-admin/post.php?post=124169&action=edit",
+        "preview_url": "https://foojay.io/?p=124169",
+        "featured_media_id": 124168,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-06-10T14:08:52+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/13b00417be96/edit",
+        "syndicated_at": "2026-06-10T15:01:18+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3659540/edit.html",
+        "syndicated_at": "2026-06-10T15:02:29+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmq8783xu00000bky6mpke9e1",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a297c93aaf199dfbd2442e9",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-10T15:03:39+00:00"
+      }
+    },
+    "mac-native-grpc-graphql-and-fewer-open-issues": {
+      "devto": {
+        "id": 3883353,
+        "url": "https://dev.to/codenameone/mac-native-builds-live-protocols-and-open-issues-under-350-1fj5",
+        "syndicated_at": "2026-06-12T14:02:19+00:00"
+      },
+      "foojay": {
+        "id": 124224,
+        "url": "https://foojay.io/wp-admin/post.php?post=124224&action=edit",
+        "preview_url": "https://foojay.io/?p=124224",
+        "featured_media_id": 124223,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-06-12T14:03:17+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/6e0f8f576d37/edit",
+        "syndicated_at": "2026-06-12T15:01:47+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3659749/edit.html",
+        "syndicated_at": "2026-06-12T15:03:10+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmqb24nhh000904laekkddimg",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a2c1fb8d617a213c25a34bd",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-12T15:04:19+00:00"
+      }
+    },
+    "mac-native-builds-and-desktop-integration": {
+      "devto": {
+        "id": 3891796,
+        "url": "https://dev.to/codenameone/your-codename-one-app-now-a-native-mac-app-4gio",
+        "syndicated_at": "2026-06-13T13:33:30+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/d99e73163aae/edit",
+        "syndicated_at": "2026-06-13T15:01:38+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3659757/edit.html",
+        "syndicated_at": "2026-06-13T15:02:41+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmqchk0bu00000bjc9gbs2zjn",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a2d7123c69e839c84d8741b",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-13T15:03:55+00:00"
+      }
+    },
+    "websockets-grpc-and-graphql": {
+      "devto": {
+        "id": 3898688,
+        "url": "https://dev.to/codenameone/websockets-grpc-and-graphql-in-the-core-1pp",
+        "syndicated_at": "2026-06-14T13:32:59+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3659763/edit.html",
+        "syndicated_at": "2026-06-14T15:06:39+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmqdx51bi00000bklga386fep",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a2ec3903a1c0d0cf02b4f56",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-14T15:07:57+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/12ca68b71c6e/edit",
+        "syndicated_at": "2026-06-14T18:18:47+00:00"
+      }
+    },
+    "modern-advertising-api": {
+      "hashnode": {
+        "url": "https://hashnode.com/draft/6a301385a7aa7f6b9fbf63d9",
+        "published": false,
+        "draft_url": "https://hashnode.com/draft/6a301385a7aa7f6b9fbf63d9",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": false,
+        "canonical_set": false,
+        "syndicated_at": "2026-06-15T15:01:50+00:00"
+      },
+      "devto": {
+        "id": 3907833,
+        "url": "https://dev.to/codenameone/a-new-advertising-api-built-from-the-ground-up-3olm",
+        "syndicated_at": "2026-06-15T15:03:05+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/f87d1b32183e/edit",
+        "syndicated_at": "2026-06-15T17:01:29+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3659578/edit.html",
+        "syndicated_at": "2026-06-15T17:02:34+00:00"
+      }
+    },
+    "background-execution-and-push": {
+      "devto": {
+        "id": 3916765,
+        "url": "https://dev.to/codenameone/background-work-push-topics-and-richer-notifications-2gah",
+        "syndicated_at": "2026-06-16T14:37:12+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/5f7082083581/edit",
+        "syndicated_at": "2026-06-16T15:01:17+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmqgru52a00000ajjbnudgtu6",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a301385a7aa7f6b9fbf63d9",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-16T15:02:51+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3659702/edit.html",
+        "syndicated_at": "2026-06-16T17:01:10+00:00"
+      }
+    },
+    "native-java-win32-3d-gaming-printing-and-wallet": {
+      "devto": {
+        "id": 3941182,
+        "url": "https://dev.to/codenameone/native-java-win32-3d-gaming-printing-and-wallet-3chd",
+        "syndicated_at": "2026-06-19T14:02:25+00:00"
+      },
+      "foojay": {
+        "id": 124288,
+        "url": "https://foojay.io/wp-admin/post.php?post=124288&action=edit",
+        "preview_url": "https://foojay.io/?p=124288",
+        "featured_media_id": 124287,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-06-19T14:03:17+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/2022b8c584cc/edit",
+        "syndicated_at": "2026-06-19T15:01:37+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3660925/edit.html",
+        "syndicated_at": "2026-06-19T15:02:42+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmql26z7b00010cj70fr4dhpw",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a355a1d60ca9562960803dc",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-19T15:03:50+00:00"
+      }
+    },
+    "portable-3d-graphics-api": {
+      "devto": {
+        "id": 3949315,
+        "url": "https://dev.to/codenameone/3d-graphics-without-writing-shaders-the-portable-gpu-api-3ach",
+        "syndicated_at": "2026-06-20T13:33:27+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/82f824ca9ce8/edit",
+        "syndicated_at": "2026-06-20T15:01:28+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/draft/6a36ab52f3d6ad5d6df0a163",
+        "published": false,
+        "draft_url": "https://hashnode.com/draft/6a36ab52f3d6ad5d6df0a163",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": false,
+        "canonical_set": false,
+        "syndicated_at": "2026-06-20T15:03:14+00:00"
+      }
+    },
+    "game-development-api-box2d": {
+      "devto": {
+        "id": 3955953,
+        "url": "https://dev.to/codenameone/build-games-in-java-sprites-box2d-physics-and-low-latency-sound-341i",
+        "syndicated_at": "2026-06-21T13:33:41+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/c741f26f760e/edit",
+        "syndicated_at": "2026-06-21T15:02:42+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmqnx343k00010aje85p301dm",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a36ab52f3d6ad5d6df0a163",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-21T15:04:09+00:00"
+      }
+    },
+    "native-windows-port-no-jvm": {
+      "devto": {
+        "id": 3963478,
+        "url": "https://dev.to/codenameone/java-to-a-native-windows-exe-no-jvm-5mb-x64-and-arm-4fel",
+        "syndicated_at": "2026-06-22T14:53:40+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/d730b701f1ab/edit",
+        "syndicated_at": "2026-06-22T15:02:19+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmqpci8rr00010cjbey4igya6",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a394e850866c772819e5980",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-22T15:03:36+00:00"
+      }
+    },
+    "printing-and-apple-wallet": {
+      "devto": {
+        "id": 3971284,
+        "url": "https://dev.to/codenameone/print-anywhere-and-put-your-cards-in-apple-wallet-24on",
+        "syndicated_at": "2026-06-23T13:51:48+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/538785c97682/edit",
+        "syndicated_at": "2026-06-23T15:01:18+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmqqrwmt800000cj07ftmh9m1",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a3a9fcab57736c2f7790bab",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-23T15:02:27+00:00"
+      }
+    },
+    "native-linux-apple-watch-game-builder-crash-protection": {
+      "devto": {
+        "id": 3998768,
+        "url": "https://dev.to/codenameone/native-linux-apple-watch-a-game-builder-and-crash-protection-2i4c",
+        "syndicated_at": "2026-06-26T13:40:18+00:00"
+      },
+      "foojay": {
+        "id": 124397,
+        "url": "https://foojay.io/wp-admin/post.php?post=124397&action=edit",
+        "preview_url": "https://foojay.io/?p=124397",
+        "featured_media_id": 124396,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-06-26T13:41:12+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/9fe329cc6286/edit",
+        "syndicated_at": "2026-06-26T15:02:35+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmqv2cvut000009jb0gb66uke",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a3e951bf9d8e17738bd9754",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-26T15:06:06+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3663747/edit.html",
+        "syndicated_at": "2026-06-27T17:26:56+00:00"
+      }
+    },
+    "java-to-a-native-linux-app": {
+      "devto": {
+        "id": 4006227,
+        "url": "https://dev.to/codenameone/java-to-native-linux-app-one-5mb-binary-x64-and-arm-3cio",
+        "syndicated_at": "2026-06-27T13:32:14+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmqwhpylf00000ahxht7415hs",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a3fe624e1b9f39569ca0298",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-27T15:03:57+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/70d0604baedf/edit",
+        "syndicated_at": "2026-06-27T19:03:09+00:00"
+      }
+    },
+    "native-apple-watch-and-wear": {
+      "devto": {
+        "id": 4012367,
+        "url": "https://dev.to/codenameone/just-watch-13j9",
+        "syndicated_at": "2026-06-28T13:31:44+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/b737efc67ec1/edit",
+        "syndicated_at": "2026-06-28T15:01:23+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmqxx40iv00000akp98za2gxn",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a41375086a0252c2eb7d8e8",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-28T15:02:33+00:00"
+      }
+    },
+    "seamless-crash-protection": {
+      "devto": {
+        "id": 4022932,
+        "url": "https://dev.to/codenameone/seamless-crash-protection-that-symbolicates-native-crashes-1l1h",
+        "syndicated_at": "2026-06-29T14:23:01+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/c5fedad9aab6/edit",
+        "syndicated_at": "2026-06-29T15:03:14+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmqzcmgub00000ajad85zhsoa",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a4289402686d28b73901608",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-29T15:04:34+00:00"
+      }
+    },
+    "the-codename-one-game-builder": {
+      "devto": {
+        "id": 4031706,
+        "url": "https://dev.to/codenameone/the-codename-one-game-builder-draw-the-level-code-the-rules-19gl",
+        "syndicated_at": "2026-06-30T13:35:15+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/ca19f3f8fdd2/edit",
+        "syndicated_at": "2026-06-30T15:01:54+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmr0s0bml00000ahw2de6e5eb",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a43da6cbcd424af2d59707c",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-06-30T15:03:03+00:00"
+      }
+    },
+    "game-builder-2d-platformer": {
+      "devto": {
+        "id": 4051588,
+        "url": "https://dev.to/codenameone/game-builder-tutorial-1-build-a-2d-platformer-dukes-coffee-run-45b0",
+        "syndicated_at": "2026-07-02T13:33:17+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmr3mxqci00000akn5lov5w5a",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a467da48717c2649649e5dc",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-02T15:04:25+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/94089979c81e/edit",
+        "syndicated_at": "2026-07-02T17:14:42+00:00"
+      }
+    },
+    "funding-open-source-without-the-bait-and-switch": {
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmr529n7t00010aj1doxehjnp",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a47ce8483904781bbd1ecdd",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-03T15:01:17+00:00"
+      },
+      "devto": {
+        "id": 4061338,
+        "url": "https://dev.to/codenameone/funding-open-source-without-the-bait-and-switch-analytics-native-maps-tv-and-more-1h1j",
+        "syndicated_at": "2026-07-03T15:14:15+00:00"
+      },
+      "foojay": {
+        "id": 124679,
+        "url": "https://foojay.io/wp-admin/post.php?post=124679&action=edit",
+        "preview_url": "https://foojay.io/?p=124679",
+        "featured_media_id": 124678,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-07-03T15:15:12+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/437da890be1e/edit",
+        "syndicated_at": "2026-07-03T17:01:49+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3663930/edit.html",
+        "syndicated_at": "2026-07-03T17:03:20+00:00"
+      }
+    },
+    "vector-and-native-maps": {
+      "devto": {
+        "id": 4067568,
+        "url": "https://dev.to/codenameone/maps-you-control-a-pure-vector-mapview-and-pluggable-native-providers-409h",
+        "syndicated_at": "2026-07-04T14:24:26+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/4dedac270370/edit",
+        "syndicated_at": "2026-07-04T15:02:11+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmr6hsql4000009gnc01o05xl",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a49208815b0e51c16e88f06",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-04T15:03:55+00:00"
+      }
+    },
+    "rich-text-and-code-editing": {
+      "devto": {
+        "id": 4073308,
+        "url": "https://dev.to/codenameone/rich-text-and-code-editing-richtextarea-and-a-syntax-highlighting-codeeditor-4c82",
+        "syndicated_at": "2026-07-05T14:34:59+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/d42786886b6a/edit",
+        "syndicated_at": "2026-07-05T15:01:47+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmr7x7j15000009jf6n2a7kcx",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a4a71e9c5e3069d1a484688",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-05T15:02:58+00:00"
+      }
+    },
+    "privacy-first-analytics": {
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmr9cl9gw00000ahw2bs78qqb",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a4bc30710bbf9b4a2c14266",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-06T15:01:20+00:00"
+      },
+      "devto": {
+        "id": 4081326,
+        "url": "https://dev.to/codenameone/a-privacy-first-analytics-api-one-facade-a-provider-spi-and-a-consent-gate-2l1l",
+        "syndicated_at": "2026-07-06T16:14:46+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/ccdfc4c8ecb5/edit",
+        "syndicated_at": "2026-07-06T17:01:33+00:00"
+      }
+    },
+    "apple-tv-and-android-tv": {
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmras133g000009kwd2r11z0x",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a4d1485d0cbc4b047603df5",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-07T15:01:19+00:00"
+      },
+      "devto": {
+        "id": 4089775,
+        "url": "https://dev.to/codenameone/apple-tv-and-android-tv-one-codebase-and-css-media-for-the-living-room-bb0",
+        "syndicated_at": "2026-07-07T15:40:58+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/9405e5ccbe89/edit",
+        "syndicated_at": "2026-07-07T17:01:15+00:00"
+      }
+    },
+    "device-integrity-and-app-review": {
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmrc7gx2z00000bjk0oam0ynq",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a4e6604718e4cea5fcbc44a",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-08T15:01:18+00:00"
+      },
+      "devto": {
+        "id": 4098406,
+        "url": "https://dev.to/codenameone/device-integrity-and-app-review-rasp-attestation-and-asking-for-ratings-right-2n1j",
+        "syndicated_at": "2026-07-08T15:12:56+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/d69f57e6bc7f/edit",
+        "syndicated_at": "2026-07-08T17:01:29+00:00"
+      }
+    },
+    "game-builder-board-game": {
+      "hashnode": {
+        "url": "https://hashnode.com/draft/6a4fb782bdcebc9cb2047aa5",
+        "published": false,
+        "draft_url": "https://hashnode.com/draft/6a4fb782bdcebc9cb2047aa5",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": false,
+        "canonical_set": false,
+        "syndicated_at": "2026-07-09T15:01:59+00:00"
+      },
+      "devto": {
+        "id": 4107450,
+        "url": "https://dev.to/codenameone/game-builder-tutorial-2-build-a-blackjack-card-game-duke-jack-gha",
+        "syndicated_at": "2026-07-09T15:53:13+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/3a146c0b65b9/edit",
+        "syndicated_at": "2026-07-09T17:02:30+00:00"
+      }
+    },
+    "one-codebase-more-surfaces": {
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmrf2cza500000ako6jv51fe8",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a4fb782bdcebc9cb2047aa5",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-10T15:01:35+00:00"
+      },
+      "devto": {
+        "id": 4114785,
+        "url": "https://dev.to/codenameone/more-surfaces-same-deal-cars-sensors-commerce-video-and-builds-29pg",
+        "syndicated_at": "2026-07-10T15:27:50+00:00"
+      },
+      "foojay": {
+        "id": 124873,
+        "url": "https://foojay.io/wp-admin/post.php?post=124873&action=edit",
+        "preview_url": "https://foojay.io/?p=124873",
+        "featured_media_id": 124872,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-07-10T15:28:43+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/df5ba1965711/edit",
+        "syndicated_at": "2026-07-10T17:02:06+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3664113/edit.html",
+        "syndicated_at": "2026-07-10T17:03:21+00:00"
+      }
+    },
+    "carplay-android-auto-codename-one": {
+      "devto": {
+        "id": 4120419,
+        "url": "https://dev.to/codenameone/carplay-and-android-auto-from-one-codename-one-api-32b6",
+        "syndicated_at": "2026-07-11T14:27:46+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/7aa6b70edb8b/edit",
+        "syndicated_at": "2026-07-11T15:02:10+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmrghv0za000009krfqy535h2",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a525afc7f56acd218665f8f",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-11T15:03:16+00:00"
+      }
+    },
+    "motion-input-form-factors": {
+      "devto": {
+        "id": 4126285,
+        "url": "https://dev.to/codenameone/motion-stylus-trackpads-and-foldables-in-the-core-4m87",
+        "syndicated_at": "2026-07-12T14:23:42+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/a919f6878700/edit",
+        "syndicated_at": "2026-07-12T15:01:32+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmrhxa61b00000akw33bm0y1d",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a53ac5a0d59e305f4f1c269",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-12T15:02:44+00:00"
+      }
+    },
+    "commerce-secrets-without-iap-tax": {
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmrjco7d1000009kp416ke9ql",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a54fd87eb5a3d186da42544",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-13T15:01:19+00:00"
+      },
+      "devto": {
+        "id": 4134931,
+        "url": "https://dev.to/codenameone/commerce-and-secrets-without-an-iap-tax-1n9b",
+        "syndicated_at": "2026-07-13T15:39:12+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/8db8980674b9/edit",
+        "syndicated_at": "2026-07-13T17:01:32+00:00"
+      }
+    },
+    "versioned-builds-master": {
+      "devto": {
+        "id": 4143110,
+        "url": "https://dev.to/codenameone/versioned-builds-are-back-with-master-builds-for-fast-verification-2ak7",
+        "syndicated_at": "2026-07-14T14:43:47+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/9dfc1521126c/edit",
+        "syndicated_at": "2026-07-14T15:01:19+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmrks5hty00000ahq01h6gzb3",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a564f486117667b861c0194",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-14T15:02:26+00:00"
+      }
+    },
+    "videoio-audio-mixer-whisper": {
+      "devto": {
+        "id": 4151334,
+        "url": "https://dev.to/codenameone/videoio-pcm-mixing-and-timed-whisper-captions-1l3n",
+        "syndicated_at": "2026-07-15T14:58:28+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/be97a6017308/edit",
+        "syndicated_at": "2026-07-17T17:01:32+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmrp7dcja00000ai19ctmdr5u",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a5a63ec9039cabd7a494d67",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-17T17:19:31+00:00"
+      }
+    },
+    "game-builder-3d-dungeon": {
+      "devto": {
+        "id": 4168302,
+        "url": "https://dev.to/codenameone/game-builder-tutorial-3-build-a-first-person-3d-dungeon-358h",
+        "syndicated_at": "2026-07-17T16:40:46+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/3099f1cd87e7/edit",
+        "syndicated_at": "2026-07-17T17:03:55+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmrp8h61s00010aj0bvqz66qq",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a5a6b2d9d37331971aa4401",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-17T17:50:29+00:00"
+      }
+    },
+    "beating-hotspot-performance": {
+      "foojay": {
+        "id": 124977,
+        "url": "https://foojay.io/wp-admin/post.php?post=124977&action=edit",
+        "preview_url": "https://foojay.io/?p=124977",
+        "featured_media_id": 124976,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-07-17T16:41:54+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/f1c3107c1300/edit",
+        "syndicated_at": "2026-07-17T17:05:31+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3664310/edit.html",
+        "syndicated_at": "2026-07-17T17:06:57+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmrp8jltl00000aj81pcp726w",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a5a6b9ed24e418183bd040f",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-17T17:52:23+00:00"
+      },
+      "devto": {
+        "id": 4174245,
+        "url": "https://dev.to/codenameone/how-we-beat-hotspot-performance-by-cheating-but-not-like-that-2187",
+        "syndicated_at": "2026-07-18T14:17:43+00:00"
+      }
+    },
+    "2026-07-17-1800-shai-pixel-perfect-is-a-test": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/feed/",
+        "syndicated_at": "2026-07-17T16:57:42+00:00",
+        "account": "shai",
+        "source_slug": "pixel-perfect-is-a-test",
+        "scheduled_at": "2026-07-17T15:00:00+00:00"
+      }
+    },
+    "2026-07-18-1200-shai-standalone-codename-one-settings": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/feed/",
+        "syndicated_at": "2026-07-18T09:01:00+00:00",
+        "account": "shai",
+        "source_slug": "standalone-codename-one-settings",
+        "scheduled_at": "2026-07-18T09:00:00+00:00"
+      }
+    },
+    "standalone-certificate-wizard": {
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmrqhwq6w00000ahs4hligf1q",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a5b953f03eaeeb7bc9e8832",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-18T15:02:18+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/98a439a59e9c/edit",
+        "syndicated_at": "2026-07-18T19:09:42+00:00"
+      },
+      "devto": {
+        "id": 4180198,
+        "url": "https://dev.to/codenameone/the-certificate-wizard-is-now-a-standalone-app-and-it-stopped-impersonating-you-229n",
+        "syndicated_at": "2026-07-19T14:21:33+00:00"
+      }
+    },
+    "2026-07-19-1200-shai-widgets-live-activities-dynamic-island": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/feed/",
+        "syndicated_at": "2026-07-19T09:01:03+00:00",
+        "account": "shai",
+        "source_slug": "widgets-live-activities-dynamic-island",
+        "scheduled_at": "2026-07-19T09:00:00+00:00"
+      }
+    },
+    "ar-vr-support-simulation": {
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmrrxegsc00000akl5z3t1hs3",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a5ce70d9e736d860ee36b73",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-19T15:03:49+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/49f089c3ab2b/edit",
+        "syndicated_at": "2026-07-19T18:45:48+00:00"
+      },
+      "devto": {
+        "id": 4188945,
+        "url": "https://dev.to/codenameone/ar-and-vr-in-java-arkit-arcore-and-a-virtual-room-you-can-debug-851",
+        "syndicated_at": "2026-07-20T15:05:14+00:00"
+      }
+    },
+    "2026-07-20-1200-shai-accessibility-semantics": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/feed/",
+        "syndicated_at": "2026-07-20T09:01:13+00:00",
+        "account": "shai",
+        "source_slug": "accessibility-semantics",
+        "scheduled_at": "2026-07-20T09:00:00+00:00"
+      }
+    },
+    "automated-store-submissions": {
+      "medium": {
+        "url": "https://medium.com/p/1b9c4cdd441c/edit",
+        "syndicated_at": "2026-07-21T08:37:40+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmruej6n200010ahk3r2d5zp6",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a5f2fe3b742172078632466",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-21T08:38:52+00:00"
+      },
+      "devto": {
+        "id": 4198273,
+        "url": "https://dev.to/codenameone/store-submissions-as-code-app-store-google-play-and-huawei-appgallery-3131",
+        "syndicated_at": "2026-07-21T15:00:57+00:00"
+      }
+    },
+    "2026-07-21-1200-shai-codename-one-mcp-server": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/feed/",
+        "syndicated_at": "2026-07-21T09:01:05+00:00",
+        "account": "shai",
+        "source_slug": "codename-one-mcp-server",
+        "scheduled_at": "2026-07-21T09:00:00+00:00"
+      }
+    },
+    "2026-07-22-1200-codenameone-tested-port-support": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/company/5041007/admin/page-posts/published/",
+        "syndicated_at": "2026-07-22T09:01:31+00:00",
+        "account": "codenameone",
+        "source_slug": "tested-port-support",
+        "scheduled_at": "2026-07-22T09:00:00+00:00"
+      }
+    },
+    "pixel-perfect-is-a-test": {
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmrz2ih9400000ahx0rcydwno",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a637dfe3bd75cc42a7ac5d5",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-24T15:01:14+00:00"
+      },
+      "devto": {
+        "id": 4225026,
+        "url": "https://dev.to/codenameone/own-your-pixels-native-fidelity-on-your-schedule-2gf",
+        "syndicated_at": "2026-07-24T15:28:08+00:00"
+      },
+      "foojay": {
+        "id": 125063,
+        "url": "https://foojay.io/wp-admin/post.php?post=125063&action=edit",
+        "preview_url": "https://foojay.io/?p=125063",
+        "featured_media_id": 125062,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-07-24T15:28:58+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/a9ee10eeaf75/edit",
+        "syndicated_at": "2026-07-26T06:26:45+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3664518/edit.html",
+        "syndicated_at": "2026-07-26T06:38:03+00:00"
+      }
+    },
+    "standalone-codename-one-settings": {
+      "hashnode": {
+        "url": "https://hashnode.com/draft/6a65a8db6d1c6df67fb7193a",
+        "published": false,
+        "draft_url": "https://hashnode.com/draft/6a65a8db6d1c6df67fb7193a",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": false,
+        "canonical_set": false,
+        "syndicated_at": "2026-07-26T06:29:18+00:00"
+      },
+      "devto": {
+        "id": 4235252,
+        "url": "https://dev.to/codenameone/codename-one-settings-is-now-a-standalone-tool-1aj",
+        "syndicated_at": "2026-07-26T06:52:04+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/8ca7b53f4c47/edit",
+        "syndicated_at": "2026-07-26T15:01:54+00:00"
+      }
+    },
+    "2026-07-24-1200-shai-javascript-free-open-source": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/feed/",
+        "syndicated_at": "2026-07-26T06:56:32+00:00",
+        "account": "shai",
+        "source_slug": "javascript-free-open-source",
+        "scheduled_at": "2026-07-24T09:00:00+00:00"
+      }
+    },
+    "2026-07-25-1200-codenameone-calendar-is-not-add-event": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/company/5041007/admin/page-posts/published/",
+        "syndicated_at": "2026-07-26T06:57:20+00:00",
+        "account": "codenameone",
+        "source_slug": "calendar-is-not-add-event",
+        "scheduled_at": "2026-07-25T09:00:00+00:00"
+      }
+    },
+    "2026-07-26-1200-codenameone-bluetooth-beyond-ble": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/company/5041007/admin/page-posts/published/",
+        "syndicated_at": "2026-07-26T09:01:09+00:00",
+        "account": "codenameone",
+        "source_slug": "bluetooth-beyond-ble",
+        "scheduled_at": "2026-07-26T09:00:00+00:00"
+      }
+    },
+    "widgets-live-activities-dynamic-island": {
+      "medium": {
+        "url": "https://medium.com/p/778cc67498dc/edit",
+        "syndicated_at": "2026-07-26T15:03:57+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cms1xjfqr00000bkm6mb51r21",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a65a8db6d1c6df67fb7193a",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-26T15:05:19+00:00"
+      },
+      "devto": {
+        "id": 4237539,
+        "url": "https://dev.to/codenameone/widgets-live-activities-and-dynamic-island-from-one-java-api-5166",
+        "syndicated_at": "2026-07-26T15:40:22+00:00"
+      }
+    },
+    "2026-07-27-1200-shai-text-input-without-native-overlay": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/feed/",
+        "syndicated_at": "2026-07-27T09:01:02+00:00",
+        "account": "shai",
+        "source_slug": "text-input-without-native-overlay",
+        "scheduled_at": "2026-07-27T09:00:00+00:00"
+      }
+    },
+    "accessibility-semantics": {
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cms3ctzbi00000ai3doecfy30",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a6772805201a5d3e7460dc2",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-27T15:01:12+00:00"
+      },
+      "devto": {
+        "id": 4246482,
+        "url": "https://dev.to/codenameone/accessibility-semantics-the-ui-tree-you-cannot-see-g9m",
+        "syndicated_at": "2026-07-27T15:38:41+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/f324aeae88e9/edit",
+        "syndicated_at": "2026-07-27T17:02:02+00:00"
+      }
+    },
+    "2026-07-28-1200-codenameone-rich-text-without-webview": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/company/5041007/admin/page-posts/published/",
+        "syndicated_at": "2026-07-28T09:01:03+00:00",
+        "account": "codenameone",
+        "source_slug": "rich-text-without-webview",
+        "scheduled_at": "2026-07-28T09:00:00+00:00"
+      }
+    },
+    "codename-one-mcp-server": {
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cms4s9s1g00010akefydl34ro",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a68c3fc698247b1f9d5ea47",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-28T15:01:09+00:00"
+      },
+      "devto": {
+        "id": 4255423,
+        "url": "https://dev.to/codenameone/your-codename-one-app-can-be-an-mcp-server-21ja",
+        "syndicated_at": "2026-07-28T15:16:20+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/5826cd818bae/edit",
+        "syndicated_at": "2026-07-28T17:01:08+00:00"
+      }
+    },
+    "2026-07-29-1200-shai-compact-strings-parparvm": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/feed/",
+        "syndicated_at": "2026-07-29T09:01:06+00:00",
+        "account": "shai",
+        "source_slug": "compact-strings-parparvm",
+        "scheduled_at": "2026-07-29T09:00:00+00:00"
+      }
+    },
+    "tested-port-support": {
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cms67pj7o00030ahvfnkz5vd9",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a6a157a5c1fcb617e85a642",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-07-29T15:01:05+00:00"
+      },
+      "devto": {
+        "id": 4264006,
+        "url": "https://dev.to/codenameone/port-support-you-can-trace-back-to-a-green-test-54in",
+        "syndicated_at": "2026-07-29T15:06:18+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/49d3fdbe0a43/edit",
+        "syndicated_at": "2026-07-29T17:01:08+00:00"
+      }
+    },
+    "javascript-free-open-source": {
+      "devto": {
+        "id": 4281839,
+        "url": "https://dev.to/codenameone/the-codename-one-javascript-port-is-now-free-and-open-source-2f84",
+        "syndicated_at": "2026-07-31T15:13:59+00:00"
+      },
+      "foojay": {
+        "id": 125141,
+        "url": "https://foojay.io/wp-admin/post.php?post=125141&action=edit",
+        "preview_url": "https://foojay.io/?p=125141",
+        "featured_media_id": 125140,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-07-31T15:14:57+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/draft/6a6cd8a77553d4089b8fb959",
+        "published": false,
+        "draft_url": "https://hashnode.com/draft/6a6cd8a77553d4089b8fb959",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": false,
+        "canonical_set": false,
+        "syndicated_at": "2026-07-31T17:19:12+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/d4c6ea644187/edit",
+        "syndicated_at": "2026-08-01T15:02:36+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3667063/edit.html",
+        "syndicated_at": "2026-08-01T15:03:48+00:00"
+      }
+    },
+    "2026-07-31-1200-shai-push-v3-new-cloud": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/feed/",
+        "syndicated_at": "2026-08-01T02:00:52+00:00",
+        "account": "shai",
+        "source_slug": "push-v3-new-cloud",
+        "scheduled_at": "2026-07-31T09:00:00+00:00"
+      }
+    },
+    "2026-08-01-1200-codenameone-health-api-false-certainty": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/company/5041007/admin/page-posts/published/",
+        "syndicated_at": "2026-08-01T09:00:47+00:00",
+        "account": "codenameone",
+        "source_slug": "health-api-false-certainty",
+        "scheduled_at": "2026-08-01T09:00:00+00:00"
+      }
+    },
+    "calendar-is-not-add-event": {
+      "devto": {
+        "id": 4288004,
+        "url": "https://dev.to/codenameone/calendar-api-local-calendars-cloud-sync-and-conflict-handling-1a1p",
+        "syndicated_at": "2026-08-01T14:23:54+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/790309dfa730/edit",
+        "syndicated_at": "2026-08-01T15:05:20+00:00"
+      },
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmsai8e5800000ajfasgs3ypf",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a6cd8a77553d4089b8fb959",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-01T15:06:46+00:00"
+      }
+    },
+    "bluetooth-beyond-ble": {
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmsambk0700000ai85hq4a2xq",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a6e261fd0b9e3ee6a6f6056",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-01T17:01:12+00:00"
+      },
+      "devto": {
+        "id": 4293450,
+        "url": "https://dev.to/codenameone/bluetooth-support-across-every-codename-one-target-4om5",
+        "syndicated_at": "2026-08-02T14:25:15+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/c55af10bfadd/edit",
+        "syndicated_at": "2026-08-04T22:34:44+00:00"
+      }
+    },
+    "2026-08-02-1200-shai-on-device-ai-mcp-loopback": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/feed/",
+        "syndicated_at": "2026-08-02T10:00:48+00:00",
+        "account": "shai",
+        "source_slug": "on-device-ai-mcp-loopback",
+        "scheduled_at": "2026-08-02T09:00:00+00:00"
+      }
+    },
+    "text-input-without-native-overlay": {
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmsc1rlfl00000ajk9achehzr",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a6f77a685fd397e8cbf0281",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-02T17:01:21+00:00"
+      },
+      "devto": {
+        "id": 4304034,
+        "url": "https://dev.to/codenameone/pure-codename-one-text-editing-without-native-overlays-2i9l",
+        "syndicated_at": "2026-08-03T15:39:51+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/5982d0a906fb/edit",
+        "syndicated_at": "2026-08-04T22:37:50+00:00"
+      }
+    },
+    "2026-08-03-1200-codenameone-road-following-map-routing": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/company/5041007/admin/page-posts/published/",
+        "syndicated_at": "2026-08-03T09:00:49+00:00",
+        "account": "codenameone",
+        "source_slug": "road-following-map-routing",
+        "scheduled_at": "2026-08-03T09:00:00+00:00"
+      }
+    },
+    "rich-text-without-webview": {
+      "hashnode": {
+        "url": "https://hashnode.com/edit/cmsdh8tug00000akq9eut89ns",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a70c96701a7d21b3a3d1554",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-03T17:02:29+00:00"
+      },
+      "devto": {
+        "id": 4314093,
+        "url": "https://dev.to/codenameone/a-lightweight-rich-text-component-without-a-web-view-3ch0",
+        "syndicated_at": "2026-08-04T15:30:13+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/@Codename_One/a-lightweight-rich-text-component-without-a-web-view-58fd7a813d83?postPublishedType=initial",
+        "syndicated_at": "2026-08-04T22:42:09+00:00"
+      }
+    },
+    "2026-08-04-1200-shai-maven-central-cloudflare-r2": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/feed/",
+        "syndicated_at": "2026-08-04T09:00:56+00:00",
+        "account": "shai",
+        "source_slug": "maven-central-cloudflare-r2",
+        "scheduled_at": "2026-08-04T09:00:00+00:00"
+      }
+    },
+    "compact-strings-parparvm": {
+      "hashnode": {
+        "url": "https://debugagent.com/compact-strings-cut-character-storage-in-half",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a721af9dd3e6285f360a9b7",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-05T02:41:11+00:00"
+      },
+      "devto": {
+        "id": 4323779,
+        "url": "https://dev.to/codenameone/compact-strings-cut-character-storage-in-half-542h",
+        "syndicated_at": "2026-08-05T15:10:15+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/@Codename_One/compact-strings-cut-character-storage-in-half-d957eb397105?postPublishedType=initial",
+        "syndicated_at": "2026-08-05T17:01:58+00:00"
+      }
+    },
+    "push-v3-new-cloud": {
+      "devto": {
+        "id": 4341372,
+        "url": "https://dev.to/codenameone/push-v3-one-message-from-your-server-to-every-surface-5gfg",
+        "syndicated_at": "2026-08-07T14:08:16+00:00"
+      },
+      "foojay": {
+        "id": 125259,
+        "url": "https://foojay.io/wp-admin/post.php?post=125259&action=edit",
+        "preview_url": "https://foojay.io/?p=125259",
+        "featured_media_id": 125258,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-08-07T14:09:16+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/ba27b4e66789/edit",
+        "syndicated_at": "2026-08-07T15:04:55+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3669856/edit.html",
+        "syndicated_at": "2026-08-07T15:06:34+00:00"
+      },
+      "hashnode": {
+        "url": "https://debugagent.com/push-v3-one-message-from-your-server-to-every-surface",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a74bd9c454aef8f31c22d82",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-06T17:01:02+00:00"
+      }
+    },
+    "2026-08-07-1200-shai-app-shield-server-attestation": {
+      "linkedin": {
+        "url": "https://www.linkedin.com/feed/",
+        "syndicated_at": "2026-08-07T15:01:03+00:00",
+        "account": "shai",
+        "source_slug": "app-shield-server-attestation",
+        "scheduled_at": "2026-08-07T09:00:00+00:00"
+      }
+    },
+    "health-api-false-certainty": {
+      "devto": {
+        "id": 4348896,
+        "url": "https://dev.to/codenameone/health-data-without-fake-certainty-fok",
+        "syndicated_at": "2026-08-08T13:40:17+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/7dc7a4f45437/edit",
+        "syndicated_at": "2026-08-08T17:00:47+00:00"
+      },
+      "hashnode": {
+        "url": "https://debugagent.com/health-data-without-fake-certainty",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a78966ec2a026bbfcbad16a",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-09T15:03:05+00:00"
+      }
+    },
+    "on-device-ai-mcp-loopback": {
+      "devto": {
+        "id": 4353762,
+        "url": "https://dev.to/codenameone/on-device-ai-and-mcp-on-every-port-9a2",
+        "syndicated_at": "2026-08-09T13:43:43+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/0555ea24ec4e/edit",
+        "syndicated_at": "2026-08-09T15:01:51+00:00"
+      },
+      "hashnode": {
+        "url": "https://debugagent.com/on-device-ai-and-mcp-on-every-port",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a78b21c425a35184720d807",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-09T17:01:09+00:00"
+      }
+    },
+    "road-following-map-routing": {
+      "hashnode": {
+        "url": "https://debugagent.com/a-polyline-is-not-a-route",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a78ce418b389bf6d7448474",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-09T19:01:12+00:00"
+      },
+      "devto": {
+        "id": 4361786,
+        "url": "https://dev.to/codenameone/a-polyline-is-not-a-route-5fek",
+        "syndicated_at": "2026-08-10T14:43:58+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/@Codename_One/a-polyline-is-not-a-route-b9d829ec8cdc?postPublishedType=initial",
+        "syndicated_at": "2026-08-10T19:01:26+00:00"
+      }
+    },
+    "maven-central-cloudflare-r2": {
+      "hashnode": {
+        "url": "https://debugagent.com/why-codename-one-is-moving-beyond-maven-central",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a7a03ecce38e6e6be69683a",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-10T17:02:26+00:00"
+      },
+      "devto": {
+        "id": 4370055,
+        "url": "https://dev.to/codenameone/why-codename-one-is-moving-beyond-maven-central-35f2",
+        "syndicated_at": "2026-08-11T14:16:04+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/aeddd59c189c/edit",
+        "syndicated_at": "2026-08-11T15:01:55+00:00"
+      }
+    },
+    "app-shield-server-attestation": {
+      "hashnode": {
+        "url": "https://debugagent.com/app-shield-your-server-should-not-trust-the-app-calling-it",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a7df82189de856bbfaa0c61",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-13T17:01:17+00:00"
+      },
+      "devto": {
+        "id": 4397465,
+        "url": "https://dev.to/codenameone/app-shield-your-server-should-not-trust-the-app-calling-it-4cpa",
+        "syndicated_at": "2026-08-14T14:11:17+00:00"
+      },
+      "foojay": {
+        "id": 125318,
+        "url": "https://foojay.io/wp-admin/post.php?post=125318&action=edit",
+        "preview_url": "https://foojay.io/?p=125318",
+        "featured_media_id": 125317,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-08-14T14:12:17+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/7eb51778196b/edit",
+        "syndicated_at": "2026-08-15T04:52:12+00:00"
+      },
+      "dzone": {
+        "url": "https://dzone.com/content/3673201/edit.html",
+        "syndicated_at": "2026-08-15T04:53:25+00:00"
+      }
+    },
+    "third-generation-gui-builder": {
+      "devto": {
+        "id": 4454482,
+        "url": "https://dev.to/codenameone/the-third-generation-gui-builder-one-workspace-for-every-form-4mdh",
+        "syndicated_at": "2026-08-21T13:39:35+00:00"
+      },
+      "foojay": {
+        "id": 125372,
+        "url": "https://foojay.io/wp-admin/post.php?post=125372&action=edit",
+        "preview_url": "https://foojay.io/?p=125372",
+        "featured_media_id": 125371,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-08-21T13:40:38+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/e1e4b287f737/edit",
+        "syndicated_at": "2026-08-21T15:02:24+00:00"
+      },
+      "hashnode": {
+        "url": "https://debugagent.com/the-third-generation-gui-builder-one-workspace-for-every-form",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a89eaf1de87e0eb7c27bb54",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-22T18:32:08+00:00"
+      }
+    },
+    "app-hardening-cross-platform": {
+      "devto": {
+        "id": 4461952,
+        "url": "https://dev.to/codenameone/app-hardening-one-obfuscation-pipeline-across-every-port-ani",
+        "syndicated_at": "2026-08-22T13:30:18+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/c456bbd6ac60/edit",
+        "syndicated_at": "2026-08-22T15:01:34+00:00"
+      },
+      "hashnode": {
+        "url": "https://debugagent.com/app-hardening-one-obfuscation-pipeline-across-every-port",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a89f1bf74045c6031a39fd4",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-22T19:01:10+00:00"
+      }
+    },
+    "sqlite-portable-encrypted": {
+      "hashnode": {
+        "url": "https://debugagent.com/sqlite-across-every-port-one-contract-one-encrypted-file-format",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a91a27f00708d452f5abb47",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-28T15:01:16+00:00"
+      },
+      "devto": {
+        "id": 4515621,
+        "url": "https://dev.to/codenameone/sqlite-across-every-port-one-contract-one-encrypted-file-format-2fmo",
+        "syndicated_at": "2026-08-28T19:01:48+00:00"
+      },
+      "foojay": {
+        "id": 125444,
+        "url": "https://foojay.io/wp-admin/post.php?post=125444&action=edit",
+        "preview_url": "https://foojay.io/?p=125444",
+        "featured_media_id": 125443,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-08-28T19:02:47+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/bd51abdb21ca/edit",
+        "syndicated_at": "2026-08-28T19:19:51+00:00"
+      }
+    },
+    "watch-apps-phone-channel": {
+      "hashnode": {
+        "url": "https://debugagent.com/watch-apps-one-codebase-two-real-applications",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a92f40041f6222fb4bcb7b6",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-29T15:01:12+00:00"
+      },
+      "devto": {
+        "id": 4523495,
+        "url": "https://dev.to/codenameone/watch-apps-one-codebase-two-real-applications-215f",
+        "syndicated_at": "2026-08-29T17:06:29+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/@Codename_One/watch-apps-one-codebase-two-real-applications-08ca92035288?postPublishedType=initial",
+        "syndicated_at": "2026-08-29T19:01:23+00:00"
+      }
+    },
+    "javascript-dom-text-search": {
+      "hashnode": {
+        "url": "https://debugagent.com/javascript-find-in-page-dom-text-above-the-codename-one-canvas",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a94457d16c137248dbe20a2",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-30T15:01:09+00:00"
+      },
+      "devto": {
+        "id": 4530080,
+        "url": "https://dev.to/codenameone/javascript-find-in-page-dom-text-above-the-codename-one-canvas-41pj",
+        "syndicated_at": "2026-08-30T17:26:42+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/@Codename_One/javascript-find-in-page-dom-text-above-the-codename-one-canvas-aaae6fb663fb?postPublishedType=initial",
+        "syndicated_at": "2026-08-30T19:01:27+00:00"
+      }
+    },
+    "smart-home-homekit-matter": {
+      "hashnode": {
+        "url": "https://debugagent.com/one-java-api-for-homekit-matter-and-google-home",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a9596fd60337e9ee42db090",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-08-31T15:01:07+00:00"
+      },
+      "devto": {
+        "id": 4539773,
+        "url": "https://dev.to/codenameone/one-java-api-for-homekit-matter-and-google-home-2g85",
+        "syndicated_at": "2026-08-31T19:30:16+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/61e028cda09b/edit",
+        "syndicated_at": "2026-09-01T06:30:36+00:00"
+      }
+    },
+    "tapjacking-protection": {
+      "hashnode": {
+        "url": "https://debugagent.com/tapjacking-protection-rejecting-android-touches-behind-an-overlay",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a96e880aac3136983326e16",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-01T15:01:14+00:00"
+      },
+      "devto": {
+        "id": 4548796,
+        "url": "https://dev.to/codenameone/tapjacking-protection-rejecting-android-touches-behind-an-overlay-4h0b",
+        "syndicated_at": "2026-09-01T17:19:38+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/@Codename_One/tapjacking-protection-rejecting-android-touches-behind-an-overlay-fa35242e24ce?postPublishedType=initial",
+        "syndicated_at": "2026-09-01T19:01:24+00:00"
+      }
+    },
+    "camera-vision-scanners": {
+      "hashnode": {
+        "url": "https://debugagent.com/codescanner-scan-barcode-scanning-without-rebuilding-the-camera-pipeline",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a97670fc38c24ad81c57025",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-02T00:01:11+00:00"
+      },
+      "devto": {
+        "id": 4557936,
+        "url": "https://dev.to/codenameone/codescannerscan-barcode-scanning-without-rebuilding-the-camera-pipeline-30pm",
+        "syndicated_at": "2026-09-02T17:09:59+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/@Codename_One/codescanner-scan-barcode-scanning-without-rebuilding-the-camera-pipeline-3b1197956934?postPublishedType=initial",
+        "syndicated_at": "2026-09-02T19:01:28+00:00"
+      }
+    },
+    "app-intents-siri-spotlight-shortcuts": {
+      "hashnode": {
+        "url": "https://debugagent.com/app-intents-one-java-declaration-for-siri-spotlight-and-shortcuts",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a98b890ed5954d9f014c602",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-03T00:01:21+00:00"
+      },
+      "devto": {
+        "id": 4567384,
+        "url": "https://dev.to/codenameone/app-intents-one-java-declaration-for-siri-spotlight-and-shortcuts-fdi",
+        "syndicated_at": "2026-09-03T17:05:39+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/a47fac3fce4b/edit",
+        "syndicated_at": "2026-09-03T19:01:10+00:00"
+      }
+    },
+    "native-desktop-windows": {
+      "hashnode": {
+        "url": "https://debugagent.com/one-app-more-than-one-native-window",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a9a0a1efcced619747363aa",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-04T00:01:37+00:00"
+      },
+      "devto": {
+        "id": 4576222,
+        "url": "https://dev.to/codenameone/one-app-more-than-one-native-window-3dm1",
+        "syndicated_at": "2026-09-04T16:51:47+00:00"
+      },
+      "foojay": {
+        "id": 125683,
+        "url": "https://foojay.io/wp-admin/post.php?post=125683&action=edit",
+        "preview_url": "https://foojay.io/?p=125683",
+        "featured_media_id": 125682,
+        "yoast_meta_set": true,
+        "syndicated_at": "2026-09-04T16:52:40+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/0de1ea9d9c6e/edit",
+        "syndicated_at": "2026-09-04T17:02:10+00:00"
+      }
+    },
+    "documents-in-system-file-browser": {
+      "hashnode": {
+        "url": "https://debugagent.com/put-app-documents-in-the-system-file-browser",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a9b5b904dbecb52d8a06440",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-05T00:01:13+00:00"
+      },
+      "devto": {
+        "id": 4583236,
+        "url": "https://dev.to/codenameone/put-app-documents-in-the-system-file-browser-2lo4",
+        "syndicated_at": "2026-09-05T16:02:40+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/@Codename_One/put-app-documents-in-the-system-file-browser-86e697109449?postPublishedType=initial",
+        "syndicated_at": "2026-09-06T17:00:45+00:00"
+      }
+    },
+    "uwb-nearby-devices": {
+      "hashnode": {
+        "url": "https://debugagent.com/uwb-and-nearby-devices-distance-direction-association-and-transport",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a9cad51363df24b1211a1eb",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-06T00:02:16+00:00"
+      },
+      "devto": {
+        "id": 4589012,
+        "url": "https://dev.to/codenameone/uwb-and-nearby-devices-distance-direction-association-and-transport-196i",
+        "syndicated_at": "2026-09-06T16:14:40.614Z",
+        "recovered": true
+      },
+      "medium": {
+        "url": "https://medium.com/p/84ed4e153efd/edit",
+        "syndicated_at": "2026-09-07T19:01:15+00:00"
+      }
+    },
+    "watch-complications-wear-companion": {
+      "hashnode": {
+        "url": "https://debugagent.com/watch-follow-through-complications-tiles-and-a-companion-wear-apk",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a9dfe8f74901b1feb69f1b0",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-07T00:01:12+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/bdf6a214ade4/edit",
+        "syndicated_at": "2026-09-07T19:02:37+00:00"
+      },
+      "devto": {
+        "id": 4608363,
+        "url": "https://dev.to/codenameone/watch-follow-through-complications-tiles-and-a-companion-wear-apk-1dk2",
+        "syndicated_at": "2026-09-08T17:15:35+00:00"
+      }
+    },
+    "rootless-jailbreak-detection": {
+      "hashnode": {
+        "url": "https://debugagent.com/rootless-jailbreak-detection-updating-the-signals-not-the-claim",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6a9f500e29ad489e4c757d8f",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-08T00:01:09+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/7c2081802a30/edit",
+        "syndicated_at": "2026-09-08T19:01:31+00:00"
+      },
+      "devto": {
+        "id": 4616804,
+        "url": "https://dev.to/codenameone/rootless-jailbreak-detection-updating-the-signals-not-the-claim-3b1e",
+        "syndicated_at": "2026-09-09T17:09:25+00:00"
+      }
+    },
+    "compile-time-build-hints": {
+      "hashnode": {
+        "url": "https://debugagent.com/build-hints-that-fail-before-the-build-server",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6aa0a3607df4cf9f679e1115",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-09T00:08:57+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/cf0f03201d2b/edit",
+        "syndicated_at": "2026-09-09T19:01:46+00:00"
+      },
+      "devto": {
+        "id": 4625689,
+        "url": "https://dev.to/codenameone/build-hints-that-fail-before-the-build-server-3c6o",
+        "syndicated_at": "2026-09-10T17:03:01+00:00"
+      }
+    },
+    "voip-vpn-builders": {
+      "hashnode": {
+        "url": "https://debugagent.com/voip-vpn-and-the-build-system-behind-them",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6aa344931394571c5ef29606",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-11T00:01:15+00:00"
+      },
+      "devto": {
+        "id": 4634079,
+        "url": "https://dev.to/codenameone/voip-vpn-and-the-build-system-behind-them-58j3",
+        "syndicated_at": "2026-09-11T17:01:39+00:00"
+      },
+      "foojay": {
+        "id": 60,
+        "url": "https://github.com/foojayio/website/pull/60",
+        "pull_request_url": "https://github.com/foojayio/website/pull/60",
+        "status": "submitted",
+        "published": false,
+        "syndicated_at": "2026-09-11T17:01:55+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/722f79a6115e/edit",
+        "syndicated_at": "2026-09-11T19:01:34+00:00"
+      }
+    },
+    "dialogs-in-native-windows": {
+      "hashnode": {
+        "url": "https://debugagent.com/a-dialog-can-now-be-a-native-desktop-window",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6aa49612e6a7f480eca4e6b4",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-12T00:01:13+00:00"
+      },
+      "devto": {
+        "id": 4639932,
+        "url": "https://dev.to/codenameone/a-dialog-can-now-be-a-native-desktop-window-1jgk",
+        "syndicated_at": "2026-09-12T16:17:44+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/@Codename_One/a-dialog-can-now-be-a-native-desktop-window-ee68e1279c53?postPublishedType=initial",
+        "syndicated_at": "2026-09-13T15:00:50+00:00"
+      }
+    },
+    "native-appkit-mac-port": {
+      "hashnode": {
+        "url": "https://debugagent.com/a-mac-app-not-an-ios-app-on-a-mac",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6aa5e7e861e38f5a7ca3ee46",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-13T00:02:39+00:00"
+      },
+      "devto": {
+        "id": 4644566,
+        "url": "https://dev.to/codenameone/a-mac-app-not-an-ios-app-on-a-mac-2jce",
+        "syndicated_at": "2026-09-13T16:57:44+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/@Codename_One/a-mac-app-not-an-ios-app-on-a-mac-3bfab7dbcbc6?postPublishedType=initial",
+        "syndicated_at": "2026-09-14T15:01:36+00:00"
+      }
+    },
+    "sms-otp-autofill": {
+      "hashnode": {
+        "url": "https://debugagent.com/fill-an-sms-verification-code-without-reading-the-inbox",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6aa739840ce7667578e0ebb9",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-14T00:03:06+00:00"
+      },
+      "devto": {
+        "id": 4652521,
+        "url": "https://dev.to/codenameone/fill-an-sms-verification-code-without-reading-the-inbox-926",
+        "syndicated_at": "2026-09-14T18:47:30+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/@Codename_One/fill-an-sms-verification-code-without-reading-the-inbox-591ed26dbcb0?postPublishedType=initial",
+        "syndicated_at": "2026-09-14T19:01:44+00:00"
+      }
+    },
+    "platform-deprecation-watch": {
+      "hashnode": {
+        "url": "https://debugagent.com/we-stopped-waiting-for-platform-changes-to-find-us",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6aa88a90821736758ae4c4c1",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-15T00:01:11+00:00"
+      },
+      "devto": {
+        "id": 4661234,
+        "url": "https://dev.to/codenameone/we-stopped-waiting-for-platform-changes-to-find-us-4f15",
+        "syndicated_at": "2026-09-15T17:40:13+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/@Codename_One/we-stopped-waiting-for-platform-changes-to-find-us-566ee9018cc8?postPublishedType=initial",
+        "syndicated_at": "2026-09-15T19:01:29+00:00"
+      }
+    },
+    "private-contact-picker": {
+      "hashnode": {
+        "url": "https://debugagent.com/pick-one-contact-without-asking-for-the-address-book",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6aa9dc107d960c121a845a36",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-16T00:01:12+00:00"
+      },
+      "devto": {
+        "id": 4669906,
+        "url": "https://dev.to/codenameone/pick-one-contact-without-asking-for-the-address-book-578c",
+        "syndicated_at": "2026-09-16T17:39:19+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/@Codename_One/pick-one-contact-without-asking-for-the-address-book-40a44b76cd61?postPublishedType=initial",
+        "syndicated_at": "2026-09-16T19:01:54+00:00"
+      }
+    },
+    "performance-work-between-benchmarks": {
+      "hashnode": {
+        "url": "https://debugagent.com/lies-damn-lies-and-benchmarks",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6aac7f0c10121822668d45d0",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-18T00:01:08+00:00"
+      },
+      "devto": {
+        "id": 4687125,
+        "url": "https://dev.to/codenameone/lies-damn-lies-and-benchmarks-1f4p",
+        "syndicated_at": "2026-09-18T17:04:19+00:00"
+      },
+      "foojay": {
+        "id": 62,
+        "url": "https://github.com/foojayio/website/pull/62",
+        "pull_request_url": "https://github.com/foojayio/website/pull/62",
+        "status": "submitted",
+        "published": false,
+        "syndicated_at": "2026-09-18T17:04:35+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/335c13fda7d8/edit",
+        "syndicated_at": "2026-09-18T19:02:23+00:00"
+      }
+    },
+    "parparvm-gc-small-heaps": {
+      "hashnode": {
+        "url": "https://debugagent.com/what-go-taught-us-about-java-garbage-collection",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6aadd08dbef4ed95a6696337",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-19T00:01:08+00:00"
+      },
+      "devto": {
+        "id": 4695229,
+        "url": "https://dev.to/codenameone/what-go-taught-us-about-java-garbage-collection-25ha",
+        "syndicated_at": "2026-09-19T16:28:01+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/9d366328ed49/edit",
+        "syndicated_at": "2026-09-19T19:00:35+00:00"
+      }
+    },
+    "hashmap-misses-probe-sequence": {
+      "hashnode": {
+        "url": "https://debugagent.com/faster-maps-chasing-swiss-speed",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6aaf22113a322f44e7900163",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-20T00:01:11+00:00"
+      },
+      "devto": {
+        "id": 4700812,
+        "url": "https://dev.to/codenameone/faster-maps-chasing-swiss-speed-pl7",
+        "syndicated_at": "2026-09-20T16:47:29+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/c644f89ec993/edit",
+        "syndicated_at": "2026-09-20T17:01:25+00:00"
+      }
+    },
+    "startup-cost-before-first-paint": {
+      "hashnode": {
+        "url": "https://debugagent.com/faster-starts-less-javascript-overhead",
+        "published": true,
+        "draft_url": "https://hashnode.com/draft/6ab073916db0cef128157930",
+        "cover_set": true,
+        "subheading_set": true,
+        "tags_set": true,
+        "canonical_set": true,
+        "syndicated_at": "2026-09-21T00:01:14+00:00"
+      },
+      "devto": {
+        "id": 4709942,
+        "url": "https://dev.to/codenameone/faster-starts-less-javascript-overhead-297m",
+        "syndicated_at": "2026-09-21T18:40:10+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/8cd5f0d19069/edit",
+        "syndicated_at": "2026-09-21T19:01:33+00:00"
+      }
+    },
+    "continuity-restoring-work": {
+      "devto": {
+        "id": 4718195,
+        "url": "https://dev.to/codenameone/native-drag-and-drop-meets-cross-device-continuity-36nd",
+        "syndicated_at": "2026-09-22T17:38:06+00:00"
+      },
+      "medium": {
+        "url": "https://medium.com/p/2547af3e68f0/edit",
+        "syndicated_at": "2026-09-22T19:02:29+00:00"
+      }
+    }
+  }
+}

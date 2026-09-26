@@ -1,0 +1,763 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.builders;
+
+import org.apache.tools.ant.BuildException;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.Calendar;
+
+/**
+ * Helper class extracted from {@link IPhoneBuilder} that owns every Mac
+ * native specific code path. Activated when the build hint {@code
+ * macNative.enabled=true} is set: parses the {@code macNative.*} hint
+ * family, generates the per-channel {@code .entitlements} plists, the
+ * {@code ExportOptions-AppStore-Mac.plist} / {@code ExportOptions-
+ * DeveloperID-Mac.plist} archive-export plists, the Mac iconset under
+ * {@code Images.xcassets/Mac.appiconset/}, and finally a Ruby
+ * {@code xcodeproj}-based script that injects the {@code
+ * SUPPORTS_MACCATALYST=YES} family of build settings plus the
+ * {@code DEAD_CODE_STRIPPING / EXCLUDED_SOURCE_FILE_NAMES} workarounds
+ * needed for the Catalyst slice to compile + link.
+ *
+ * <p>This class is NOT a separate {@link Executor} -- it is a delegate
+ * owned by {@link IPhoneBuilder}, called at three well-defined points
+ * inside that builder's pipeline (hint parsing, post-project-generate
+ * patching, and asset-catalog finalisation). The Mac slice still
+ * piggybacks on the existing iOS Xcode project; this helper just adds
+ * the Mac-specific overlays on top.
+ *
+ * <p>The underlying technology is Mac Catalyst at the Xcode level, but
+ * that is an implementation detail and never surfaces in the build
+ * hint names, output directories, or methods on this class. The
+ * user-facing surface uses {@code macNative.*}.
+ */
+class MacNativeBuilder {
+    private final IPhoneBuilder owner;
+
+    // Parsed hints.
+    private boolean enabled;
+
+    private boolean multiWindow;
+    private String distribution;       // appStore | developerID | both
+    private String teamId;
+    private String bundleId;
+    private boolean deriveBundleId;
+    private String minDeploymentTarget;     // MACOSX_DEPLOYMENT_TARGET
+    private String iosMinDeploymentTarget;  // IPHONEOS floor for Catalyst
+    private String appCategory;
+    private String copyright;
+    private String signingStyle;       // automatic | manual
+    private String signingIdentityAppStore;
+    private String signingIdentityDeveloperID;
+    private String fixedWindowSize;            // "<W>x<H>" or empty for native default
+    // Distribution notarization (opt-in; default off so existing builds are
+    // unchanged). When macNative.notarize=true the built Mac .app is Developer
+    // ID signed (hardened runtime + entitlements), notarized + stapled so a
+    // pre-compiled/downloaded build clears Gatekeeper instead of relying on the
+    // ad-hoc/linker signature (which a quarantined download cannot use).
+    private boolean notarize;
+    private String notaryKeychainProfile;
+    private String notaryAppleId;
+    private String notaryTeamId;
+    private String notaryPassword;
+
+    MacNativeBuilder(IPhoneBuilder owner) {
+        this.owner = owner;
+    }
+
+    boolean isEnabled() {
+        return enabled;
+    }
+
+    /// Whether this build asks for `com.codename1.ui.Window` support.
+    ///
+    /// Opt-in, and deliberately not implied by `macNative.enabled`. Supporting windows
+    /// means declaring `UIApplicationSupportsMultipleScenes`, which puts the app on the
+    /// UIScene lifecycle -- and a Catalyst window opens four points shorter under it, so
+    /// every existing Mac Catalyst application would have re-laid out slightly on the
+    /// next build. Measured, not assumed: the conformance suite renders 1024x685 without
+    /// the manifest and 1024x681 with it, and the 148 goldens recorded before windows
+    /// existed match the former exactly.
+    ///
+    /// So an application that does not ask for windows gets the bundle it always got,
+    /// and one that does accepts the relayout knowingly.
+    boolean isMultiWindow() {
+        return enabled && multiWindow;
+    }
+
+    /**
+     * Parse the {@code macNative.*} hint family off the request and
+     * stash the values for later. Caller is expected to raise the minimum
+     * deployment target to the Catalyst floor.
+     */
+    void parseHints(BuildRequest request) {
+        enabled = "true".equals(request.getArg("macNative.enabled", "false"));
+        multiWindow = "true".equals(request.getArg("macNative.multiWindow", "false"));
+        if (!enabled) {
+            return;
+        }
+        distribution = request.getArg("macNative.distribution", "appStore");
+        teamId = request.getArg("macNative.teamId",
+                request.getArg("ios.release.teamId",
+                        request.getArg("ios.teamId",
+                                request.getArg("ios.debug.teamId", ""))));
+        bundleId = request.getArg("macNative.bundleId",
+                request.getPackageName() + ".mac");
+        deriveBundleId = !"false".equals(request.getArg("macNative.deriveBundleId", "true"));
+        minDeploymentTarget = request.getArg("macNative.minDeploymentTarget", "10.15");
+        iosMinDeploymentTarget = request.getArg("macNative.iosMinDeploymentTarget", "13.1");
+        // Both floors moved under Xcode 27: macOS from 10.13 to 12.0 and iOS from 12.0 to 15.0.
+        // The Catalyst slice carries its own IPHONEOS_DEPLOYMENT_TARGET, so raising the iOS app
+        // target alone would leave this one under the floor. See AppleSdkFloor.
+        String macSdkFloor = owner.sdkMinimumDeploymentTarget("macosx");
+        String raisedMac = AppleSdkFloor.raiseTo(minDeploymentTarget, macSdkFloor);
+        if (!raisedMac.equals(minDeploymentTarget)) {
+            owner.log("macNative.minDeploymentTarget is " + minDeploymentTarget
+                    + ", but this Xcode's macOS SDK accepts nothing below " + macSdkFloor
+                    + "; building against " + raisedMac + " instead.");
+            minDeploymentTarget = raisedMac;
+        }
+        String catalystSdkFloor = owner.sdkMinimumDeploymentTarget("iphoneos");
+        String raisedCatalyst = AppleSdkFloor.raiseTo(iosMinDeploymentTarget, catalystSdkFloor);
+        if (!raisedCatalyst.equals(iosMinDeploymentTarget)) {
+            owner.log("macNative.iosMinDeploymentTarget is " + iosMinDeploymentTarget
+                    + ", but this Xcode's iOS SDK accepts nothing below " + catalystSdkFloor
+                    + "; building the Catalyst slice against " + raisedCatalyst + " instead.");
+            iosMinDeploymentTarget = raisedCatalyst;
+        }
+        appCategory = request.getArg("macNative.appCategory", "public.app-category.utilities");
+        String defaultCopyright = "Copyright (c) "
+                + Calendar.getInstance().get(Calendar.YEAR)
+                + " " + (request.getVendor() != null ? request.getVendor() : request.getPackageName());
+        copyright = request.getArg("macNative.copyright", defaultCopyright);
+        signingStyle = request.getArg("macNative.signing.style", "automatic");
+        signingIdentityAppStore = request.getArg(
+                "macNative.signingIdentity.appStore", "Apple Distribution");
+        signingIdentityDeveloperID = request.getArg(
+                "macNative.signingIdentity.developerID", "Developer ID Application");
+        // Opt-in deterministic window size for headless screenshot CI.
+        // Format "WxH", e.g., "1024x685". Empty/unset preserves the
+        // default user-resizable Catalyst window.
+        fixedWindowSize = request.getArg("macNative.fixedWindowSize", "").trim();
+        notarize = "true".equals(request.getArg("macNative.notarize", "false"));
+        notaryKeychainProfile = request.getArg("macNative.notarize.keychainProfile", "");
+        notaryAppleId = request.getArg("macNative.notarize.appleId", "");
+        notaryTeamId = request.getArg("macNative.notarize.teamId", teamId);
+        notaryPassword = request.getArg("macNative.notarize.password", "");
+    }
+
+    boolean isNotarizeEnabled() {
+        return enabled && notarize;
+    }
+
+    /**
+     * Sign (Developer ID + hardened runtime + the DeveloperID entitlements) and
+     * notarize + staple a built Mac {@code .app} so a pre-compiled/downloaded
+     * build clears Gatekeeper, instead of relying on the ad-hoc/linker signature
+     * that a quarantined download cannot use. No-op unless
+     * {@code macNative.notarize=true}.
+     *
+     * <p>Called AFTER xcodebuild has produced the bundle -- by the local build
+     * step (build-mac-native-app.sh) or the BuildDaemon Mac export. The
+     * Developer ID cert is supplied as the build's {@code certificate} (.p12) +
+     * {@code certificatePassword} -- the same "supply a cert" model as the iOS
+     * build -- and imported into a throwaway keychain so the host needs nothing
+     * pre-installed. Notary credentials come from {@code macNative.notarize.*}
+     * (a stored notarytool keychain profile, or appleId/teamId/password).
+     *
+     * @param request the build request (carries the Developer ID .p12 + password)
+     * @param appBundle the built {@code *.app} bundle
+     * @param developerIdEntitlements the {@code *-DeveloperID.entitlements} that
+     *        {@link #writeEntitlements} already produced
+     */
+    void signAndNotarizeMacApp(BuildRequest request, File appBundle,
+            File developerIdEntitlements) throws Exception {
+        if (!isNotarizeEnabled()) {
+            return;
+        }
+        if (appBundle == null || !appBundle.isDirectory()) {
+            owner.log("[macNative] notarize requested but no .app at " + appBundle
+                    + "; skipping");
+            return;
+        }
+        File dir = appBundle.getParentFile();
+        String identity = signingIdentityDeveloperID;
+
+        // 1) Import the supplied Developer ID cert into a throwaway keychain so
+        //    the build host needs nothing pre-installed (the iOS "supply a cert"
+        //    model). Skipped if no cert was provided (codesign then uses a
+        //    matching identity already in the login keychain).
+        String keychain = null;
+        byte[] cert = request.getCertificate();
+        if (cert != null && cert.length > 0) {
+            keychain = new File(dir, "cn1-macsign.keychain-db").getAbsolutePath();
+            String kcPass = "cn1sign" + System.nanoTime();
+            File p12 = File.createTempFile("cn1-macsign", ".p12", dir);
+            Files.write(p12.toPath(), cert);
+            String certPass = request.getCertificatePassword() == null
+                    ? "" : request.getCertificatePassword();
+            owner.exec(dir, "security", "create-keychain", "-p", kcPass, keychain);
+            owner.exec(dir, "security", "unlock-keychain", "-p", kcPass, keychain);
+            owner.exec(dir, "security", "import", p12.getAbsolutePath(),
+                    "-k", keychain, "-P", certPass, "-T", "/usr/bin/codesign");
+            owner.exec(dir, "security", "set-key-partition-list", "-S",
+                    "apple-tool:,apple:,codesign:", "-s", "-k", kcPass, keychain);
+            owner.exec(dir, "security", "list-keychains", "-d", "user", "-s", keychain,
+                    System.getProperty("user.home") + "/Library/Keychains/login.keychain-db");
+            p12.delete();
+        }
+
+        // 2) Sign inside-out: nested Mach-O (frameworks/dylibs) first, then the
+        //    bundle with the hardened runtime + DeveloperID entitlements.
+        owner.log("[macNative] codesigning " + appBundle.getName()
+                + " with identity \"" + identity + "\"");
+        File contents = new File(appBundle, "Contents");
+        if (contents.isDirectory()) {
+            try (java.util.stream.Stream<java.nio.file.Path> walk =
+                    Files.walk(contents.toPath())) {
+                for (java.nio.file.Path p : walk.collect(
+                        java.util.stream.Collectors.toList())) {
+                    String n = p.toString();
+                    boolean nested = (n.endsWith(".dylib") || n.endsWith(".framework"))
+                            && !n.contains(File.separator + "MacOS" + File.separator);
+                    if (nested) {
+                        owner.exec(dir, "codesign", "--force", "--timestamp",
+                                "--options", "runtime", "--sign", identity, n);
+                    }
+                }
+            }
+        }
+        owner.exec(dir, "codesign", "--force", "--timestamp", "--options", "runtime",
+                "--entitlements", developerIdEntitlements.getAbsolutePath(),
+                "--sign", identity, appBundle.getAbsolutePath());
+        owner.exec(dir, "codesign", "--verify", "--deep", "--strict",
+                "--verbose=2", appBundle.getAbsolutePath());
+
+        // 3) Notarize (notarytool needs a zip) + staple the ticket into the app
+        //    so it validates offline at launch. exec() uses timeout -1 = wait.
+        File zip = new File(dir, appBundle.getName().replaceFirst("\\.app$", "")
+                + "-notarize.zip");
+        owner.exec(dir, "ditto", "-c", "-k", "--keepParent",
+                appBundle.getAbsolutePath(), zip.getAbsolutePath());
+        if (notaryKeychainProfile != null && !notaryKeychainProfile.isEmpty()) {
+            owner.exec(dir, "xcrun", "notarytool", "submit", zip.getAbsolutePath(),
+                    "--keychain-profile", notaryKeychainProfile, "--wait");
+        } else {
+            owner.exec(dir, "xcrun", "notarytool", "submit", zip.getAbsolutePath(),
+                    "--apple-id", notaryAppleId, "--team-id", notaryTeamId,
+                    "--password", notaryPassword, "--wait");
+        }
+        owner.exec(dir, "xcrun", "stapler", "staple", appBundle.getAbsolutePath());
+        zip.delete();
+
+        if (keychain != null) {
+            owner.exec(dir, "security", "delete-keychain", keychain);
+        }
+        owner.log("[macNative] " + appBundle.getName()
+                + " is Developer ID signed, hardened, notarized + stapled.");
+    }
+
+    /**
+     * iOS-port frameworks that must be weak-linked or omitted on the
+     * Mac slice. ByteCodeTranslator already honours {@code
+     * -Doptional.frameworks} and emits {@code ATTRIBUTES = (Weak, );}
+     * for each entry, so the iOS slice still links normally while
+     * the Mac slice tolerates absent runtime symbols at startup.
+     */
+    String parparvmOptionalFrameworksArg() {
+        return "-Doptional.frameworks=AddressBookUI.framework;"
+                + "AddressBook.framework;MessageUI.framework;"
+                + "MediaPlayer.framework;"
+                // ARKit world tracking is unavailable on the Mac slice; linked
+                // on iOS when the app references com.codename1.ar.
+                + "ARKit.framework";
+    }
+
+    String getIosMinDeploymentTarget() {
+        return iosMinDeploymentTarget;
+    }
+
+    /**
+     * Write the per-channel {@code .entitlements} plists into {@code
+     * appSrcDir}. For {@code distribution=both} two files are emitted
+     * (suffixed {@code -AppStore} / {@code -DeveloperID}); for a single
+     * channel a single file named after the main class is emitted.
+     */
+    void writeEntitlements(BuildRequest request, File appSrcDir) throws IOException {
+        appSrcDir.mkdirs();
+        if ("both".equalsIgnoreCase(distribution)) {
+            writeEntitlementsFile(request, appSrcDir,
+                    request.getMainClass() + "-AppStore", "appStore");
+            writeEntitlementsFile(request, appSrcDir,
+                    request.getMainClass() + "-DeveloperID", "developerID");
+        } else {
+            writeEntitlementsFile(request, appSrcDir,
+                    request.getMainClass(), distribution);
+        }
+    }
+
+    /// Escapes a value going into the entitlements plist.
+    ///
+    /// A container identifier is normally plain, but it is project-supplied -- an app sharing a
+    /// store with a sibling names that sibling -- and an unescaped "&" turns the whole plist into
+    /// something codesign refuses to parse, which reads as a signing failure rather than a typo.
+    private static String escapeEntitlementValue(String value) {
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private void writeEntitlementsFile(BuildRequest request, File appSrcDir,
+                                       String baseName, String channel) throws IOException {
+        boolean sandbox = parseEntitlementBool(request,
+                "macNative.entitlements.appSandbox",
+                "appStore".equalsIgnoreCase(channel));
+        boolean networkClient = parseEntitlementBool(request,
+                "macNative.entitlements.network.client", true);
+        boolean networkServer = parseEntitlementBool(request,
+                "macNative.entitlements.network.server", false);
+        String filesUserSelected = request.getArg(
+                "macNative.entitlements.files.userSelected", "readwrite").toLowerCase();
+        boolean hardenedRuntime = parseEntitlementBool(request,
+                "macNative.entitlements.hardenedRuntime",
+                "developerID".equalsIgnoreCase(channel));
+        boolean allowJit = parseEntitlementBool(request,
+                "macNative.entitlements.allowJit", false);
+        String extra = request.getArg("macNative.entitlements.extra", "");
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        sb.append("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+                + "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n");
+        sb.append("<plist version=\"1.0\">\n<dict>\n");
+        if (sandbox) {
+            sb.append("    <key>com.apple.security.app-sandbox</key>\n    <true/>\n");
+        }
+        if (networkClient) {
+            sb.append("    <key>com.apple.security.network.client</key>\n    <true/>\n");
+        }
+        if (networkServer) {
+            sb.append("    <key>com.apple.security.network.server</key>\n    <true/>\n");
+        }
+        if ("readwrite".equals(filesUserSelected)) {
+            sb.append("    <key>com.apple.security.files.user-selected.read-write</key>\n    <true/>\n");
+            sb.append("    <key>com.apple.security.files.downloads.read-write</key>\n    <true/>\n");
+        } else if ("readonly".equals(filesUserSelected)) {
+            sb.append("    <key>com.apple.security.files.user-selected.read-only</key>\n    <true/>\n");
+        }
+        if (hardenedRuntime && !allowJit) {
+            sb.append("    <key>com.apple.security.cs.allow-jit</key>\n    <false/>\n");
+            sb.append("    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>\n    <false/>\n");
+        } else if (allowJit) {
+            sb.append("    <key>com.apple.security.cs.allow-jit</key>\n    <true/>\n");
+        }
+        // Sandboxed Mac apps that touch the camera or microphone need
+        // explicit device entitlements; without them the OS refuses to
+        // open the AVCaptureSession even when the Info.plist usage
+        // descriptions are present. We piggyback on the iOS plist hints
+        // already populated by PlatformFeatureCatalog -- when the build
+        // pipeline detected com.codename1.camera.* (or any other API
+        // that triggers NSCameraUsageDescription / NSMicrophoneUsageDescription)
+        // we mirror that into the Mac entitlements. Developers may
+        // opt out via macNative.entitlements.device.camera=false /
+        // macNative.entitlements.device.microphone=false.
+        if (sandbox) {
+            boolean needsCamera = request.getArg("ios.NSCameraUsageDescription", null) != null;
+            boolean cameraOptIn = parseEntitlementBool(request,
+                    "macNative.entitlements.device.camera", needsCamera);
+            if (cameraOptIn) {
+                sb.append("    <key>com.apple.security.device.camera</key>\n    <true/>\n");
+            }
+            boolean needsMic = request.getArg("ios.NSMicrophoneUsageDescription", null) != null;
+            boolean micOptIn = parseEntitlementBool(request,
+                    "macNative.entitlements.device.microphone", needsMic);
+            if (micOptIn) {
+                sb.append("    <key>com.apple.security.device.microphone</key>\n    <true/>\n");
+            }
+            // The sandbox calendars entitlement gates all EventKit access, so any
+            // calendar or reminder usage-description hint requires it -- including
+            // write-only calendar access and reminders-only apps.
+            boolean needsCalendar = request.getArg("ios.NSCalendarsUsageDescription", null) != null
+                    || request.getArg("ios.NSCalendarsFullAccessUsageDescription", null) != null
+                    || request.getArg("ios.NSCalendarsWriteOnlyAccessUsageDescription", null) != null
+                    || request.getArg("ios.NSRemindersUsageDescription", null) != null
+                    || request.getArg("ios.NSRemindersFullAccessUsageDescription", null) != null;
+            if (parseEntitlementBool(request,
+                    "macNative.entitlements.personalInformation.calendars", needsCalendar)) {
+                sb.append("    <key>com.apple.security.personal-information.calendars</key>\n    <true/>\n");
+            }
+        }
+        // The Catalyst archive is signed with THIS plist, and it is assembled from the
+        // macNative.entitlements.* namespace alone -- so an entitlement the iOS side generated
+        // reached the iOS slice and silently missed the Mac one. NSUbiquitousKeyValueStore then
+        // has no container in the Mac slice of the very build that switched the shared code on,
+        // and SyncedStore fails at runtime on a Mac with nothing said at build time.
+        //
+        // Read from the value the iOS side already resolved rather than through a hint of its own.
+        // There is one correct container per app, and a second place to configure it is a second
+        // place for the two slices to disagree.
+        //
+        // The namespaced argument ALONE, and the BuildDaemon twin deliberately resolves more. A
+        // review asked for the raw ios.entitlementsInject fragment to be consulted here too, on
+        // the grounds that a project naming its container that way would sign the two slices for
+        // different stores. That is true THERE and false here: this builder never reads that hint
+        // -- buildNamespacedEntitlements merges it only in the daemon -- so locally the fragment
+        // reaches no plist at all and both slices use exactly this value. Consulting it here would
+        // be a check over a value this builder never sees, which is the same asymmetry the VPN
+        // entitlement above already documents. A twin diff showing it is reading the right answer.
+        String ubiquityKvStore = request.getArg(
+                "ios.entitlements.com.apple.developer.ubiquity-kvstore-identifier", null);
+        if (ubiquityKvStore != null && ubiquityKvStore.trim().length() > 0) {
+            // MATERIALIZED, not copied. $(CFBundleIdentifier) is target-relative and this is not
+            // the iOS target: DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER makes the Catalyst
+            // bundle id "<package>.maccatalyst" -- the same derivation the provisioning-profile
+            // block above already relies on -- so copying the expression verbatim signed this
+            // slice for TEAM.<package>.maccatalyst while the iOS slice used TEAM.<package>. Two
+            // containers, neither able to see the other's writes, which is precisely the failure
+            // this entry was added to prevent.
+            //
+            // $(TeamIdentifierPrefix) is left alone: it is the same team in both targets.
+            String container = ubiquityKvStore.trim();
+            String iosBundleId = request.getPackageName();
+            if (iosBundleId != null && iosBundleId.length() > 0) {
+                // Through replaceBuildSetting, which knows BOTH spellings Xcode accepts. Listing
+                // "$(NAME)" by hand here meant a project writing "${CFBundleIdentifier}" -- the
+                // same reference, and equally valid -- left it unresolved, so the iOS entitlement
+                // expanded it against the iOS bundle id while this one expanded it against the
+                // derived Catalyst id and the two slices synchronized against different stores.
+                container = IPhoneBuilder.replaceBuildSetting(
+                        container, "CFBundleIdentifier", iosBundleId);
+                container = IPhoneBuilder.replaceBuildSetting(
+                        container, "PRODUCT_BUNDLE_IDENTIFIER", iosBundleId);
+            }
+            sb.append("    <key>com.apple.developer.ubiquity-kvstore-identifier</key>\n    <string>")
+                    .append(escapeEntitlementValue(container))
+                    .append("</string>\n");
+        }
+        if (extra != null && extra.trim().length() > 0) {
+            sb.append(extra);
+            if (!extra.endsWith("\n")) {
+                sb.append("\n");
+            }
+        }
+        sb.append("</dict>\n</plist>\n");
+
+        File ent = new File(appSrcDir, baseName + ".entitlements");
+        try (Writer w = new OutputStreamWriter(Files.newOutputStream(ent.toPath()), StandardCharsets.UTF_8)) {
+            w.write(sb.toString());
+        }
+        owner.log("Wrote Mac entitlements: " + ent.getAbsolutePath() + " (channel=" + channel + ")");
+    }
+
+    private static boolean parseEntitlementBool(BuildRequest request, String hint, boolean def) {
+        return Boolean.parseBoolean(request.getArg(hint, Boolean.toString(def)));
+    }
+
+    /**
+     * Write {@code ExportOptions-AppStore-Mac.plist} and/or {@code
+     * ExportOptions-DeveloperID-Mac.plist} into {@code distDir}, plus
+     * log the matching {@code xcodebuild archive} / {@code -exportArchive}
+     * command so a downstream operator can complete the export.
+     */
+    void writeExportOptions(BuildRequest request, File distDir) throws IOException {
+        distDir.mkdirs();
+        if ("both".equalsIgnoreCase(distribution)) {
+            writeExportOptionsFile(request, distDir, "appStore");
+            writeExportOptionsFile(request, distDir, "developerID");
+        } else {
+            writeExportOptionsFile(request, distDir, distribution);
+        }
+        owner.log("Use xcodebuild to archive and export the Mac app, e.g.:");
+        owner.log("  xcodebuild -project " + request.getMainClass() + ".xcodeproj"
+                + " -scheme " + request.getMainClass()
+                + " -destination 'generic/platform=macOS,variant=Mac Catalyst'"
+                + " -archivePath build/" + request.getMainClass() + ".xcarchive archive");
+        owner.log("  xcodebuild -exportArchive -archivePath build/" + request.getMainClass()
+                + ".xcarchive -exportOptionsPlist ExportOptions-<channel>-Mac.plist"
+                + " -exportPath build/export");
+    }
+
+    private void writeExportOptionsFile(BuildRequest request, File distDir, String channel)
+            throws IOException {
+        boolean isAppStore = "appStore".equalsIgnoreCase(channel);
+        String method = isAppStore ? "app-store" : "developer-id";
+        String signingIdentity = isAppStore
+                ? signingIdentityAppStore : signingIdentityDeveloperID;
+        String resolvedTeamId = owner.sanitizeTeamId(teamId, "macNative.teamId");
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        sb.append("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+                + "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n");
+        sb.append("<plist version=\"1.0\">\n<dict>\n");
+        sb.append("    <key>destination</key>\n    <string>export</string>\n");
+        sb.append("    <key>method</key>\n    <string>").append(method).append("</string>\n");
+        if (resolvedTeamId != null && !resolvedTeamId.isEmpty()) {
+            sb.append("    <key>teamID</key>\n    <string>").append(resolvedTeamId).append("</string>\n");
+        }
+        sb.append("    <key>signingStyle</key>\n    <string>")
+                .append("manual".equalsIgnoreCase(signingStyle) ? "manual" : "automatic")
+                .append("</string>\n");
+        if (signingIdentity != null && !signingIdentity.isEmpty()) {
+            sb.append("    <key>signingCertificate</key>\n    <string>")
+                    .append(signingIdentity).append("</string>\n");
+        }
+        if ("manual".equalsIgnoreCase(signingStyle)) {
+            String profile = request.getArg(
+                    "macNative.provisioningProfile." + (isAppStore ? "appStore" : "developerID"),
+                    "");
+            if (!profile.isEmpty()) {
+                String macBundleId = deriveBundleId
+                        ? request.getPackageName() + ".maccatalyst"
+                        : bundleId;
+                sb.append("    <key>provisioningProfiles</key>\n    <dict>\n")
+                        .append("        <key>").append(macBundleId).append("</key>\n")
+                        .append("        <string>").append(profile).append("</string>\n")
+                        .append("    </dict>\n");
+            }
+        }
+        sb.append("</dict>\n</plist>\n");
+
+        String label = isAppStore ? "AppStore" : "DeveloperID";
+        File f = new File(distDir, "ExportOptions-" + label + "-Mac.plist");
+        try (Writer w = new OutputStreamWriter(Files.newOutputStream(f.toPath()), StandardCharsets.UTF_8)) {
+            w.write(sb.toString());
+        }
+        owner.log("Wrote Mac ExportOptions: " + f.getAbsolutePath());
+    }
+
+    /**
+     * Emit {@code Images.xcassets/Mac.appiconset/} so {@code actool}
+     * picks up the Mac icon during the Mac slice build. Maps the
+     * existing 1024 source icon as the largest size; actool scales
+     * down the rest.
+     */
+    void writeAppIconset(File assetCatalogDir, File icon512) throws IOException {
+        File iconset = new File(assetCatalogDir, "Mac.appiconset");
+        iconset.mkdirs();
+        File source = icon512;
+        if (source == null || !source.exists()) {
+            File alt = new File(assetCatalogDir, "AppIcon.appiconset/Icon-1024.png");
+            if (alt.exists()) {
+                source = alt;
+            }
+        }
+        if (source == null || !source.exists()) {
+            owner.log("Skipping Mac.appiconset generation: no 512/1024 source icon available");
+            return;
+        }
+        File dest = new File(iconset, "icon_512x512@2x.png");
+        Executor.copy(source, dest);
+        StringBuilder json = new StringBuilder();
+        json.append("{\n  \"images\" : [\n");
+        json.append("    { \"size\" : \"512x512\", \"idiom\" : \"mac\", \"filename\" : \"icon_512x512@2x.png\", \"scale\" : \"2x\" }\n");
+        json.append("  ],\n  \"info\" : { \"version\" : 1, \"author\" : \"xcode\" }\n}\n");
+        File contents = new File(iconset, "Contents.json");
+        try (Writer w = new OutputStreamWriter(Files.newOutputStream(contents.toPath()), StandardCharsets.UTF_8)) {
+            w.write(json.toString());
+        }
+        owner.log("Wrote Mac.appiconset at " + iconset.getAbsolutePath());
+    }
+
+    /**
+     * Patch the generated {@code project.pbxproj} via Ruby + the
+     * {@code xcodeproj} gem so the app target gains {@code
+     * SUPPORTS_MACCATALYST=YES}, the right deployment targets, the
+     * signing wiring per channel, and the workarounds needed for the
+     * Catalyst slice (excluded GL-only sources, stub-header search
+     * path, etc.).
+     */
+    void applyXcodeSettings(BuildRequest request, File tmpFile, String buildVersion)
+            throws BuildException {
+        File hooksDir = new File(tmpFile, "hooks");
+        hooksDir.mkdir();
+        File scriptFile = new File(hooksDir, "apply_mac_native_settings.rb");
+        String mainClass = request.getMainClass();
+        String projectFile = new File(tmpFile, "dist/" + mainClass + ".xcodeproj").getAbsolutePath();
+        String resolvedTeamId = owner.sanitizeTeamId(teamId, "macNative.teamId");
+        boolean manualSigning = "manual".equalsIgnoreCase(signingStyle);
+
+        // For the "both" case the AppStore variant is wired as the default
+        // CODE_SIGN_ENTITLEMENTS; xcodebuild -exportOptionsPlist picks up the
+        // DeveloperID entitlements via the matching ExportOptions file.
+        String entitlementsLeaf = "both".equalsIgnoreCase(distribution)
+                ? mainClass + "-AppStore.entitlements"
+                : mainClass + ".entitlements";
+        String entitlementsPath = mainClass + "-src/" + entitlementsLeaf;
+
+        StringBuilder s = new StringBuilder();
+        s.append("#!/usr/bin/env ruby\n")
+                .append("require 'xcodeproj'\n")
+                .append("project_file = '").append(IPhoneBuilder.escapeRubyStr(projectFile)).append("'\n")
+                .append("xcproj = Xcodeproj::Project.open(project_file)\n")
+                .append("target = xcproj.targets.find { |t| t.name == '")
+                .append(IPhoneBuilder.escapeRubyStr(mainClass)).append("' }\n")
+                .append("abort('Unable to find app target ").append(IPhoneBuilder.escapeRubyStr(mainClass))
+                .append("') unless target\n")
+                .append("target.build_configurations.each do |config|\n")
+                .append("  bs = config.build_settings\n")
+                .append("  bs['SUPPORTS_MACCATALYST'] = 'YES'\n");
+        // SDK-qualified, like PRODUCT_BUNDLE_IDENTIFIER and DEVELOPMENT_TEAM below.
+        // This is one target and the same build still ships the iPhone/iPad slice, so
+        // it is the only place the two destinations can be told apart:
+        // com.codename1.ui.Window needs UIApplicationSupportsMultipleScenes true, and
+        // turning that on in the shared plist would opt every iPad build into
+        // multi-window behaviour it never asked for.
+        //
+        // Set unconditionally rather than only when the key needs flipping, because
+        // this runs before the plist is written in one of the two builders that share
+        // this code and so cannot look at it. IPhoneBuilder.writeCatalystInfoPlist
+        // always writes the file for a Mac build, copying the finished plist and
+        // ensuring the key -- so when the application already asked for multiple
+        // scenes the copy is simply identical.
+        if (multiWindow) {
+            s.append("  bs['INFOPLIST_FILE[sdk=macosx*]'] = '")
+                    .append(IPhoneBuilder.escapeRubyStr(
+                            IPhoneBuilder.catalystInfoPlistRelativePath(mainClass)))
+                    .append("'\n");
+        }
+        s
+                .append("  bs['SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD'] = 'NO'\n")
+                .append("  bs['TARGETED_DEVICE_FAMILY'] = '1,2,6'\n")
+                .append("  bs['DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER'] = '")
+                .append(deriveBundleId ? "YES" : "NO").append("'\n");
+        if (!deriveBundleId) {
+            s.append("  bs['PRODUCT_BUNDLE_IDENTIFIER[sdk=macosx*]'] = '")
+                    .append(IPhoneBuilder.escapeRubyStr(bundleId)).append("'\n");
+        }
+        s.append("  bs['MACOSX_DEPLOYMENT_TARGET'] = '")
+                .append(IPhoneBuilder.escapeRubyStr(minDeploymentTarget)).append("'\n")
+                .append("  bs['IPHONEOS_DEPLOYMENT_TARGET'] = '")
+                .append(IPhoneBuilder.escapeRubyStr(iosMinDeploymentTarget)).append("'\n")
+                .append("  bs['MARKETING_VERSION'] = '")
+                .append(IPhoneBuilder.escapeRubyStr(request.getVersion() == null ? "1.0" : request.getVersion())).append("'\n")
+                .append("  bs['CURRENT_PROJECT_VERSION'] = '")
+                .append(IPhoneBuilder.escapeRubyStr(buildVersion == null ? "1" : buildVersion)).append("'\n")
+                .append("  bs['LD_RUNPATH_SEARCH_PATHS'] = '$(inherited) @executable_path/Frameworks @executable_path/../Frameworks'\n")
+                .append("  bs['INFOPLIST_KEY_LSApplicationCategoryType'] = '")
+                .append(IPhoneBuilder.escapeRubyStr(appCategory)).append("'\n")
+                .append("  bs['INFOPLIST_KEY_NSHumanReadableCopyright'] = '")
+                .append(IPhoneBuilder.escapeRubyStr(copyright)).append("'\n");
+        s.append("  bs['CODE_SIGN_ENTITLEMENTS'] = '")
+                .append(IPhoneBuilder.escapeRubyStr(entitlementsPath)).append("'\n")
+                .append("  bs['CODE_SIGN_STYLE'] = '")
+                .append(manualSigning ? "Manual" : "Automatic").append("'\n");
+        if (resolvedTeamId != null && !resolvedTeamId.isEmpty()) {
+            s.append("  bs['DEVELOPMENT_TEAM[sdk=macosx*]'] = '").append(resolvedTeamId).append("'\n");
+        }
+        if (manualSigning) {
+            if (signingIdentityAppStore != null && !signingIdentityAppStore.isEmpty()) {
+                s.append("  bs['CODE_SIGN_IDENTITY[sdk=macosx*]'] = '")
+                        .append(IPhoneBuilder.escapeRubyStr(signingIdentityAppStore)).append("'\n");
+            }
+        }
+        // The iOS XIBs trigger an IBAgent-macOS-UIKit internal error
+        // when compiled for the Mac slice (observed on Xcode 26.x).
+        // CodenameOne_GLAppDelegate.m has a TARGET_OS_MACCATALYST branch
+        // that passes nil to initWithNibName: on Mac, so the runtime never
+        // tries to load these NIBs by name and excluding them at compile
+        // time is safe. The iOS slice keeps loading them normally.
+        s.append("  bs['EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]'] = ")
+                .append("'CodenameOne_GLViewController.xib ")
+                .append("CodenameOne_METALViewController.xib'\n");
+        s.append("end\n");
+        s.append("removed_refs = []\n");
+        s.append("target.frameworks_build_phase.files.to_a.each do |bf|\n")
+                .append("  ref = bf.file_ref\n")
+                .append("  next unless ref && ref.path\n")
+                .append("  base = File.basename(ref.path)\n")
+                .append("  if base == 'WatchConnectivity.framework'\n")
+                // WatchConnectivity does not exist on Mac Catalyst -- CN1WatchConnectivity.h
+                // already compiles its code out there via !TARGET_OS_MACCATALYST -- but the
+                // framework REFERENCE stayed in the shared phase, so the Catalyst slice linked
+                // against something the macOS SDK does not ship: out of the unconditional
+                // phase, back in for the iOS SDKs below.
+                .append("    removed_refs << ref\n")
+                .append("    bf.remove_from_project\n")
+                .append("  end\n")
+                .append("end\n");
+        // Force DEAD_CODE_STRIPPING=YES for the Mac slice. The iOS port
+        // declares a handful of native JNI methods (java.io.File hidden /
+        // directory probes, IOSNative biometrics, etc.) in headers but ships
+        // their C bodies in template files outside the per-app source tree;
+        // iOS strips them via `-dead_strip`, Mac Catalyst doesn't by default
+        // in Debug, so those refs surface as link errors without this flag.
+        s.append("target.build_configurations.each do |config|\n")
+                .append("  bs = config.build_settings\n")
+                // Only when the app actually uses the wearable API, so a project that does not
+                // link nothing extra -- and unconditionally safe either way, since the flag is
+                // scoped to the iOS SDKs the framework exists on.
+                .append(owner.usesWearable()
+                        ? "  existing = bs['OTHER_LDFLAGS[sdk=iphoneos*]'] || '$(inherited)'\n"
+                                + "  bs['OTHER_LDFLAGS[sdk=iphoneos*]'] = existing + ' -framework WatchConnectivity'\n"
+                                + "  existing_sim = bs['OTHER_LDFLAGS[sdk=iphonesimulator*]'] || '$(inherited)'\n"
+                                + "  bs['OTHER_LDFLAGS[sdk=iphonesimulator*]'] = existing_sim + ' -framework WatchConnectivity'\n"
+                        : "")
+                .append("  bs['DEAD_CODE_STRIPPING[sdk=macosx*]'] = 'YES'\n")
+                .append("end\n");
+        s.append("xcproj.save\n");
+
+        try {
+            owner.createFile(scriptFile, s.toString().getBytes(StandardCharsets.UTF_8));
+            owner.exec(hooksDir, "chmod", "0755", scriptFile.getAbsolutePath());
+            if (!owner.exec(hooksDir, scriptFile.getAbsolutePath())) {
+                throw new BuildException("Failed to apply macNative Xcode settings via xcodeproj");
+            }
+        } catch (BuildException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BuildException("Failed to apply macNative Xcode settings via xcodeproj", ex);
+        }
+
+        // Custom Info.plist keys (e.g. CN1MacFixedWindowSize) -- INFOPLIST_KEY_*
+        // build settings only flow through for Apple-defined keys, so for our
+        // own keys we patch the generated Info.plist directly.
+        if (fixedWindowSize != null && !fixedWindowSize.isEmpty()) {
+            File infoPlist = new File(tmpFile,
+                    "dist/" + mainClass + "-src/" + mainClass + "-Info.plist");
+            String injection = "<key>CN1MacFixedWindowSize</key>\n"
+                    + "    <string>" + fixedWindowSize + "</string>\n"
+                    + "    </dict>\n</plist>";
+            try {
+                owner.replaceInFile(infoPlist, "</dict>\n</plist>", injection);
+            } catch (IOException ex) {
+                throw new BuildException("Failed to inject CN1MacFixedWindowSize into Info.plist", ex);
+            }
+        }
+    }
+
+    /**
+     * Friendly error when the user combined macNative.enabled=true with
+     * ios.project_type=iphone. Mac requires the iPad device family.
+     */
+    void validateProjectType(BuildRequest request) {
+        if ("iphone".equalsIgnoreCase(request.getArg("ios.project_type", "ios"))) {
+            throw new BuildException("macNative.enabled=true is incompatible with ios.project_type=iphone. "
+                    + "Use 'ios' (universal) or 'ipad'.");
+        }
+    }
+}

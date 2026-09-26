@@ -1,0 +1,365 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    
+    <parent>
+        <groupId>com.codenameone</groupId>
+        <artifactId>codenameone</artifactId>
+        <version>8.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.codenameone</groupId>
+    <artifactId>codenameone-parparvm</artifactId>
+    <version>8.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>ParparVM</name>
+    <dependencies>
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>codenameone-core</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>javax.servlet</groupId>
+            <artifactId>javax.servlet-api</artifactId>
+            <version>4.0.1</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <!-- Compile to Java 8 bytecode so the main Maven reactor remains on
+                 its CI toolchain. Servlet 5's signatures used here are binary
+                 compatible with the Servlet 6/6.1 containers we target. -->
+            <version>5.0.0</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/org.ow2.asm/asm -->
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm</artifactId>
+            <version>9.2</version>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/org.ow2.asm/asm-tree -->
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-tree</artifactId>
+            <version>9.2</version>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/org.ow2.asm/asm-commons -->
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-commons</artifactId>
+            <version>9.2</version>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/org.ow2.asm/asm-analysis -->
+        <!-- Used for category-aware DUP/POP2 resolution (long/double take two
+             JVM stack slots but one JS operand-stack entry). -->
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-analysis</artifactId>
+            <version>9.2</version>
+        </dependency>
+
+    </dependencies>
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>6</maven.compiler.source>
+        <maven.compiler.target>6</maven.compiler.target>
+        <src.dir>../../vm/ByteCodeTranslator/src</src.dir>
+
+        <codename1.javaapi.src.dir>../../vm/JavaAPI/src</codename1.javaapi.src.dir>
+        <codename1.javascriptport.src.dir>../../Ports/JavaScriptPort/src/main/java</codename1.javascriptport.src.dir>
+        <codename1.javascriptport.webapp.dir>../../Ports/JavaScriptPort/src/main/webapp</codename1.javascriptport.webapp.dir>
+        <javaapi.compiler.source>1.8</javaapi.compiler.source>
+        <javaapi.compiler.target>1.8</javaapi.compiler.target>
+
+    </properties>
+
+    <build>
+        <sourceDirectory>${src.dir}</sourceDirectory>
+        <resources>
+            <resource>
+                <directory>${src.dir}</directory>
+                <excludes>
+                    <exclude>**/*.java</exclude>
+                </excludes>
+            </resource>
+        </resources>
+
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                        <configuration>
+                            <archive>
+                                <manifest>
+                                    <mainClass>
+                                        com.codename1.tools.translator.ByteCodeTranslator
+                                    </mainClass>
+                                </manifest>
+                            </archive>
+                            <!-- Built for the -bundle step below / local use, but deliberately NOT
+                                 attached: nothing consumes the published
+                                 jar-with-dependencies classifier (verified across this repo
+                                 plus BuildDaemon, BuildCloud, BuildClient, OfflineBuilder and
+                                 Deploy - the builders use the -bundle classifier). It was
+                                 ~44MB of shaded third-party bytes per release across the five
+                                 ports. -->
+                            <attach>false</attach>
+                            <descriptorRefs>
+                                <descriptorRef>jar-with-dependencies</descriptorRef>
+                            </descriptorRefs>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>compile-java-api</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <mkdir dir="${project.build.directory}/api-classes"/>
+                                <javac srcdir="${codename1.javaapi.src.dir}"
+                                       source="${javaapi.compiler.source}"
+                                       target="${javaapi.compiler.target}"
+                                       encoding="${project.build.sourceEncoding}"
+                                       destdir="${project.build.directory}/api-classes"
+                                       failonerror="true"
+                                />
+                                <mkdir dir="${project.build.directory}/javascript-port-classes"/>
+                                <javac srcdir="${codename1.javascriptport.src.dir}"
+                                       source="1.8" target="1.8"
+                                       encoding="${project.build.sourceEncoding}"
+                                       destdir="${project.build.directory}/javascript-port-classes"
+                                       classpathref="maven.compile.classpath"
+                                       excludes="**/Stub.java"
+                                       includeantruntime="false"
+                                       failonerror="true"/>
+                                <mkdir dir="${project.build.directory}/generated-proxy-src/javax/com/codename1/corsproxy"/>
+                                <mkdir dir="${project.build.directory}/generated-proxy-src/jakarta/com/codename1/corsproxy"/>
+                                <copy file="${project.basedir}/src/proxy/CORSProxy.java.template"
+                                      tofile="${project.build.directory}/generated-proxy-src/javax/com/codename1/corsproxy/CORSProxy.java"/>
+                                <copy file="${project.basedir}/src/proxy/CORSProxy.java.template"
+                                      tofile="${project.build.directory}/generated-proxy-src/jakarta/com/codename1/corsproxy/CORSProxy.java"/>
+                                <replace file="${project.build.directory}/generated-proxy-src/javax/com/codename1/corsproxy/CORSProxy.java"
+                                         token="@SERVLET@" value="javax.servlet"/>
+                                <replace file="${project.build.directory}/generated-proxy-src/jakarta/com/codename1/corsproxy/CORSProxy.java"
+                                         token="@SERVLET@" value="jakarta.servlet"/>
+                                <mkdir dir="${project.build.directory}/proxy-classes/javax"/>
+                                <mkdir dir="${project.build.directory}/proxy-classes/jakarta"/>
+                                <javac srcdir="${project.build.directory}/generated-proxy-src/javax"
+                                       source="1.8" target="1.8" destdir="${project.build.directory}/proxy-classes/javax"
+                                       encoding="${project.build.sourceEncoding}"
+                                       classpathref="maven.compile.classpath" includeantruntime="false" failonerror="true"/>
+                                <javac srcdir="${project.build.directory}/generated-proxy-src/jakarta"
+                                       source="1.8" target="1.8" destdir="${project.build.directory}/proxy-classes/jakarta"
+                                       encoding="${project.build.sourceEncoding}"
+                                       classpathref="maven.compile.classpath" includeantruntime="false" failonerror="true"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>make-proxy-test-resources</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <!-- Downstream builder tests run before the package phase,
+                                     so expose the generated proxy classes as test resources
+                                     without moving the complete bundle assembly earlier. -->
+                                <mkdir dir="${project.build.directory}/bundle"/>
+                                <jar destfile="${project.build.directory}/bundle/javascript-proxy-javax.jar"
+                                     basedir="${project.build.directory}/proxy-classes/javax"/>
+                                <jar destfile="${project.build.directory}/bundle/javascript-proxy-jakarta.jar"
+                                     basedir="${project.build.directory}/proxy-classes/jakarta"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>make-bundle</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <mkdir dir="${project.build.directory}/bundle"/>
+                                <zip destfile="${project.build.directory}/bundle/parparvm-java-api.jar">
+                                    <fileset dir="${project.build.directory}/api-classes"/>
+                                </zip>
+                                <copy tofile="${project.build.directory}/bundle/parparvm-compiler.jar" file="${project.build.directory}/${project.build.finalName}-jar-with-dependencies.jar"/>
+                                <!-- JavaScriptPort.jar carries the compiled port classes AND,
+                                     under webapp/, the JavaScript-port runtime web assets
+                                     (port.js, js/, css/, style.css, sw.js, manifest*, assets/).
+                                     The Maven plugin extracts webapp/ and hands it to the
+                                     translator via -Dcodename1.javascriptport.webapp so that
+                                     builds running OUTSIDE a CN1 source checkout still bundle
+                                     port.js (the worker-side native bindings). Without this,
+                                     JavascriptBundleWriter.locateJavaScriptPortWebApp() finds
+                                     nothing off-repo and the app ships without port.js and
+                                     fails to boot. index.html is emitted by the translator, so
+                                     it (and the servlet-only WEB-INF) are excluded here. -->
+                                <!-- Fail loudly if the webapp (esp. port.js) is absent instead
+                                     of silently shipping a JavaScriptPort.jar without it; that
+                                     port.js-less jar is exactly the bug this bundling prevents. -->
+                                <available file="${codename1.javascriptport.webapp.dir}/port.js"
+                                           property="cn1.jsport.webapp.present"/>
+                                <fail unless="cn1.jsport.webapp.present"
+                                      message="JavaScript-port webapp not found at ${codename1.javascriptport.webapp.dir} (expected port.js). Build from a full Codename One checkout, or point the build at the webapp with -Dcodename1.javascriptport.webapp.dir=/path/to/Ports/JavaScriptPort/src/main/webapp."/>
+                                <!-- Ant's jar task treats an existing archive as up to date when
+                                     it is newer than every input file, so on an incremental build
+                                     a change to the include/exclude list below is silently
+                                     ignored and a stale jar ships. Delete it first. -->
+                                <delete file="${project.build.directory}/bundle/JavaScriptPort.jar" quiet="true"/>
+                                <jar destfile="${project.build.directory}/bundle/JavaScriptPort.jar">
+                                    <fileset dir="${project.build.directory}/javascript-port-classes"/>
+                                    <zipfileset dir="${codename1.javascriptport.webapp.dir}" prefix="webapp">
+                                        <exclude name="index.html"/>
+                                        <exclude name="WEB-INF/**"/>
+                                        <!-- Demo/test fixtures used by the port's own in-repo test
+                                             app. They are NOT referenced by any port or core class,
+                                             yet the translator copies webapp/assets into every app
+                                             it builds, so shipping them here put ~3.6MB of dead
+                                             weight (a 2.1MB leather theme, a 666KB sample video)
+                                             into every JavaScript app's public web root. They stay
+                                             in the source tree, so in-repo builds and the
+                                             javascript-screenshots suite still see them.
+                                             Kept: the native themes installNativeTheme() can open
+                                             from the bundle. The JS port defaults to the LEGACY
+                                             pair (android_holo_light.res on an Android user agent,
+                                             iOS7Theme.res elsewhere) so existing screenshot
+                                             baselines stay comparable; iPhoneTheme.res is the
+                                             ios.themeMode=legacy opt-in. The modern themes
+                                             (iOSModernTheme.res / AndroidMaterialTheme.res) live in
+                                             Themes/ and are staged per target, not from here. -->
+                                        <exclude name="assets/leather.res"/>
+                                        <exclude name="assets/chrome.res"/>
+                                        <exclude name="assets/video.mp4"/>
+                                        <exclude name="assets/test.json"/>
+                                        <exclude name="assets/Page.html"/>
+                                        <exclude name="assets/Handlee-Regular.ttf"/>
+                                        <!-- The port test app's own theme (1.4MB). Real apps ship
+                                             their own theme.res at the bundle root, and
+                                             getResourceAsStream() deliberately prefers the root for
+                                             theme.res / CN1Resource.res, so this copy is never read
+                                             (confirmed against a running app: the root theme.res is
+                                             fetched, this one never is). Shipping it also keeps a
+                                             shadowing hazard alive for no benefit. -->
+                                        <exclude name="assets/theme.res"/>
+                                        <!-- No theme-resolution path yields tzone_theme.res; the one
+                                             mention of it in the port is inside a comment. -->
+                                        <exclude name="assets/tzone_theme.res"/>
+                                        <!-- The native themes come from Themes/ below instead of
+                                             from these copies, which drift: the webapp's
+                                             iPhoneTheme.res already differs from the Themes/ one. -->
+                                        <exclude name="assets/iOS7Theme.res"/>
+                                        <exclude name="assets/iPhoneTheme.res"/>
+                                        <exclude name="assets/android_holo_light.res"/>
+                                    </zipfileset>
+                                    <!-- Native themes, straight from the single source of truth in
+                                         Themes/ (kept in sync from the CSS sources by
+                                         .github/workflows/native-themes-sync.yml), the same way
+                                         maven/ios folds iOSModernTheme.res into nativeios.jar and
+                                         maven/javase copies the whole set onto its classpath.
+
+                                         All six ship because HTML5Implementation.
+                                         resolveNativeThemeResource() picks between them at RUNTIME
+                                         from the browser user agent plus the ios.themeMode /
+                                         and.themeMode / nativeTheme / javascript.native.theme
+                                         hints, so the build cannot know which one an app will
+                                         need: "modern" resolves to iOSModernTheme.res in an
+                                         iOS-like browser and AndroidMaterialTheme.res everywhere
+                                         else, and "legacy" to iPhoneTheme.res or androidTheme.res.
+                                         Shipping only some of them is why opting in used to fall
+                                         back to the legacy theme instead of applying. -->
+                                    <zipfileset dir="${project.basedir}/../../Themes" prefix="webapp/assets">
+                                        <include name="iOS7Theme.res"/>
+                                        <include name="iPhoneTheme.res"/>
+                                        <include name="iOSModernTheme.res"/>
+                                        <include name="iOSModern27Theme.res"/>
+                                        <include name="androidTheme.res"/>
+                                        <include name="android_holo_light.res"/>
+                                        <include name="AndroidMaterialTheme.res"/>
+                                    </zipfileset>
+                                </jar>
+                                <zip destfile="${project.build.directory}/${project.build.finalName}-bundle.jar">
+                                    <fileset dir="${project.build.directory}/bundle"/>
+                                </zip>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.2.0</version>
+                <executions>
+                    <execution>
+                        <id>attach-artifacts</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>attach-artifact</goal>
+                        </goals>
+                        <configuration>
+                            <artifacts>
+                                <artifact>
+                                    <file>${project.build.directory}/${project.build.finalName}-bundle.jar</file>
+                                    <type>jar</type>
+                                    <classifier>bundle</classifier>
+                                </artifact>
+                            </artifacts>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>legacy-jdk-tools</id>
+            <activation>
+                <jdk>(,9)</jdk>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-antrun-plugin</artifactId>
+                        <dependencies>
+                            <dependency>
+                                <groupId>com.sun</groupId>
+                                <artifactId>tools</artifactId>
+                                <version>1.5.0</version>
+                                <scope>system</scope>
+                                <systemPath>${java.home}/../lib/tools.jar</systemPath>
+                            </dependency>
+                        </dependencies>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+</project>

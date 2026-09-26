@@ -1,0 +1,1080 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codenameone.examples.hellocodenameone.tests;
+
+import com.codename1.testing.DeviceRunner;
+import com.codename1.testing.TestReporting;
+import com.codename1.ui.CN;
+import com.codename1.ui.Display;
+import com.codename1.ui.Font;
+import com.codename1.ui.Form;
+import com.codename1.util.StringUtil;
+import com.codenameone.examples.hellocodenameone.NativeInterfaceLanguageValidator;
+import com.codenameone.examples.hellocodenameone.tests.graphics.AffineScale;
+import com.codenameone.examples.hellocodenameone.tests.graphics.Clip;
+import com.codenameone.examples.hellocodenameone.tests.graphics.ClipUnderRotation;
+import com.codenameone.examples.hellocodenameone.tests.graphics.DrawArc;
+import com.codenameone.examples.hellocodenameone.tests.graphics.EmptyClip;
+import com.codenameone.examples.hellocodenameone.tests.graphics.PartialFlushClipEscape;
+import com.codenameone.examples.hellocodenameone.tests.graphics.DrawGradient;
+import com.codenameone.examples.hellocodenameone.tests.graphics.DrawGradientStops;
+import com.codenameone.examples.hellocodenameone.tests.graphics.DrawImage;
+import com.codenameone.examples.hellocodenameone.tests.graphics.GaussianBlur;
+import com.codenameone.examples.hellocodenameone.tests.graphics.DrawLine;
+import com.codenameone.examples.hellocodenameone.tests.graphics.DrawRect;
+import com.codenameone.examples.hellocodenameone.tests.graphics.DrawRoundRect;
+import com.codenameone.examples.hellocodenameone.tests.graphics.DrawShape;
+import com.codenameone.examples.hellocodenameone.tests.graphics.DrawString;
+import com.codenameone.examples.hellocodenameone.tests.graphics.DrawStringDecorated;
+import com.codenameone.examples.hellocodenameone.tests.graphics.FillArc;
+import com.codenameone.examples.hellocodenameone.tests.graphics.FillPolygon;
+import com.codenameone.examples.hellocodenameone.tests.graphics.FillRect;
+import com.codenameone.examples.hellocodenameone.tests.graphics.FillRoundRect;
+import com.codenameone.examples.hellocodenameone.tests.graphics.FillShape;
+import com.codenameone.examples.hellocodenameone.tests.graphics.FillTriangle;
+import com.codenameone.examples.hellocodenameone.tests.graphics.InscribedTriangleGrid;
+import com.codenameone.examples.hellocodenameone.tests.graphics.Rotate;
+import com.codenameone.examples.hellocodenameone.tests.graphics.Scale;
+import com.codenameone.examples.hellocodenameone.tests.graphics.StrokeTest;
+import com.codenameone.examples.hellocodenameone.tests.graphics.TileImage;
+import com.codenameone.examples.hellocodenameone.tests.graphics.TransformCamera;
+import com.codenameone.examples.hellocodenameone.tests.graphics.TransformPerspective;
+import com.codenameone.examples.hellocodenameone.tests.graphics.TransformRotation;
+import com.codenameone.examples.hellocodenameone.tests.graphics.TransformTranslation;
+import com.codenameone.examples.hellocodenameone.tests.graphics.LargeStrokeDirtyClipTest;
+import com.codenameone.examples.hellocodenameone.tests.charts.ChartBarScreenshotTest;
+import com.codenameone.examples.hellocodenameone.tests.charts.ChartBubbleScreenshotTest;
+import com.codenameone.examples.hellocodenameone.tests.charts.ChartCombinedXYScreenshotTest;
+import com.codenameone.examples.hellocodenameone.tests.charts.ChartCubicLineScreenshotTest;
+import com.codenameone.examples.hellocodenameone.tests.charts.ChartDoughnutScreenshotTest;
+import com.codenameone.examples.hellocodenameone.tests.charts.ChartLineScreenshotTest;
+import com.codenameone.examples.hellocodenameone.tests.charts.ChartPieScreenshotTest;
+import com.codenameone.examples.hellocodenameone.tests.charts.ChartRadarScreenshotTest;
+import com.codenameone.examples.hellocodenameone.tests.charts.ChartRangeBarScreenshotTest;
+import com.codenameone.examples.hellocodenameone.tests.charts.ChartRotatedScreenshotTest;
+import com.codenameone.examples.hellocodenameone.tests.charts.ChartScatterScreenshotTest;
+import com.codenameone.examples.hellocodenameone.tests.charts.ChartStackedBarScreenshotTest;
+import com.codenameone.examples.hellocodenameone.tests.charts.ChartTimeChartScreenshotTest;
+import com.codenameone.examples.hellocodenameone.tests.charts.ChartTransformScreenshotTest;
+import com.codenameone.examples.hellocodenameone.tests.accessibility.AccessibilityTest;
+
+
+public final class Cn1ssDeviceRunner extends DeviceRunner {
+    // Per-test deadline cap. The 10s HTML5 default keeps already-
+    // hanging tests (LightweightPickerButtons, ToastBarTopPosition
+    // hitting the canvasContextWipe noCanvas path) from eating the
+    // 1740s suite-level budget. DualAppearanceBaseTest subclasses
+    // override this via {@link BaseTest#getTimeoutMs()} because they
+    // run light + dark phases serially and each phase pays
+    // registerReadyCallback's 1500ms UITimer + wait_for_ui_settle
+    // (up to ~800ms) + capture/encode + chunked emit, so the
+    // bytecode-translated path easily clears 10s on shared GHA
+    // runners. At 10s the dark phase's emit fired AFTER the test had
+    // already timed out and the runner had advanced to the next test
+    // - the late dark emit then captured whatever form happened to
+    // be on the canvas at that moment (visible symptom:
+    // ToolbarTheme_dark.png showed "TabsTheme / light"). iOS /
+    // Android / JavaSE keep their wider 30s cap because they don't
+    // share the JS port's canvas-hang failure mode.
+    private static final int TEST_TIMEOUT_MS_HTML5 = 10000;
+    private static final int TEST_TIMEOUT_MS_NATIVE = 30000;
+    private static final int TEST_POLL_INTERVAL_MS = 50;
+
+    private static int testTimeoutMs(BaseTest testClass) {
+        if (testClass instanceof CommonWorkloadBenchmarkTest) {
+            return "HTML5".equals(Display.getInstance().getPlatformName()) ? 1200000 : 600000;
+        }
+        // DualAppearanceBaseTest needs more wall time on HTML5: it runs FOUR
+        // serial capture phases there (Material light/dark plus the
+        // ios_light/ios_dark Liquid Glass pair), each paying
+        // registerReadyCallback's 1500ms + settle + capture. Other tests stay
+        // at the tighter HTML5 default so a hung test doesn't eat the
+        // suite-level budget.
+        if ("HTML5".equals(Display.getInstance().getPlatformName())
+                && testClass instanceof DualAppearanceBaseTest) {
+            return TEST_TIMEOUT_MS_NATIVE * 2;
+        }
+        if (!"HTML5".equals(Display.getInstance().getPlatformName())
+                && testClass instanceof LightweightPickerButtonsScreenshotTest) {
+            return 45000;
+        }
+        if (!"HTML5".equals(Display.getInstance().getPlatformName())
+                && testClass instanceof ToastBarTopPositionScreenshotTest) {
+            return 45000;
+        }
+        if (testClass instanceof VectorMapScreenshotBaseTest) {
+            // VectorMapScreenshotBaseTest polls for rendered tiles up to its own
+            // MAX_WAIT_MS and then captures anyway, so that a map which never
+            // reports ready still produces an image to look at. That escape
+            // hatch only works if the poll cap is strictly INSIDE this budget,
+            // and it was not: 30s against the 30s native default and against the
+            // 10s HTML5 one. The runner declared the timeout first every time,
+            // so the fallback was unreachable and a slow map leg failed with no
+            // screenshot at all rather than one showing what it had rendered.
+            //
+            // Derived from the poll cap rather than restated as a number, so the
+            // ordering cannot drift when either side is tuned: the tile wait,
+            // plus a whole ordinary test's worth of time to do the capture that
+            // follows it. Every platform, because the inversion was not specific
+            // to one -- it was widest on HTML5.
+            return VectorMapScreenshotBaseTest.MAX_WAIT_MS
+                    + ("HTML5".equals(Display.getInstance().getPlatformName())
+                            ? TEST_TIMEOUT_MS_HTML5 : TEST_TIMEOUT_MS_NATIVE);
+        }
+        if (!"HTML5".equals(Display.getInstance().getPlatformName())
+                && testClass instanceof BrowserComponentScreenshotTest) {
+            // This is the first BrowserComponent in the process, so it pays a
+            // one-time native web-engine start -- WebView2 on Windows, WebKitGTK
+            // on Linux, WKWebView on Apple -- before the page can even begin to
+            // load. On top of that the test waits up to twelve seconds for the
+            // peer to be composited into the screen capture, and then needs a
+            // JS round trip through execute(). Thirty seconds covers all of that
+            // on a warm runner and not on a cold one, which showed up as a
+            // "timed out waiting for DONE" with no diagnosis attached.
+            return TEST_TIMEOUT_MS_NATIVE * 2;
+        }
+        if (!"HTML5".equals(Display.getInstance().getPlatformName())
+                && testClass instanceof VisionOnDeviceApiTest) {
+            // The first Apple Vision request may compile its detector model on
+            // a cold simulator. Keep the EDT free and allow that one-time
+            // native initialization a bounded minute.
+            return TEST_TIMEOUT_MS_NATIVE * 2;
+        }
+        if (!"HTML5".equals(Display.getInstance().getPlatformName())
+                && testClass instanceof GoogleWebMapScreenshotTest) {
+            // The same poll-cap-inside-the-budget inversion the VectorMap
+            // branch above exists to fix, in a test nobody applied it to.
+            // waitForMapReady polls for 24s and only THEN reports
+            // "SKIPPED reason=map-tiles-never-loaded" -- the outcome the test
+            // was written to produce, because an unreachable Google Maps API
+            // says nothing about the port and a red there is one the suite
+            // cannot act on. Against the 30s default that skip had 5s to
+            // happen in, once form setup, the web view, the 1s settle and the
+            // capture were paid for. The runner declared the timeout first,
+            // so the graceful answer was unreachable and an unreachable
+            // network was indistinguishable from a broken renderer.
+            //
+            // Observed in run 33231956992 on the Metal leg: the first attempt
+            // exhausted its budget and went silent as designed, the retry ran
+            // 34.6s without ever reaching its own 24s cap, and the test failed
+            // at stage=retry-created having never reported anything.
+            //
+            // Derived from the cap rather than restated, exactly as the
+            // VectorMap branch is, so the ordering cannot drift when either
+            // side is tuned. The cost is paid only when the map never loads:
+            // the first attempt's deliberate hand-off to the silent-timeout
+            // retry now waits out this budget instead of the default, so a
+            // tiles-never-load run takes about a minute longer and ends in
+            // a SKIP that names the reason rather than a failure that does
+            // not.
+            return GoogleWebMapScreenshotTest.MAX_WAIT_MS
+                    + TEST_TIMEOUT_MS_NATIVE;
+        }
+        if (!"HTML5".equals(Display.getInstance().getPlatformName())
+                && (testClass instanceof VideoIODecodedFramesScreenshotTest
+                        || testClass instanceof VideoIORoundTripTest)) {
+            // The two tests that drive a real native video encode and decode,
+            // and the only two with a multi-second cost of their own before
+            // anything can go wrong: 7-8s and ~6s respectively on a healthy
+            // simulator, against a 30s default that every other test enters
+            // with essentially empty.
+            //
+            // That headroom is what absorbs this simulator's stalls, and the
+            // stalls are neither rare nor small. In run 33210835375
+            // FillRoundRect -- one rounded rectangle, normally under 0.1s --
+            // sat 26.3s between "awaiting" and its PNG with no log line in
+            // between, and GaussianBlur sat 24.3s. Both passed, because a 25s
+            // stall still fits inside a budget nothing else was using.
+            //
+            // These two have no such slack, and no second chance either:
+            // isRetrySafe() is false for both (their work outlives runTest(),
+            // so resetForRetry() would let a late done() complete the retry),
+            // which is exactly the retry that recovers every other stalled
+            // test. So a stall that costs FillRoundRect nothing fails them.
+            // Both have: on master at 73aa2663e both timed out at 30s
+            // "waiting for DONE stage=created", and on 35bdb4b54a
+            // VideoIODecodedFrames did -- its EDT frame-render phase taking
+            // 22.3s and its worker encode/decode plus capture a further 49.7s,
+            // for a screenshot that then matched its reference. Two serial
+            // phases means paying the stall window twice.
+            //
+            // Three times the default covers the work plus a stall window per
+            // phase. The suite caps are 2100s absolute and 720s idle, so
+            // neither is threatened by a 90s test.
+            return TEST_TIMEOUT_MS_NATIVE * 3;
+        }
+        return "HTML5".equals(Display.getInstance().getPlatformName())
+                ? TEST_TIMEOUT_MS_HTML5
+                : TEST_TIMEOUT_MS_NATIVE;
+    }
+
+    // Calling Display.getInstance() at static-init time was tripping the iOS
+    // class loader (Cn1ssDeviceRunner failed to load before runSuite could
+    // log a single starting test=...). Keep the array as a plain literal so
+    // every test ends up in the jar without platform-dependent initialization.
+    private static final BaseTest[] DEFAULT_TEST_CLASSES = new BaseTest[]{
+            new MainScreenScreenshotTest(),
+            // Second, and deliberately near the front: it is the only test
+            // whose input comes from OUTSIDE the app process. The
+            // instrumentation harness watches the log for the probe's
+            // announcement and injects one system back for it, and its own wait
+            // is capped well below the length of a full suite -- a back test at
+            // the end of the list would be reached after that cap had expired,
+            // and the assertion would never run at all. Failing here is also
+            // the loudest place to fail: an unmigrated port leaves the app on a
+            // back press, so nothing after this point produces any output.
+            // Takes no screenshot; every port but Android skips it for want of
+            // a system back action.
+            new SystemBackNavigationTest(),
+            // Advertising API: renders a banner + native-ad feed via the
+            // deterministic MockAdProvider (cn1-ads-mock) for a pixel-stable shot.
+            new AdsScreenshotTest(),
+            // Animation/transition grid tests: each emits a 2x3 frame grid driven
+            // by the AnimationTime override so iOS/Android/JavaSE produce identical
+            // pixels regardless of wall-clock pacing. Skipped on HTML5 via the
+            // HTML5_SKIP_TESTS set.
+            new SlideHorizontalTransitionTest(),
+            new SlideHorizontalBackTransitionTest(),
+            new SlideVerticalTransitionTest(),
+            new SlideFadeTitleTransitionTest(),
+            new CoverHorizontalTransitionTest(),
+            new UncoverHorizontalTransitionTest(),
+            new FadeTransitionTest(),
+            new FlipTransitionTest(),
+            new MorphTransitionTest(),
+            new MorphTransitionScrolledSourceTest(),
+            new MorphTransitionSnapshotTest(),
+            new MorphTransitionScrubScreenshotTest(),
+            new MorphElementMorphScreenshotTest(),
+            new TabsAnimatedIndicatorScreenshotTest(),
+            new PullToRefreshSpinnerScreenshotTest(),
+            new AnimateLayoutScreenshotTest(),
+            new AnimateHierarchyScreenshotTest(),
+            new AnimateUnlayoutScreenshotTest(),
+            new SmoothScrollScreenshotTest(),
+            new StickyHeaderScreenshotTest(),
+            new StickyHeaderSlideTransitionScreenshotTest(),
+            new StickyHeaderFadeTransitionScreenshotTest(),
+            new TensileBounceScreenshotTest(),
+            new StatusBarTapDiagnosticScreenshotTest(),
+            new ComponentReplaceFadeScreenshotTest(),
+            new ComponentReplaceSlideScreenshotTest(),
+            new ComponentReplaceFlipScreenshotTest(),
+            new MotionShowcaseScreenshotTest(),
+            new DrawLine(),
+            new FillRect(),
+            new DrawRect(),
+            new FillRoundRect(),
+            new DrawRoundRect(),
+            new FillArc(),
+            new DrawArc(),
+            new DrawString(),
+            new DrawImage(),
+            new DrawStringDecorated(),
+            new DrawGradient(),
+            new DrawGradientStops(),
+            new GaussianBlur(),
+            new FillPolygon(),
+            new AffineScale(),
+            new Scale(),
+            new FillTriangle(),
+            new DrawShape(),
+            new FillShape(),
+            new InscribedTriangleGrid(),
+            new StrokeTest(),
+            new Clip(),
+            new ClipUnderRotation(),
+            // Regression guard for issue #5263: an empty clip (two
+            // non-overlapping clipRects) must cull everything. The iOS Metal
+            // backend used to open the whole framebuffer instead, flooding the
+            // screen with the fully-clipped-out draws.
+            new EmptyClip(),
+            // Regression guard for issue #5273: a clip emitted during a PARTIAL
+            // flush (a scrollable BorderLayout.CENTER repainting under a fixed
+            // header) must be clamped to the flushed sub-region. The iOS Metal
+            // backend skipped that clamp, so the fill escaped into the fixed
+            // toolbar / NORTH band and blanked it in the persistent screenTexture.
+            new PartialFlushClipEscape(),
+            new TileImage(),
+            new Rotate(),
+            new TransformTranslation(),
+            new TransformRotation(),
+            new TransformPerspective(),
+            new TransformCamera(),
+            // Standalone repro for the iOS form-Graphics dirty-region
+            // clipping edge case that makes the XY chart screenshot tests
+            // come back blank: a single Component in BorderLayout.CENTER
+            // whose paint() draws a large stroked GeneralPath via
+            // g.drawShape(...). If iOS captures a non-blank PNG with the
+            // polyline visible the bug is specific to ChartComponent's
+            // paint cycle; if it captures a blank PNG we have a minimal
+            // reproduction the iOS-port fix can iterate against without
+            // spinning up the entire chart-package.
+            new LargeStrokeDirtyClipTest(),
+            // ChartComponent coverage. The 2026-05-09 conjugation refactor in
+            // Graphics.setTransform / iOS / Android / JavaSE / JS dropped
+            // ChartComponent.paint's manual T(absX) * X * T(-absX)
+            // compensation; without screenshot baselines for the major chart
+            // types a regression in the chart render path goes silent until
+            // a user reports it. Cover one test per chart family + two
+            // dedicated transform paths (scale + rotate) so the
+            // ChartComponent.setTransform branch (the one the refactor
+            // directly touched) has explicit visual coverage.
+            new ChartLineScreenshotTest(),
+            new ChartCubicLineScreenshotTest(),
+            new ChartBarScreenshotTest(),
+            new ChartStackedBarScreenshotTest(),
+            new ChartRangeBarScreenshotTest(),
+            new ChartScatterScreenshotTest(),
+            new ChartBubbleScreenshotTest(),
+            new ChartPieScreenshotTest(),
+            new ChartDoughnutScreenshotTest(),
+            new ChartRadarScreenshotTest(),
+            new ChartTimeChartScreenshotTest(),
+            new ChartCombinedXYScreenshotTest(),
+            new ChartTransformScreenshotTest(),
+            new ChartRotatedScreenshotTest(),
+            new BrowserComponentScreenshotTest(),
+            new RichTextAreaScreenshotTest(),
+            new CodeEditorScreenshotTest(),
+            // Runs with the other editor screenshot tests, after the graphics
+            // suite: creating a pure editor warms Android's native-font path,
+            // which perturbs the default-font rendering the graphics-draw-string
+            // / inscribed-triangle-grid goldens capture. Keeping every editor
+            // test after the graphics tests preserves their cold-font ordering.
+            new PureEditorScreenshotTest(),
+            new MediaPlaybackScreenshotTest(),
+            new SheetScreenshotTest(),
+            new SheetSlideUpAnimationScreenshotTest(),
+            // ChatView (new AI UI primitive). Renders an assistant
+            // conversation + typing indicator so the iOS Modern and
+            // Android Material themes have a baseline for ChatBubbleUser,
+            // ChatBubbleAssistant, ChatBubbleSystem, and ChatTypingIndicator
+            // UIIDs the moment the cn1-ai PR adds them.
+            new ChatViewScreenshotTest(),
+            // ChatInput on its own (attach + voice + send all visible) so
+            // the input-row UIIDs (ChatInput, ChatInputField, ChatSendButton,
+            // ChatAttachButton, ChatVoiceButton) have a baseline independent
+            // of the surrounding ChatView.
+            new ChatInputScreenshotTest(),
+            new ImageViewerNavigationScreenshotTest(),
+            new TabsScreenshotTest(),
+            new TextAreaAlignmentScreenshotTest(),
+            new ValidatorLightweightPickerScreenshotTest(),
+            new LightweightPickerButtonsScreenshotTest(),
+            new PickerCancelRestoreTest(),
+            new ToastBarTopPositionScreenshotTest(),
+            // Native-theme fidelity tests (Phase 7): each emits a light+dark PNG pair
+            // so the iOS Modern and Android Material themes get exercised per UIID.
+            new ButtonThemeScreenshotTest(),
+            new TextFieldThemeScreenshotTest(),
+            new CheckBoxRadioThemeScreenshotTest(),
+            new SwitchThemeScreenshotTest(),
+            new PickerThemeScreenshotTest(),
+            new ToolbarThemeScreenshotTest(),
+            new TabsThemeScreenshotTest(),
+            new MultiButtonThemeScreenshotTest(),
+            new ListThemeScreenshotTest(),
+            new DialogThemeScreenshotTest(),
+            new CenteredDialogTitleScreenshotTest(),
+            new CenteredInteractionDialogTitleScreenshotTest(),
+            new AppReviewDialogScreenshotTest(),
+            new FloatingActionButtonThemeScreenshotTest(),
+            new SpanLabelThemeScreenshotTest(),
+            new DarkLightShowcaseThemeScreenshotTest(),
+            new PaletteOverrideThemeScreenshotTest(),
+            new CssGradientsScreenshotTest(),
+            new CssFilterBlurScreenshotTest(),
+            // The desktop surface this release turned on. Every port that stages a desktop
+            // native theme renders these, so the three of them are what stands between a
+            // theme rule going missing and nobody noticing until a user reports it.
+            new DesktopWidgetsThemeScreenshotTest(),
+            new DesktopChromeThemeScreenshotTest(),
+            new DesktopScrollbarThemeScreenshotTest(),
+            // External surfaces (com.codename1.surfaces): a deterministic widget descriptor
+            // rendered through the shared SurfaceRasterizer (the JavaSE/Windows/Linux desktop
+            // widget renderer) with a pinned clock, so the node-tree -> wire-JSON -> pixels
+            // pipeline has a visual baseline on every platform. The assertion-only surfaces
+            // tests (serializer round trip, timeline logic, action dispatch, publish contract)
+            // run with the other API tests near the end of the suite.
+            new SurfacesRasterizerScreenshotTest(),
+            // Android only: the REAL RemoteViews widget lowering (publish -> CN1SurfaceStore
+            // -> CN1SurfaceRenderer -> RemoteViews.apply on real views) captured through a
+            // native PeerComponent. Self-skips with a CN1SS SKIPPED line everywhere else, so
+            // only the Android leg carries a SurfacesRemoteViews golden.
+            new SurfacesRemoteViewsScreenshotTest(),
+            // Modern maps API: the pure-vector MapView (real OSM basemap,
+            // light/dark styles, marker + shape overlays) and the NativeMap
+            // vector fallback, all rendered against the bundled real San
+            // Francisco tiles so the baselines are network-free and reproducible.
+            new RealOsmVectorScreenshotTest(),
+            new VectorMapDarkStyleScreenshotTest(),
+            new VectorMapMarkersScreenshotTest(),
+            new VectorMapShapesScreenshotTest(),
+            new NativeMapFallbackScreenshotTest(),
+            // (NativeMapProvider/Apple MapKit is intentionally not screenshot-
+            // tested: it only renders in an authorized, signed-in environment
+            // and even on the Mac runner its live tiles load unreliably, so the
+            // capture is a flaky blank grid. The native-context render is
+            // covered deterministically by GoogleWebMap on iOS/Android, and the
+            // developer guide ships a real Apple-map capture.)
+            // Cross-platform Google Maps via the web provider (BrowserComponent
+            // + Maps JS). Gated on the GOOGLE_MAPS_API_KEY secret -- skips when
+            // the key resource is absent, so it is a no-op on forks/local.
+            new GoogleWebMapScreenshotTest(),
+            // Build-time SVG transcoder coverage: the static test renders
+            // shapes / gradients / paths, the animated test pins
+            // AnimationTime so the captured frame is deterministic.
+            new SVGStaticScreenshotTest(),
+            new SVGAnimatedScreenshotTest(),
+            // Build-time Lottie transcoder -- same pipeline as SVG, lowers
+            // the Bodymovin JSON into the SVG model and reuses SVGRegistry.
+            new LottieAnimatedScreenshotTest(),
+            new AudioMixerApiTest(),
+            // Portable 3D / shader API (com.codename1.gpu): a Phong-lit cube, a
+            // textured cube, a loaded glTF model, and a behavioral animation-loop
+            // test. Positioned immediately before OrientationLock on purpose, to
+            // satisfy two constraints at once:
+            //   - iOS: a 2D form shown right after a GPU peer keeps the previous
+            //     form's drawable for one capture (a pre-existing iOS present
+            //     quirk). OrientationLock is the one test that recovers from this
+            //     -- it forces a full-screen orientation change + revalidate
+            //     before capturing -- so it absorbs the staleness cleanly, and
+            //     DesktopMode (the last screenshot test) still sees OrientationLock
+            //     as its predecessor exactly like on master, so every baseline
+            //     matches.
+            //   - JavaScript: the glTF model is the heaviest 3D capture; running
+            //     it here (rather than dead last) keeps it out of the JS port's
+            //     late-suite worker-barrier danger zone where it intermittently
+            //     failed to emit.
+            // The 3D tests render through their own GPU peer and capture correctly
+            // regardless of what precedes them.
+            new Gpu3DCubeScreenshotTest(),
+            new Gpu3DTexturedCubeScreenshotTest(),
+            new Gpu3DModelScreenshotTest(),
+            new Gpu3DAnimationTest(),
+            // Keep this as the last portrait screenshot test; orientation changes can leak into subsequent screenshots.
+            new OrientationLockScreenshotTest(),
+            new InPlaceEditViewTest(),
+            new BytecodeTranslatorRegressionTest(),
+            new SimdApiTest(),
+            new SimdBenchmarkTest(),
+            new CommonWorkloadBenchmarkTest(),
+            new SecureStorageTest(),
+            // Database conformance. Assertion only, so no screenshots and no effect on the
+            // ordering-sensitive graphics baselines further down.
+            new DatabaseLifecycleTest(),
+            new DatabaseStatementTest(),
+            new DatabaseCursorTest(),
+            new DatabaseTransactionTest(),
+            new DatabaseEncryptionTest(),
+            new DatabaseStatementLegacyTest(),
+            new DatabaseCursorLegacyTest(),
+            // Exercises com.codename1.camera.* end-to-end against the
+            // JavaSE simulator's synthetic camera backend (no permission
+            // prompts). Self-skips on iOS / Android / JS where the open
+            // call would surface an OS dialog.
+            new CameraApiTest(),
+            // Built-in on-device AI coverage. These are assertion-only tests:
+            // portable value/lifecycle contracts run everywhere, while
+            // capability queries exercise each port's native bridge without
+            // requiring a camera, a downloaded language model, or a bundled
+            // inference model. Referencing the individual entry points also
+            // keeps the builders' granular dependency selection under the
+            // permanent cross-platform source-build suite.
+            new VisionOnDeviceApiTest(),
+            new LanguageOnDeviceApiTest(),
+            new InferenceOnDeviceApiTest(),
+            // Exercises com.codename1.ar end-to-end: the unsupported
+            // contract on the CI platforms (none has an AR runtime) and a
+            // full session round trip when a backend is present.
+            new ARApiTest(),
+            // com.codename1.ui.DevicePosture: the not-foldable contract on
+            // every CI device, and the internal consistency of a real reading
+            // on hardware that folds (an iPhone Duo on iOS 27.1).
+            new DevicePostureApiTest(),
+            // The location button, which on Android 17 is drawn by the
+            // system in another process -- a peer still in place after the
+            // form settles is the only proof that whole handshake worked.
+            new LocationButtonApiTest(),
+            new SimdLargeAllocaTest(),
+            new StreamApiTest(),
+            new StringApiTest(),
+            new TimeApiTest(),
+            new NanoTimeApiTest(),
+            new FloatingToStringTest(),
+            new StringFormatTest(),
+            new ClipboardRoundTripTest(),
+            // The contact picker's request contract, and the only thing in
+            // this suite that references com.codename1.contacts.ContactPicker
+            // -- which is what makes the iOS build compile and link its
+            // CNContactPickerViewController delegate at all.
+            new ContactPickerApiTest(),
+            // Log is an extension point (subclass + override createWriter) and the
+            // JavaScript port used to shadow Log.e with a console stub, so a
+            // subclass's writer was never created (issue #5519). Assertion-only.
+            new LogSubclassCaptureTest(),
+            // External surfaces assertion tests (no screenshots): the serializer wire format
+            // round-tripped through JSONParser on the device VM, the timeline-selection helpers
+            // the desktop widget renderers use, action dispatch (cold-start queue + EDT
+            // delivery) and the publish contract that must hold whether or not the platform
+            // provides a SurfaceBridge. The visual counterpart is
+            // SurfacesRasterizerScreenshotTest above.
+            new SurfacesSerializerRoundTripTest(),
+            new SurfacesTimelineLogicTest(),
+            new SurfacesActionDispatchTest(),
+            new SurfacesPublishTest(),
+            // Document provider on the device VM: the serializer that is the on-disk contract
+            // with the native readers, and the publish path. Referencing com.codename1.documents
+            // at all is also what makes the iOS extension target and the Android <provider> get
+            // generated and compiled in the first place.
+            new DocumentProviderPublishTest(),
+            // State restoration and continuity on the device VM: the codec both wire formats
+            // share, the payload rule, the checkpoint and the restore. Referencing
+            // com.codename1.continuity at all is also what makes the iOS build compile the
+            // NSUserActivity natives and declare this app's activity type in the plist.
+            new ContinuityStateTest(),
+
+            // App intents on the device VM: the generated registry, the coercion it wraps
+            // every parameter in, and entity resolution behind an id. The declarations it
+            // exercises are also what make the iOS Swift and the Android shortcut resources
+            // get generated and compiled at all.
+            new IntentsApiTest(),
+            new MotionSensorDeviceTest(),
+            new CryptoApiTest(),
+            new Java17Tests(),
+            new BackgroundThreadUiAccessTest(),
+            new BridgeBulkTransferGuardTest(),
+            new VPNDetectionAPITest(),
+            new CallDetectionAPITest(),
+            new DeviceInputApiTest(),
+            new LocalNotificationOverrideTest(),
+            new Base64NativePerformanceTest(),
+            new AccessibilityTest(),
+            new FileSystemStorageOpenInputStreamMissingTest(),
+            new MutableImageReadbackTest(),
+            new MutableImageClipReadbackTest(),
+            new CalendarApiTest(),
+            // Desktop integration demo. Placed LAST on purpose: it shows a Toolbar with text
+            // and a populated list, which warms the font cache / shifts suite timing, and the
+            // earlier graphics screenshot tests (DrawString, DrawStringDecorated, inscribed
+            // triangle grid) paint text directly during a frame that races the async font load -
+            // running this test before them changes whether those fonts are loaded at capture
+            // time and flips their baselines. Last = the rest of the suite matches master exactly.
+            // Inert on phone/tablet ports (plain Toolbar + hamburger side menu + faded scrollbar);
+            // on the Mac native build it enables desktop mode (commands move to the native menu
+            // bar, interactive always-visible scrollbar), reverting its global toggles after capture.
+            new DesktopModeScreenshotTest(),
+            // Desktop windowing. MultiWindowApiTest asserts behaviour on every target --
+            // where there is no windowing system it asserts the capability query says so
+            // and that constructing a Window throws. The Window* cases re-run
+            // representative UI INSIDE a real operating-system window at several sizes
+            // and capture that window rather than the main surface, which is the only
+            // way to prove layout, scrolling, graphics, overlays, native editing and
+            // modality actually work on a non-primary surface. They skip without
+            // emitting a golden where windows are unsupported, so mobile baselines never
+            // contain a picture of something the platform cannot do.
+            new MultiWindowApiTest(),
+            new WindowLayoutTest(),
+            new WindowScrollTest(),
+            new WindowGraphicsTest(),
+            new WindowEditingTest(),
+            new WindowOverlayTest(),
+            new WindowModalTest(),
+            new WindowDialogTest(),
+            // VideoIO animation screenshot: encodes a 6-frame counting clip (digits
+            // 1..6), decodes it back with the video decoder, and lays the decoded
+            // frames out as a 2x3 grid -- so a decode regression is visible. Placed
+            // after the last normal screenshot because its native encode/decode can
+            // perturb the display colour space / contend with rendering; it captures
+            // its OWN (off-screen) grid, leaving every other baseline untouched.
+            // SKIPs (no screenshot) where the platform cannot encode (iOS simulator,
+            // unsupported targets). Pixel verification lives in VideoIORoundTripTest.
+            new VideoIODecodedFramesScreenshotTest(),
+            // VR / 360 immersive views, captured in landscape (where a stereo
+            // scene / panorama reads naturally) via LandscapeCapture, which
+            // locks landscape on phones and no-ops on desktop/browser/tv.
+            // Placed near the end - after DesktopMode and the video screenshot,
+            // but before the media round-trip test - so nothing GPU-heavy or
+            // orientation-changing precedes those sensitive tests: on the iOS
+            // Metal backends DesktopMode's screenshot otherwise grabbed the
+            // lingering 3D form under the late-present race, and the video
+            // screenshot is GPU-neighbor sensitive. Nothing captures the screen
+            // after these, so their landscape state cannot leak. VRStereoScene
+            // self-skips on tvOS (stereo has no use without a headset);
+            // Media360Panorama still runs there.
+            new VRStereoSceneScreenshotTest(),
+            new Media360PanoramaScreenshotTest(),
+            // VideoIO cross-platform coverage: encodes a 6-frame counting clip with audio,
+            // decodes the frames back and verifies the count order + PCM levels. Assertion
+            // test (no screenshot); SKIPs where the platform can't encode. Deliberately LAST:
+            // its background encode/decode worker drives the native media stack (AVFoundation
+            // / MediaCodec / Media Foundation / GStreamer / WebCodecs), which can perturb the
+            // display color space (macOS) or contend with GTK/Cairo rendering (Linux musl).
+            // Running it after every screenshot leaves all baselines untouched.
+            new VideoIORoundTripTest()
+    };
+
+    // Visual probes used to compare the simulator renderer with native
+    // reference captures are not portability tests. Keep them available to a
+    // filtered JavaSE run without adding always-skipped rows to the public
+    // cross-port compliance contract.
+    private static final BaseTest[] JAVASE_REFERENCE_TEST_CLASSES = new BaseTest[]{
+            new TabsLiquidGlassAnimationScreenshotTest()
+    };
+
+    private static BaseTest prependedTest;
+
+    /// Index of the test that has consumed its one-shot silent-timeout retry
+    /// (see finalizeTest). -1 until the first retry fires; comparing against
+    /// the index guarantees at most one retry per test so a genuinely broken
+    /// test still fails after ~2x its timeout instead of looping.
+    private int retriedTestIndex = -1;
+    private int retriedTransportTestIndex = -1;
+    private int retriedCaptureTimeoutTestIndex = -1;
+
+    public static void addTest(BaseTest test) {
+        prependedTest = test;
+    }
+
+    public void runSuite() {
+        CN.callSerially(() -> {
+            Display.getInstance().addEdtErrorHandler(e -> {
+                log("CN1SS:ERR:exception caught in EDT " + e.getSource());
+                logThrowable("EDT", (Throwable)e.getSource());
+            });
+        });
+        runNextTest(0);
+    }
+
+    /// Which test wedged the suite is reported by the capture harness, not from
+    /// in here.
+    ///
+    /// This used to be an in-process watchdog thread. It could not do the job and
+    /// it caused a worse one. A test that blocks the event dispatch thread in a
+    /// tight compute loop also stops the collector, so the watchdog's own log
+    /// call -- which allocates, to build its message -- parks waiting for a
+    /// collection that cannot happen until the EDT yields. It reported nothing
+    /// across a 47 minute wedge for exactly that reason. Worse, merely asking to
+    /// allocate from a second thread during Base64NativePerformanceTest's
+    /// benchmark loops was enough to deadlock the pair, and the Linux suite --
+    /// which completes on master -- stopped dead on that test.
+    ///
+    /// The harness reads the suite's output from outside the process, so it can
+    /// name the last announced test whatever state the app is in, and cannot
+    /// perturb it. See lastStarted in CleanTargetLinuxIntegrationTest.
+
+    private void runNextTest(int index) {
+        int offset = prependedTest != null ? 1 : 0;
+        boolean includeJavaSeReferences = "SE".equals(
+                Display.getInstance().getProperty("OS", ""));
+        int referenceCount = includeJavaSeReferences
+                ? JAVASE_REFERENCE_TEST_CLASSES.length
+                : 0;
+        int total = DEFAULT_TEST_CLASSES.length + referenceCount + offset;
+        if (index >= total) {
+            finishSuite();
+            return;
+        }
+        BaseTest testClass;
+        int suiteIndex = index - offset;
+        if (offset == 1 && index == 0) {
+            testClass = prependedTest;
+        } else if (suiteIndex < DEFAULT_TEST_CLASSES.length) {
+            testClass = DEFAULT_TEST_CLASSES[suiteIndex];
+        } else {
+            testClass = JAVASE_REFERENCE_TEST_CLASSES[
+                    suiteIndex - DEFAULT_TEST_CLASSES.length];
+        }
+        String testName = testClass.getClass().getSimpleName();
+        if (!matchesFilter(testName)) {
+            // Optional subset run: -Dcn1ss.filter=<substr> or CN1SS_FILTER=<substr>
+            // runs only tests whose class simple name contains the (case-
+            // insensitive) substring. Lets a targeted run (e.g. a single
+            // form-factor or graphics subset) skip the full ~120-test suite.
+            log("CN1SS:INFO:suite skipping test=" + testName + " (filter)");
+            runNextTest(index + 1);
+            return;
+        }
+        CN.callSerially(() -> {
+            Cn1ssDeviceRunnerHelper.clearTransportFailure();
+            log("CN1SS:INFO:suite starting test=" + testName);
+            // Stage markers. When a suite stops dead the log ends on the
+            // "starting" line and says nothing about which call did not come
+            // back -- prepare(), runTest(), or the poll that follows. Naming
+            // each boundary costs one line per test and turns "stopped in X"
+            // into "stopped inside X's runTest", which is the difference
+            // between reading a stack and guessing at one.
+            try {
+                testClass.prepare();
+                log("CN1SS:INFO:stage=prepared test=" + testName);
+                testClass.runTest();
+                log("CN1SS:INFO:stage=ran test=" + testName);
+            } catch (Throwable t) {
+                log("CN1SS:ERR:suite test=" + testName + " failed=" + t);
+                t.printStackTrace();
+                logThrowable("runTest:" + testName, t);
+                testClass.fail(String.valueOf(t));
+            }
+            log("CN1SS:INFO:stage=awaiting test=" + testName);
+            awaitTestCompletion(index, testClass, testName, System.currentTimeMillis() + testTimeoutMs(testClass));
+        });
+    }
+
+    private void awaitTestCompletion(int index, BaseTest testClass, String testName, long deadline) {
+        if (deadline <= 0L) {
+            // Sentinel from the JS-port bridge (port.js runCn1ssResolvedTest):
+            // it can't see testTimeoutMs()'s DualAppearance widening and used to
+            // hard-code a flat 10s, which guillotined dual-appearance tests
+            // mid-dark-phase so their pending emit spilled into the NEXT test
+            // (ChatInput_dark captured the following ImageViewer form). Compute
+            // the type-aware deadline here instead, so a DualAppearanceBaseTest
+            // gets its full 30s on HTML5 too.
+            deadline = System.currentTimeMillis() + testTimeoutMs(testClass);
+        }
+        if (testClass.isDone()) {
+            finalizeTest(index, testClass, testName, false);
+            return;
+        }
+        if (System.currentTimeMillis() >= deadline) {
+            finalizeTest(index, testClass, testName, true);
+            return;
+        }
+        final long fixedDeadline = deadline;
+        CN.setTimeout(TEST_POLL_INTERVAL_MS, () -> awaitTestCompletion(index, testClass, testName, fixedDeadline));
+    }
+
+    private void finalizeTest(int index, BaseTest testClass, String testName, boolean timedOut) {
+        final Runnable continueToNext = () -> {
+            log("CN1SS:INFO:suite finished test=" + testName);
+            runNextTest(index + 1);
+        };
+        try {
+            testClass.cleanup();
+            if (timedOut) {
+                String stage = testClass.getCaptureStage();
+                if (shouldRetryAfterSilentTimeout(index, testClass)) {
+                    // The test timed out without EVER requesting a capture and
+                    // without reporting a failure: the show -> settle-timer ->
+                    // screenshot chain was silently swallowed. Observed on the
+                    // iOS Metal CI job (graphics-fill-shape produced no PNG, no
+                    // error, while the very next test rendered fine ~2s later),
+                    // i.e. a transient render-pipeline stall rather than a bug
+                    // in the test itself. The pipeline is healthy again by the
+                    // time the timeout poll fires, so one re-run reliably
+                    // recovers the screenshot instead of failing the whole job
+                    // on a missing tile.
+                    retriedTestIndex = index;
+                    log("CN1SS:WARN:suite test=" + testName
+                            + " timed out waiting for DONE stage=" + stage
+                            + "; retrying once before any capture started");
+                    testClass.resetForRetry();
+                    runNextTest(index);
+                    return;
+                }
+                if (shouldRetryAfterCaptureTimeout(index, testClass)) {
+                    retriedCaptureTimeoutTestIndex = index;
+                    log("CN1SS:WARN:suite test=" + testName
+                            + " timed out waiting for DONE stage=" + stage
+                            + "; retrying once after capture was requested");
+                    testClass.resetForRetry();
+                    runNextTest(index);
+                    return;
+                }
+                log("CN1SS:ERR:suite test=" + testName + " failed due to timeout waiting for DONE stage=" + stage);
+            } else if (testClass.isFailed()) {
+                log("CN1SS:ERR:suite test=" + testName + " failed: " + testClass.getFailMessage());
+            } else if (!testClass.shouldTakeScreenshot()) {
+                log("CN1SS:INFO:test=" + testName + " screenshot=none");
+            } else {
+                String failedTransport = Cn1ssDeviceRunnerHelper.consumeTransportFailure();
+                if (failedTransport != null && shouldRetryAfterTransportFailure(index, testClass)) {
+                    retriedTransportTestIndex = index;
+                    log("CN1SS:WARN:suite test=" + testName
+                            + " retrying once: websocket delivery was not acknowledged for " + failedTransport);
+                    testClass.resetForRetry();
+                    runNextTest(index);
+                    return;
+                }
+            }
+        } catch (Throwable t) {
+            log("CN1SS:ERR:suite test=" + testName + " finalize exception=" + t);
+        }
+        // The real screenshot is captured by BaseTest.createForm() →
+        // onShowCompleted() → Cn1ssDeviceRunnerHelper.emitCurrentFormScreenshot().
+        // Do NOT emit a fallback placeholder here — it would create a duplicate
+        // CN1SS stream under the class simple name (e.g. "AffineScale") which
+        // doesn't match the reference screenshot name (e.g. "graphics-affine-scale")
+        // and breaks iOS/Android comparison results.
+        continueToNext.run();
+    }
+
+    /// A retry is only safe when the timeout was truly silent. Gates:
+    /// - one retry per test (retriedTestIndex);
+    /// - native ports only: on HTML5 the suite advancement is co-driven by
+    ///   port.js (runCn1ssResolvedTest dispatches per index), and its bridge
+    ///   owns transport recovery and the dispatch watchdog. A Java-side rerun
+    ///   would race that lifecycle and can emit stale pixels into the next test;
+    /// - no failure was reported (a real failure should surface, not retry);
+    /// - no capture was started (an in-flight capture could emit after the
+    ///   rerun's form is up and ship the wrong pixels under this test's name);
+    /// - the test actually takes a screenshot (non-screenshot tests may have
+    ///   side effects that aren't safe to repeat, and a missing tile is the
+    ///   only failure mode this retry exists to prevent).
+    /// One retry for a test that timed out having neither failed nor started a
+    /// capture -- the show -> settle-timer -> DONE chain was swallowed.
+    ///
+    /// Deliberately NOT conditioned on shouldTakeScreenshot(). It used to be, on
+    /// the reasoning that the retry existed to recover a missing screenshot, but
+    /// the stall is in the show/EDT chain and hits any test: AccessibilityTest and
+    /// MutableImageClipReadbackTest capture nothing, so a transient stall that a
+    /// screenshot test shrugs off failed them outright, on a different test each
+    /// run. A test that is genuinely broken still fails -- it times out the second
+    /// time too, and the retry is one-shot per index.
+    ///
+    /// It IS conditioned on isRetrySafe(). Dropping the screenshot gate without
+    /// putting anything in its place made the retry reachable for tests whose
+    /// runTest() starts a worker and returns: resetForRetry() clears the shared
+    /// completion state, so a late done() from the first attempt's thread would
+    /// complete the second attempt, advance the suite before it had finished and
+    /// let that worker's side effects bleed into later tests. Screenshot-taking
+    /// was never the property that made a retry safe -- having no work in flight
+    /// is -- and VideoIODecodedFramesScreenshotTest takes a screenshot AND starts
+    /// a thread, so the old gate did not establish it either.
+    private boolean shouldRetryAfterSilentTimeout(int index, BaseTest testClass) {
+        return retriedTestIndex != index
+                && !"HTML5".equals(Display.getInstance().getPlatformName())
+                && !testClass.isFailed()
+                && !testClass.isCaptureStarted()
+                && testClass.isRetrySafe();
+    }
+
+    private boolean shouldRetryAfterTransportFailure(int index, BaseTest testClass) {
+        return retriedTransportTestIndex != index
+                && !"HTML5".equals(Display.getInstance().getPlatformName())
+                && !testClass.isFailed()
+                && testClass.shouldTakeScreenshot();
+    }
+
+    private boolean shouldRetryAfterCaptureTimeout(int index, BaseTest testClass) {
+        return retriedCaptureTimeoutTestIndex != index
+                && !"HTML5".equals(Display.getInstance().getPlatformName())
+                && !testClass.isFailed()
+                && testClass.isCaptureStarted()
+                && testClass.shouldTakeScreenshot();
+    }
+
+    private void finishSuite() {
+        try {
+            String status;
+            try {
+                status = NativeInterfaceLanguageValidator.getLastStatus();
+            } catch (Throwable t) {
+                status = "error:" + t;
+            }
+            log("CN1SS:INFO:swift_diag_status=" + status);
+        } finally {
+            log("CN1SS:SUITE:FINISHED");
+        }
+        try {
+            TestReporting.getInstance().testExecutionFinished(getClass().getName());
+        } catch (Throwable t) {
+            log("CN1SS:ERR:testExecutionFinished exception=" + t);
+        }
+        if (CN.isSimulator()) {
+            Display.getInstance().exitApplication();
+        }
+    }
+
+    /// True when the test should run under the optional cn1ss.filter subset
+    /// selector (system property cn1ss.filter). Empty/unset runs everything.
+    /// Read at call time (no static field) to avoid the static-init
+    /// class-loading pitfalls noted above. System.getenv is intentionally NOT
+    /// used - it is outside the Codename One runtime API and trips the build's
+    /// bytecode-compliance check.
+    private static boolean matchesFilter(String testName) {
+        String filter = System.getProperty("cn1ss.filter");
+        if (filter == null || filter.length() == 0) {
+            // The JS port's translated runtime has no -D system properties, so
+            // subset runs there are driven by a ?cn1ssFilter=<substr> query
+            // param on the harness page URL instead (the HTML5 port exposes
+            // the host page's query string as a Display property; every other
+            // port returns null here and keeps the full suite).
+            filter = queryParamFilter();
+        }
+        if (filter == null || filter.length() == 0) {
+            return true;
+        }
+        return testName != null
+                && testName.toLowerCase().indexOf(filter.toLowerCase()) >= 0;
+    }
+
+    private static String queryParamFilter() {
+        // Parse the full href rather than "browser.window.location.search":
+        // the app runs in a Web Worker and only the href is reliably
+        // forwarded from the host page by the bridge (the same reason the
+        // playground's ?sample= deep links read href; a first cut using the
+        // search property returned nothing and the filter silently no-oped).
+        String href = Display.getInstance().getProperty("browser.window.location.href", null);
+        if (href == null || href.length() == 0) {
+            return null;
+        }
+        int idx = href.indexOf("cn1ssFilter=");
+        if (idx < 0) {
+            return null;
+        }
+        String value = href.substring(idx + "cn1ssFilter=".length());
+        int amp = value.indexOf('&');
+        if (amp >= 0) {
+            value = value.substring(0, amp);
+        }
+        int hash = value.indexOf('#');
+        if (hash >= 0) {
+            value = value.substring(0, hash);
+        }
+        return value;
+    }
+
+    private static void log(String msg) {
+        System.out.println(msg);
+    }
+
+    private static void logThrowable(String context, Throwable t) {
+        if (t == null) {
+            log("CN1SS:ERR:throwable context=" + context + " value=null");
+            return;
+        }
+        log("CN1SS:ERR:throwable context=" + context + " type=" + t.getClass().getName());
+        log("CN1SS:ERR:throwable context=" + context + " message=" + String.valueOf(t.getMessage()));
+        String stack = Display.getInstance().getStackTrace(Thread.currentThread(), t);
+        if (stack == null) {
+            stack = "";
+        }
+        log("CN1SS:ERR:throwable context=" + context + " stackLength=" + stack.length());
+        logPlatformState(context);
+        if (stack.length() == 0) {
+            // The implementation's own capture comes back empty on some ports --
+            // ParparVM Windows reports stackLength=0 for every throwable -- which
+            // leaves a NullPointerException with no location at all, and CI is the
+            // only place these run. Throwable's own frames are worth asking for
+            // before giving up; on a port that fills them in this is the difference
+            // between naming the line and guessing at it.
+            logThrowableFrames(context, t);
+        }
+        for (String line : StringUtil.tokenize(stack, '\n')) {
+            if (line.length() > 200) {
+                line = line.substring(0, 200);
+            }
+            log("CN1SS:ERR:throwable context=" + context + " stack=" + line);
+        }
+    }
+
+    /// Platform state alongside every reported throwable.
+    ///
+    /// Some ports report an exception with no stack at all -- ParparVM Windows
+    /// answers empty for both Display.getStackTrace and Throwable.getStackTrace --
+    /// so a NullPointerException arrives as a bare type name and CI is the only
+    /// place it reproduces. The numbers below are the ones that turn such a
+    /// report into a lead: a zero font height or a zero display extent is how a
+    /// component ends up asking for a zero-sized image, whose graphics come back
+    /// null. Cheap, printed only on failure, and it costs nothing to leave in.
+    private static void logPlatformState(String context) {
+        StringBuilder sb = new StringBuilder("CN1SS:ERR:platform context=");
+        sb.append(context);
+        try {
+            Display d = Display.getInstance();
+            sb.append(" display=").append(d.getDisplayWidth()).append('x').append(d.getDisplayHeight());
+            sb.append(" density=").append(d.getDeviceDensity());
+            sb.append(" edt=").append(d.isEdt());
+        } catch (Throwable unavailable) {
+            sb.append(" display=unavailable");
+        }
+        try {
+            Font def = Font.getDefaultFont();
+            sb.append(" defaultFontHeight=").append(def == null ? "null-font" : String.valueOf(def.getHeight()));
+        } catch (Throwable unavailable) {
+            sb.append(" defaultFontHeight=unavailable");
+        }
+        try {
+            Font sys = Font.createSystemFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_MEDIUM);
+            sb.append(" systemFontHeight=").append(sys == null ? "null-font" : String.valueOf(sys.getHeight()));
+        } catch (Throwable unavailable) {
+            sb.append(" systemFontHeight=unavailable");
+        }
+        log(sb.toString());
+    }
+
+    private static void logThrowableFrames(String context, Throwable t) {
+        StackTraceElement[] frames;
+        try {
+            frames = t.getStackTrace();
+        } catch (Throwable unsupported) {
+            log("CN1SS:ERR:throwable context=" + context + " frames=unsupported");
+            return;
+        }
+        if (frames == null || frames.length == 0) {
+            log("CN1SS:ERR:throwable context=" + context + " frames=none");
+            // ParparVM's Throwable.getStackTrace() is a stub that always answers
+            // an empty array, but the VM does record frames: the native
+            // fillInStack walks threadStateData->callStack when the throwable is
+            // constructed and stores the rendered text, which printStackTrace is
+            // the only accessor for. Asking getStackTrace and stopping there is
+            // why a NullPointerException on Windows arrived with no location at
+            // all and took several CI rounds to place. Costs nothing on the JVM
+            // ports, where the frames above are non-empty and this never runs.
+            log("CN1SS:ERR:throwable context=" + context + " printing the VM's own stack:");
+            try {
+                t.printStackTrace();
+            } catch (Throwable unsupported) {
+                log("CN1SS:ERR:throwable context=" + context + " printStackTrace=unsupported");
+            }
+            return;
+        }
+        for (int i = 0; i < frames.length && i < 24; i++) {
+            log("CN1SS:ERR:throwable context=" + context + " frame=" + String.valueOf(frames[i]));
+        }
+    }
+
+    @Override
+    protected void startApplicationInstance() {
+        Cn1ssDeviceRunnerHelper.runOnEdtSync(() -> {
+            Form current = Display.getInstance().getCurrent();
+            if (current != null) {
+                current.revalidate();
+            } else {
+                new Form().show();
+            }
+        });
+    }
+
+    @Override
+    protected void stopApplicationInstance() {
+        Cn1ssDeviceRunnerHelper.runOnEdtSync(() -> {
+            Form current = Display.getInstance().getCurrent();
+            if (current != null) {
+                current.removeAll();
+                current.revalidate();
+            }
+        });
+    }
+}

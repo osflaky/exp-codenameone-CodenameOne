@@ -1,0 +1,3 @@
+# Prose that promises a code block where none follows.
+# A ratchet: entries may be removed as holes are filled, never added.
+# Regenerate with check-missing-code-blocks.py --write-baseline.

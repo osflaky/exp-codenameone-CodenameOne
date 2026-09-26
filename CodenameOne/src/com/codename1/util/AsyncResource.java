@@ -1,0 +1,771 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.util;
+
+
+import com.codename1.annotations.Async;
+import com.codename1.io.Log;
+import com.codename1.io.Util;
+import com.codename1.ui.CN;
+import com.codename1.util.promise.Promise;
+
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Observable;
+import java.util.Observer;
+import java.util.Set;
+
+import static com.codename1.ui.CN.invokeAndBlock;
+import static com.codename1.ui.CN.isEdt;
+
+/// A wrapper for an object that needs to be loaded asynchronously.  This can serve
+/// as a handle for the object to be passed around irrespective of whether the
+/// object has finished loading.  Conceptually this is very similar to Futures and
+/// Promises.
+///
+/// @author shannah
+///
+public class AsyncResource<V> extends Observable {
+    private final Object lock = new Object();
+    private V value;
+    private Throwable error;
+    private SuccessCallback<V> successCallback;
+    private SuccessCallback<Throwable> errorCallback;
+    private boolean done;
+    private boolean cancelled;
+
+
+    @Async.Schedule
+    @SuppressWarnings("PMD.UnnecessaryConstructor")
+    public AsyncResource() {
+    }
+
+    /// Returns true if the provided throwable was caused by a cancellation of an AsyncResource.
+    ///
+    /// #### Parameters
+    ///
+    /// - `t`: The exception to check for a cancellation.
+    ///
+    /// #### Returns
+    ///
+    /// True if the exception was caused by cancelling an AsyncResource.
+    ///
+    public static boolean isCancelled(Throwable t) {
+        if (t == null) {
+            return false;
+        }
+        if (t instanceof AsyncExecutionException) {
+            return ((AsyncExecutionException) t).isCancelled();
+        } else {
+            return t.getClass() == CancellationException.class;
+        }
+    }
+
+    /// Creates a single AsyncResource that will fire its ready() only when all of the provided resources
+    /// are ready.  And will fire an exception if any of the provided resources fires an exception.
+    ///
+    /// #### Parameters
+    ///
+    /// - `resources`: One ore more resources to wrap.
+    ///
+    /// #### Returns
+    ///
+    /// A combined AsyncResource.
+    ///
+    public static AsyncResource<Boolean> all(AsyncResource<?>... resources) {
+        final AsyncResource<Boolean> out = new AsyncResource<Boolean>();
+        final Set<AsyncResource> pending = new HashSet<AsyncResource>(Arrays.asList(resources));
+        final boolean[] complete = new boolean[1];
+        for (final AsyncResource<?> res : resources) {
+            res.ready(new SuccessCallback() {
+                @Override
+                public void onSucess(Object arg) {
+                    synchronized (complete) {
+                        if (complete[0]) {
+                            return;
+                        }
+                        pending.remove(res);
+                        if (pending.isEmpty()) {
+                            complete[0] = true;
+                            //out.complete(true);
+                        } else {
+                            return;
+                        }
+                    }
+                    out.complete(true);
+                }
+            });
+            res.except(new SuccessCallback<Throwable>() {
+                @Override
+                public void onSucess(Throwable ex) {
+                    synchronized (complete) {
+                        if (complete[0]) {
+                            return;
+                        }
+                        pending.remove(res);
+                        complete[0] = true;
+                    }
+
+                    out.error(ex);
+
+                }
+            });
+        }
+        return out;
+    }
+
+    /// Creates a single AsyncResource that will fire its ready() only when all of the provided resources
+    /// are ready.  And will fire an exception if any of the provided resources fires an exception.
+    ///
+    /// #### Parameters
+    ///
+    /// - `resources`: One ore more resources to wrap.
+    ///
+    /// #### Returns
+    ///
+    /// A combined AsyncResource.
+    ///
+    public static AsyncResource<Boolean> all(java.util.Collection<AsyncResource<?>> resources) {
+        return all(resources.toArray(new AsyncResource[resources.size()]));
+    }
+
+    /// Waits for a set of AsyncResources to be complete.  If any of them fires an exception,
+    /// then this method will throw a RuntimeException with that exception as the cause.
+    ///
+    /// #### Parameters
+    ///
+    /// - `resources`: The resources to wait for.
+    ///
+    public static void await(java.util.Collection<AsyncResource<?>> resources) throws AsyncExecutionException {
+        await(resources.toArray(new AsyncResource[resources.size()]));
+    }
+
+    /// Waits for a set of AsyncResources to be complete.  If any of them fires an exception,
+    /// then this method will throw a RuntimeException with that exception as the cause.
+    ///
+    /// #### Parameters
+    ///
+    /// - `resources`: The resources to wait for.
+    ///
+    public static void await(AsyncResource<?>... resources) throws AsyncExecutionException {
+        final boolean[] complete = new boolean[1];
+        final Throwable[] t = new Throwable[1];
+        all(resources)
+                .ready(new SuccessCallback() {
+                    @Override
+                    public void onSucess(Object arg) {
+                        synchronized (complete) {
+                            complete[0] = true;
+                            complete.notifyAll();
+                        }
+                    }
+                }).except(new SuccessCallback<Throwable>() {
+                    @Override
+                    public void onSucess(Throwable ex) {
+                        synchronized (complete) {
+                            t[0] = ex;
+                            complete[0] = true;
+                            complete.notifyAll();
+                        }
+                    }
+                });
+        while (!complete[0]) {
+            if (isEdt()) {
+                invokeAndBlock(new Runnable() {
+                    @Override
+                    public void run() {
+                        synchronized (complete) {
+                            if (!complete[0]) {
+                                Util.wait(complete);
+                            }
+                        }
+                    }
+                });
+            } else {
+                synchronized (complete) {
+                    if (!complete[0]) {
+                        Util.wait(complete);
+                    }
+                }
+            }
+        }
+
+        if (t[0] != null) {
+            throw new AsyncExecutionException(t[0]);
+        }
+    }
+
+    /// Cancels loading the resource.
+    ///
+    /// #### Parameters
+    ///
+    /// - `mayInterruptIfRunning`
+    ///
+    /// #### Returns
+    ///
+    /// True if the resource loading was cancelled.  False if the loading was already done.
+    ///
+    /// Cancellation notifies observers, which is how a waiter learns the
+    /// resource became terminal. It used to call `setChanged()` and stop there,
+    /// leaving the flag set with nothing notified: a thread inside [#get()]
+    /// adds an observer, checks `isDone()`, and then waits, so a cancel
+    /// landing after that check woke nobody and the waiter blocked forever on
+    /// a resource that had already finished.
+    ///
+    /// It deliberately does **not** run the callbacks registered through
+    /// [#ready(SuccessCallback)] or [#except(SuccessCallback)]. Cancelling
+    /// means the caller has stopped listening, and publishing to it anyway
+    /// would contradict a contract the rest of the framework is built on and
+    /// tests -- see the AI language and vision suites, which assert that a
+    /// cancelled operation delivers neither a value nor an error even when the
+    /// backend answers afterwards. Observers are the internal wake mechanism
+    /// for `get()` and `waitFor()`; they are not the application's callbacks.
+    ///
+    /// One consequence worth knowing: cleanup wired through
+    /// [#onResult(AsyncResult)] does not run on cancellation either. Anything
+    /// that must be released has to be released by whoever owns it. A
+    /// per-operation timeout timer, for instance, survives until its deadline
+    /// and then retires itself on finding the resource already done.
+    public boolean cancel(boolean mayInterruptIfRunning) {
+        boolean changed = false;
+        synchronized (lock) {
+            if (done) {
+                return false;
+            }
+            if (!cancelled) {
+                cancelled = true;
+                done = true;
+                error = new CancellationException();
+                changed = true;
+            }
+        }
+        if (changed) {
+            setChanged();
+            notifyObservers();
+        }
+        return true;
+    }
+
+    /// Wait for loading to complete.  If on EDT, this will use invokeAndBlock to safely
+    /// block until loading is complete.
+    public void waitFor() {
+        try {
+            get();
+        } catch (Throwable t) {
+            Log.e(t);
+        }
+    }
+
+    /// Gets the resource synchronously. This will wait until either the resource failed
+    /// with an exception, or the loading was canceled, or was done without error.
+    ///
+    /// If on edt, this uses invokeAndBlock to block safely.
+    ///
+    /// #### Returns
+    ///
+    /// The wrapped resource.
+    ///
+    /// #### Throws
+    ///
+    /// - `AsyncExecutionException`: if the resource failed with an error.  To get the actual error, use `Throwable#getCause()`.
+    public V get() {
+        try {
+            return get(-1);
+        } catch (InterruptedException ex) {
+            // This should never happen
+            throw new RuntimeException("Interrupted exception occurred, but this should never happen.  Likely programming error.", ex);
+        }
+    }
+
+    /// Gets the resource synchronously. This will wait until either the resource failed
+    /// with an exception, or the loading was canceled, or was done without error.
+    ///
+    /// If on edt, this uses invokeAndBlock to block safely.
+    ///
+    /// #### Parameters
+    ///
+    /// - `timeout`: Timeout
+    ///
+    /// #### Returns
+    ///
+    /// The wrapped resource.
+    ///
+    /// #### Throws
+    ///
+    /// - `AsyncExecutionException`: if the resource failed with an error.  To get the actual error, use `Throwable#getCause()`.
+    ///
+    /// - `InterruptedException`: if timeout occurs.
+    public V get(final int timeout) throws InterruptedException {
+        final long startTime = (timeout > 0) ? System.currentTimeMillis() : 0;
+
+        if (done && error == null) {
+            return value;
+        }
+        if (done && error != null) {
+            throw new AsyncExecutionException(error);
+        }
+        final boolean[] complete = new boolean[1];
+        Observer observer = new Observer() {
+            @Override
+            public void update(Observable obj, Object arg) {
+                if (isDone()) {
+                    // The flag is set inside the monitor, not beside it.
+                    // Set outside, a waiter could read it as false, and
+                    // only then be beaten to the monitor by this notify --
+                    // which it never hears, because it is not waiting yet.
+                    synchronized (complete) {
+                        complete[0] = true;
+                        complete.notifyAll();
+                    }
+                }
+            }
+        };
+        addObserver(observer);
+        if (isDone()) {
+            // Completed between the check at the top and the observer
+            // being attached. That notification went to nobody, so
+            // without this the wait below has nothing left to wake it.
+            synchronized (complete) {
+                complete[0] = true;
+            }
+        }
+
+        while (!complete[0]) {
+            if (timeout > 0 && System.currentTimeMillis() > startTime + timeout) {
+                throw new InterruptedException("Timeout occurred in get()");
+            }
+            if (isEdt()) {
+                invokeAndBlock(new Runnable() {
+                    @Override
+                    public void run() {
+                        synchronized (complete) {
+                            // Re-checked holding the monitor. The test in
+                            // the while condition is made without it, so
+                            // between that test and this wait the resource
+                            // can complete and notify an empty monitor --
+                            // and with no timeout the wait is then
+                            // permanent.
+                            if (complete[0]) {
+                                return;
+                            }
+                            if (timeout > 0) {
+                                Util.wait(complete, (int) Math.max(1, timeout - (System.currentTimeMillis() - startTime)));
+                            } else {
+                                Util.wait(complete);
+                            }
+                        }
+                    }
+                });
+            } else {
+                synchronized (complete) {
+                    if (complete[0]) {
+                        break;
+                    }
+                    if (timeout > 0) {
+                        Util.wait(complete, (int) Math.max(1, timeout - (System.currentTimeMillis() - startTime)));
+                    } else {
+                        Util.wait(complete);
+                    }
+                }
+            }
+        }
+        deleteObserver(observer);
+        if (error != null) {
+            throw new AsyncExecutionException(error);
+        }
+        return value;
+    }
+
+    /// Gets the resource if it is ready.  If it is not ready, then it will simply
+    /// return the provided defaultVal.
+    ///
+    /// #### Parameters
+    ///
+    /// - `defaultVal`
+    ///
+    /// #### Returns
+    ///
+    /// Either the resource value, or the provided default.
+    public V get(V defaultVal) {
+        if (value != null) {
+            return value;
+        }
+        return defaultVal;
+    }
+
+    /// Checks if the resource loading was cancelled.
+    public boolean isCancelled() {
+        return cancelled;
+    }
+
+    /// Checks if the resource loading is done.  This will be true
+    /// even if the resource loading failed with an error.
+    public boolean isDone() {
+        return done;
+    }
+
+    /// Checks if the resource is ready.
+    public boolean isReady() {
+        return done && error == null;
+    }
+
+    /// Runs the provided callback when the resource is ready.
+    ///
+    /// If an `EasyThread` is provided, then the callback will be run on that
+    /// thread.  If an EasyThread is not provided, and this call is made on the EDT, then
+    /// the callback will be run on the EDT.  Otherwise, the callback will occur on
+    /// whatever thread the `#complete(java.lang.Object)` call is called on.
+    ///
+    /// #### Parameters
+    ///
+    /// - `callback`: Callback to run when the resource is ready.
+    ///
+    /// - `t`: Optional EasyThread on which the callback should be run.
+    ///
+    /// #### Returns
+    ///
+    /// Self for chaining
+    public AsyncResource<V> ready(final SuccessCallback<V> callback, EasyThread t) {
+        AsyncCallback runImmediately = null;
+        synchronized (lock) {
+            if (done && error == null) {
+                runImmediately = new AsyncCallback(callback, t);
+            } else {
+                if (successCallback == null) {
+                    successCallback = new AsyncCallback<V>(callback, t);
+                } else {
+                    final SuccessCallback<V> oldCallback = successCallback;
+                    successCallback = new AsyncCallback<V>(new SuccessCallback<V>() {
+                        @Override
+                        public void onSucess(V res) {
+                            oldCallback.onSucess(res);
+                            callback.onSucess(res);
+                        }
+                    }, t);
+                }
+            }
+
+        }
+        if (runImmediately != null) {
+            runImmediately.onSucess(value);
+        }
+        return this;
+
+    }
+
+    /// Runs the provided callback when the resource is ready.
+    ///
+    /// If this call is made on the EDT, then the callback will be run on the EDT.
+    /// Otherwise, it will be run on whatever thread the complete() methdo is invoked on.
+    ///
+    /// #### Parameters
+    ///
+    /// - `callback`: The callback to be run when the resource is ready.
+    ///
+    /// #### Returns
+    ///
+    /// Self for chaining.
+    public AsyncResource<V> ready(SuccessCallback<V> callback) {
+        return ready(callback, null);
+    }
+
+    /// Sets callback to run if an error occurs.
+    ///
+    /// If an `EasyThread` is provided, then the callback will be run on that
+    /// thread.  If an EasyThread is not provided, and this call is made on the EDT, then
+    /// the callback will be run on the EDT.  Otherwise, the callback will occur on
+    /// whatever thread the `#complete(java.lang.Object)` call is called on.
+    ///
+    /// #### Parameters
+    ///
+    /// - `callback`: Callback to run on error.
+    ///
+    /// - `t`: Optional EasyThread to run callback on.
+    ///
+    /// #### Returns
+    ///
+    /// Self for chaining.
+    public AsyncResource<V> except(final SuccessCallback<Throwable> callback, EasyThread t) {
+        AsyncCallback runImmediately = null;
+        synchronized (lock) {
+            if (done && error != null) {
+                runImmediately = new AsyncCallback<Throwable>(callback, t);
+            } else {
+                if (errorCallback == null) {
+                    errorCallback = new AsyncCallback<Throwable>(callback, t);
+                } else {
+                    final SuccessCallback<Throwable> oldErrorCallback = errorCallback;
+                    errorCallback = new AsyncCallback<Throwable>(new SuccessCallback<Throwable>() {
+                        @Override
+                        public void onSucess(Throwable res) {
+                            oldErrorCallback.onSucess(res);
+                            callback.onSucess(res);
+                        }
+                    }, t);
+                }
+
+            }
+        }
+        if (runImmediately != null) {
+            runImmediately.onSucess(error);
+        }
+        return this;
+    }
+
+    /// Sets callback to run if an error occurs.  If this call is made on the EDT,
+    /// then the callback will be run on the EDT.  Otherwise it will be run on whatever
+    /// thread the error() method is invoked on.
+    ///
+    /// #### Parameters
+    ///
+    /// - `callback`: The callback to run in case of error.
+    public AsyncResource<V> except(SuccessCallback<Throwable> callback) {
+        return except(callback, null);
+    }
+
+    /// Sets the resource value.  This will trigger the ready callbacks to be run.
+    ///
+    /// #### Parameters
+    ///
+    /// - `value`: The value to set for the resource.
+    @Async.Execute
+    public void complete(final V value) {
+        complete(value, lock, null);
+    }
+
+    /// Sets the resource value while holding a caller-supplied monitor, then runs observers
+    /// and ready callbacks after releasing it. This lets state validation and result publication
+    /// be atomic without calling application code under the state owner's monitor.
+    ///
+    /// The validator runs before this resource changes. If it throws, the resource remains
+    /// unchanged and the exception is propagated. It must not block or invoke application code.
+    /// Call this method without already holding the supplied monitor; an outer synchronized
+    /// block would keep that monitor held during callbacks.
+    ///
+    /// #### Parameters
+    ///
+    /// - `value`: The value to set for the resource.
+    /// - `completionMonitor`: Non-null monitor shared with changes that invalidate the result.
+    /// - `validator`: Optional validation or state update to run under the monitor.
+    @Async.Execute
+    public void complete(final V value, Object completionMonitor, Runnable validator) {
+        SuccessCallback cb;
+        synchronized (completionMonitor) {
+            if (validator != null) {
+                validator.run();
+            }
+            synchronized (lock) {
+                this.value = value;
+                done = true;
+                cb = successCallback;
+            }
+        }
+        setChanged();
+        notifyObservers();
+        if (cb != null) {
+            cb.onSucess(value);
+        }
+    }
+
+    /// Sets the error for this resource in the case that it could not be loaded.  This will trigger
+    /// the error callbacks.
+    ///
+    /// #### Parameters
+    ///
+    /// - `t`
+    @Async.Execute
+    public void error(Throwable t) {
+        SuccessCallback cb = null;
+        synchronized (lock) {
+            this.error = t;
+            done = true;
+            if (errorCallback != null) {
+                cb = errorCallback;
+            }
+        }
+        setChanged();
+        notifyObservers();
+        if (cb != null) {
+            cb.onSucess(error);
+        }
+    }
+
+    /// Waits and blocks until this AsyncResource is done.
+    ///
+    /// #### Throws
+    ///
+    /// - `com.codename1.util.AsyncResource.AsyncExecutionException`
+    public void await() throws AsyncExecutionException {
+        await(this);
+    }
+
+    /// Adds another AsyncResource as a listener to this async resource.
+    ///
+    /// #### Parameters
+    ///
+    /// - `resource`
+    ///
+    public void addListener(final AsyncResource<V> resource) {
+        ready(new SuccessCallback<V>() {
+            @Override
+            public void onSucess(V value) {
+                if (!resource.isDone()) {
+                    resource.complete(value);
+                }
+            }
+        }).except(new SuccessCallback<Throwable>() {
+            @Override
+            public void onSucess(Throwable value) {
+                if (!resource.isDone()) {
+                    resource.error(value);
+                }
+            }
+        });
+    }
+
+    /// Combines ready() and except() into a single callback with 2 parameters.
+    ///
+    /// #### Parameters
+    ///
+    /// - `onResult`: @param onResult A callback that handles both the ready() case and the except() case.  Use `#isCancelled(java.lang.Throwable)`
+    /// to test the error parameter of `java.lang.Throwable)` to see if
+    /// if was caused by a cancellation.
+    ///
+    public void onResult(final AsyncResult<V> onResult) {
+        ready(new SuccessCallback<V>() {
+            @Override
+            public void onSucess(V value) {
+                onResult.onReady(value, null);
+            }
+        }).except(new SuccessCallback<Throwable>() {
+            @Override
+            public void onSucess(Throwable value) {
+                onResult.onReady(null, value);
+            }
+        });
+    }
+
+    /// Wraps this AsyncResource object as a `Promise`
+    ///
+    /// #### Returns
+    ///
+    /// A Promise wrapping this AsyncResource.
+    ///
+    public Promise<V> asPromise() {
+        return Promise.promisify(this);
+    }
+
+    /// Exception to wrap exceptions that are thrown during asynchronous execution.
+    /// This is thrown by `#get()` if the this resource failed with an exception.
+    ///
+    /// Call `AsyncExecutionException#getCause()` to get the original exception.
+    public static class AsyncExecutionException extends RuntimeException {
+        private final Throwable cause;
+
+        public AsyncExecutionException(Throwable cause) {
+            super(cause.getMessage());
+            this.cause = cause;
+        }
+
+        @Override
+        public Throwable getCause() {
+            return cause;
+        }
+
+        /// Returns true if this exception wraps a `CancellationException`, or another
+        /// AsyncExecutionException that has `#isCancelled()` true.
+        ///
+        /// #### Returns
+        ///
+        /// True if this exception was caused by cancelling an AsyncResource.
+        ///
+        public boolean isCancelled() {
+            if (cause != null && cause.getClass() == CancellationException.class) {
+                return true;
+            }
+            if (cause instanceof AsyncExecutionException) {
+                return ((AsyncExecutionException) cause).isCancelled();
+            }
+            return false;
+        }
+
+    }
+
+    /// Exception thrown when the AsyncResource is cancelled.  Use {@link AsyncResource#isCancelled(java.lang.Throwable)}
+    /// to test a particular exception to see if it resulted from cancelling an AsyncResource as this will
+    /// return true if the exception itself is a CancellationException, or if the exception was caused by
+    /// a CancellationException.
+    ///
+    /// #### See also
+    ///
+    /// - #isCancelled(java.lang.Throwable)
+    public static class CancellationException extends RuntimeException {
+        public CancellationException() {
+            super("Cancelled");
+        }
+
+
+    }
+
+    private class AsyncCallback<T> implements SuccessCallback<T> {
+        private final SuccessCallback<T> cb;
+        private final EasyThread t;
+        private final boolean edt;
+
+        AsyncCallback(SuccessCallback<T> cb, EasyThread t) {
+            this.cb = cb;
+            this.t = t;
+            this.edt = t == null && isEdt();
+        }
+
+        @Override
+        public void onSucess(final T value) {
+            if (edt && !isEdt()) {
+                CN.callSerially(new Runnable() {
+                    @Override
+                    public void run() {
+                        onSucess(value);
+                    }
+                });
+                return;
+            }
+            if (t != null && !t.isThisIt()) {
+                t.run(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        onSucess(value);
+                    }
+                });
+                return;
+
+            }
+            cb.onSucess(value);
+
+        }
+
+
+    }
+
+
+}

@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.codenameone</groupId>
+    <artifactId>codenameone</artifactId>
+    <version>8.0-SNAPSHOT</version>
+  </parent>
+  <artifactId>cn1app-archetype</artifactId>
+  <packaging>maven-archetype</packaging>
+
+  <name>cn1app-archetype</name>
+  <description>Codename One bare-bones app project archetype.</description>
+
+  <properties>
+    <!--
+      Skip the maven-archetype-plugin integration-test phase by default.
+      The ITs (src/test/resources/projects/**/archetype.properties) generate
+      a sub-project pinned to cn1Version=${project.version} and then invoke
+      the codenameone-maven-plugin against it via nested mvn. That plugin
+      is built in this same reactor — it isn't on Maven Central at the time
+      the ITs run during `mvn install`, so they fail with an unresolvable
+      SNAPSHOT. The dedicated archetype-smoke CI workflow opts back in via
+      -Darchetype.test.skip=false; the release workflow leaves them off
+      because the freshly-deployed plugin is still propagating to Central.
+    -->
+    <archetype.test.skip>true</archetype.test.skip>
+  </properties>
+
+  <build>
+    <extensions>
+      <extension>
+        <groupId>org.apache.maven.archetype</groupId>
+        <artifactId>archetype-packaging</artifactId>
+        <version>3.2.0</version>
+      </extension>
+    </extensions>
+
+    <!--
+      Ship the Codename One authoring skill inside the archetype JAR so projects
+      generated via `mvn archetype:generate` get the same three-part layout the
+      initializr drops into start.codenameone.com output, and the SAME layout
+      rather than merely the same content. An agent that only reads the generated files
+      finds the skill through whichever convention it knows:
+
+          AGENTS.md                              root pointer, vendor neutral
+          .agent-skills/codename-one/**          the skill itself
+          .claude/skills/codename-one/SKILL.md   thin stub, redirects to the above
+
+      Shipping the full skill under .claude/ instead (which this module did until
+      issue #5699) leaves a project generated from the archetype with no AGENTS.md
+      and no vendor-neutral copy, so Codex and anything else that does not know
+      Claude Code's directory layout never finds it.
+
+      All three sources of truth live under
+      scripts/initializr/common/src/main/resources/; we copy them in at build time
+      rather than duplicating them here, because a second copy is exactly how the
+      two generators drifted apart in the first place. The generated project's
+      archetype-post-generate.groovy deletes all three when the resolved
+      javaVersion is 8, so only Java 17 projects end up shipping the skill.
+    -->
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+      </resource>
+      <resource>
+        <directory>${project.basedir}/../../scripts/initializr/common/src/main/resources/skill</directory>
+        <targetPath>archetype-resources/.agent-skills/codename-one</targetPath>
+        <filtering>false</filtering>
+      </resource>
+    </resources>
+
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <artifactId>maven-archetype-plugin</artifactId>
+          <version>3.2.0</version>
+        </plugin>
+        <!--
+          Pin maven-resources-plugin: Maven Central currently advertises
+          maven-resources-plugin 4.0.0-beta-1 as the latest, and that build
+          requires Java 17 + Maven 4. We still run on Java 8 / Maven 3.9 for
+          the release workflow, so unpinned resolution picks the beta and
+          fails. Pin to the latest 3.x.
+        -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>3.3.1</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+
+    <plugins>
+      <!--
+        The root pointer and the Claude Code stub are both published under names
+        they are NOT stored under, which maven-resources cannot express, so ant
+        copies them. Same source directory as the <resource> entry above; the
+        point is that nothing here is authored twice.
+
+        The two renames have opposite reasons. The stub's published name is fixed
+        by Claude Code (SKILL.md). The pointer's source name avoids AGENTS.md,
+        because that is a name agents look for on their own: a file called that
+        inside this repository would be read as instructions for the Codename One
+        tree, and it describes a generated application instead.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>stage-agent-skill-pointers</id>
+            <phase>process-resources</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <configuration>
+              <target>
+                <copy file="${project.basedir}/../../scripts/initializr/common/src/main/resources/agent-skill-agents-md.md"
+                      tofile="${project.build.outputDirectory}/archetype-resources/AGENTS.md"
+                      overwrite="true"/>
+                <copy file="${project.basedir}/../../scripts/initializr/common/src/main/resources/agent-skill-claude-stub.md"
+                      tofile="${project.build.outputDirectory}/archetype-resources/.claude/skills/codename-one/SKILL.md"
+                      overwrite="true"/>
+              </target>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

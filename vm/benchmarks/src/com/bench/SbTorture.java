@@ -1,0 +1,188 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.bench;
+
+/**
+ * Semantic torture for StringBuilder/StringBuffer after the fused-builder +
+ * copying native toString rewrite. Byte-comparable against HotSpot. Covers:
+ * every append overload, growth across several enlargements, toString
+ * independence (mutating the builder after toString must NOT change earlier
+ * Strings), insert/delete/deleteCharAt/replace/reverse/setCharAt/setLength,
+ * charAt/getChars, unicode + surrogates, empty builders, and a PRNG op mix.
+ */
+public class SbTorture {
+    static int seed = 0x9876543;
+    static int rnd(int bound) {
+        seed = seed * 1103515245 + 12345;
+        return (seed >>> 16) % bound;
+    }
+
+    public static void main(String[] args) {
+        long ck = 0;
+
+        // 1: every append overload + toString hash
+        StringBuilder sb = new StringBuilder();
+        sb.append("str").append(42).append(-42).append(2147483647).append(-2147483648);
+        sb.append(9223372036854775807L).append(-9223372036854775808L).append(0L);
+        sb.append('x').append(true).append(false);
+        sb.append((Object) null).append((String) null);
+        sb.append(new char[] {'a', 'b', 'c'});
+        sb.append(new char[] {'d', 'e', 'f', 'g'}, 1, 2);
+        sb.append(3.5f).append(-0.25d);
+        String s1 = sb.toString();
+        ck = ck * 31 + s1.hashCode() + s1.length();
+        System.out.println("CK1 " + ck);
+
+        // 2: toString INDEPENDENCE -- mutate builder afterwards, old Strings stable
+        StringBuilder mb = new StringBuilder("base-");
+        String before = mb.toString();
+        int beforeHash = before.hashCode();
+        mb.append("suffix");
+        mb.setCharAt(0, 'X');
+        mb.insert(2, "INS");
+        mb.reverse();
+        ck += before.hashCode() == beforeHash ? 7 : 8;
+        ck += before.equals("base-") ? 9 : 10;
+        ck = ck * 31 + mb.toString().hashCode();
+        System.out.println("CK2 " + ck);
+
+        // 3: growth across several enlargements + interleaved toString
+        StringBuilder gb = new StringBuilder(2);
+        String[] snaps = new String[8];
+        for (int i = 0; i < 200; i++) {
+            gb.append(i).append(',');
+            if ((i & 31) == 0) snaps[i >> 5] = gb.toString();
+        }
+        String full = gb.toString();
+        ck = ck * 31 + full.hashCode() + full.length();
+        for (int i = 0; i < 7; i++) ck = ck * 31 + snaps[i].hashCode();
+        System.out.println("CK3 " + ck);
+
+        // 4: editing ops
+        StringBuilder eb = new StringBuilder("0123456789");
+        eb.insert(5, "abc");
+        ck = ck * 31 + eb.toString().hashCode();
+        eb.delete(2, 6);
+        ck = ck * 31 + eb.toString().hashCode();
+        eb.deleteCharAt(0);
+        ck = ck * 31 + eb.toString().hashCode();
+        eb.reverse();
+        ck = ck * 31 + eb.toString().hashCode();
+        eb.setLength(4);
+        ck = ck * 31 + eb.toString().hashCode();
+        eb.setLength(9);
+        ck = ck * 31 + eb.toString().hashCode() + eb.charAt(7);
+        eb.setCharAt(2, 'q');
+        ck = ck * 31 + eb.toString().hashCode();
+        System.out.println("CK4 " + ck);
+
+        // 5: unicode incl. surrogates through append/reverse/toString
+        StringBuilder ub = new StringBuilder();
+        ub.append('é').append("￿-𐀀-").append('\0');
+        String us = ub.toString();
+        ck = ck * 31 + us.hashCode() + us.length() + us.charAt(2);
+        ub.reverse(); // surrogate pair must stay ordered
+        ck = ck * 31 + ub.toString().hashCode();
+        System.out.println("CK5 " + ck);
+
+        // 6: empty / cleared builders
+        StringBuilder zb = new StringBuilder();
+        ck += zb.toString().length() + (zb.toString().hashCode() == 0 ? 11 : 12);
+        zb.append("x");
+        zb.setLength(0);
+        ck += zb.toString().length() + zb.length() * 100;
+        zb.append("recycled");
+        ck = ck * 31 + zb.toString().hashCode();
+        System.out.println("CK6 " + ck);
+
+        // 7: getChars out of a builder + into strings
+        StringBuilder cb = new StringBuilder("abcdefghij");
+        char[] dst = new char[6];
+        cb.getChars(2, 8, dst, 0);
+        for (char c : dst) ck = ck * 31 + c;
+        String cs = cb.toString();
+        char[] dst2 = new char[4];
+        cs.getChars(3, 7, dst2, 0);
+        for (char c : dst2) ck = ck * 31 + c;
+        System.out.println("CK7 " + ck);
+
+        // 8: string concat via javac (+) -- exercises the whole implicit chain
+        for (int i = 0; i < 5000; i++) {
+            String cat = "n=" + i + " sq=" + (i * i) + " odd=" + ((i & 1) == 1) + ';' + (i * 0.5);
+            ck += cat.hashCode() + cat.length();
+        }
+        ck = ck * 31;
+        System.out.println("CK8 " + ck);
+
+        // 9: StringBuffer parity
+        StringBuffer sf = new StringBuffer();
+        sf.append("buf").append(17).append('/').append(3.25d).append(123456789012345L);
+        String fs = sf.toString();
+        ck = ck * 31 + fs.hashCode() + fs.length();
+        sf.insert(0, "pre-");
+        sf.reverse();
+        ck = ck * 31 + sf.toString().hashCode();
+        System.out.println("CK9 " + ck);
+
+        // 10: PRNG op mix on a persistent builder with periodic snapshots
+        StringBuilder pb = new StringBuilder();
+        long snapHash = 0;
+        for (int i = 0; i < 100000; i++) {
+            int op = rnd(10);
+            if (op < 4) {
+                pb.append((char) ('a' + rnd(26)));
+            } else if (op < 6) {
+                pb.append(rnd(100000) - 50000);
+            } else if (op == 6) {
+                pb.append("-seg-");
+            } else if (op == 7 && pb.length() > 4) {
+                pb.delete(rnd(pb.length() / 2), rnd(pb.length() / 2) + pb.length() / 2);
+            } else if (op == 8 && pb.length() > 0) {
+                pb.setCharAt(rnd(pb.length()), (char) ('A' + rnd(26)));
+            } else {
+                if (pb.length() > 3000) {
+                    snapHash = snapHash * 31 + pb.toString().hashCode();
+                    pb.setLength(0);
+                } else if (pb.length() > 0) {
+                    pb.insert(rnd(pb.length()), rnd(10));
+                }
+            }
+        }
+        ck = ck * 31 + snapHash + pb.toString().hashCode() + pb.length();
+        System.out.println("CK " + ck);
+        System.out.println("DONE");
+
+        // Give the collector one complete cycle over the heap this workload
+        // built. Without it a -DCN1_GC_VERIFY build of this driver exits before
+        // any sweep finishes, so the verifier never runs and a clean result
+        // means only that nothing was ever checked. Prints nothing, so the
+        // byte-identical comparison against the host JVM is unaffected.
+        System.gc();
+        try {
+            Thread.sleep(250);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+    }
+}

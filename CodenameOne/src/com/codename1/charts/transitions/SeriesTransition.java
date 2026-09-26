@@ -1,0 +1,263 @@
+/*
+ * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores
+ * CA 94065 USA or visit www.oracle.com if you need additional information or
+ * have any questions.
+ */
+
+package com.codename1.charts.transitions;
+
+import com.codename1.charts.ChartComponent;
+import com.codename1.ui.Graphics;
+import com.codename1.ui.animations.Animation;
+import com.codename1.ui.animations.Motion;
+
+/// A base class for series transitions of ChartComponent.  This should be
+/// overridden by concrete classes that implement the update(int) method
+/// to update the chart's model and renderer appropriately.  This class can serve
+/// as a buffer for changes to the model so that they don't affect the ChartComponent
+/// immediately.  Changes can either be eased in using animateChart() or updated
+/// in one shot using updateChart().
+///
+/// @author shannah
+public abstract class SeriesTransition implements Animation {
+
+    /// The top level this transition registered on, so it is removed from that one
+    /// rather than from wherever the chart resolves to when the motion ends.
+    private com.codename1.ui.TopLevelContainer animationHost;
+    /// Whether cleanup() has run for the current pass.
+    ///
+    /// cleanup() is overridable and a subclass can release something in
+    /// it, so it has to run once per transition rather than once per
+    /// route out. An immediate update that interrupts an animation ends
+    /// the transition itself, and a frame already queued behind it then
+    /// reaches the same terminal branch.
+    private boolean cleanedUp;
+
+
+    public static final int EASING_LINEAR = 1;
+    public static final int EASING_IN = 2;
+    public static final int EASING_OUT = 3;
+    public static final int EASING_IN_OUT = 4;
+
+    /// The chart to be animated.
+    private ChartComponent chart;
+
+    /// The duration of the transition (in ms).
+    private int duration;
+
+    /// Motion that will be used to perform the transition.
+    private Motion motion;
+
+    /// The type of easing that should be used for the transition.
+    private int easing = EASING_LINEAR;
+
+    /// Flag to indicate that the animation is finished.
+    private boolean finished;
+
+
+    public SeriesTransition(ChartComponent chart) {
+        this(chart, EASING_LINEAR, 200);
+    }
+
+    public SeriesTransition(ChartComponent chart, int easing) {
+        this(chart, easing, 200);
+    }
+
+    public SeriesTransition(ChartComponent chart, int easing, int duration) {
+        this.chart = chart;
+        this.easing = easing;
+        this.duration = duration;
+
+    }
+
+
+    /// Initializes the transition for another iteration.  This can be overridden
+    /// by subclasses to provide their own initialization.  This method
+    /// will be called just prior to the transition taking place.
+    /// IMPORTANT: Subclasses must make sure to call super.initTransition()
+    /// so that the animation will be initialized properly.
+    protected void initTransition() {
+        finished = false;
+        cleanedUp = false;
+        switch (getEasing()) {
+            case EASING_IN:
+                motion = Motion.createEaseInMotion(0, 100, getDuration());
+                break;
+            case EASING_OUT:
+                motion = Motion.createEaseOutMotion(0, 100, getDuration());
+                break;
+            case EASING_IN_OUT:
+                motion = Motion.createEaseInOutMotion(0, 100, getDuration());
+                break;
+            default:
+                motion = Motion.createLinearMotion(0, 100, getDuration());
+                break;
+        }
+        motion.start();
+    }
+
+    /// Cleans up any settings in the transition.  Called after a transition
+    /// is complete.  This is meant to be overridden by subclasses.
+    protected void cleanup() {
+
+    }
+
+    /// Runs [#cleanup] unless this pass has already been cleaned up.
+    private void cleanupOnce() {
+        if (cleanedUp) {
+            return;
+        }
+        cleanedUp = true;
+        cleanup();
+    }
+
+    /// Updates the renderer and model at the specified progress position of
+    /// the animation.  Meant to be overridden by subclasses.
+    ///
+    /// #### Parameters
+    ///
+    /// - `progress`: The progress of the animation (between 0 and 100).
+    protected abstract void update(int progress);
+
+    @Override
+    public boolean animate() {
+        if (finished) {
+            cleanupOnce();
+            if (animationHost != null) {
+                animationHost.deregisterAnimated(this);
+                animationHost = null;
+            }
+            return false;
+        } else if (motion.isFinished()) {
+            finished = true;
+        }
+        update(motion.getValue());
+        return true;
+    }
+
+    @Override
+    public void paint(Graphics g) {
+        getChart().repaint();
+    }
+
+    /// Gets the ChartComponent that is the subject of the transition.
+    ///
+    /// #### Returns
+    ///
+    /// the chart
+    public ChartComponent getChart() {
+        return chart;
+    }
+
+    /// Sets the ChartComponent that is the subject of the transition.
+    ///
+    /// #### Parameters
+    ///
+    /// - `chart`: the chart to set
+    public void setChart(ChartComponent chart) {
+        this.chart = chart;
+    }
+
+    /// Gets the duration of the transition. (in milliseconds)
+    ///
+    /// #### Returns
+    ///
+    /// the duration
+    public int getDuration() {
+        return duration;
+    }
+
+    /// Sets the duration of the transition in milliseconds.
+    ///
+    /// #### Parameters
+    ///
+    /// - `duration`: the duration to set
+    public void setDuration(int duration) {
+        this.duration = duration;
+    }
+
+    /// Gets the type of easing used in the transition.  Should be one of
+    /// EASING_LINEAR, EASING_IN, EASING_OUT, or EASING_IN_OUT.
+    ///
+    /// #### Returns
+    ///
+    /// the easing
+    public int getEasing() {
+        return easing;
+    }
+
+    /// Sets the type of easing used in the transition.  Should be one of
+    /// EASING_LINEAR, EASING_IN, EASING_OUT, or EASING_IN_OUT.
+    ///
+    /// #### Parameters
+    ///
+    /// - `easing`: the easing to set
+    public void setEasing(int easing) {
+        this.easing = easing;
+    }
+
+
+    /// Applies all pending changes to the chart model and renderer using the
+    /// current animation settings.
+    public void animateChart() {
+        initTransition();
+        // The chart's top level rather than its form: getComponentForm() is null by
+        // design inside a Window, so a chart transition threw there.
+        com.codename1.ui.TopLevelContainer top = chart.getTopLevelContainer();
+        if (top != null) {
+            animationHost = top;
+            top.registerAnimated(this);
+        }
+
+    }
+
+    /// Applies all pending changes to the chart model and renderer and repaints
+    /// the chart.  This is basically like calling animateChart() with a duration
+    /// of 0.
+    public void updateChart() {
+        // The three steps animateChart() reaches through the animation, run
+        // back to back. This was a bare repaint(), which drew the series
+        // exactly as it already was: everything written into the buffer was
+        // discarded on the next initTransition(), so the documented
+        // "duration of 0" path silently did nothing at all.
+        //
+        // cleanup() at the end rather than leaving the buffer full, so the
+        // state after this call is the state after an animation finishes and
+        // a caller can reuse the transition either way.
+        //
+        // An animateChart() already in flight has to be stopped FIRST, and
+        // finished latched afterwards. Without both, the next animation frame
+        // called animate() on a motion initTransition() had just restarted,
+        // and update() walked the series back towards the start values this
+        // call had captured -- so an immediate update issued during an
+        // animation was undone and replayed as one.
+        if (animationHost != null) {
+            animationHost.deregisterAnimated(this);
+            animationHost = null;
+        }
+        initTransition();
+        update(100);
+        finished = true;
+        cleanupOnce();
+        chart.repaint();
+    }
+
+}

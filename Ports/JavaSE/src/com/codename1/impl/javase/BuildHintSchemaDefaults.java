@@ -1,0 +1,320 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+package com.codename1.impl.javase;
+
+/**
+ * Registers schema metadata for the native-theme build hints
+ * (ios.themeMode, and.themeMode, nativeTheme) so that the
+ * Build Hints UI inside the Codename One Simulator can show them as
+ * labelled Select dropdowns instead of opaque key/value entries.
+ *
+ * <p>The deprecated keys {@code cn1.nativeTheme} and
+ * {@code cn1.androidTheme} are still honored at runtime but are no
+ * longer surfaced in the schema - new projects should use
+ * {@code nativeTheme} / {@code and.themeMode} (matching the
+ * {@code ios.themeMode} pattern).
+ *
+ * <p><b>Why this class exists:</b> {@link com.codename1.impl.javase.BuildHintEditor}
+ * is the dialog that lets developers set build hints from the
+ * Simulator menu (Project &rarr; Build Hints). It populates its rows by
+ * scanning system properties whose keys match
+ * {@code codename1.arg.{{ HintName }}.<field>} (label / type / values
+ * / description / group). Hints contributed by cn1libs typically
+ * register themselves via that property convention from the cn1lib's
+ * own code, but the three hints introduced by the CSS-driven
+ * native-themes work are framework-level - they are not part of any
+ * cn1lib - and need to be visible to every project, including the
+ * very first one a new developer creates. Without this class the
+ * dropdowns would not appear and users would have to type the hint
+ * name and value by hand into {@code codenameone_settings.properties},
+ * which most developers would never discover.
+ *
+ * <p>This is <b>not</b> related to live CSS recompilation. The CSS
+ * watcher in the Simulator is a separate component; this class only
+ * publishes the build-hint schema.
+ *
+ * <p><b>Lifecycle:</b> {@link #register()} is invoked once from
+ * {@code Simulator.main(String[])} during simulator startup, before
+ * the BuildHintEditor reads its registry. Re-invoking is harmless -
+ * each {@link System#setProperty(String, String)} call simply
+ * overwrites the previous value. Hints set here can still be
+ * overridden by per-project properties or by a cn1lib that registers
+ * the same key with different metadata.
+ */
+final class BuildHintSchemaDefaults {
+
+    private BuildHintSchemaDefaults() {
+    }
+
+    /**
+     * App Hardening (Enterprise). Grouped Select hints; note these rely on the grouped-Select
+     * value lookup in BuildHintEditor being keyed by the exact brace content (see the fix there).
+     */
+    private static void registerHardening() {
+        set("{{@hardening}}.label", "App Hardening (Enterprise)");
+        set("{{@hardening}}.description",
+                "Build-server transforms that make the shipped binary harder to reverse "
+                + "engineer -- class/method/field renaming, string encryption and control-flow "
+                + "obfuscation -- applied across every port, integrated with Crash Protection so "
+                + "obfuscated stack traces are still symbolicated. Runs on the Codename One build "
+                + "server only: the simulator is never obfuscated and a local or source-project "
+                + "build is not hardened. Requires an Enterprise subscription; a build that asks "
+                + "for it without one fails rather than shipping an unhardened binary.");
+
+        set("{{#hardening#harden.level}}.label", "Hardening level");
+        set("{{#hardening#harden.level}}.type", "Select");
+        set("{{#hardening#harden.level}}.values", "off,standard,aggressive,paranoid,");
+        set("{{#hardening#harden.level}}.description",
+                "off = no hardening. standard = renaming + constant-string encryption. "
+                + "aggressive = + all-string encryption + control flow. paranoid = + stronger "
+                + "control-flow obfuscation.");
+
+        set("{{#hardening#harden.strings}}.label", "String encryption");
+        set("{{#hardening#harden.strings}}.type", "Select");
+        set("{{#hardening#harden.strings}}.values", "off,constants,all,");
+        set("{{#hardening#harden.strings}}.description",
+                "Override string encryption independently of the level.");
+
+        set("{{#hardening#harden.controlFlow}}.label", "Control-flow obfuscation");
+        set("{{#hardening#harden.controlFlow}}.type", "Select");
+        set("{{#hardening#harden.controlFlow}}.values", "off,on,");
+        set("{{#hardening#harden.controlFlow}}.description",
+                "Override control-flow obfuscation. Applied on Android and desktop only; left off "
+                + "the ParparVM native ports where it fights the translator's optimizer.");
+
+        set("{{#hardening#harden.keep}}.label", "Keep rules");
+        set("{{#hardening#harden.keep}}.type", "TextArea");
+        set("{{#hardening#harden.keep}}.description",
+                "ProGuard-syntax keep rules for classes resolved by name at runtime that the "
+                + "automatic analysis can't see. Same syntax as android.proguardKeep.");
+
+        set("{{#hardening#harden.allowUnhardenedLocalBuild}}.label", "Allow unhardened local build");
+        set("{{#hardening#harden.allowUnhardenedLocalBuild}}.type", "Select");
+        set("{{#hardening#harden.allowUnhardenedLocalBuild}}.values", "false,true,");
+        set("{{#hardening#harden.allowUnhardenedLocalBuild}}.description",
+                "Let a local or source-project target build unhardened instead of failing the "
+                + "pre-flight. The output is NOT hardened.");
+    }
+
+    static void register() {
+        registerHardening();
+        // Group.
+        set("{{@nativeTheme}}.label", "Native Theme");
+        set("{{@nativeTheme}}.description",
+                "Controls the Codename One look & feel on iOS, Android, the "
+                + "desktop and the JavaScript port (browser OS auto-detection: "
+                + "iOS/Mac browsers get the iOS theme, everything else gets the "
+                + "Android theme). Modern themes are generated from CSS "
+                + "under native-themes/; legacy themes remain selectable "
+                + "via the values below.");
+
+        // Cross-platform meta hint.
+        set("{{#nativeTheme#nativeTheme}}.label", "Shared override");
+        set("{{#nativeTheme#nativeTheme}}.type", "Select");
+        set("{{#nativeTheme#nativeTheme}}.values", "native,modern,legacy,custom");
+        set("{{#nativeTheme#nativeTheme}}.description",
+                "Overrides the per-platform native theme selection. "
+                + "\"native\" = the platform's own look on every OS, desktop "
+                + "included. \"modern\" = liquid glass / Material 3, on iOS and "
+                + "Android only -- it predates the desktop themes, so it leaves a "
+                + "desktop app's screens where they were. \"legacy\" = iOS 7 "
+                + "flat / Android Holo Light. \"custom\" disables the framework "
+                + "default and expects the app to install its own. "
+                + "(Deprecated alias: cn1.nativeTheme.)");
+
+        // iOS.
+        set("{{#nativeTheme#ios.themeMode}}.label", "iOS theme");
+        set("{{#nativeTheme#ios.themeMode}}.type", "Select");
+        set("{{#nativeTheme#ios.themeMode}}.values", "auto,modern,ios7,legacy");
+        set("{{#nativeTheme#ios.themeMode}}.description",
+                "auto = modern (default). modern / liquid = Liquid Glass. "
+                + "ios7 / flat = pre-liquid flat iOS 7 theme. "
+                + "legacy / iphone = pre-iOS7 theme.");
+
+        // Android.
+        set("{{#nativeTheme#and.themeMode}}.label", "Android theme");
+        set("{{#nativeTheme#and.themeMode}}.type", "Select");
+        set("{{#nativeTheme#and.themeMode}}.values", "auto,modern,hololight,legacy");
+        set("{{#nativeTheme#and.themeMode}}.description",
+                "auto = modern (default). modern / material = Material 3. "
+                + "hololight = Android Holo Light (API 14+). legacy = pre-Holo "
+                + "Android theme. (Deprecated alias: cn1.androidTheme; "
+                + "and.hololight=true is also accepted for back-compat.)");
+
+        // Desktop (JavaSE). Resolved against the machine the app starts on, because
+        // one desktop binary runs on Windows, macOS and Linux.
+        set("{{#nativeTheme#desktop.themeMode}}.label", "Desktop theme");
+        set("{{#nativeTheme#desktop.themeMode}}.type", "Select");
+        set("{{#nativeTheme#desktop.themeMode}}.values",
+                "legacy,auto,fluent,aqua,adwaita,custom");
+        set("{{#nativeTheme#desktop.themeMode}}.description",
+                "legacy = what desktop apps have always had (default -- these "
+                + "themes arrived after the apps did). auto / native / modern = the "
+                + "host's own look: Fluent on Windows, Aqua on macOS, Adwaita on "
+                + "GNOME. fluent / aqua / adwaita pin that one look on every "
+                + "machine. custom installs no framework theme at all.");
+
+        // The wearable build has no build hints: a project declares the watch
+        // lifecycle class as codename1.watchMain next to codename1.mainName and
+        // both the Apple Watch and the Wear OS app are built from that root.
+        // codename1.watchStandalone says the watch app ships on its own. Both
+        // are entry-point settings rather than build hints, so they are edited
+        // on the Basic page of the settings tool.
+
+        // Apple TV native build (tvOS). tvOS has UIKit + Metal but no OpenGL ES,
+        // so it is handled like the Mac Catalyst slice: Metal renderer + GL stub
+        // headers + GL-only sources excluded, as a separate appletvos target.
+        set("{{@tvNative}}.label", "Apple TV (tvOS)");
+        set("{{@tvNative}}.description",
+                "Builds an Apple TV app from the same project. tvOS reuses the "
+                + "iOS UIKit entry and the Metal renderer (it lacks OpenGL ES), so "
+                + "the tvOS app is a separate appletvos target compiled from the "
+                + "same sources. CN.isTV() returns true at runtime.");
+
+        set("{{#tvNative#tvNative.enabled}}.label", "Enable tvOS target");
+        set("{{#tvNative#tvNative.enabled}}.type", "Select");
+        set("{{#tvNative#tvNative.enabled}}.values", "false,true");
+        set("{{#tvNative#tvNative.enabled}}.description",
+                "When true, adds an Apple TV app target to the generated Xcode "
+                + "project. Also auto-enabled whenever codename1.tvMain is declared "
+                + "in codenameone_settings.properties. Requires the Ruby xcodeproj "
+                + "gem (bundled with CocoaPods).");
+
+        set("{{#tvNative#tvNative.mainClass}}.label", "tvOS lifecycle class");
+        set("{{#tvNative#tvNative.mainClass}}.type", "String");
+        set("{{#tvNative#tvNative.mainClass}}.description",
+                "Fully-qualified tvOS entry/lifecycle class. Normally set via "
+                + "codename1.tvMain; this hint is an override. May equal the phone "
+                + "main class (the tvOS app reuses the shared UIApplicationMain "
+                + "entry). Defaults to the phone main class when tvNative.enabled=true.");
+
+        set("{{#tvNative#tvNative.bundleId}}.label", "tvOS bundle identifier");
+        set("{{#tvNative#tvNative.bundleId}}.type", "String");
+        set("{{#tvNative#tvNative.bundleId}}.description",
+                "Bundle id of the Apple TV app. Defaults to <package>.tvos.");
+
+        set("{{#tvNative#tvNative.minDeploymentTarget}}.label", "Minimum tvOS version");
+        set("{{#tvNative#tvNative.minDeploymentTarget}}.type", "String");
+        set("{{#tvNative#tvNative.minDeploymentTarget}}.description",
+                "TVOS_DEPLOYMENT_TARGET for the tvOS target. Defaults to 13.0.");
+
+        set("{{#tvNative#tvNative.teamId}}.label", "Apple team id");
+        set("{{#tvNative#tvNative.teamId}}.type", "String");
+        set("{{#tvNative#tvNative.teamId}}.description",
+                "Development team for signing the tvOS target. Defaults to the "
+                + "iOS team id (ios.teamId / ios.release.teamId).");
+
+        set("{{#tvNative#tvNative.displayName}}.label", "tvOS app name");
+        set("{{#tvNative#tvNative.displayName}}.type", "String");
+        set("{{#tvNative#tvNative.displayName}}.description",
+                "Name shown under the tvOS app icon. Defaults to the app display "
+                + "name (codename1.displayName), then the main class name.");
+
+        // Android TV / Google TV: the same APK plus manifest metadata (Leanback
+        // launcher category + leanback feature + optional touchscreen) and a
+        // generated 320x180 banner. CN.isTV() returns true at runtime.
+        set("{{@androidTv}}.label", "Android TV / Google TV");
+        set("{{@androidTv}}.description",
+                "Builds the Android app for Android TV / Google TV: adds the "
+                + "Leanback launcher category so the app appears on the TV home "
+                + "screen, declares the android.software.leanback feature, makes "
+                + "the touchscreen optional and generates a 320x180 launcher "
+                + "banner from the app icon. The same APK still runs on phones "
+                + "and tablets; CN.isTV() returns true at runtime.");
+
+        set("{{#androidTv#android.tv}}.label", "Enable Android TV build");
+        set("{{#androidTv#android.tv}}.type", "Select");
+        set("{{#androidTv#android.tv}}.values", "false,true");
+        set("{{#androidTv#android.tv}}.description",
+                "When true, adds Android TV manifest metadata (LEANBACK_LAUNCHER "
+                + "category, android.software.leanback uses-feature, touchscreen "
+                + "required=false) and a generated tv_banner drawable. With the "
+                + "hint off the manifest is unchanged.");
+
+        // Everything else that has a build hint annotation, generated from the
+        // catalog. Registered last on purpose: set() never overwrites, so the
+        // hand-written labels and descriptions above win and this only fills in
+        // the hints nobody has written prose for.
+        BuildHintCatalogDefaults.register();
+    }
+
+    /**
+     * The hints this class describes by hand.
+     *
+     * <p>{@link BuildHintCatalogDefaults} consults it so the two never describe
+     * the same hint. The group name is part of the property key, so a hint
+     * registered under both {@code hardening} and {@code Hardening} is not
+     * overwritten -- it is a second group, and the editor renders both, giving
+     * the user duplicate controls for one setting.</p>
+     */
+    private static final java.util.Set<String> DECLARED = new java.util.HashSet<String>();
+
+    /** The group keys this class registered, recorded as they are registered. */
+    private static final java.util.Set<String> DECLARED_GROUPS = new java.util.HashSet<String>();
+
+    /** Hint names {@link #register} describes, for the generated companion to skip. */
+    static java.util.Set<String> declaredHints() {
+        return java.util.Collections.unmodifiableSet(DECLARED);
+    }
+
+    /**
+     * The group key this class already uses for {@code annotation}, or null.
+     *
+     * <p>The group name is part of the property key, so a catalog hint whose group
+     * differs from a hand-written one only in case lands in a second group beside
+     * it -- which is how harden.rename came to sit alone under "App Hardening"
+     * next to the five hints under "App Hardening (Enterprise)". Matching on case
+     * is a convention rather than a table, so there is nothing here to drift.</p>
+     */
+    static String declaredGroupFor(String annotation) {
+        for (String g : DECLARED_GROUPS) {
+            if (g.equalsIgnoreCase(annotation)) {
+                return g;
+            }
+        }
+        return null;
+    }
+
+    /** Idempotent setter: does not overwrite user / project-level hint metadata. */
+    private static void set(String suffix, String value) {
+        int hash = suffix.indexOf('#');
+        if (suffix.startsWith("{{@")) {
+            int close = suffix.indexOf("}}", 3);
+            if (close > 3) {
+                DECLARED_GROUPS.add(suffix.substring(3, close));
+            }
+        }
+        if (suffix.startsWith("{{#") && hash >= 0) {
+            int second = suffix.indexOf('#', hash + 1);
+            int close = suffix.indexOf("}}", second + 1);
+            if (second > 0 && close > second) {
+                DECLARED.add(suffix.substring(second + 1, close));
+            }
+        }
+        String key = "codename1.arg." + suffix;
+        if (System.getProperty(key) == null) {
+            System.setProperty(key, value);
+        }
+    }
+}

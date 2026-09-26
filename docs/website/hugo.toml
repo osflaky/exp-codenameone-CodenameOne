@@ -1,0 +1,194 @@
+baseURL = 'https://www.codenameone.com/'
+languageCode = 'en-us'
+title = 'Codename One'
+theme = "PaperMod"
+enableRobotsTXT = true
+
+[outputFormats.Feed]
+mediaType = "application/rss+xml"
+baseName = "feed"
+isPlainText = false
+rel = "alternate"
+
+[outputs]
+home = ["HTML", "JSON"]
+section = ["HTML"]
+taxonomy = ["HTML"]
+term = ["HTML"]
+
+[params]
+defaultTheme = "dark"
+disableThemeToggle = false
+mainSections = ["blog"]
+author = "Codename One"
+homeTitle = "Codename One: Native Apps in Java with a UI You Control"
+description = "Build native iOS, Android, desktop, web, watch, TV, and vehicle apps in Java. One codebase, a UI you control, and cloud iOS builds without a Mac."
+keywords = [
+  "codename one",
+  "cross platform app development",
+  "cross platform mobile development",
+  "write once run anywhere",
+  "java",
+]
+
+[params.assets]
+favicon = "favicon.ico"
+favicon16x16 = "favicon.ico"
+favicon32x32 = "favicon.ico"
+apple_touch_icon = "favicon.ico"
+
+[params.label]
+text = "CODENAME ONE"
+icon = "/uploads/Codename-One-White-Logo.png"
+iconHeight = 34
+
+[menu]
+[[menu.main]]
+identifier = "product"
+name = "Product"
+url = "#"
+weight = 10
+
+[[menu.main]]
+parent = "product"
+name = "How It Works"
+url = "/introduction/"
+weight = 11
+
+[[menu.main]]
+parent = "product"
+name = "Compare"
+url = "/compare/"
+weight = 12
+
+[[menu.main]]
+identifier = "docs"
+name = "Docs"
+url = "#"
+weight = 20
+
+[[menu.main]]
+parent = "docs"
+name = "Getting Started"
+url = "/getting-started/"
+weight = 21
+
+[[menu.main]]
+parent = "docs"
+name = "Developer Guide HTML"
+url = "/developer-guide/"
+weight = 22
+
+[[menu.main]]
+parent = "docs"
+name = "Developer Guide PDF"
+url = "/files/developer-guide.pdf"
+weight = 23
+
+[[menu.main]]
+parent = "docs"
+name = "API Reference"
+url = "/javadoc/"
+weight = 24
+
+[[menu.main]]
+parent = "docs"
+name = "How Do I?"
+url = "/how-do-i/"
+weight = 25
+
+[[menu.main]]
+identifier = "tools"
+name = "Tools"
+url = "#"
+weight = 30
+
+[[menu.main]]
+parent = "tools"
+name = "Initializr"
+url = "/initializr/"
+weight = 31
+
+[[menu.main]]
+parent = "tools"
+name = "Playground"
+url = "/playground/"
+weight = 32
+
+[[menu.main]]
+parent = "tools"
+name = "Skin Designer"
+url = "/skindesigner/"
+weight = 33
+
+[[menu.main]]
+parent = "tools"
+name = "Demos"
+url = "/demos/"
+weight = 34
+
+[[menu.main]]
+identifier = "resources"
+name = "Resources"
+url = "#"
+weight = 40
+
+[[menu.main]]
+parent = "resources"
+name = "Engineering Blog"
+url = "/blog/"
+weight = 31
+
+[[menu.main]]
+parent = "resources"
+name = "Training"
+url = "/training/"
+weight = 32
+
+[[menu.main]]
+parent = "resources"
+name = "Videos"
+url = "/videos/"
+weight = 33
+
+[[menu.main]]
+parent = "resources"
+name = "Libraries"
+url = "/cn1libs/"
+weight = 34
+
+[[menu.main]]
+parent = "resources"
+name = "Community Support"
+url = "/discussion-forum/"
+weight = 35
+
+[[menu.main]]
+parent = "resources"
+name = "Port Status"
+url = "/port-status/"
+weight = 36
+
+[[menu.main]]
+identifier = "pricing"
+name = "Pricing"
+url = "/pricing/"
+weight = 50
+
+[[menu.main]]
+identifier = "search"
+name = "Search"
+url = "/search/"
+weight = 60
+
+[[menu.main]]
+identifier = "dashboard"
+name = "Dashboard"
+url = "https://cloud.codenameone.com/console/index.html"
+weight = 90
+
+[[menu.main]]
+identifier = "create-project"
+name = "Sign Up"
+url = "https://cloud.codenameone.com/register"
+weight = 100

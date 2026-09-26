@@ -1,0 +1,437 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.ui.spinner;
+
+import com.codename1.ui.Component;
+import com.codename1.ui.Container;
+import com.codename1.ui.Label;
+import com.codename1.ui.List;
+import com.codename1.ui.layouts.BoxLayout;
+import com.codename1.ui.layouts.LayeredLayout;
+import com.codename1.ui.list.DefaultListCellRenderer;
+import com.codename1.ui.plaf.Border;
+import com.codename1.ui.plaf.Style;
+
+import java.util.ArrayList;
+
+/// Allows selecting a time of day either in 24 hour batches or AM/PM format.
+///
+/// If `#setDurationMode(boolean)` is true then this will allow
+/// users to set a duration in hours and minutes.
+///
+/// Styles
+///
+///   UIIDDescription
+///   SpinnerRendererUsed for each cell/row of the spinner.
+///   TimeSpinnerHoursLabelUsed for the "hours" label to the right of the *hours* spinner.  Used only in duration mode.
+///   TimeSpinnerMinutesLabelUsed for the "minutes" label to the right of the *minutes* spinner.  Used only in duration mode.
+///
+/// Screenshots
+///
+/// @author Shai Almog
+///
+/// #### Deprecated
+///
+/// use Picker instead
+public class TimeSpinner extends BaseSpinner {
+    private final ArrayList<Component> hourComponents = new ArrayList<Component>();
+    private final ArrayList<Component> minuteComponents = new ArrayList<Component>();
+    private Spinner hour;
+    private Spinner minute;
+    private Spinner amPM;
+    private int startHour = 1;
+    private int endHour = 13;
+    private int minuteStep = 5;
+
+    private boolean durationMode;
+    private boolean showHours = true;
+    private boolean showMinutes = true;
+    private boolean showMeridiem = true;
+    private int currentHour = 8;
+    private int currentMinute = 0;
+    private boolean currentMeridiem;
+
+    @Override
+    void initSpinner() {
+        if (hour == null) {
+            hour = Spinner.create(startHour, endHour, currentHour, 1);
+            minute = Spinner.create(0, 60, currentMinute, minuteStep);
+            if (currentMeridiem) {
+                amPM = Spinner.create(0, 2, 1, 1);
+            } else {
+                amPM = Spinner.create(0, 2, 0, 1);
+            }
+            ((DefaultListCellRenderer) hour.getRenderer()).setRightAlignNumbers(true);
+            SpinnerRenderer<Object> twoDigitRender = new TwoDigitSpinnerRenderer();
+            minute.setRenderer(twoDigitRender);
+
+            SpinnerRenderer<Object> render = new TimeSpinnerRenderer();
+            amPM.setRenderer(render);
+            render.setRTL(false);
+            render.setShowNumbers(false);
+            twoDigitRender.setUIID("SpinnerRenderer");
+            render.setUIID("SpinnerRenderer");
+            amPM.setRenderingPrototype("WW");
+            amPM.initSpinnerRenderer();
+            minute.initSpinnerRenderer();
+
+            addComponents();
+        }
+    }
+
+    void addComponents() {
+        setLayout(new LayeredLayout());
+        LayeredLayout ll = (LayeredLayout) getLayout();
+        Container content = new Container(BoxLayout.x());
+        Style allStyles = content.getAllStyles();
+        allStyles.setMargin(0, 0, 0, 0);
+        allStyles.setPadding(0, 0, 0, 0);
+        allStyles.setBgTransparency(0);
+        allStyles.setBorder(Border.createEmpty());
+
+        if (amPM != null) {
+            content.addComponent(hour);
+            hourComponents.add(hour);
+            if (durationMode) {
+                Label l = new Label(getUIManager().localize("hours", "hours"));
+                l.setUIID("TimeSpinnerHoursLabel");
+                hourComponents.add(l);
+                content.addComponent(l);
+            }
+
+            content.addComponent(createSeparator());
+            content.addComponent(minute);
+            minuteComponents.add(minute);
+            if (durationMode) {
+                Label l = new Label(getUIManager().localize("minutes", "minutes"));
+                l.setUIID("TimeSpinnerMinutesLabel");
+                minuteComponents.add(l);
+                content.addComponent(l);
+            }
+            if (showMeridiem) {
+                content.addComponent(createSeparator());
+                content.addComponent(amPM);
+            }
+        }
+        setHoursVisible(showHours);
+        setMinutesVisible(showMinutes);
+        addComponent(content);
+        ll.setInsets(content, "0 auto 0 auto");
+    }
+
+
+    /// {@inheritDoc}
+    @Override
+    public String[] getPropertyNames() {
+        return new String[]{"currentHour", "currentMinute", "minuteStep", "currentMeridiem", "showMeridiem", "durationMode"};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Class[] getPropertyTypes() {
+        return new Class[]{Integer.class, Integer.class, Integer.class, Boolean.class, Boolean.class, Boolean.class};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Object getPropertyValue(String name) {
+        if ("durationMode".equals(name)) {
+            if (durationMode) {
+                return Boolean.TRUE;
+            }
+            return Boolean.FALSE;
+        }
+        if ("currentHour".equals(name)) {
+            return Integer.valueOf(currentHour);
+        }
+        if ("currentMinute".equals(name)) {
+            return Integer.valueOf(currentMinute);
+        }
+        if ("minuteStep".equals(name)) {
+            return Integer.valueOf(minuteStep);
+        }
+        if ("currentMeridiem".equals(name)) {
+            if (currentMeridiem) {
+                return Boolean.TRUE;
+            }
+            return Boolean.FALSE;
+        }
+        if ("showMeridiem".equals(name)) {
+            if (showMeridiem) {
+                return Boolean.TRUE;
+            }
+            return Boolean.FALSE;
+        }
+        return null;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String setPropertyValue(String name, Object value) {
+        if ("currentHour".equals(name)) {
+            setCurrentHour(Integer.parseInt(value.toString()));
+            return null;
+        }
+        if ("currentMinute".equals(name)) {
+            setCurrentMinute(Integer.parseInt(value.toString()));
+            return null;
+        }
+        if ("minuteStep".equals(name)) {
+            setMinuteStep(Integer.parseInt(value.toString()));
+            return null;
+        }
+        if ("currentMeridiem".equals(name)) {
+            setCurrentMeridiem(((Boolean) value).booleanValue());
+            return null;
+        }
+        if ("showMeridiem".equals(name)) {
+            setShowMeridiem(((Boolean) value).booleanValue());
+            return null;
+        }
+        if ("durationMode".equals(name)) {
+            setDurationMode(((Boolean) value).booleanValue());
+            return null;
+        }
+
+        return super.setPropertyValue(name, value);
+    }
+
+    /// Gets the minutes spinner step size.
+    ///
+    /// #### Returns
+    ///
+    /// the minuteStep
+    public int getMinuteStep() {
+        return minuteStep;
+    }
+
+    /// Sets the step-size for the minutes spinner.
+    ///
+    /// #### Parameters
+    ///
+    /// - `minuteStep`: The step size.  Must be beween 1 and 60.
+    public void setMinuteStep(int minuteStep) {
+        if (minuteStep < 1 || minuteStep > 60) {
+            throw new IllegalArgumentException("Minute step must be between 1 and 60");
+        }
+        this.minuteStep = minuteStep;
+        if (minute != null) {
+            minute.setModel(new SpinnerNumberModel(0, 60, currentMinute, minuteStep));
+        }
+    }
+
+    /// #### Returns
+    ///
+    /// the showMeridiem
+    public boolean isShowMeridiem() {
+        return showMeridiem && !durationMode;
+    }
+
+    /// Shows AM/PM indication
+    ///
+    /// #### Parameters
+    ///
+    /// - `showMeridiem`: the showMeridiem to set
+    public void setShowMeridiem(boolean showMeridiem) {
+        if (durationMode) {
+            return;
+        }
+        this.showMeridiem = showMeridiem;
+        if (showMeridiem) {
+            startHour = 1;
+            endHour = 13;
+        } else {
+            startHour = 0;
+            endHour = 24;
+        }
+        if (hour != null) {
+            hour.setModel(new SpinnerNumberModel(startHour, endHour, currentHour, 1));
+        }
+        removeAll();
+        addComponents();
+        if (isInitialized()) {
+            getParent().revalidate();
+        }
+    }
+
+    /// The hour from 1-12 or 0-23
+    ///
+    /// #### Returns
+    ///
+    /// the currentHour
+    public int getCurrentHour() {
+        if (hour != null) {
+            return ((Integer) hour.getValue()).intValue();
+        }
+        return currentHour;
+    }
+
+    /// Set the hour from 1-12 or 0-23
+    ///
+    /// #### Parameters
+    ///
+    /// - `currentHour`: the currentHour to set
+    public void setCurrentHour(int currentHour) {
+        this.currentHour = currentHour;
+        if (hour != null) {
+            hour.setValue(Integer.valueOf(currentHour));
+        }
+    }
+
+    /// #### Returns
+    ///
+    /// the currentMinute
+    public int getCurrentMinute() {
+        if (minute != null) {
+            return ((Integer) minute.getValue()).intValue();
+        }
+        return currentMinute;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `currentMinute`: the currentMinute to set
+    public void setCurrentMinute(int currentMinute) {
+        this.currentMinute = currentMinute;
+        if (minute != null) {
+            minute.setValue(Integer.valueOf(currentMinute));
+        }
+    }
+
+    /// #### Returns
+    ///
+    /// the currentMeridiem
+    public boolean isCurrentMeridiem() {
+        if (durationMode) {
+            return false;
+        }
+        if (amPM != null) {
+            return ((Integer) amPM.getValue()).intValue() != 0;
+        }
+        return currentMeridiem;
+    }
+
+    /// #### Parameters
+    ///
+    /// - `currentMeridiem`: the currentMeridiem to set
+    public void setCurrentMeridiem(boolean currentMeridiem) {
+        if (durationMode) {
+            return;
+        }
+        this.currentMeridiem = currentMeridiem;
+        if (amPM != null) {
+            if (currentMeridiem) {
+                amPM.setValue(Integer.valueOf(1));
+            } else {
+                amPM.setValue(Integer.valueOf(0));
+            }
+        }
+    }
+
+    /// Duration mode uses the time spinner to indicate a duration in hours and minutes
+    ///
+    /// #### Returns
+    ///
+    /// the durationMode
+    public boolean isDurationMode() {
+        return durationMode;
+    }
+
+    /// Duration mode uses the time spinner to indicate a duration in hours and minutes
+    ///
+    /// #### Parameters
+    ///
+    /// - `durationMode`: the durationMode to set
+    public void setDurationMode(boolean durationMode) {
+        if (durationMode) {
+            setShowMeridiem(false);
+            startHour = 0;
+            endHour = 24;
+        } else {
+            if (showMeridiem) {
+                startHour = 1;
+                endHour = 13;
+            } else {
+                startHour = 0;
+                endHour = 24;
+            }
+        }
+        this.durationMode = durationMode;
+    }
+
+    /// Show or hide the hours spinner.
+    ///
+    /// #### Parameters
+    ///
+    /// - `visible`: True to show the hours spinner.
+    public void setHoursVisible(boolean visible) {
+        showHours = visible;
+        for (Component c : hourComponents) {
+            c.setVisible(visible);
+            c.setHidden(!visible);
+        }
+
+
+    }
+
+    /// Show or hide the minutes spinner.
+    ///
+    /// #### Parameters
+    ///
+    /// - `visible`: True to make the minutes spinner visible.
+    public void setMinutesVisible(boolean visible) {
+        showMinutes = visible;
+        for (Component c : minuteComponents) {
+            c.setVisible(visible);
+            c.setHidden(!visible);
+        }
+    }
+
+    private static class TimeSpinnerRenderer extends SpinnerRenderer<Object> {
+        @Override
+        public Component getListCellRendererComponent(List list, Object value, int index, boolean isSelected) {
+            if (value instanceof Integer) {
+                int d = ((Integer) value).intValue();
+                if (d == 0) {
+                    value = "AM";
+                } else {
+                    value = "PM";
+                }
+            }
+            return super.getListCellRendererComponent(list, value, index, isSelected);
+        }
+    }
+
+    private static class TwoDigitSpinnerRenderer extends SpinnerRenderer<Object> {
+        @Override
+        public Component getListCellRendererComponent(List list, Object value, int index, boolean isSelected) {
+            if (value instanceof Integer) {
+                int i = ((Integer) value).intValue();
+                if (i < 10) {
+                    value = "0" + i;
+                }
+            }
+            return super.getListCellRendererComponent(list, value, index, isSelected);
+        }
+    }
+}

@@ -1,0 +1,341 @@
+/*
+ * Copyright (c) 2012, Eric Coolman, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.l10n;
+
+import java.util.Date;
+
+/// A class for parsing and formatting localisation sensitive dates, compatible
+/// with Jave 6 SDK. This implementation uses the Codename One localization manager for handling formatting dates. Parsing
+/// dates is not implemented in this class since the localization pattern is not
+/// exposed.
+///
+/// @author Eric Coolman
+///
+/// #### See also
+///
+/// - [http://docs.oracle.com/javase/6/docs/api/java/text/DateFormat.html](http://docs.oracle.com/javase/6/docs/api/java/text/DateFormat.html)
+public class DateFormat extends Format {
+    /// Constant for full style parsing/formatting pattern.
+    public static final int FULL = 0;
+    /// Constant for long style parsing/formatting pattern.
+    public static final int LONG = 1;
+    /// Constant for medium style parsing/formatting pattern.
+    public static final int MEDIUM = 2;
+    /// Constant for short style parsing/formatting pattern.
+    public static final int SHORT = 3;
+    /// Constant for default style (MEDIUM) parsing/formatting pattern.
+    public static final int DEFAULT = MEDIUM;
+
+    private final int dateStyle;
+    private final int timeStyle;
+
+    /// Construct a date formatter using default patterns for date and time (SHORT/SHORT).
+    DateFormat() {
+        this(SHORT, SHORT);
+    }
+
+    ///
+    DateFormat(int dateStyle, int timeStyle) {
+        this.dateStyle = dateStyle;
+        this.timeStyle = timeStyle;
+    }
+
+    /// Get a DateFormat instance with default style for date/time (SHORT/SHORT).
+    ///
+    /// #### Returns
+    ///
+    /// a DateFormat instance.
+    public static final DateFormat getInstance() {
+        return getDateTimeInstance(SHORT, SHORT);
+    }
+
+    /// Get a DateFormat instance with default style for date (SHORT).
+    ///
+    /// #### Returns
+    ///
+    /// a DateFormat instance.
+    public static final DateFormat getDateInstance() {
+        return getDateInstance(SHORT);
+    }
+
+    /// Get a DateFormat instance with default style for time (SHORT).
+    ///
+    /// #### Returns
+    ///
+    /// a DateFormat instance.
+    public static final DateFormat getTimeInstance() {
+        return getTimeInstance(SHORT);
+    }
+
+    /// Get a DateFormat instance that uses a given style for dates.
+    ///
+    /// #### Parameters
+    ///
+    /// - `style`: style to use for parsing and formatting (SHORT, MEDIUM, LONG, FULL, DEFAULT);
+    ///
+    /// #### Returns
+    ///
+    /// a DateFormat instance.
+    ///
+    /// #### See also
+    ///
+    /// - #SHORT
+    ///
+    /// - #MEDIUM
+    ///
+    /// - #LONG
+    ///
+    /// - #FULL
+    ///
+    /// - #DEFAULT
+    public static final DateFormat getDateInstance(int style) {
+        return getDateTimeInstance(style, DEFAULT);
+    }
+
+    /// Get a DateFormat instance that uses a given style for times.
+    ///
+    /// #### Parameters
+    ///
+    /// - `style`: style to use for parsing and formatting (SHORT, MEDIUM, LONG, FULL, DEFAULT);
+    ///
+    /// #### Returns
+    ///
+    /// a DateFormat instance.
+    ///
+    /// #### See also
+    ///
+    /// - #SHORT
+    ///
+    /// - #MEDIUM
+    ///
+    /// - #LONG
+    ///
+    /// - #FULL
+    ///
+    /// - #DEFAULT
+    public static final DateFormat getTimeInstance(int style) {
+        return getDateTimeInstance(DEFAULT, style);
+    }
+
+    /// Get a DateFormat instance that uses a given style for dates and times.
+    ///
+    /// #### Parameters
+    ///
+    /// - `style`: style to use for parsing and formatting (SHORT, MEDIUM, LONG, FULL, DEFAULT);
+    ///
+    /// #### Returns
+    ///
+    /// a DateFormat instance.
+    ///
+    /// #### See also
+    ///
+    /// - #SHORT
+    ///
+    /// - #MEDIUM
+    ///
+    /// - #LONG
+    ///
+    /// - #FULL
+    ///
+    /// - #DEFAULT
+    public static final DateFormat getDateTimeInstance(int dateStyle, int timeStyle) {
+        return new DateFormat(dateStyle, timeStyle);
+    }
+
+    /// Format a given object.
+    ///
+    /// #### Parameters
+    ///
+    /// - `obj`: object to be formatted.
+    ///
+    /// #### Returns
+    ///
+    /// formatted object.
+    ///
+    /// #### Throws
+    ///
+    /// - `IllegalArgumentException`: of the source can not be formatted.
+    @Override
+    public String format(Object obj) throws IllegalArgumentException {
+        return format(obj, new StringBuilder());
+    }
+
+    /// Format a given object.
+    ///
+    /// #### Parameters
+    ///
+    /// - `source`: object to be formatted.
+    ///
+    /// - `toAppendTo`: buffer to which to append output.
+    ///
+    /// #### Returns
+    ///
+    /// formatted date.
+    ///
+    /// #### Throws
+    ///
+    /// - `IllegalArgumentException`: of the source can not be formatted.
+    String format(Object obj, StringBuilder toAppendTo) throws IllegalArgumentException {
+        if (obj instanceof Long) {
+            obj = new Date(((Long) obj).longValue());
+        }
+        Date source = null;
+        if (obj instanceof Date) {
+            source = (Date) obj;
+        } else if (obj instanceof String) {
+            try {
+                source = parse((String) obj);
+            } catch (ParseException pe) {
+                throw new RuntimeException(pe.toString(), pe);
+            }
+        }
+        if (source == null) {
+            throw new IllegalArgumentException((obj == null) ? "null" : obj.toString());
+        }
+        return format(source, toAppendTo);
+    }
+
+    /// Format a given object.
+    ///
+    /// #### Parameters
+    ///
+    /// - `source`: object to be formatted.
+    ///
+    /// - `toAppendTo`: buffer to which to append output.
+    ///
+    /// #### Returns
+    ///
+    /// formatted date.
+    ///
+    /// #### Throws
+    ///
+    /// - `IllegalArgumentException`: of the source can not be formatted.
+    String format(Object obj, StringBuffer toAppendTo) throws IllegalArgumentException {
+        StringBuilder sb = new StringBuilder();
+        format(obj, sb);
+        toAppendTo.append(sb);
+        return toAppendTo.toString();
+    }
+
+    /// Format a given date.
+    ///
+    /// #### Parameters
+    ///
+    /// - `source`: date to be formatted.
+    ///
+    /// #### Returns
+    ///
+    /// formatted date.
+    public String format(Date source) {
+        return format(source, new StringBuilder());
+    }
+
+    /// Format a given date.
+    ///
+    /// #### Parameters
+    ///
+    /// - `source`: date to be formatted.
+    ///
+    /// - `toAppendTo`: buffer to which to append output.
+    ///
+    /// #### Returns
+    ///
+    /// formatted date.
+    String format(Date source, StringBuffer toAppendTo) {
+        return source.toString();
+    }
+
+    /// Format a given date.
+    ///
+    /// #### Parameters
+    ///
+    /// - `source`: date to be formatted.
+    ///
+    /// - `toAppendTo`: buffer to which to append output.
+    ///
+    /// #### Returns
+    ///
+    /// formatted date.
+    String format(Date source, StringBuilder toAppendTo) {
+        return source.toString();
+    }
+
+    /// NOT IMPLEMENTED - use SimpleDateFormat for parsing instead.
+    @Override
+    public Object parseObject(String source) throws ParseException {
+        // can't parse because we don't know the L10NManagers templates
+        throw new ParseException("Not implemented", 0);
+    }
+
+    /// NOT IMPLEMENTED - use SimpleDateFormat for parsing instead.
+    public Date parse(String source) throws ParseException {
+        return (Date) parseObject(source);
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see java.lang.Object#hashCode()
+     */
+    @Override
+    public int hashCode() {
+        final int prime = 31;
+        int result = 1;
+        result = prime * result + dateStyle;
+        result = prime * result + timeStyle;
+        return result;
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see java.lang.Object#equals(java.lang.Object)
+     */
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (obj == null) {
+            return false;
+        }
+        if (getClass() != obj.getClass()) {
+            return false;
+        }
+        DateFormat other = (DateFormat) obj;
+        if (dateStyle != other.dateStyle) {
+            return false;
+        }
+        return timeStyle == other.timeStyle;
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see java.lang.Object#clone()
+     */
+    @Override
+    public Object clone() {
+        return new DateFormat(dateStyle, timeStyle);
+    }
+}

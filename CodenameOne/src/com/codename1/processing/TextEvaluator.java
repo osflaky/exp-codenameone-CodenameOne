@@ -1,0 +1,209 @@
+/*
+ * Copyright (c) 2012, Eric Coolman, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.processing;
+
+/// Internal class, do not use.
+///
+/// This evaluator handles expressions that involve child text. Examples:
+///
+/// `Get last names of all players named 'Andre'
+///
+///  /tournament/player[name='Andre']/lastname
+///
+///  Get all lineitem numbers with a price over 35
+///
+///  //order/lineitem[price>35]/@linenum
+///
+///  Get all PO numbers of orders that contain a lineitem with a price over 35
+///
+///  //order/lineitem[price>35]/../order/@ponum`
+///
+/// @author Eric Coolman
+class TextEvaluator extends AbstractEvaluator {
+    static final String FUNC_TEXT = "text()";
+
+    /// Construct with a full predicate expression.
+    ///
+    /// #### Parameters
+    ///
+    /// - `expr`: a full predicate expression.
+    public TextEvaluator(String expr) {
+        super(expr);
+    }
+
+    private String[] getLeftValue(StructuredContent element, String lvalue) {
+        String[] v;
+        if (FUNC_TEXT.equals(lvalue)) {
+            v = new String[]{element.getText()};
+        } else {
+            // getChild() is a bit of a hack here because the content object
+            // calls getParent()
+            StructuredContent child = element.getChild(0);
+            Result result = Result.fromContent(child);
+            v = result.getAsStringArray(lvalue);
+        }
+        return v;
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see
+     * com.codename1.path.impl.AbstractEvaluator#evaluateLeftLessRight(com.codename1
+     * .path.impl.StructuredContent, java.lang.String, java.lang.String)
+     */
+    @Override
+    protected Object evaluateLeftLessRight(StructuredContent element,
+                                           String lvalue, String rvalue) {
+        String[] v = getLeftValue(element, lvalue);
+        int vlen = v.length;
+        // Quotes off first, then doubles: the same order and the same
+        // arithmetic the attribute comparisons use, so a predicate means one
+        // thing whether it names an attribute or a child. Integer.parseInt
+        // here threw outright on "[price=2.5]" once isNumeric learned to read
+        // a decimal.
+        rvalue = stripQuotes(rvalue);
+        for (int i = 0; i < vlen; i++) {
+            if (v[i] == null) {
+                // A node with no text of its own -- an empty nested array is
+                // one -- has nothing to compare, the same way the attribute
+                // evaluator treats a name it cannot resolve.
+                continue;
+            }
+            if (isNumeric(rvalue) && isNumeric(v[i])) {
+                if (compareNumbers(v[i], rvalue) < 0) {
+                    return element;
+                }
+                // On to the next value rather than out: an element
+                // can carry several children of one name, and the
+                // text branch below has always walked all of them.
+                // Returning here meant <price>1.5</price> hid
+                // <price>2.5</price> from [price=2.5].
+                continue;
+            }
+            // Backwards: this is the LESS-than method and it answered when the
+            // value sorted AFTER the operand.
+            if (v[i].compareTo(rvalue) < 0) {
+                return element;
+            }
+        }
+        return null;
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see
+     * com.codename1.path.impl.AbstractEvaluator#evaluateLeftGreaterRight(com
+     * .codename1.path.impl.StructuredContent, java.lang.String,
+     * java.lang.String)
+     */
+    @Override
+    protected Object evaluateLeftGreaterRight(StructuredContent element,
+                                              String lvalue, String rvalue) {
+        String[] v = getLeftValue(element, lvalue);
+        int vlen = v.length;
+        rvalue = stripQuotes(rvalue);
+        for (int i = 0; i < vlen; i++) {
+            if (v[i] == null) {
+                // A node with no text of its own -- an empty nested array is
+                // one -- has nothing to compare, the same way the attribute
+                // evaluator treats a name it cannot resolve.
+                continue;
+            }
+            if (isNumeric(rvalue) && isNumeric(v[i])) {
+                if (compareNumbers(v[i], rvalue) > 0) {
+                    return element;
+                }
+                // On to the next value rather than out: an element
+                // can carry several children of one name, and the
+                // text branch below has always walked all of them.
+                // Returning here meant <price>1.5</price> hid
+                // <price>2.5</price> from [price=2.5].
+                continue;
+            }
+            // Backwards, the same way the less-than method was.
+            if (v[i].compareTo(rvalue) > 0) {
+                return element;
+            }
+        }
+        return null;
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see
+     * com.codename1.path.impl.AbstractEvaluator#evaluateLeftEqualsRight(com
+     * .codename1.path.impl.StructuredContent, java.lang.String,
+     * java.lang.String)
+     */
+    @Override
+    protected Object evaluateLeftEqualsRight(StructuredContent element,
+                                             String lvalue, String rvalue) {
+        String[] v = getLeftValue(element, lvalue);
+        int vlen = v.length;
+        rvalue = stripQuotes(rvalue);
+        for (int i = 0; i < vlen; i++) {
+            if (v[i] == null) {
+                // A node with no text of its own -- an empty nested array is
+                // one -- has nothing to compare, the same way the attribute
+                // evaluator treats a name it cannot resolve.
+                continue;
+            }
+            if (isNumeric(rvalue) && isNumeric(v[i])) {
+                if (compareNumbers(v[i], rvalue) == 0) {
+                    return element;
+                }
+                // On to the next value rather than out: an element
+                // can carry several children of one name, and the
+                // text branch below has always walked all of them.
+                // Returning here meant <price>1.5</price> hid
+                // <price>2.5</price> from [price=2.5].
+                continue;
+            }
+            if (v[i].compareTo(rvalue) == 0) {
+                return element;
+            }
+        }
+        return null;
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see
+     * com.codename1.processing.AbstractEvaluator#evaluateSingle(java.util.List
+     * , java.lang.String)
+     */
+    @Override
+    protected Object evaluateSingle(StructuredContent element, String expr) {
+        Result result = Result.fromContent(element.getChild(0));
+        String v = result.getAsString(expr);
+        if (v == null) {
+            return null;
+        }
+        return element;
+    }
+
+}

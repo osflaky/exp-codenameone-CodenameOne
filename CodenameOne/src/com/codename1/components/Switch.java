@@ -1,0 +1,1418 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.components;
+
+import com.codename1.ui.CN;
+import com.codename1.ui.Component;
+import com.codename1.ui.Display;
+import com.codename1.ui.Font;
+import com.codename1.ui.Graphics;
+import com.codename1.ui.Image;
+import com.codename1.ui.ImageFactory;
+import com.codename1.ui.ReleasableComponent;
+import com.codename1.ui.TopLevelContainer;
+import com.codename1.ui.animations.Animation;
+import com.codename1.ui.animations.Motion;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.events.ActionSource;
+import com.codename1.ui.geom.Dimension;
+import com.codename1.ui.plaf.Style;
+import com.codename1.ui.plaf.UIManager;
+import com.codename1.ui.util.EventDispatcher;
+
+import java.util.Collection;
+
+/// The on/off switch is a checkbox of sort (although it derives container) that
+/// represents its state as a switch When using the Android native theme, this implementation follows the Material
+/// Design Switch guidelines:
+/// https://material.io/guidelines/components/selection-controls.html#selection-controls-radio-button
+///
+/// Customizing Look and Feel
+///
+/// You can customize the look and feel of a switch using styles, either directly
+/// in the theme.res file or in CSS.  This component consists of two elements: the "thumb" the "track".
+/// The "thumb" is the circular handle that can be toggled/dragged between an on and off position.
+/// The "track" is the background track along which the "thumb" appears to slide when it is dragged/toggled.
+///
+/// The thumb will be rendered using Switch's `Style#getFgColor()`.  It will use the
+/// selected style, when in the "on" position, the unselected style when in the "off" position,
+/// and the disabled style, when `#isEnabled()` is false.
+///
+/// The track will be rendered using the Switch's `Style#getBgColor()`.  It will
+/// use the selected style, when in the "on" position, and the unselected style when in the "off"
+/// position.
+///
+/// You can also adjust the thumb and track sizes using the following theme constants:
+///
+/// switchThumbScaleYA floating point value used to scale the thumb's diameter, relative to the font size.  In the android native theme, this value is set to 1.5.  On iOS, it is set to 1.4.
+/// switchTrackScaleYA floating point value used to scale the track's height, relative the the font size.  In the android native theme, this value is set to 0.9.  On iOS, it is set to 1.5
+/// switchTrackScaleXA floating point value used to scale the track's width relative to the font size.  In the Android native theme, this value is set to 3.0.  On iOS it is 2.5
+/// switchTrackOffOutlineWidthMMA floating point value used to set the stroke/outline thickness of the track when the switch is in the "off" position.  In the Android native theme, this is set to 0.  On iOS it is 0.25
+/// switchTrackOnOutlineWidthMMA floating point value used to set the stroke/outline thickness of the track when the switch is in the "on" position.  In both the Android native theme and the iOS native theme, this is set to 0.
+/// switchTrackOffOutlineColorThe color used to stroke the outline for the track when the switch is in the "off" position, expressed as a base-16 int.  In the iOS native theme, this is set to "cccccc".
+/// switchTrackOnOutlineColorThe color used to stroke the outline for the track when the switch is in the "on" position, expressed as a base-16 int.  This is currently not used in either Android or iOS.
+/// switchThumbInsetMMAn inset to use when rendering the thumb that will cause it to be inset from the edge of the track. In the iOS native theme, this is 0.25
+///
+/// **IMPORTANT:** when changing the UIID of the switch the constants
+/// above implicitly change to match the new UIID with the same convetion. So if
+/// your UIID is `MySwitch` then a theme constant will become:
+/// `myswitchTrackScaleY`. Notice that the whole UIID is lower cased...
+///
+/// **CSS used in the Android native theme:**
+///
+/// ```java
+/// `#Constants {
+/// ...
+/// switchThumbPaddingInt: 2;
+/// switchThumbScaleY: "1.5";
+/// switchTrackScaleY: "0.9";
+/// switchTrackScaleX: "3";
+/// switchTrackOffOutlineWidthMM: "0";
+/// switchTrackOnOutlineWidthMM: "0";
+/// switchTrackOffOutlineColor: "cccccc";
+/// switchThumbInsetMM: "0";`
+/// Switch {
+/// color: rgb(237, 237, 237);
+/// background-color: rgb(159, 158, 158);
+///
+/// }
+/// Switch.selected {
+/// color: rgb(34,44,50);
+/// background-color: rgb(117, 126, 132);
+/// }
+/// }
+/// ```
+///
+/// **CSS used in the iOS native theme:**
+///
+/// ```java
+/// `#Constants {
+/// ...
+/// switchThumbPaddingInt: 2;
+/// switchThumbScaleY: "1.4";
+/// switchTrackScaleY: "1.5";
+/// switchTrackScaleX: "2.5";
+/// switchTrackOffOutlineWidthMM: "0.25";
+/// switchTrackOnOutlineWidthMM: "0";
+/// switchTrackOffOutlineColor: "cccccc";
+/// switchThumbInsetMM: "0.25";`
+/// Switch {
+/// color: white;
+/// background-color: white;
+///
+/// }
+/// Switch.selected {
+/// color: white;
+/// background-color: rgb(61, 216, 76);
+///
+/// }
+/// }
+/// ```
+///
+/// Using Custom Thumb and Track Images
+///
+/// You can optionally provide custom images for use as the track or thumb via the following
+/// theme constants
+///
+///
+/// - switchThumbOnImage
+///
+/// - switchThumbOffImage
+///
+/// - switchThumbDisabledImage
+///
+/// - switchOnTrackImage
+///
+/// - switchOffTrackImage
+///
+/// - switchDisabledTrackImage
+public class Switch extends Component implements ActionSource, ReleasableComponent {
+
+    private final EventDispatcher dispatcher = new EventDispatcher();
+    private final EventDispatcher changeDispatcher = new EventDispatcher();
+    private final int valign = CENTER;
+    private boolean value;
+    /// Whether the THEME supplied the artwork, rather than this component
+    /// generating it. calcPreferredSize can derive the generated artwork's size
+    /// arithmetically because it is a pure function of the font and the scale
+    /// constants, but a theme image is any size at all and has to be measured.
+    /// Recorded when the theme is read, because the generated images are cached
+    /// into these same fields and a null check cannot tell the two apart later.
+    private boolean themedArtwork;
+
+    private Image thumbOnImage;
+    private Image thumbOffImage;
+    private Image thumbDisabledImage;
+    private Image trackOnImage;
+    private Image trackOffImage;
+    private Image trackDisabledImage;
+    private boolean dragged;
+    // TEST-ONLY: when >=0, paint() renders the thumb slide frozen at this 0..1
+    // progress (OFF -> ON) instead of the live drag state, so the fidelity
+    // animation-frame probe can capture deterministic droplet frames.
+    private float morphTestProgress = -1f;
+    private long dragStartTime;
+    private int pressX;
+    private int pressY;
+    private int deltaX; //pressX - currentdragX
+    private int deltaY;
+    private final ActionListener pointerPressed = new ActionListener() {
+        @Override
+        public void actionPerformed(ActionEvent evt) {
+            // The top level rather than the Form, so this still registers inside a
+            // Window where getComponentForm() is null.
+            TopLevelContainer t = getTopLevelContainer();
+            if (t != null) {
+                t.addComponentAwaitingRelease(Switch.this);
+            }
+            dragged = false;
+            dragStartTime = System.currentTimeMillis();
+            deltaX = 0;
+            deltaY = 0;
+            pressX = evt.getX();
+            pressY = evt.getY();
+        }
+    };
+    private final ActionListener pointerDragged = new ActionListener() {
+        @Override
+        public void actionPerformed(ActionEvent evt) {
+
+            dragged = true;
+            deltaX = pressX - evt.getX();
+            deltaY = pressY - evt.getY();
+            if (Math.abs(deltaY) >= Math.abs(deltaX * 0.5)) {
+                dragged = false;
+                deltaX = 0;
+                deltaY = 0;
+            } else {
+                evt.consume();
+            }
+        }
+    };
+    private boolean animationLock;
+    private final ActionListener pointerReleased = new ActionListener() {
+        private final int tapThreshold = CN.convertToPixels(1);
+
+        private boolean dragWasActuallyATap() {
+            return System.currentTimeMillis() - dragStartTime < 60 && Math.abs(deltaX) < tapThreshold;
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent evt) {
+            if (animationLock) {
+                return;
+            }
+            animationLock = true;
+
+            if (!dragWasActuallyATap() && dragged) {
+                if (deltaX > 0) { //dragged from RtL
+                    int trackLength = 0;
+                    if (isRTL()) {
+                        trackLength = getCurrentTrackOffImage().getWidth() - getCurrentThumbImage().getWidth();
+                    } else {
+                        trackLength = getCurrentTrackOnImage().getWidth() - getCurrentThumbImage().getWidth();
+                    }
+                    if (deltaX > trackLength / 2) {
+                        animateTo(isRTL(), deltaX, trackLength, trackLength);
+                    } else { //Not moved enaugh, go back to the state where we come from (i.e. ON for LtR switch and OFF for RtL ones)
+                        animateTo(!isRTL(), deltaX, 0, trackLength);
+                    }
+                } else { //dragged from LtR
+                    int trackLength = 0;
+                    if (isRTL()) {
+                        trackLength = getCurrentTrackOnImage().getWidth() - getCurrentThumbImage().getWidth();
+                    } else {
+                        trackLength = getCurrentTrackOffImage().getWidth() - getCurrentThumbImage().getWidth();
+                    }
+                    if (deltaX * -1 > trackLength / 2) {
+                        animateTo(!isRTL(), deltaX, -trackLength, trackLength);
+                    } else {
+                        animateTo(isRTL(), deltaX, 0, trackLength);
+                    }
+                }
+            } else {
+                if (value) {
+                    int trackLength = 0;
+                    if (isRTL()) {
+                        trackLength = getCurrentTrackOnImage().getWidth() - getCurrentThumbImage().getWidth();
+                    } else {
+                        trackLength = getCurrentTrackOffImage().getWidth() - getCurrentThumbImage().getWidth();
+                    }
+                    animateTo(false, 0, trackLength, trackLength);
+                } else {
+                    int trackLength = 0;
+                    if (isRTL()) {
+                        trackLength = getCurrentTrackOffImage().getWidth() - getCurrentThumbImage().getWidth();
+                    } else {
+                        trackLength = getCurrentTrackOnImage().getWidth() - getCurrentThumbImage().getWidth();
+                    }
+                    animateTo(true, 0, -trackLength, trackLength);
+                }
+
+            }
+            // PMD Fix (UnnecessaryReturn): Removed redundant return at the end of the method.
+            animationLock = false;
+        }
+    };
+
+    /// Default constructor
+    public Switch() {
+        this("Switch");
+    }
+
+    /// This constructor should be used when customizing theme constants
+    /// for a different UIID
+    ///
+    /// #### Parameters
+    ///
+    /// - `uiid`: @param uiid accepts an alternate UIID for switch which might be
+    /// necessary for theme constants
+    public Switch(String uiid) {
+        setUIIDFinal(uiid);
+        setOpaque(false);
+        initialize();
+    }
+
+    private static Image createRoundThumbImage(Component context, int pxDim, int color, int shadowSpread, int thumbInset) {
+        // switchThumbWidthScale (>1) stretches the thumb horizontally into an
+        // elongated pill (the iOS knob is a touch wider than tall); default 1.0
+        // keeps the circular Material thumb.
+        float widthScale = 1.0f;
+        try {
+            widthScale = Float.parseFloat(UIManager.getInstance().getThemeConstant(
+                    "switchThumbWidthScale", "1.0"));
+        } catch (NumberFormatException malformed) {
+            widthScale = 1.0f;   // bad constant -> circular thumb
+        }
+        int baseH = Math.max(1, pxDim - 2 * thumbInset);
+        int baseW = Math.max(baseH, Math.round(baseH * widthScale));
+        int imgW = baseW + 2 * (shadowSpread + thumbInset);
+        int imgH = pxDim + 2 * shadowSpread;
+        Image img = ImageFactory.createImage(context, imgW, imgH, 0x0);
+        if (img == null) {
+            throw new IllegalStateException("Switch thumb: ImageFactory returned null for "
+                    + imgW + "x" + imgH);
+        }
+        Graphics g = img.getGraphics();
+        if (g == null) {
+            throw new IllegalStateException("Switch thumb: no graphics for a " + imgW + "x"
+                    + imgH + " image");
+        }
+        g.setAntiAliased(true);
+
+        int shadowOpacity = 200;
+        float shadowBlur = 10;
+        int arc = baseH;
+
+        if (shadowSpread > 0) {
+            // soft drop shadow tracing the pill body
+            for (int iter = shadowSpread - 1; iter >= 0; iter--) {
+                g.translate(iter, iter);
+                g.setColor(0);
+                int alpha = g.concatenateAlpha(shadowOpacity / shadowSpread);
+                g.fillRoundRect(
+                        Math.max(1, thumbInset + shadowSpread + shadowSpread / 2 - iter),
+                        Math.max(1, thumbInset + 2 * shadowSpread - iter),
+                        Math.max(1, baseW - (iter * 2)),
+                        Math.max(1, baseH - (iter * 2)), arc, arc);
+                g.setAlpha(alpha);
+                g.translate(-iter, -iter);
+            }
+            if (Display.getInstance().isGaussianBlurSupported()) {
+                // A port whose blur answers null, or answers an image it cannot then
+                // draw on, used to surface as a NullPointerException two frames up in
+                // calcPreferredSize -- with no stack at all on ParparVM, which is how
+                // this cost days on Windows. Name it where it happens.
+                Image blured = Display.getInstance().gaussianBlurImage(img, shadowBlur / 2);
+                if (blured == null) {
+                    throw new IllegalStateException("Switch thumb: gaussianBlurImage returned null for "
+                            + imgW + "x" + imgH);
+                }
+                img = blured;
+                g = img.getGraphics();
+                if (g == null) {
+                    throw new IllegalStateException("Switch thumb: no graphics on the blurred "
+                            + img.getWidth() + "x" + img.getHeight() + " image");
+                }
+                g.setAntiAliased(true);
+            }
+        }
+
+        int alpha = g.concatenateAlpha(255);
+        g.setColor(color);
+        g.fillRoundRect(shadowSpread + thumbInset, shadowSpread + thumbInset, baseW, baseH, arc, arc);
+        // Liquid-glass sheen: a soft specular highlight across the top of the knob so it
+        // reads as glass rather than a flat disc. Subtle -- the primary glass cue is the
+        // droplet stretch/squash during travel (see paint()).
+        if (context.isEnabled()
+                && UIManager.getInstance().isThemeConstant("switchLiquidGlassBool", false)) {
+            int tx = shadowSpread + thumbInset;
+            int ty = shadowSpread + thumbInset;
+            g.setColor(0xffffff);
+            g.concatenateAlpha(110);
+            g.fillRoundRect(tx + baseW / 8, ty + baseH / 10, baseW * 3 / 4, baseH * 2 / 5, arc, arc);
+            g.setAlpha(255);
+        }
+        g.setAlpha(alpha);
+        return img;
+    }
+
+    /// Rasterised switch artwork, shared by every Switch in the application.
+    ///
+    /// The thumb and track are pure functions of their arguments and of the
+    /// theme, but each Switch used to rasterise its own six images - and the
+    /// thumb goes through a gaussian blur, which is the single most expensive
+    /// thing a component can do while it is being laid out for the first time.
+    /// A settings screen with a column of switches therefore paid that cost
+    /// once per row, on the first-frame critical path, for six pixel-identical
+    /// images. Keyed by everything that can change the result, and thrown away
+    /// whenever the theme changes (see UIManager.getThemeGeneration).
+    private static final java.util.HashMap<String, Image> SHARED_ART =
+            new java.util.HashMap<String, Image>();
+    private static int sharedArtGeneration = -1;
+
+    /// The default factory the cached artwork was built by. An app that installs a
+    /// new global factory does not advance the theme generation, so without this
+    /// a later switch matched an existing key and got an image the OLD factory
+    /// made -- and the new factory was never asked.
+    private static ImageFactory sharedArtFactory;
+
+    /// A ceiling on the shared artwork.
+    ///
+    /// The key carries the dimension, colour, inset and enabled state, so an app
+    /// that restyles a switch -- or makes many short-lived switches with
+    /// different colours -- generates a new entry each time, and each entry is a
+    /// mutable image holding a native texture. Bounded rather than reclaimable
+    /// because the whole point is to keep the six images a row of identical
+    /// switches shares; past the ceiling the artwork is still built, it is just
+    /// not remembered.
+    private static final int SHARED_ART_LIMIT = 64;
+
+    /// The shared artwork cache for the CURRENT theme, or null when {@code context}
+    /// carries a non-default ImageFactory (in which case the image is
+    /// context-specific and must not be shared).
+    private static java.util.HashMap<String, Image> sharedArt(Component context) {
+        // IDENTITY deliberately: the question is whether this context was given a
+        // different factory INSTANCE from the default, and two distinct factories
+        // that happened to compare equal would still produce images that must not
+        // be shared between contexts.
+        if (ImageFactory.getImageFactory(context) != ImageFactory.getImageFactory(null)) { //NOPMD CompareObjectsWithEquals
+            return null;
+        }
+        ImageFactory defaultFactory = ImageFactory.getImageFactory(null);
+        int gen = UIManager.getThemeGeneration();
+        if (gen != sharedArtGeneration || defaultFactory != sharedArtFactory) { //NOPMD CompareObjectsWithEquals
+            SHARED_ART.clear();
+            sharedArtGeneration = gen;
+            sharedArtFactory = defaultFactory;
+        }
+        return SHARED_ART;
+    }
+
+    private static Image createPlatformThumbImage(Component context, int pxDim, int color, int shadowSpread, int thumbInset) {
+        java.util.HashMap<String, Image> cache = sharedArt(context);
+        if (cache == null) {
+            return createRoundThumbImage(context, pxDim, color, shadowSpread, thumbInset);
+        }
+        // isEnabled participates because the liquid-glass sheen is only drawn on
+        // an enabled switch.
+        String key = "t," + pxDim + ',' + color + ',' + shadowSpread + ',' + thumbInset
+                + ',' + (context != null && context.isEnabled());
+        Image img = cache.get(key);
+        if (img == null) {
+            img = createRoundThumbImage(context, pxDim, color, shadowSpread, thumbInset);
+            if (cache.size() < SHARED_ART_LIMIT) {
+                cache.put(key, img);
+            }
+        }
+        return img;
+    }
+
+    private static Image createRoundRectTrackImage(Component context, int width, int height, int color, int alpha, int thumbPadding, int outlineColor, int outlineWidth) {
+        Image img = ImageFactory.createImage(context, width + 2 * thumbPadding, height, 0x0);
+        Graphics g = img.getGraphics();
+        g.setAntiAliased(true);
+        int oldAlpha = g.concatenateAlpha(alpha);
+        int topPadding = 0;
+        if (outlineWidth > 0) {
+            g.setColor(outlineColor);
+            g.fillRoundRect(thumbPadding, 0, width, height, height, height);
+            thumbPadding += outlineWidth;
+            topPadding += outlineWidth;
+            width -= 2 * outlineWidth;
+            height -= 2 * outlineWidth;
+        }
+        thumbPadding = Math.max(0, thumbPadding);
+        topPadding = Math.max(0, topPadding);
+        width = Math.max(2, width);
+        height = Math.max(2, height);
+        g.setColor(color);
+        g.fillRoundRect(thumbPadding, topPadding, width, height, height, height);
+        g.setAlpha(oldAlpha);
+        return img;
+    }
+
+    private static Image createPlatformTrackImage(Component context, int width, int height, int color, int alpha, int thumbPadding, int outlineColor, int outlineWidth) {
+        java.util.HashMap<String, Image> cache = sharedArt(context);
+        if (cache == null) {
+            return createRoundRectTrackImage(context, width, height, color, alpha, thumbPadding, outlineColor, outlineWidth);
+        }
+        String key = "k," + width + ',' + height + ',' + color + ',' + alpha + ','
+                + thumbPadding + ',' + outlineColor + ',' + outlineWidth;
+        Image img = cache.get(key);
+        if (img == null) {
+            img = createRoundRectTrackImage(context, width, height, color, alpha, thumbPadding, outlineColor, outlineWidth);
+            if (cache.size() < SHARED_ART_LIMIT) {
+                cache.put(key, img);
+            }
+        }
+        return img;
+    }
+
+    private static int getAlignedCoord(int coord, int parentDim, int elemDim, int alignment) {
+        switch (alignment) {
+            case Component.CENTER:
+                return coord + parentDim / 2 - elemDim / 2;
+            case Component.RIGHT:
+            case Component.BOTTOM:
+                return coord + parentDim - elemDim;
+            //case Component.LEFT: case Component.TOP:
+            //    return coord;
+            default:
+                return coord;
+        }
+    }
+
+    private int getFontSize() {
+        Font f = getUnselectedStyle().getFont();
+        if (f == null) {
+            f = Font.getDefaultFont();
+        }
+        return f.getHeight();
+    }
+
+    private Image getThumbOnImage() {
+        if (thumbOnImage == null) {
+            // The "on" thumb keeps its elevation shadow on every platform (Material 3
+            // elevates the selected thumb); only the off/disabled thumbs go flat where
+            // the theme asks (switchThumbShadowSpreadInt).
+            thumbOnImage = createPlatformThumbImage(this, (int) (getFontSize() * getThumbScaleY()), getSelectedStyle().getFgColor(), 2, getThumbInset());
+        }
+        return thumbOnImage;
+    }
+
+    private void setThumbOnImage(Image image) {
+        if (image != null) {
+            this.thumbOnImage = image;
+            //also set other thumb images if we don't have images for them yet
+            if (this.thumbOffImage == null) {
+                this.thumbOffImage = image;
+            }
+            if (this.thumbDisabledImage == null) {
+                this.thumbDisabledImage = image;
+            }
+            setShouldCalcPreferredSize(true);
+        }
+    }
+
+    private Image getThumbOffImage() {
+        if (thumbOffImage == null) {
+            thumbOffImage = createPlatformThumbImage(this, (int) (getFontSize() * getThumbOffScaleY()), getUnselectedStyle().getFgColor(), getThumbShadowSpread(), getThumbInset()); //getUnselectedStyle().getFgColor(), true);
+        }
+        return thumbOffImage;
+    }
+
+    private void setThumbOffImage(Image image) {
+        if (image != null) {
+            this.thumbOffImage = image;
+            //also set other thumb images if we don't have images for them yet
+            if (this.thumbOnImage == null) {
+                this.thumbOnImage = image;
+            }
+            if (this.thumbDisabledImage == null) {
+                this.thumbDisabledImage = image;
+            }
+            setShouldCalcPreferredSize(true);
+        }
+    }
+
+    private Image getThumbDisabledImage() {
+        if (thumbDisabledImage == null) {
+            thumbDisabledImage = createPlatformThumbImage(this, (int) (getFontSize() * getThumbOffScaleY()), getDisabledStyle().getFgColor(), getThumbShadowSpread(), getThumbInset()); //getDisabledStyle().getFgColor(), true);
+        }
+        return thumbDisabledImage;
+    }
+
+    private void setThumbDisabledImage(Image image) {
+        if (image != null) {
+            this.thumbDisabledImage = image;
+            //also set other thumb images if we don't have images for them yet
+            if (this.thumbOnImage == null) {
+                this.thumbOnImage = image;
+            }
+            if (this.thumbOffImage == null) {
+                this.thumbOffImage = image;
+            }
+            setShouldCalcPreferredSize(true);
+        }
+    }
+
+    @Override
+    protected int getDragRegionStatus(int x, int y) {
+        return Component.DRAG_REGION_IMMEDIATELY_DRAG_X;
+    }
+
+    private Image getCurrentThumbImage() {
+        if (isEnabled()) {
+            if (value) {
+                return getThumbOnImage();
+            } else {
+                return getThumbOffImage();
+            }
+        } else {
+            return getThumbDisabledImage();
+        }
+    }
+
+    private double getTrackScaleY() {
+        return Double.parseDouble(getUIManager().
+                getThemeConstant(getUIID().toLowerCase() + "TrackScaleY", "0.9"));
+    }
+
+    private double getThumbScaleY() {
+        return Double.parseDouble(getUIManager().
+                getThemeConstant(getUIID().toLowerCase() + "ThumbScaleY", "1.5"));
+    }
+
+    /// Vertical scale of the OFF (and disabled) thumb. Material 3 renders the
+    /// off-thumb smaller than the on-thumb (16dp vs 24dp); the Android theme sets
+    /// switchThumbOffScaleY below ThumbScaleY. Defaults to ThumbScaleY (a single
+    /// thumb size) so iOS and existing themes are unaffected.
+    private double getThumbOffScaleY() {
+        return Double.parseDouble(getUIManager().getThemeConstant(
+                getUIID().toLowerCase() + "ThumbOffScaleY", String.valueOf(getThumbScaleY())));
+    }
+
+    /// Pixels of drop-shadow spread painted under the thumb. Defaults to 2 (the
+    /// iOS-style elevated thumb). Material 3 renders a FLAT thumb, so the Android
+    /// native theme sets switchThumbShadowSpreadInt to 0.
+    private int getThumbShadowSpread() {
+        return getUIManager().getThemeConstant(
+                getUIID().toLowerCase() + "ThumbShadowSpreadInt", 2);
+    }
+
+    /// Extra inset (px from mm) of the OFF thumb from the track's leading edge.
+    /// Material 3 leaves a small gap; defaults to 0 so iOS/legacy are unaffected.
+    private int getThumbOffInset() {
+        String v = getUIManager().getThemeConstant(
+                getUIID().toLowerCase() + "ThumbOffInsetMM", null);
+        if (v != null) {
+            try {
+                return Display.getInstance().convertToPixels(Float.parseFloat(v.trim()));
+            } catch (NumberFormatException ignore) {
+                // fall through to no inset
+            }
+        }
+        return 0;
+    }
+
+    /// Colour of the disabled track's outline ring. Material 3 uses a very subtle
+    /// near-surface tone (distinct from the more visible disabled thumb/fg). A theme
+    /// names a UIID via switchDisabledOutlineColorUIID whose fg supplies it
+    /// (dark-resolved); unset falls back to the disabled foreground colour.
+    private int getTrackDisabledOutlineColor() {
+        String uiid = getUIManager().getThemeConstant(
+                getUIID().toLowerCase() + "DisabledOutlineColorUIID", null);
+        if (uiid != null) {
+            return getUIManager().getComponentStyle(uiid).getFgColor();
+        }
+        return getDisabledStyle().getFgColor();
+    }
+
+    private double getTrackScaleX() {
+        return Double.parseDouble(getUIManager().
+                getThemeConstant(getUIID().toLowerCase() + "TrackScaleX", "3"));
+    }
+
+    private int getTrackOnOutlineWidth() {
+        return Display.getInstance().convertToPixels(Float.parseFloat(getUIManager().
+                getThemeConstant(getUIID().toLowerCase() + "TrackOnOutlineWidthMM", "0")));
+    }
+
+    private int getTrackOnOutlineColor() {
+        return Integer.parseInt(getUIManager().
+                getThemeConstant(getUIID().toLowerCase() + "TrackOnOutlineColor", "0"), 16);
+    }
+
+    private int getTrackOffOutlineWidth() {
+        return Display.getInstance().convertToPixels(Float.parseFloat(getUIManager().
+                getThemeConstant(getUIID().toLowerCase() + "TrackOffOutlineWidthMM", "0")));
+    }
+
+    private int getTrackOffOutlineColor() {
+        return Integer.parseInt(getUIManager().
+                getThemeConstant(getUIID().toLowerCase() + "TrackOffOutlineColor", "0"), 16);
+    }
+
+    private int getThumbInset() {
+        return Display.getInstance().convertToPixels(Float.parseFloat(getUIManager().
+                getThemeConstant(getUIID().toLowerCase() + "ThumbInsetMM", "0")));
+    }
+
+    private Image getTrackOnImage() {
+        if (trackOnImage == null) {
+            trackOnImage = createPlatformTrackImage(this, (int) (getFontSize() * getTrackScaleX()), (int) (getFontSize() * getTrackScaleY()), getSelectedStyle().getBgColor(), 255, 2, getTrackOnOutlineColor(), getTrackOnOutlineWidth());
+        }
+        return trackOnImage;
+    }
+
+    private void setTrackOnImage(Image image) {
+        if (image != null) {
+            this.trackOnImage = image;
+            if (this.trackOffImage == null) {
+                this.trackOffImage = image;
+            }
+            if (this.trackDisabledImage == null) {
+                this.trackDisabledImage = image;
+            }
+            setShouldCalcPreferredSize(true);
+        }
+    }
+
+    private Image getTrackDisabledImage() {
+        if (trackDisabledImage == null) {
+            // Material 3 disabled switch reads as a thin outline ring over a
+            // surface-coloured interior (~ the page background, so it looks almost
+            // fill-less) - NOT the accent or a contrasting fill. The smooth ring is
+            // the outer pill (foreground colour) minus the inner surface pill, so the
+            // disabled style's bg must be the surface colour and its fg the outline.
+            trackDisabledImage = createPlatformTrackImage(this, (int) (getFontSize() * getTrackScaleX()), (int) (getFontSize() * getTrackScaleY()), getDisabledStyle().getBgColor(), 255, 2, getTrackDisabledOutlineColor(), getTrackOffOutlineWidth());
+        }
+        return trackDisabledImage;
+    }
+
+    /// Sets the image to be used for track when the component is disabled.
+    /// Use the "switchDisabledTrackImage" theme constant as a default value.
+    ///
+    /// #### Parameters
+    ///
+    /// - `image`
+    private void setTrackDisabledImage(Image image) {
+        if (image != null) {
+            this.trackDisabledImage = image;
+            if (this.trackOnImage == null) {
+                this.trackOnImage = image;
+            }
+            if (this.trackOffImage == null) {
+                this.trackOffImage = image;
+            }
+            setShouldCalcPreferredSize(true);
+        }
+    }
+
+    private Image getCurrentTrackOnImage() {
+        if (isEnabled()) {
+            return getTrackOnImage();
+        } else {
+            return getTrackDisabledImage();
+        }
+    }
+
+    private Image getTrackOffImage() {
+        if (trackOffImage == null) {
+            trackOffImage = createPlatformTrackImage(this, (int) (getFontSize() * getTrackScaleX()), (int) (getFontSize() * getTrackScaleY()), getUnselectedStyle().getBgColor(), 255, 2, getTrackOffOutlineColor(), getTrackOffOutlineWidth());
+        }
+        return trackOffImage;
+    }
+
+    /// Sets the image to use for the track when the switch is set to "off".
+    /// Use the "switchOffTrackImage" theme constant as a default value.
+    ///
+    /// #### Parameters
+    ///
+    /// - `image`: The image to use.
+    private void setTrackOffImage(Image image) {
+        if (image != null) {
+            this.trackOffImage = image;
+            if (this.trackOnImage == null) {
+                this.trackOnImage = image;
+            }
+            if (this.trackDisabledImage == null) {
+                this.trackDisabledImage = image;
+            }
+            setShouldCalcPreferredSize(true);
+        }
+    }
+
+    private Image getCurrentTrackOffImage() {
+        if (isEnabled()) {
+            return getTrackOffImage();
+        } else {
+            return getTrackDisabledImage();
+        }
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void styleChanged(String propertyName, Style source) {
+        if (Style.FG_COLOR.equals(propertyName) || Style.BG_COLOR.equals(propertyName) || Style.FONT.equals(propertyName)) {
+            initTheme();
+        }
+        super.styleChanged(propertyName, source);
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected Dimension calcPreferredSize() {
+        // MEASURED, not rasterised. This used to ask for the thumb and track
+        // images and read their dimensions -- which creates them, and creating
+        // the thumb runs a gaussian blur. Measuring a component happens during
+        // layout, and layout happens for everything on the screen including the
+        // parts of it that are off-screen, so a switch that is never painted
+        // still paid for its artwork on the first frame. Measured on a native
+        // Mac build of a screen whose settings panel sits off-screen behind the
+        // home page, that single blur was ~50ms of a ~155ms cold start.
+        //
+        // The images are pure functions of these same numbers (see
+        // createRoundThumbImage / createRoundRectTrackImage), so the size can be
+        // derived from them directly; the artwork is then built by the first
+        // paint that actually needs it.
+        // ... but only for artwork this component GENERATES. A theme that
+        // supplies its own thumb or track sets the size itself, and deriving it
+        // from the font would under-measure a larger image and clip it. There is
+        // nothing to derive from in that case, so it is measured as before --
+        // the switches that pay the rasterisation are exactly the ones whose
+        // size cannot be known without it.
+        if (themedArtwork) {
+            requireImage(getCurrentThumbImage(), "thumb");
+            requireImage(getCurrentTrackOnImage(), "trackOn");
+            requireImage(getCurrentTrackOffImage(), "trackOff");
+            return new Dimension(
+                    getStyle().getHorizontalPadding() + Math.max(getCurrentThumbImage().getWidth(),
+                            Math.max(getCurrentTrackOnImage().getWidth(), getCurrentTrackOffImage().getWidth())),
+                    getStyle().getVerticalPadding() + Math.max(getCurrentThumbImage().getHeight(),
+                            Math.max(getCurrentTrackOnImage().getHeight(), getCurrentTrackOffImage().getHeight())));
+        }
+        // The same on/off/disabled selection getCurrentThumbImage makes, so the
+        // measurement is identical to the one the images gave.
+        int fontSize = getFontSize();
+        int thumbInset = getThumbInset();
+        boolean onThumb = isEnabled() && value;
+        int thumbDim = (int) (fontSize * (onThumb ? getThumbScaleY() : getThumbOffScaleY()));
+        int thumbSpread = onThumb ? THUMB_ON_SHADOW_SPREAD : getThumbShadowSpread();
+        int thumbW = thumbWidth(thumbDim, thumbSpread, thumbInset);
+        int thumbH = thumbDim + 2 * thumbSpread;
+        // Both track images are built from the same width and height; the
+        // outline is drawn INSIDE the box, so it does not change the size.
+        int trackW = (int) (fontSize * getTrackScaleX()) + 2 * TRACK_THUMB_PADDING;
+        int trackH = (int) (fontSize * getTrackScaleY());
+        return new Dimension(
+                getStyle().getHorizontalPadding() + Math.max(thumbW, trackW),
+                getStyle().getVerticalPadding() + Math.max(thumbH, trackH));
+    }
+
+    /// TEST-ONLY: the artwork this switch would paint, for the test that pins
+    /// calcPreferredSize's arithmetic against the images it replaced.
+    Image currentThumbImageForTest() {
+        return getCurrentThumbImage();
+    }
+
+    Image currentTrackOnImageForTest() {
+        return getCurrentTrackOnImage();
+    }
+
+    Image currentTrackOffImageForTest() {
+        return getCurrentTrackOffImage();
+    }
+
+    /// TEST-ONLY: whether any of this switch's artwork has been built yet.
+    boolean hasRasterisedArtworkForTest() {
+        return thumbOnImage != null || thumbOffImage != null || thumbDisabledImage != null
+                || trackOnImage != null || trackOffImage != null || trackDisabledImage != null;
+    }
+
+    /// The shadow spread the ON thumb keeps on every platform; see getThumbOnImage.
+    private static final int THUMB_ON_SHADOW_SPREAD = 2;
+
+    /// The horizontal padding every track image is built with; see getTrackOnImage.
+    private static final int TRACK_THUMB_PADDING = 2;
+
+    /// The width createRoundThumbImage would produce for these inputs, without
+    /// producing it. Kept beside that method: the two must agree.
+    private static int thumbWidth(int pxDim, int shadowSpread, int thumbInset) {
+        float widthScale = 1.0f;
+        try {
+            widthScale = Float.parseFloat(UIManager.getInstance().getThemeConstant(
+                    "switchThumbWidthScale", "1.0"));
+        } catch (NumberFormatException malformed) {
+            widthScale = 1.0f;
+        }
+        int baseH = Math.max(1, pxDim - 2 * thumbInset);
+        int baseW = Math.max(baseH, Math.round(baseH * widthScale));
+        return baseW + 2 * (shadowSpread + thumbInset);
+    }
+
+    /// Fails with the name of the image that could not be built, rather than a
+    /// bare NullPointerException from the arithmetic below it.
+    private void requireImage(Image img, String which) {
+        if (img == null) {
+            throw new IllegalStateException("Switch " + which + " image is null (uiid=" + getUIID()
+                    + " on=" + value + " enabled=" + isEnabled() + ")");
+        }
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected void resetFocusable() {
+        setFocusable(true);
+    }
+
+    private void initialize() {
+        setFocusable(true);
+        initTheme();
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void refreshTheme(boolean merge) {
+        super.refreshTheme(merge);
+        initTheme();
+        /*
+        if(sliderFull != null) {
+            deinitializeCustomStyle(sliderFull);
+            deinitializeCustomStyle(sliderFullSelected);
+            initStyles();
+        }
+         */
+    }
+
+    private void initTheme() {
+        thumbOffImage = null;
+        thumbOnImage = null;
+        thumbDisabledImage = null;
+        trackOnImage = null;
+        trackOffImage = null;
+        trackDisabledImage = null;
+        setThumbOnImage(UIManager.getInstance().
+                getThemeImageConstant(getUIID().toLowerCase() + "ThumbOnImage"));
+        setThumbOffImage(UIManager.getInstance().
+                getThemeImageConstant(getUIID().toLowerCase() + "ThumbOffImage"));
+        setThumbDisabledImage(UIManager.getInstance().
+                getThemeImageConstant(getUIID().toLowerCase() + "ThumbDisabledImage"));
+        setTrackOnImage(UIManager.getInstance().
+                getThemeImageConstant(getUIID().toLowerCase() + "OnTrackImage"));
+        setTrackOffImage(UIManager.getInstance().
+                getThemeImageConstant(getUIID().toLowerCase() + "OffTrackImage"));
+        setTrackDisabledImage(UIManager.getInstance().
+                getThemeImageConstant(getUIID().toLowerCase() + "DisabledTrackImage"));
+        // Everything above assigns only when the theme actually supplied an
+        // image, so anything non-null here came from the theme.
+        themedArtwork = thumbOnImage != null || thumbOffImage != null
+                || thumbDisabledImage != null || trackOnImage != null
+                || trackOffImage != null || trackDisabledImage != null;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected boolean isStickyDrag() {
+        return true;
+    }
+
+    /// Adds a listener to the switch which will cause an event to dispatch on
+    /// click
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: implementation of the action listener interface
+    @Override
+    public void addActionListener(ActionListener l) {
+        dispatcher.addListener(l);
+    }
+
+    /// Removes the given action listener from the switch
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: implementation of the action listener interface
+    @Override
+    public void removeActionListener(ActionListener l) {
+        dispatcher.removeListener(l);
+    }
+
+    /// Adds a listener to the switch which will cause an event on change
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: implementation of the action listener interface
+    public void addChangeListener(ActionListener l) {
+        changeDispatcher.addListener(l);
+    }
+
+    /// Removes the given change listener from the switch
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: implementation of the action listener interface
+    public void removeChangeListener(ActionListener l) {
+        changeDispatcher.removeListener(l);
+    }
+
+    /// Returns a collection containing the action listeners for this button
+    ///
+    /// #### Returns
+    ///
+    /// the action listeners
+    ///
+    /// #### Deprecated
+    ///
+    /// This will be removed in a future version.
+    public Collection getListeners() {
+        return dispatcher.getListenerCollection();
+    }
+
+    // PMD stupidly thinks this method overrides a package private method
+    @SuppressWarnings("PMD.MissingOverride")
+    void fireActionEvent() {
+        dispatcher.fireActionEvent(new ActionEvent(this, ActionEvent.Type.PointerPressed));
+        Display d = Display.getInstance();
+        if (d.isBuiltinSoundsEnabled()) {
+            d.playBuiltinSound(Display.SOUND_TYPE_BUTTON_PRESS);
+        }
+    }
+
+    void fireChangeEvent() {
+        changeDispatcher.fireActionEvent(new ActionEvent(this, ActionEvent.Type.Change));
+    }
+
+    /// TEST-ONLY hook: render the thumb slide frozen at a fixed `progress`
+    /// (0 = resting OFF .. 1 = the ON end) instead of the live drag state, so a
+    /// fidelity probe can capture exact deterministic frames of the liquid-glass
+    /// droplet animation without racing the real-time motion. Assumes the switch
+    /// is in the OFF state (the frame travels OFF -> ON). Pass a negative value
+    /// to clear and resume normal behaviour.
+    public void setMorphTestProgress(float progress) {
+        morphTestProgress = progress > 1 ? 1 : progress;
+        if (morphTestProgress < 0) {
+            // Clearing must also undo the drag state the probe forced during
+            // paint, or the thumb keeps rendering the last frozen frame until a
+            // real pointer interaction resets it.
+            dragged = false;
+            deltaX = 0;
+        }
+        repaint();
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void paint(Graphics g) {
+
+        // Named here rather than in calcPreferredSize, which no longer asks for
+        // the artwork at all -- measuring a switch is arithmetic now, so this is
+        // the first place a platform that cannot build the images shows up.
+        Image cthumbImage = getCurrentThumbImage();
+        requireImage(cthumbImage, "thumb");
+        Image cTrackImage = value ? getCurrentTrackOnImage() : getCurrentTrackOffImage();
+        requireImage(cTrackImage, value ? "trackOn" : "trackOff");
+        //Image ctrackOnImage = getCurrentTrackOnImage();
+        //Image ctrackOffImage = getCurrentTrackOffImage();
+        int strackLength = Math.max(cTrackImage.getWidth(), cTrackImage.getWidth());
+        int sheight = Math.max(cthumbImage.getHeight(), Math.max(cTrackImage.getHeight(), cTrackImage.getHeight()));
+
+        if (morphTestProgress >= 0) {
+            // Frozen-frame probe: fake a drag from OFF toward ON at exactly this
+            // progress so the thumb position AND the droplet envelope below are a
+            // pure function of the probe value (see setMorphTestProgress).
+            int trackM = cTrackImage.getWidth() - cthumbImage.getWidth();
+            int v = (int) (morphTestProgress * trackM);
+            dragged = v > 0;
+            deltaX = isRTL() ? v : -v;
+        }
+
+        int vdeltaX = -deltaX; //virtual increase in slider "value" where OFF state = 0 and ON state = itrackLength
+        if (isRTL()) {
+            vdeltaX = deltaX;
+        }
+
+        Style s = getStyle();
+        // Liquid-glass thumb (iOS 26): while the thumb slides it stretches along the
+        // travel axis and squashes vertically like a droplet, settling round at each end.
+        // Opt in with switchLiquidGlassBool; the envelope peaks mid-slide (nextImageProgress).
+        boolean liquidGlass = getUIManager().isThemeConstant("switchLiquidGlassBool", false);
+        float liquidStretch = getUIManager().getThemeConstant("switchLiquidStretchPct", 38) / 100f;
+        float liquidSquash = getUIManager().getThemeConstant("switchLiquidSquashPct", 50) / 100f;
+        int padLeft = s.getPaddingLeft(isRTL()); //s.getPaddingLeftNoRTL();
+        int padRight = s.getPaddingRight(isRTL());
+        int padTop = s.getPaddingTop();
+        int padBot = s.getPaddingBottom();
+        int innerHeight = getHeight() - padTop - padBot; //cache it to avoid calling getPadding multiple times, which costs CPU as it make the unit conversion at each call...
+        int innerWidth = getWidth() - padLeft - padRight;
+        int halign = s.getAlignment(); //TODO: swap left and right if RTL
+
+        // In the OFF position Material 3 leaves a small gap between the (smaller)
+        // thumb and the track's leading edge - switchThumbOffInsetMM (0 by default,
+        // so iOS/legacy themes are unaffected). The ON position stays flush.
+        int offInset = getThumbOffInset();
+        int thumbrX; //X position of the thumb relative to the start of the track
+        if (isRTL()) {
+            thumbrX = value ? 0 : (cTrackImage.getWidth() - cthumbImage.getWidth() - offInset);
+        } else {
+            thumbrX = value ? (cTrackImage.getWidth() - cthumbImage.getWidth()) : offInset;
+        }
+
+        Image nextThumbImage = null;
+        Image nextTrackImage = null;
+        double nextImageProgress = 0.0;
+
+        if (value) { //switch is ON so only drag movements going to the OFF position are relevant, meaning a vdelta < 0
+            if (vdeltaX > 0) {
+                dragged = false;
+            } else {
+                nextThumbImage = getThumbOffImage();
+                nextTrackImage = getTrackOffImage();
+                int trackMLength = cTrackImage.getWidth() - cthumbImage.getWidth();
+                if (vdeltaX < -trackMLength) {
+                    vdeltaX = -trackMLength;
+                }
+                nextImageProgress = Math.abs(vdeltaX) / (double) Math.abs(trackMLength);
+
+
+            }
+        } else { //switch is OFF so only consider drag movements toward the ON position, meaning a vdelta > 0
+            if (vdeltaX < 0) {
+                dragged = false;
+            } else {
+                nextThumbImage = getThumbOnImage();
+                nextTrackImage = getTrackOnImage();
+                int trackMLength = cTrackImage.getWidth() - cthumbImage.getWidth();
+                if (vdeltaX > trackMLength) {
+                    vdeltaX = trackMLength;
+                }
+                nextImageProgress = 1 - Math.abs(trackMLength - vdeltaX) / (double) Math.abs(trackMLength);
+            }
+        }
+        if (dragged) {
+            int thumbCenterrX;
+            if (value) { //vdelta is negative
+                if (isRTL()) {
+                    thumbCenterrX = -vdeltaX + cthumbImage.getWidth() / 2;
+                } else {
+                    thumbCenterrX = cTrackImage.getWidth() + vdeltaX - cthumbImage.getWidth() / 2;
+                }
+            } else { //positive vdelta
+                if (isRTL()) {
+                    thumbCenterrX = cTrackImage.getWidth() - vdeltaX - cthumbImage.getWidth() / 2;
+                } else {
+                    thumbCenterrX = vdeltaX + cthumbImage.getWidth() / 2;
+                }
+            }
+
+            thumbrX = thumbCenterrX - cthumbImage.getWidth() / 2;
+
+
+            int imgY = getY() + padTop + getAlignedCoord((sheight / 2 - cTrackImage.getHeight() / 2), innerHeight, sheight, valign);
+            int imgX = getX() + padLeft + getAlignedCoord(0, innerWidth, strackLength, halign);
+
+            int alph = g.getAlpha();
+            if (nextImageProgress > 0 && nextTrackImage != null) {
+                g.setAlpha((int) Math.round((1 - nextImageProgress) * 255));
+            }
+            g.drawImage(cTrackImage, imgX, imgY);
+            if (nextImageProgress > 0 && nextTrackImage != null) {
+                g.setAlpha((int) Math.round(nextImageProgress * 255));
+                g.drawImage(nextTrackImage, imgX, imgY);
+                g.setAlpha(alph);
+            }
+
+        } else {
+            int imgX = getX() + padLeft + getAlignedCoord(0, innerWidth, strackLength, halign);
+            int imgY = getY() + padTop + getAlignedCoord((sheight / 2 - cTrackImage.getHeight() / 2), innerHeight, sheight, valign);
+            g.drawImage(cTrackImage, imgX, imgY);
+
+        }
+
+        //draw the thumb image (liquid-glass: stretch along travel + squash mid-slide)
+        int thumbAbsX = getX() + padLeft + getAlignedCoord(thumbrX, innerWidth, strackLength, halign);
+        int thumbAbsY = getY() + padTop + getAlignedCoord((sheight / 2 - cthumbImage.getHeight() / 2), innerHeight, sheight, valign);
+        int tw = cthumbImage.getWidth();
+        int th = cthumbImage.getHeight();
+        int tx = thumbAbsX;
+        int ty = thumbAbsY;
+        int tdw = tw;
+        int tdh = th;
+        if (liquidGlass && dragged && nextImageProgress > 0) {
+            // The whole frame comes from the pure, unit-tested droplet model so the
+            // motion can be validated deterministically (see SwitchThumbDropletTest
+            // / the fidelity animation-frame probe).
+            SwitchThumbDroplet.Tokens tk = new SwitchThumbDroplet.Tokens();
+            tk.stretch = liquidStretch;
+            tk.squash = liquidSquash;
+            SwitchThumbDroplet drop = SwitchThumbDroplet.compute((float) nextImageProgress, tw, th, tk);
+            tdw = drop.drawW;
+            tdh = drop.drawH;
+            tx = thumbAbsX + drop.offsetX;                    // keep centred on the thumb centre
+            ty = thumbAbsY + drop.offsetY;
+        }
+        int alph = g.getAlpha();
+        if (nextImageProgress > 0 && nextThumbImage != null) {
+            g.setAlpha((int) Math.round((1 - nextImageProgress) * 255));
+        }
+        g.drawImage(cthumbImage, tx, ty, tdw, tdh);
+        if (nextImageProgress > 0 && nextThumbImage != null) {
+            g.setAlpha((int) Math.round(nextImageProgress * 255));
+            g.drawImage(nextThumbImage, tx, ty, tdw, tdh);
+            g.setAlpha(alph);
+        }
+
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected void initComponent() {
+        super.initComponent();
+        addPointerPressedListener(pointerPressed);
+        addPointerDraggedListener(pointerDragged);
+        addPointerReleasedListener(pointerReleased);
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected void deinitialize() {
+        removePointerPressedListener(pointerPressed);
+        removePointerDraggedListener(pointerDragged);
+        removePointerReleasedListener(pointerReleased);
+        super.deinitialize();
+    }
+
+    private void animateTo(final boolean value, final int deltaStart, final int deltaEnd, final int maxMoveDist) {
+        int animDuration = (int) Math.abs((deltaEnd - deltaStart) / (double) maxMoveDist * 100.0);
+        final Motion current = Motion.createEaseInOutMotion(deltaStart, deltaEnd, animDuration);
+        if (animDuration > 0) {
+            current.start();
+            deltaX = deltaStart;
+            // Resolved through the top level rather than the form: getComponentForm()
+            // is null by design inside a Window, so a switch hosted in one threw
+            // instead of toggling.
+            final TopLevelContainer top = getTopLevelContainer();
+            if (top == null) {
+                setValue(value, true);
+                return;
+            }
+            top.registerAnimated(new Animation() {
+                @Override
+                public boolean animate() {
+                    deltaX = current.getValue();
+                    dragged = true;
+                    if (current.isFinished()) {
+                        dragged = false;
+                        deltaX = 0;
+                        deltaY = 0;
+                        // Deregistered from the top level that registered it, not
+                        // from wherever this component is now. A switch removed or
+                        // reparented mid-animation resolves to null or to a different
+                        // top level, so the original one kept the animation for good:
+                        // its hasAnimations() stays true, the event dispatch thread
+                        // never sleeps, and this branch runs again on every frame --
+                        // firing the change listener each time.
+                        top.deregisterAnimated(this);
+                        Switch.this.setValue(value, true);
+                    }
+                    repaint();
+                    return false;
+                }
+
+                @Override
+                public void paint(Graphics g) {
+                }
+            });
+            dragged = true;
+        } else {
+            //deltaX = deltaEnd;
+            deltaX = 0;
+            deltaY = 0;
+            dragged = false;
+            setValue(value, true);
+        }
+
+    }
+
+    /// The value of the switch
+    ///
+    /// #### Returns
+    ///
+    /// the value
+    public boolean isValue() {
+        return value;
+    }
+
+    /// The value of the switch
+    ///
+    /// #### Parameters
+    ///
+    /// - `value`: the value to set
+    public void setValue(boolean value) {
+        setValue(value, false);
+    }
+
+    // PMD Fix (UnusedPrivateMethod): Removed the unused flip() helper and retained this setter as the single source of truth.
+    private void setValue(boolean value, boolean fireEvent) {
+        boolean orig = animationLock;
+        animationLock = true;
+        boolean oldValue = this.value;
+
+        this.value = value;
+        if (oldValue != value) {
+            fireChangeEvent();
+        }
+        if (fireEvent && oldValue != value) {
+            fireActionEvent();
+        }
+        repaint();
+        animationLock = orig;
+    }
+
+    /// Checks if switch is in the "on" position.
+    ///
+    /// #### Returns
+    ///
+    /// True if switch is on.
+    public boolean isOn() {
+        return value;
+    }
+
+    /// Sets the switch to the "on" position.
+    public void setOn() {
+        setValue(true);
+    }
+
+    /// Checks if the switch is in the "off" position.
+    ///
+    /// #### Returns
+    ///
+    /// True of switch is currently off.
+    public boolean isOff() {
+        return !value;
+    }
+
+    /// Switches the switch to the "off" position.
+    public void setOff() {
+        setValue(false);
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String[] getPropertyNames() {
+        return new String[] {"value"};
+    }
+
+    /// Some components may optionally generate a state which can then be
+    /// restored using setCompnentState(). This method is used by the UIBuilder.
+    ///
+    /// #### Returns
+    ///
+    /// the component state or null for undefined state.
+    @Override
+    public Object getComponentState() {
+        if (value) {
+            return Boolean.TRUE;
+        }
+        return Boolean.FALSE;
+    }
+
+    /// If getComponentState returned a value the setter can update the value and
+    /// restore the prior state.
+    ///
+    /// #### Parameters
+    ///
+    /// - `state`: the non-null state
+    @Override
+    public void setComponentState(Object state) {
+        System.out.println("Setting component state " + state);
+        value = ((Boolean) state).booleanValue();
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Class[] getPropertyTypes() {
+        return new Class[] { Boolean.class };
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Object getPropertyValue(String name) {
+        if ("value".equals(name)) {
+            if (value) {
+                return Boolean.TRUE;
+            }
+            return Boolean.FALSE;
+        }
+        return null;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String setPropertyValue(String name, Object value) {
+        if ("value".equals(name)) {
+            setValue(((Boolean) value).booleanValue());
+            return null;
+        }
+        return super.setPropertyValue(name, value);
+    }
+
+    /*
+    The following methods are here to support the ReleasableComponent interface
+    Which is necessary for press/release to work properly.  If the component
+    weren't a ReleasableComponent, some pointerReleased() events may not be called.
+    */
+
+    /// {@inheritDoc }
+    @Override
+    public boolean isAutoRelease() {
+        return false;
+    }
+
+    /// {@inheritDoc }
+    @Override
+    public void setAutoRelease(boolean arg0) {
+
+    }
+
+    /// {@inheritDoc }
+    @Override
+    public int getReleaseRadius() {
+        return 0;
+    }
+
+    /// {@inheritDoc }
+    @Override
+    public void setReleaseRadius(int arg0) {
+
+    }
+
+    /// {@inheritDoc }
+    @Override
+    public void setReleased() {
+
+    }
+
+}

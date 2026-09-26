@@ -1,0 +1,238 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *  
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ * 
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ * 
+ * Please contact Codename One through http://www.codenameone.com/ if you 
+ * need additional information or have any questions.
+ */
+
+package java.lang;
+
+import java.io.NSLogOutputStream;
+import java.io.PrintStream;
+
+/**
+ * The System class contains several useful class fields and methods. It cannot be instantiated.
+ * Since: JDK1.0, CLDC 1.0
+ */
+public final class System {
+    /**
+     * The "standard" error output stream. This stream is already open and ready to accept output data.
+     * Typically this stream corresponds to display output or another output destination specified by the host environment or user. By convention, this output stream is used to display error messages or other information that should come to the immediate attention of a user even if the principal output stream, the value of the variable out, has been redirected to a file or other destination that is typically not continuously monitored.
+     */
+    public static final java.io.PrintStream err = new PrintStream(new NSLogOutputStream());
+
+    /**
+     * The "standard" output stream. This stream is already open and ready to accept output data. Typically this stream corresponds to display output or another output destination specified by the host environment or user.
+     * For simple stand-alone Java applications, a typical way to write a line of output data is:
+     * System.out.println(data)
+     * See the println methods in class PrintStream.
+     * See Also:PrintStream.println(), PrintStream.println(boolean), PrintStream.println(char), PrintStream.println(char[]), PrintStream.println(int), PrintStream.println(long), PrintStream.println(java.lang.Object), PrintStream.println(java.lang.String)
+     */
+    public static final java.io.PrintStream out = new PrintStream(new NSLogOutputStream());
+
+    /**
+     * The standard input stream. Reads from the process's stdin, so a translated
+     * program can be driven by a pipe the way any other command-line program is.
+     */
+    public static final java.io.InputStream in = new java.io.StandardInputStream();
+
+    /**
+     * Copies an array from the specified source array, beginning at the specified position, to the specified position of the destination array. A subsequence of array components are copied from the source array referenced by src to the destination array referenced by dst. The number of components copied is equal to the length argument. The components at positions srcOffset through srcOffset+length-1 in the source array are copied into positions dstOffset through dstOffset+length-1, respectively, of the destination array.
+     * If the src and dst arguments refer to the same array object, then the copying is performed as if the components at positions srcOffset through srcOffset+length-1 were first copied to a temporary array with length components and then the contents of the temporary array were copied into positions dstOffset through dstOffset+length-1 of the destination array.
+     * If dst is null, then a NullPointerException is thrown.
+     * If src is null, then a NullPointerException is thrown and the destination array is not modified.
+     * Otherwise, if any of the following is true, an ArrayStoreException is thrown and the destination is not modified: The src argument refers to an object that is not an array. The dst argument refers to an object that is not an array. The src argument and dst argument refer to arrays whose component types are different primitive types. The src argument refers to an array with a primitive component type and the dst argument refers to an array with a reference component type. The src argument refers to an array with a reference component type and the dst argument refers to an array with a primitive component type.
+     * Otherwise, if any of the following is true, an IndexOutOfBoundsException is thrown and the destination is not modified: The srcOffset argument is negative. The dstOffset argument is negative. The length argument is negative. srcOffset+length is greater than src.length, the length of the source array. dstOffset+length is greater than dst.length, the length of the destination array.
+     * Otherwise, if any actual component of the source array from position srcOffset through srcOffset+length-1 cannot be converted to the component type of the destination array by assignment conversion, an ArrayStoreException is thrown. In this case, let k be the smallest nonnegative integer less than length such that src[srcOffset+k] cannot be converted to the component type of the destination array; when the exception is thrown, source array components from positions srcOffset through srcOffset+k-1 will already have been copied to destination array positions dstOffset through dstOffset+k-1 and no other positions of the destination array will have been modified. (Because of the restrictions already itemized, this paragraph effectively applies only to the situation where both arrays have component types that are reference types.)
+     */
+    public static native void arraycopy(java.lang.Object src, int srcOffset, java.lang.Object dst, int dstOffset, int length);
+
+    // prevents the GC from collecting the GC thread itself... Since the GC doesn't traverse itself the GC object is 
+    // invisible and can be collected by the GC, however this static field places it in the GC (recursion much...).
+    private static Thread gcThreadInstance;
+    
+    private static final Object LOCK = new Object();
+    private static boolean startedGc;
+    private static boolean forceGc;
+    private static boolean gcShouldLoop = true;
+    // invoked from native code
+    private static void startGCThread() {
+        if(!startedGc) {
+            startedGc = true;
+            // not ideal but does the job for now, since gc is pretty efficient the cost is very low
+            gcThreadInstance = new Thread("GC Thread") {
+                public void run() {
+                    synchronized(LOCK) {
+                        // wait two seconds initially so startup won't be hindered by slow waits
+                        try {
+                            LOCK.wait(2000);
+                        } catch (InterruptedException ex) {
+                        }
+                    }
+                    gcShouldLoop = true;
+                    // Thirty seconds. Collecting more often during start-up, to
+                    // shed the launch garbage sooner, has been tried once and is NOT
+                    // settled: widening the idle interval from one second instead
+                    // (cycles at t=2,3,5,9,17,33s rather than t=2,32s) measured a
+                    // settled footprint of 216.6MB against 169.8MB for the flat
+                    // interval -- but the same flat-interval build re-measured 252.8MB
+                    // an hour later, by which point the host had 13.4GB of its 14.3GB
+                    // swap in use. Physical footprint moves with the host's memory
+                    // pressure, so those three numbers were never comparable and the
+                    // experiment proved nothing either way.
+                    //
+                    // If you revisit it: build BOTH binaries, keep both .app bundles,
+                    // and interleave them in one session (A,B,A,B) on a host that is
+                    // not swapping. A soak of one build followed by a soak of the
+                    // other an hour later measures the machine.
+                    while(gcShouldLoop) {
+                        try {
+                            System.gcMarkSweep();
+                            synchronized(LOCK) {
+                                // How long to idle before the next cycle -- 0 means "do
+                                // not idle, a collection is already owed". The decision
+                                // lives in native code beside every other collector
+                                // policy knob, and consumes forceGc as part of making it;
+                                // see java_lang_System_gcIdleWaitMillis___R_int.
+                                int idle = gcIdleWaitMillis();
+                                if(idle > 0) {
+                                    LOCK.wait(idle);
+                                }
+                            }
+                        } catch (InterruptedException ex) {
+                        }
+                    }
+                    startedGc = false;
+                    gcThreadInstance = null;
+                }
+            };
+            gcThreadInstance.start();
+        }
+    }
+
+    /**
+     * Invoked from native code
+     */
+    private static void stopGC() {
+        gcShouldLoop = false;
+        synchronized(LOCK) {
+            LOCK.notify();
+        }
+    }
+    
+    private native static boolean isHighFrequencyGC();
+
+    /**
+     * Milliseconds the collector should idle before starting its next cycle, or 0 to
+     * start one immediately. Consumes the pending force-GC request as part of the
+     * decision, so it must be called exactly once per loop iteration and only while
+     * holding LOCK.
+     */
+    private native static int gcIdleWaitMillis();
+    
+    /**
+     * Returns the current time in milliseconds.
+     */
+    public native static long currentTimeMillis();
+
+    /**
+     * Terminates the currently running Java application. The argument serves as a status code; by convention, a nonzero status code indicates abnormal termination.
+     * This method calls the exit method in class Runtime. This method never returns normally.
+     * The call System.exit(n) is effectively equivalent to the call:
+     * Runtime.getRuntime().exit(n)
+     */
+    public static native void exit(int status);
+
+    /**
+     * Runs the garbage collector.
+     * Calling the gc method suggests that the Java Virtual Machine expend effort toward recycling unused objects in order to make the memory they currently occupy available for quick reuse. When control returns from the method call, the Java Virtual Machine has made a best effort to reclaim space from all discarded objects.
+     * The call System.gc() is effectively equivalent to the call:
+     * Runtime.getRuntime().gc()
+     */
+    public static void gc() {
+        if(startedGc) {
+            forceGc = true;
+            gcShouldLoop = true;
+        }
+        startGCThread();
+        synchronized(LOCK) {
+            LOCK.notify();
+        }
+        // EXPERIMENT: Thread.sleep(2) here yielded ~2ms to the GC thread on every
+        // trigger -- an allocation-churn workload triggers GC every CN1_BIBOP_GC_TRIGGER
+        // bytes, so that sleep is pure mutator stall. Removed for A/B (-DCN1_GC_SLEEP off).
+    }
+    
+    private native static void gcLight();
+    private native static void gcMarkSweep();
+
+    /**
+     * Gets the system property indicated by the specified key.
+     */
+    public static java.lang.String getProperty(java.lang.String key){
+        return null; 
+    }
+
+    /**
+     * Returns the value of the named environment variable, or null when it is
+     * not set. Environment variables are the only configuration channel a
+     * process gets before it parses its own arguments, so a server-side
+     * translated binary needs this to find, for example, the endpoint its host
+     * runtime published to it.
+     *
+     * A name containing a NUL is answered null rather than passed down. The
+     * native side converts to a C string, where a NUL ends it, so
+     * "PATH\u0000suffix" would otherwise be looked up as "PATH" and return that
+     * variable's value -- a silent answer about a DIFFERENT variable, which is
+     * worse than reporting the name unset.
+     *
+     * Deliberately NOT IllegalArgumentException for an empty name or one holding
+     * '='. Neither this contract nor java.lang.System's declares that exception;
+     * the validation that throws it belongs to ProcessBuilder's environment
+     * mutation, not to a lookup. Such names simply name nothing, and null is
+     * exactly what "not set" means.
+     *
+     * @throws NullPointerException if name is null
+     */
+    public static java.lang.String getenv(java.lang.String name) {
+        if(name == null) {
+            throw new NullPointerException();
+        }
+        if(name.indexOf(0) >= 0) {
+            return null;
+        }
+        return getenvImpl(name);
+    }
+
+    private static native java.lang.String getenvImpl(java.lang.String name);
+
+    /**
+     * Returns the same hashcode for the given object as would be returned by the default method hashCode(), whether or not the given object's class overrides hashCode(). The hashcode for the null reference is zero.
+     */
+    public static native int identityHashCode(java.lang.Object x);
+
+    /**
+     * Returns the current value of the running Java Virtual Machine's high-resolution time source, in nanoseconds.
+     * This method can only be used to measure elapsed time and is not related to any other notion of system or
+     * wall-clock time. The value returned represents nanoseconds since some fixed but arbitrary origin time (perhaps
+     * in the future, so values may be negative). It is backed by a monotonic platform clock.
+     */
+    public native static long nanoTime();
+
+}

@@ -1,0 +1,492 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.settings;
+
+import com.codename1.impl.javase.JavaSEPort;
+import com.codename1.ui.Display;
+
+import java.awt.Desktop;
+import java.awt.GraphicsDevice;
+import java.awt.GraphicsEnvironment;
+import java.awt.Graphics2D;
+import java.awt.Image;
+import java.awt.KeyboardFocusManager;
+import java.awt.Rectangle;
+import java.awt.Robot;
+import java.awt.Taskbar;
+import java.awt.Toolkit;
+import java.awt.event.KeyEvent;
+import java.awt.event.WindowEvent;
+import java.awt.event.WindowListener;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import javax.imageio.ImageIO;
+import javax.swing.ImageIcon;
+import javax.swing.JFrame;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
+import javax.swing.SwingUtilities;
+import javax.swing.Timer;
+import javax.swing.KeyStroke;
+
+public class CodenameOneSettingsStub implements Runnable, WindowListener {
+    static final String APP_DISPLAY_NAME = "Codename One Settings";
+    private static final String APP_TITLE = "Codename One Settings";
+    private static final String APP_STORAGE_NAME = "CodenameOneSettings";
+    static final String APP_VERSION = resolveApplicationVersion();
+    private static final int APP_WIDTH = 1470;
+    private static final int APP_HEIGHT = 612;
+    private static final double APP_UI_SCALE = 1.0;
+    private static final boolean APP_RESIZEABLE = true;
+    private static final boolean APP_FULLSCREEN = false;
+    private static final String APP_DESKTOP_TITLEBAR = "native";
+    private static final boolean APP_DESKTOP_INTERACTIVE_SCROLLBARS = true;
+
+    private static JFrame frm;
+    private CodenameOneSettings mainApp;
+
+    public static void main(String[] args) {
+        configureDesktopAppIdentity();
+        if (System.getProperty("settings.version") == null) {
+            System.setProperty("settings.version", APP_VERSION);
+        }
+        try {
+            Class.forName("org.cef.CefApp");
+            System.setProperty("cn1.javase.implementation", "cef");
+        } catch (Throwable ex) {
+        }
+
+        JavaSEPort.setNativeTheme("/NativeTheme.res");
+        JavaSEPort.blockMonitors();
+        JavaSEPort.setAppHomeDir("." + APP_STORAGE_NAME);
+        JavaSEPort.setExposeFilesystem(true);
+        JavaSEPort.setTablet(true);
+        JavaSEPort.setUseNativeInput(true);
+        JavaSEPort.setShowEDTViolationStacks(false);
+        JavaSEPort.setShowEDTWarnings(false);
+        JavaSEPort.setFullScreen(APP_FULLSCREEN);
+        JavaSEPort.setDesktopTitleBarMode(APP_DESKTOP_TITLEBAR);
+        JavaSEPort.setDesktopInteractiveScrollbars(APP_DESKTOP_INTERACTIVE_SCROLLBARS);
+        // No setFontFaces here: the desktop native theme picks the platform's own face
+        // (Segoe UI Variable, SF or Cantarell), and an explicit face would override it.
+
+        frm = new JFrame(APP_TITLE);
+        Toolkit tk = Toolkit.getDefaultToolkit();
+        JavaSEPort.setDefaultPixelMilliRatio(tk.getScreenResolution() / 25.4
+                * JavaSEPort.getRetinaScale() * APP_UI_SCALE);
+        Display.init(frm.getContentPane());
+        Display.getInstance().setProperty("AppName", APP_DISPLAY_NAME);
+        Display.getInstance().setProperty("AppVersion", APP_VERSION);
+        Display.getInstance().setProperty("Platform", System.getProperty("os.name"));
+        Display.getInstance().setProperty("OSVer", System.getProperty("os.version"));
+        installFontShortcutDispatcher();
+        SwingUtilities.invokeLater(new CodenameOneSettingsStub());
+    }
+
+    static void configureDesktopAppIdentity() {
+        System.setProperty("apple.awt.application.name", APP_DISPLAY_NAME);
+        System.setProperty("com.apple.mrj.application.apple.menu.about.name", APP_DISPLAY_NAME);
+        System.setProperty("sun.awt.application.name", APP_DISPLAY_NAME);
+        System.setProperty("sun.awt.X11.XWMClass", APP_STORAGE_NAME);
+    }
+
+    static String resolveApplicationVersion() {
+        Package appPackage = CodenameOneSettingsStub.class.getPackage();
+        String version = appPackage == null ? null : appPackage.getImplementationVersion();
+        return version == null || version.length() == 0 ? "development" : version;
+    }
+
+    private static void installFontShortcutDispatcher() {
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {
+            if (e.getID() != KeyEvent.KEY_PRESSED || (!e.isMetaDown() && !e.isControlDown())) {
+            return false;
+        }
+        switch (e.getKeyCode()) {
+                case KeyEvent.VK_PLUS:
+                case KeyEvent.VK_EQUALS:
+                case KeyEvent.VK_ADD:
+                    CodenameOneSettings.adjustActiveFontSizeForDesktopShortcut(2);
+                    return true;
+            case KeyEvent.VK_MINUS:
+            case KeyEvent.VK_SUBTRACT:
+                CodenameOneSettings.adjustActiveFontSizeForDesktopShortcut(-2);
+                return true;
+            case KeyEvent.VK_0:
+            case KeyEvent.VK_NUMPAD0:
+                CodenameOneSettings.resetActiveFontSizeForDesktopShortcut();
+                return true;
+            default:
+                return false;
+        }
+        });
+    }
+
+    @Override
+    public void run() {
+        frm.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        frm.setName(APP_DISPLAY_NAME);
+        frm.addWindowListener(this);
+        applyApplicationIcon(frm);
+        installFileMenu(frm);
+        installAboutHandler();
+        GraphicsDevice gd = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
+        if (APP_FULLSCREEN && gd.isFullScreenSupported()) {
+            frm.setResizable(false);
+            frm.setUndecorated(true);
+            gd.setFullScreenWindow(frm);
+        } else {
+            frm.setLocationByPlatform(true);
+            frm.setResizable(APP_RESIZEABLE);
+            frm.getContentPane().setPreferredSize(new java.awt.Dimension(APP_WIDTH, APP_HEIGHT));
+            frm.getContentPane().setMinimumSize(new java.awt.Dimension(900, 560));
+            frm.pack();
+        }
+        Display.getInstance().callSerially(new Runnable() {
+            @Override
+            public void run() {
+                if (Display.getInstance().isEdt()) {
+                    mainApp = new CodenameOneSettings();
+                    mainApp.init(this);
+                    mainApp.start();
+                    SwingUtilities.invokeLater(this);
+                } else {
+                    frm.setVisible(true);
+                    scheduleScreenshotIfRequested();
+                }
+            }
+        });
+    }
+
+    private static void scheduleScreenshotIfRequested() {
+        String screenshot = System.getProperty("settings.screenshot");
+        String diagnostics = System.getProperty("settings.diagnostics");
+        boolean wantsScreenshot = screenshot != null && screenshot.length() > 0;
+        boolean wantsDiagnostics = diagnostics != null && diagnostics.length() > 0;
+        if (!wantsScreenshot && !wantsDiagnostics) {
+            return;
+        }
+        // CI runners paint the first frame much slower than dev machines;
+        // settings.screenshot.delay lets automation wait for a settled UI.
+        int delay = Integer.getInteger("settings.screenshot.delay", 1200);
+        Timer timer = new Timer(delay, e -> {
+            try {
+                if (wantsScreenshot) {
+                    captureOffscreen(new File(screenshot));
+                    captureOnScreen(screenshot);
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+            if (!wantsDiagnostics) {
+                exitAfterCapture();
+                return;
+            }
+            // The diagnostics probe waits on the Codename One EDT, and the
+            // Codename One EDT waits on this thread inside blit()'s
+            // SwingUtilities.invokeAndWait - so the wait has to happen off the
+            // AWT thread or the two deadlock and every report reads as a
+            // wedged EDT.
+            Thread worker = new Thread(() -> {
+                try {
+                    captureDiagnostics(new File(diagnostics));
+                } finally {
+                    exitAfterCapture();
+                }
+            }, "cn1-settings-diagnostics");
+            worker.setDaemon(true);
+            worker.start();
+        });
+        timer.setRepeats(false);
+        timer.start();
+    }
+
+    private static void exitAfterCapture() {
+        if (!"false".equals(System.getProperty("settings.screenshot.exit"))) {
+            Display.getInstance().exitApplication();
+        }
+    }
+
+    private static void captureOffscreen(File target) throws Exception {
+        // The Codename One canvas renders into a buffer at DEVICE resolution and
+        // blits it 1:1, so an image sized in Swing's logical points catches only
+        // the top left corner of a Retina window at double magnification - the
+        // capture looked like a zoomed crop and hid whatever it cut off. Size the
+        // image by the display scale and the whole content pane lands in it.
+        double scale = displayScale();
+        BufferedImage image = new BufferedImage(
+                Math.max(1, (int) Math.round(frm.getContentPane().getWidth() * scale)),
+                Math.max(1, (int) Math.round(frm.getContentPane().getHeight() * scale)),
+                BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics();
+        graphics.scale(scale, scale);
+        frm.getContentPane().paint(graphics);
+        graphics.dispose();
+        ImageIO.write(image, "png", target);
+    }
+
+    /**
+     * Grabs the composited desktop pixels behind the window alongside the
+     * offscreen paint. The two can disagree: {@code contentPane.paint()} drives
+     * a fresh Swing paint pass, so it can look healthy while the window the
+     * user is actually staring at shows a stale or unpainted surface - which is
+     * the shape of issue #5443. Written next to the screenshot as
+     * {@code <name>.onscreen.png}; a Robot grab is best effort (locked-down or
+     * headless sessions deny it) and never fails the capture.
+     */
+    private static void captureOnScreen(String screenshot) {
+        if (!Boolean.parseBoolean(System.getProperty("settings.screenshot.onscreen", "true"))) {
+            return;
+        }
+        try {
+            // A grab of a window that is not on screen yet captures whatever
+            // is behind it, which reads as an empty window rather than as a
+            // missing capture. Better to write nothing and let the caller say
+            // so than to write a misleading image.
+            if (!frm.isShowing()) {
+                System.err.println("On-screen capture skipped: window is not showing");
+                return;
+            }
+            // Showing is not the same as frontmost. A Robot grab is a grab of
+            // the SCREEN at these coordinates, so a window that another
+            // application covers writes that application's pixels into a file
+            // named after this one - a diagnostic that shows someone else's
+            // document, and an image that reads as a broken Settings window.
+            if (!frm.isActive()) {
+                System.err.println("On-screen capture skipped: window is not the active window");
+                return;
+            }
+            Rectangle bounds = frm.getBounds();
+            if (bounds.width <= 0 || bounds.height <= 0) {
+                return;
+            }
+            BufferedImage image = new Robot().createScreenCapture(bounds);
+            ImageIO.write(image, "png", new File(onScreenPath(screenshot)));
+        } catch (Throwable ex) {
+            System.err.println("On-screen capture unavailable: " + ex);
+        }
+    }
+
+    /// The device pixels per logical point of the screen the window is on, or 1
+    /// when that cannot be read - a capture at the wrong scale is worth more than
+    /// no capture.
+    private static double displayScale() {
+        try {
+            java.awt.GraphicsConfiguration config = frm.getGraphicsConfiguration();
+            if (config != null) {
+                double scale = config.getDefaultTransform().getScaleX();
+                if (scale > 0) {
+                    return scale;
+                }
+            }
+        } catch (Throwable ex) {
+            System.err.println("Display scale unavailable: " + ex);
+        }
+        return 1;
+    }
+
+    static String onScreenPath(String screenshot) {
+        int dot = screenshot.lastIndexOf('.');
+        int separator = Math.max(screenshot.lastIndexOf('/'), screenshot.lastIndexOf('\\'));
+        if (dot > separator) {
+            return screenshot.substring(0, dot) + ".onscreen" + screenshot.substring(dot);
+        }
+        return screenshot + ".onscreen.png";
+    }
+
+    private static void captureDiagnostics(File target) {
+        // The UIID/theme probes read live Codename One state, so they run on
+        // the Codename One EDT. We wait on a latch rather than
+        // callSeriallyAndWait: this runs on the AWT thread, and blit() blocks
+        // the Codename One EDT on SwingUtilities.invokeAndWait, so a blocking
+        // handoff in this direction can deadlock. A timeout is not a failure
+        // to report - a wedged EDT is exactly the kind of thing this dump
+        // exists to catch, so say so in the file.
+        //
+        // Exactly one of the two writers may touch the file. A merely slow EDT
+        // can run its probe after the timeout has already written the fallback,
+        // and overwriting it would throw away the stack dump naming whatever
+        // the EDT was stuck on - the reason the fallback exists.
+        final CountDownLatch done = new CountDownLatch(1);
+        final AtomicBoolean claimed = new AtomicBoolean(false);
+        Display.getInstance().callSerially(() -> {
+            try {
+                if (claimed.compareAndSet(false, true)) {
+                    SettingsDiagnostics.write(target, frm);
+                }
+            } finally {
+                done.countDown();
+            }
+        });
+        try {
+            if (done.await(10, TimeUnit.SECONDS)) {
+                return;
+            }
+            if (!claimed.compareAndSet(false, true)) {
+                // The EDT claimed the report just as we timed out and is still
+                // writing it; let it finish rather than racing it to the file.
+                done.await(10, TimeUnit.SECONDS);
+                return;
+            }
+            SettingsDiagnostics.writeUnresponsiveEdt(target, frm);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static void applyApplicationIcon(JFrame frame) {
+        List<Image> icons = loadApplicationIcons();
+        if (!icons.isEmpty()) {
+            frame.setIconImages(icons);
+            Image largestIcon = icons.get(icons.size() - 1);
+            applyTaskbarIcon(largestIcon);
+            applyAppleApplicationIcon(largestIcon);
+            requestDesktopForeground();
+        }
+    }
+
+    private static List<Image> loadApplicationIcons() {
+        ArrayList<Image> icons = new ArrayList<Image>();
+        addIcon(icons, "/applicationIconImage_16x16.png");
+        addIcon(icons, "/applicationIconImage_20x20.png");
+        addIcon(icons, "/applicationIconImage_32x32.png");
+        addIcon(icons, "/applicationIconImage_40x40.png");
+        addIcon(icons, "/applicationIconImage_64x64.png");
+        addIcon(icons, "/icon.png");
+        return icons;
+    }
+
+    private static void addIcon(List<Image> icons, String resource) {
+        URL url = CodenameOneSettingsStub.class.getResource(resource);
+        if (url != null) {
+            icons.add(new ImageIcon(url).getImage());
+        }
+    }
+
+    private static void applyTaskbarIcon(Image icon) {
+        try {
+            if (Taskbar.isTaskbarSupported()) {
+                Taskbar taskbar = Taskbar.getTaskbar();
+                if (taskbar.isSupported(Taskbar.Feature.ICON_IMAGE)) {
+                    taskbar.setIconImage(icon);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void applyAppleApplicationIcon(Image icon) {
+        try {
+            Class<?> applicationClass = Class.forName("com.apple.eawt.Application");
+            Object application = applicationClass.getMethod("getApplication").invoke(null);
+            applicationClass.getMethod("setDockIconImage", Image.class).invoke(application, icon);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void requestDesktopForeground() {
+        try {
+            if (Desktop.isDesktopSupported()) {
+                Desktop desktop = Desktop.getDesktop();
+                if (desktop.isSupported(Desktop.Action.APP_REQUEST_FOREGROUND)) {
+                    desktop.requestForeground(true);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void installFileMenu(JFrame frame) {
+        JMenuBar bar = new JMenuBar();
+        JMenu file = new JMenu("File");
+        file.add(menuItem("Save", KeyEvent.VK_S, () -> CodenameOneSettings.saveActiveSettingsForDesktopMenu()));
+        file.add(menuItem("Open Project Folder", KeyEvent.VK_O, () -> CodenameOneSettings.openActiveProjectFolderForDesktopMenu()));
+        file.addSeparator();
+        file.add(menuItem("Basic", KeyEvent.VK_1, () -> CodenameOneSettings.goActiveSectionForDesktopMenu(CodenameOneSettings.Section.BASIC)));
+        file.add(menuItem("Build Hints", KeyEvent.VK_2, () -> CodenameOneSettings.goActiveSectionForDesktopMenu(CodenameOneSettings.Section.BUILD_HINTS)));
+        file.add(menuItem("Extensions", KeyEvent.VK_3, () -> CodenameOneSettings.goActiveSectionForDesktopMenu(CodenameOneSettings.Section.EXTENSIONS)));
+        file.addSeparator();
+        file.add(menuItem("Toggle Dark Mode", KeyEvent.VK_D, () -> CodenameOneSettings.toggleActiveDarkModeForDesktopMenu()));
+        file.add(menuItem("Increase Font Size", KeyEvent.VK_EQUALS, () -> CodenameOneSettings.adjustActiveFontSizeForDesktopShortcut(2)));
+        file.add(menuItem("Decrease Font Size", KeyEvent.VK_MINUS, () -> CodenameOneSettings.adjustActiveFontSizeForDesktopShortcut(-2)));
+        file.add(menuItem("Reset Font Size", KeyEvent.VK_0, () -> CodenameOneSettings.resetActiveFontSizeForDesktopShortcut()));
+        bar.add(file);
+        frame.setJMenuBar(bar);
+    }
+
+    private static void installAboutHandler() {
+        try {
+            if (Desktop.isDesktopSupported()
+                    && Desktop.getDesktop().isSupported(Desktop.Action.APP_ABOUT)) {
+                Desktop.getDesktop().setAboutHandler(e -> CodenameOneSettings.showActiveAboutForDesktopMenu());
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static JMenuItem menuItem(String text, int key, Runnable action) {
+        JMenuItem item = new JMenuItem(text);
+        if (key > 0) {
+            int mask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+            item.setAccelerator(KeyStroke.getKeyStroke(key, mask));
+        }
+        item.addActionListener(e -> action.run());
+        return item;
+    }
+
+    @Override
+    public void windowOpened(WindowEvent e) {
+    }
+
+    @Override
+    public void windowClosing(WindowEvent e) {
+        Display.getInstance().exitApplication();
+    }
+
+    @Override
+    public void windowClosed(WindowEvent e) {
+    }
+
+    @Override
+    public void windowIconified(WindowEvent e) {
+    }
+
+    @Override
+    public void windowDeiconified(WindowEvent e) {
+    }
+
+    @Override
+    public void windowActivated(WindowEvent e) {
+    }
+
+    @Override
+    public void windowDeactivated(WindowEvent e) {
+    }
+}

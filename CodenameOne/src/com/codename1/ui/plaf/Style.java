@@ -1,0 +1,3491 @@
+/*
+ * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores
+ * CA 94065 USA or visit www.oracle.com if you need additional information or
+ * have any questions.
+ */
+package com.codename1.ui.plaf;
+
+import com.codename1.annotations.Fused;
+import com.codename1.compat.java.util.Objects;
+import com.codename1.ui.CN;
+import com.codename1.ui.Component;
+import com.codename1.ui.Display;
+import com.codename1.ui.Font;
+import com.codename1.ui.Gradient;
+import com.codename1.ui.Image;
+import com.codename1.ui.Painter;
+import com.codename1.ui.events.StyleListener;
+import com.codename1.ui.util.EventDispatcher;
+
+/// Represents the look of a given component: colors, fonts, transparency, margin and padding & images.
+///
+/// Each Component contains a Style Object and allows Style modification in Runtime
+/// by Using `cmp.getStyle()`
+/// The style is also used in Themeing, when a Theme is Changed the Styles Objects are been
+/// updated automatically.
+///
+/// When changing a theme the elements changed manually in a style will not be updated
+/// by the theme change by default. There are two ways to change that behavior:
+///
+/// - Use the set method that accepts a second boolean argument and set it to true.
+///
+/// - Create a new style object and pass all the options in the constructor (without invoking setters manually).
+///
+/// The Margin and Padding is inspired by [W3 Box Model](http://www.w3.org/TR/REC-CSS2/box.html)
+///
+/// ```text
+///       **************************
+///       *         Margin         *
+///       *  ********************  *
+///       *  *      Padding     *  *
+///       *  *    ***********   *  *
+///       *  *    * Content *   *  *
+///       *  *    ***********   *  *
+///       *  *      Padding     *  *
+///       *  ********************  *
+///       *         Margin         *
+///       **************************
+/// ```
+///
+/// Change Events
+///
+/// Styles fire a change event for each style change that occurs.  `Component` listens to all changes events
+/// of its styles, and adjusts some of its properties accordingly.  Currently (as of 6.0) each style change will trigger
+/// a `Container#revalidate()` call on the Style's Component's parent container, which is expensive.  You can disable this
+/// `Container#revalidate()` call by calling CN.setProperty("Component.revalidateOnStyleChange", "false").  This will
+/// likely be the default behavior in a future version, so we recommend you disable this explicitly for both performance reasons, and
+/// to avoid regressions when the default is changed.
+///
+/// @author Chen Fishbein
+/// Fused so each Style is allocated as ONE heap block together with its
+/// `padding` and `margin` arrays instead of three. A Style is created five
+/// times per component -- getComponentStyle, getComponentSelectedStyle and
+/// getComponentCustomStyle each return a fresh instance -- so the pair of
+/// four-element arrays is among the highest-count allocations in a UI: an
+/// allocation census of a full screen counted 2,340 Styles against 5,529
+/// float[]. Fusing removes two GC-tracked objects per Style, which matters
+/// more than the bytes: mark cost scales with object COUNT.
+///
+/// This only reaches a constructor that does NOT delegate with this(...):
+/// FusedConstructor.analyzeRaw bails on that shape, because the array stores are
+/// hidden inside the delegate. Style(Style) is therefore written out longhand
+/// rather than chaining, since it is the constructor UIManager calls for every
+/// component style and thus the only one whose fusion is worth anything.
+/// Re-chaining it would turn this annotation back into a no-op on the path that
+/// matters, silently and with no build error.
+///
+/// The contract holds here and must keep holding -- neither array may escape.
+/// Today nothing returns or reassigns either reference: every outside use
+/// (StyleParser) indexes elements, and the one call-argument use is a
+/// System.arraycopy, which the contract permits. A getter that handed either
+/// array out, or a field that stored it, would have to copy instead.
+@Fused
+public class Style {
+
+    /// Background color attribute name for the theme hashtable
+    public static final String BG_COLOR = "bgColor";
+    /// Foreground color attribute name for the theme hashtable
+    public static final String FG_COLOR = "fgColor";
+    /// Foreground alpha attribute name for the theme hashtable
+    public static final String FG_ALPHA = "fgAlpha";
+    /// Background image attribute name for the theme hashtable
+    public static final String BG_IMAGE = "bgImage";
+    /// Background attribute name for the theme hashtable
+    public static final String BACKGROUND_TYPE = "bgType";
+    /// Background attribute name for the theme hashtable
+    public static final String BACKGROUND_ALIGNMENT = "bgAlign";
+    /// Background attribute name for the theme hashtable
+    public static final String BACKGROUND_GRADIENT = "bgGradient";
+    /// Extended gradient attribute (multi-stop, angled, conic, repeating).
+    public static final String GRADIENT = "bgGradientEx";
+    /// CSS filter:blur() radius in pixels.
+    public static final String FILTER_BLUR = "filterBlur";
+    /// CSS backdrop-filter:blur() radius in pixels.
+    public static final String BACKDROP_FILTER_BLUR = "backdropFilterBlur";
+    /// CSS filter: 4x5 color matrix (composed from `brightness`,
+    /// `contrast`, `grayscale`, `hue-rotate`, `invert`, `opacity`, `saturate`,
+    /// `sepia`). Stored as row-major float[20] - [R,G,B,A] x [R,G,B,A,offset].
+    /// Offset column is in 0-255 RGB space.
+    public static final String FILTER_COLOR_MATRIX = "filterColorMatrix";
+    /// CSS backdrop-filter color matrix (same layout as FILTER_COLOR_MATRIX).
+    public static final String BACKDROP_FILTER_COLOR_MATRIX = "backdropFilterColorMatrix";
+    /// Font attribute name for the theme hashtable
+    public static final String FONT = "font";
+    /// Transparency attribute name for the theme hashtable
+    public static final String TRANSPARENCY = "transparency";
+    /// Opacity attribute name for the theme hashtable
+    public static final String OPACITY = "opacity";
+    /// Elevation attribute name for the theme hashtable.
+    public static final String ELEVATION = "elevation";
+    /// Letter spacing attribute name for the theme hashtable.
+    public static final String LETTER_SPACING = "letterSpacing";
+    /// Icon gap attribute name for the theme hashtable.
+    public static final String ICON_GAP = "iconGap";
+    /// Icon gap unit attribute.
+    ///
+    public static final String ICON_GAP_UNIT = "iconGapUnit";
+    /// Surface attribute name for the theme hashtable.
+    public static final String SURFACE = "surface";
+    /// Margin attribute name for the theme hashtable
+    public static final String MARGIN = "margin";
+    /// Border attribute name for the theme hashtable
+    public static final String BORDER = "border";
+    /// Padding attribute name for the theme hashtable
+    public static final String PADDING = "padding";
+    /// Painter attribute name for the style event
+    public static final String PAINTER = "painter";
+    /// Alignment attribute for the style event
+    public static final String ALIGNMENT = "align";
+    /// Text decoration attribute for the style event
+    public static final String TEXT_DECORATION = "textDecoration";
+    /// The units of the padding
+    public static final String PADDING_UNIT = "padUnit";
+    /// The units of the margin
+    public static final String MARGIN_UNIT = "marUnit";
+    /// Indicates the background for the style would use a scaled image
+    public static final byte BACKGROUND_NONE = (byte) 0;
+    /// Indicates the background for the style would use a scaled image
+    public static final byte BACKGROUND_IMAGE_SCALED = (byte) 1;
+    /// Indicates the background for the style would use a tiled image on both axis
+    public static final byte BACKGROUND_IMAGE_TILE_BOTH = (byte) 2;
+    /// Indicates the background for the style would use a vertical tiled image
+    public static final byte BACKGROUND_IMAGE_TILE_VERTICAL = (byte) 3;
+    /// Indicates the background for the style would use a horizontal tiled image
+    public static final byte BACKGROUND_IMAGE_TILE_HORIZONTAL = (byte) 4;
+    /// Indicates the background for the style would use an unscaled image with an alignment
+    public static final byte BACKGROUND_IMAGE_ALIGNED_TOP = (byte) 20;
+    /// Indicates the background for the style would use an unscaled image with an alignment
+    public static final byte BACKGROUND_IMAGE_ALIGNED_BOTTOM = (byte) 21;
+    /// Indicates the background for the style would use an unscaled image with an alignment
+    public static final byte BACKGROUND_IMAGE_ALIGNED_LEFT = (byte) 22;
+    /// Indicates the background for the style would use an unscaled image with an alignment
+    public static final byte BACKGROUND_IMAGE_ALIGNED_RIGHT = (byte) 23;
+    /// Indicates the background for the style would use an unscaled image with an alignment
+    public static final byte BACKGROUND_IMAGE_ALIGNED_CENTER = (byte) 24;
+    /// Indicates the background for the style would use an unscaled image with an alignment
+    public static final byte BACKGROUND_IMAGE_ALIGNED_TOP_LEFT = (byte) 25;
+    /// Indicates the background for the style would use an unscaled image with an alignment
+    public static final byte BACKGROUND_IMAGE_ALIGNED_TOP_RIGHT = (byte) 26;
+    /// Indicates the background for the style would use an unscaled image with an alignment
+    public static final byte BACKGROUND_IMAGE_ALIGNED_BOTTOM_LEFT = (byte) 27;
+    /// Indicates the background for the style would use an unscaled image with an alignment
+    public static final byte BACKGROUND_IMAGE_ALIGNED_BOTTOM_RIGHT = (byte) 28;
+    /// Indicates the background for the style would use a horizontal tiled image
+    public static final byte BACKGROUND_IMAGE_TILE_HORIZONTAL_ALIGN_TOP = (byte) 4;
+    /// Indicates the background for the style would use a horizontal tiled image
+    public static final byte BACKGROUND_IMAGE_TILE_HORIZONTAL_ALIGN_CENTER = (byte) 29;
+    /// Indicates the background for the style would use a horizontal tiled image
+    public static final byte BACKGROUND_IMAGE_TILE_HORIZONTAL_ALIGN_BOTTOM = (byte) 30;
+    /// Indicates the background for the style would use a horizontal tiled image
+    public static final byte BACKGROUND_IMAGE_TILE_VERTICAL_ALIGN_LEFT = BACKGROUND_IMAGE_TILE_VERTICAL;
+    /// Indicates the background for the style would use a horizontal tiled image
+    public static final byte BACKGROUND_IMAGE_TILE_VERTICAL_ALIGN_CENTER = (byte) 31;
+    /// Indicates the background for the style would use a horizontal tiled image
+    public static final byte BACKGROUND_IMAGE_TILE_VERTICAL_ALIGN_RIGHT = (byte) 32;
+    /// Indicates the background for the style would use a scaled image that fills all available space while
+    /// maintaining aspect ratio
+    public static final byte BACKGROUND_IMAGE_SCALED_FILL = (byte) 33;
+    /// Indicates the background for the style would use a scaled image that fits to available space while
+    /// maintaining aspect ratio
+    public static final byte BACKGROUND_IMAGE_SCALED_FIT = (byte) 34;
+    /// Indicates the background for the style would use a linear gradient
+    public static final byte BACKGROUND_GRADIENT_LINEAR_VERTICAL = (byte) 6;
+    /// Indicates the background for the style would use a linear gradient
+    public static final byte BACKGROUND_GRADIENT_LINEAR_HORIZONTAL = (byte) 7;
+    /// Indicates the background for the style would use a radial gradient
+    public static final byte BACKGROUND_GRADIENT_RADIAL = (byte) 8;
+    /// Multi-stop linear gradient at an arbitrary angle. Driven by the gradient
+    /// gradient attached via setGradient(); legacy
+    /// setBackgroundGradientStartColor/EndColor are ignored for this type.
+    public static final byte BACKGROUND_GRADIENT_LINEAR = (byte) 35;
+    /// Multi-stop radial gradient with full CSS shape/extent control. Driven by
+    /// the gradient descriptor.
+    public static final byte BACKGROUND_GRADIENT_RADIAL_FULL = (byte) 36;
+    /// Conic / sweep gradient. Driven by the gradient descriptor.
+    public static final byte BACKGROUND_GRADIENT_CONIC = (byte) 37;
+    /// Repeating multi-stop linear gradient (CSS repeating-linear-gradient).
+    public static final byte BACKGROUND_GRADIENT_REPEATING_LINEAR = (byte) 38;
+    /// Repeating multi-stop radial gradient (CSS repeating-radial-gradient).
+    public static final byte BACKGROUND_GRADIENT_REPEATING_RADIAL = (byte) 39;
+    /// Indicates no text decoration
+    public static final byte TEXT_DECORATION_NONE = (byte) 0;
+    /// Indicates underline
+    public static final byte TEXT_DECORATION_UNDERLINE = (byte) 1;
+    /// Indicates a strike-through line (usually used to denote deleted text)
+    public static final byte TEXT_DECORATION_STRIKETHRU = (byte) 2;
+    /// Indicates overline
+    public static final byte TEXT_DECORATION_OVERLINE = (byte) 4;
+    /// 3D text effect using a font shadow
+    public static final byte TEXT_DECORATION_3D = (byte) 8;
+    /// 3D sunken text effect using a light font shadow
+    public static final byte TEXT_DECORATION_3D_LOWERED = (byte) 16;
+    /// 3D text effect using a font shadow
+    public static final byte TEXT_DECORATION_3D_SHADOW_NORTH = (byte) 32;
+    /// Indicates the unit type for padding/margin, the default is in device specific pixels
+    public static final byte UNIT_TYPE_PIXELS = 0;
+    /// Indicates the unit type for padding/margin in percentage of the size of the screen
+    public static final byte UNIT_TYPE_SCREEN_PERCENTAGE = 1;
+    /// Indicates the unit type for padding/margin in device independent pixels. Device independent pixels try to aim
+    /// at roughly 1 millimeter of the screen per DIP but make no guarantee for accuracy.
+    public static final byte UNIT_TYPE_DIPS = 2;
+    /// Indicates the unit type for padding/margin as a percentage of the screen width.
+    ///
+    public static final byte UNIT_TYPE_VW = 3;
+    /// Indicates the unit type for padding/margin as a percentage of the screen height.
+    ///
+    public static final byte UNIT_TYPE_VH = 4;
+    /// Indicates the unit type for padding/margin as a percentage the minimum of screen width and height.
+    ///
+    public static final byte UNIT_TYPE_VMIN = 5;
+    /// Indicates the unit type for padding/margin as a percentage the maximum of screen width and height.
+    ///
+    public static final byte UNIT_TYPE_VMAX = 6;
+    /// Indicates the unit type for padding/margin relative to the font size of the default font.
+    /// 1rem == Font.getDefaultFont().getHeight()
+    ///
+    public static final byte UNIT_TYPE_REM = 7;
+    /// Indicates the background alignment for use in tiling or aligned images.
+    private static final byte BACKGROUND_IMAGE_ALIGN_TOP = (byte) 0xa1;
+    /// Used for modified flag
+    private static final int FG_COLOR_MODIFIED = 1;
+    /// Used for modified flag
+    private static final int BG_COLOR_MODIFIED = 2;
+    /// Used for modified flag
+    private static final int FONT_MODIFIED = 16;
+    /// Used for modified flag
+    private static final int BG_IMAGE_MODIFIED = 32;
+    private static final int TEXT_DECORATION_MODIFIED = 64;
+    /// Used for modified flag
+    private static final int TRANSPARENCY_MODIFIED = 128;
+    /// Used for modified flag
+    private static final int PADDING_MODIFIED = 256;
+    /// Used for modified flag
+    private static final int MARGIN_MODIFIED = 512;
+    /// Used for modified flag
+    private static final int BORDER_MODIFIED = 1024;
+    private static final int BACKGROUND_TYPE_MODIFIED = 2048;
+    private static final int BACKGROUND_ALIGNMENT_MODIFIED = 4096;
+    private static final int BACKGROUND_GRADIENT_MODIFIED = 8192;
+    private static final int ALIGNMENT_MODIFIED = 16384;
+    private static final int OPACITY_MODIFIED = 32768;
+    private static final int ELEVATION_MODIFIED = 65536;
+    private static final int SURFACE_MODIFIED = 131072;
+    private static final int FG_ALPHA_MODIFIED = 262144;
+    private static final int ICON_GAP_MODIFIED = 524288;
+    private static final int GRADIENT_MODIFIED = 1048576;
+    private static final int FILTER_BLUR_MODIFIED = 2097152;
+    private static final int BACKDROP_FILTER_BLUR_MODIFIED = 4194304;
+    private static final int FILTER_COLOR_MATRIX_MODIFIED = 8388608;
+    private static final int BACKDROP_FILTER_COLOR_MATRIX_MODIFIED = 16777216;
+    private static final int LETTER_SPACING_MODIFIED = 33554432;
+    float[] padding = new float[4];
+    float[] margin = new float[4];
+    /// Indicates the units used for padding elements, if null pixels are used if not this is a 4 element array containing values
+    /// of of `#UNIT_TYPE_PIXELS`, `#UNIT_TYPE_DIPS`, `#UNIT_TYPE_SCREEN_PERCENTAGE`, `#UNIT_TYPE_VW`, `#UNIT_TYPE_VH`,
+    /// * `#UNIT_TYPE_VMIN`, `#UNIT_TYPE_VMAX`, `#UNIT_TYPE_REM`.
+    byte[] paddingUnit;
+    /// Indicates the units used for margin elements, if null pixels are used if not this is a 4 element array containing values
+    /// of of `#UNIT_TYPE_PIXELS`, `#UNIT_TYPE_DIPS`, `#UNIT_TYPE_SCREEN_PERCENTAGE`, `#UNIT_TYPE_VW`, `#UNIT_TYPE_VH`,
+    /// * `#UNIT_TYPE_VMIN`, `#UNIT_TYPE_VMAX`, `#UNIT_TYPE_REM`.
+    byte[] marginUnit;
+    Object roundRectCache;
+    // used by the Android port, do not remove!
+    Object nativeOSCache;
+    boolean renderer;
+    /// Flag to suppress change events
+    private boolean suppressChangeEvents;
+    private Style[] proxyTo;
+    private int fgColor = 0x000000;
+    private int fgAlpha = 0xff;
+    private int bgColor = 0xFFFFFF;
+    private Font font = Font.getDefaultFont();
+    private Image bgImage;
+    private float[] cached_margin = null; //used to cache margin values when hidding a component
+    private byte transparency = (byte) 0xFF; //no transparency
+    private byte opacity = (byte) 0xFF; //full opacity
+    private Painter bgPainter;
+    private int elevation; // the elevation.
+    private float iconGap = -1;
+    private byte iconGapUnit;
+    private float letterSpacing; // EM units, 0 = default (no extra spacing)
+    private boolean surface; // whether this should be treated as a surface
+    private byte backgroundType = BACKGROUND_IMAGE_SCALED;
+    private byte backgroundAlignment = BACKGROUND_IMAGE_ALIGN_TOP;
+    private Object[] backgroundGradient;
+    private Gradient gradient;
+    private float filterBlurRadius;
+    private float backdropFilterBlurRadius;
+    private float[] filterColorMatrix;
+    private float[] backdropFilterColorMatrix;
+    private Border border = null;
+    private int align = Component.LEFT;
+    private int textDecoration; // Used for underline, strikethru etc. (See TEXT_DECORATION_* constants)
+    /// The modified flag indicates which portions of the style have changed using
+    /// bitmask values
+    private long modifiedFlag;
+    /// Style listeners, in two shapes.
+    ///
+    /// Every Component registers ITSELF on each of its styles, and a Component
+    /// asks for five styles, so in practice a Style has exactly one listener --
+    /// yet each one allocated an EventDispatcher AND the ArrayList inside it
+    /// purely to hold a single reference. An allocation census of one screen
+    /// counted 1,831 EventDispatchers against 2,340 Styles.
+    ///
+    /// So the first listener is held directly and a dispatcher is created only
+    /// if a second ever arrives. `dispatcher` wins whenever it is non-null;
+    /// `singleListener` is meaningful only while it is null.
+    private StyleListener singleListener;
+    private EventDispatcher listeners;
+
+    /// Each component when it draw itself uses this Object
+    /// to determine in what colors it should use.
+    /// When a Component is generated it construct a default Style Object.
+    /// The Default values for each Component can be changed by using the UIManager class
+    public Style() {
+        setPadding(3, 3, 3, 3);
+        setMargin(2, 2, 2, 2);
+        modifiedFlag = 0;
+    }
+
+    /// Creates a full copy of the given style. Notice that if the original style was modified
+    /// manually (by invoking setters on it) it would not chnage when changing a theme/look and feel,
+    /// however this newly created style would change in such a case.
+    ///
+    /// #### Parameters
+    ///
+    /// - `style`: the style to copy
+    public Style(Style style) {
+        // Deliberately NOT a this(...) delegation, which is what makes @Fused
+        // reach this constructor at all. FusedConstructor.analyzeRaw bails on
+        // any same-class this() shape -- the array stores are hidden inside the
+        // delegate -- and this is the constructor UIManager uses for every
+        // component style, so with the delegation in place the annotation on
+        // this class did nothing on the only path that allocates in bulk.
+        // Written out, javac emits the padding and margin field initialisers
+        // directly here, which is the shape the analyzer accepts.
+        //
+        // The four lines below are the inlined equivalent of the chain this
+        // replaced: this(fgColor, bgColor, font, transparency, bgImage), which
+        // itself delegated to this(). The five getters read the OTHER style's
+        // fields and touch nothing here, so evaluating them after the field
+        // initialisers rather than before is not observable.
+        setPadding(3, 3, 3, 3);
+        setMargin(2, 2, 2, 2);
+        modifiedFlag = 0;
+        this.fgColor = style.getFgColor();
+        this.bgColor = style.getBgColor();
+        this.font = style.getFont();
+        this.transparency = style.getBgTransparency();
+        this.bgImage = style.getBgImage();
+        setPadding(style.padding[Component.TOP],
+                style.padding[Component.BOTTOM],
+                style.padding[Component.LEFT],
+                style.padding[Component.RIGHT]);
+        setMargin(style.margin[Component.TOP],
+                style.margin[Component.BOTTOM],
+                style.margin[Component.LEFT],
+                style.margin[Component.RIGHT]);
+        setPaddingUnit(style.paddingUnit);
+        setMarginUnit(style.marginUnit);
+        setBorder(style.getBorder());
+        fgAlpha = style.fgAlpha;
+        elevation = style.elevation;
+        iconGap = style.iconGap;
+        iconGapUnit = style.iconGapUnit;
+        letterSpacing = style.letterSpacing;
+        surface = style.surface;
+        opacity = style.opacity;
+        modifiedFlag = 0;
+        align = style.align;
+        backgroundType = style.backgroundType;
+        backgroundAlignment = style.backgroundAlignment;
+        textDecoration = style.textDecoration;
+        if (style.backgroundGradient != null) {
+            backgroundGradient = new Object[style.backgroundGradient.length];
+            System.arraycopy(style.backgroundGradient, 0, backgroundGradient, 0, backgroundGradient.length);
+        }
+        if (style.gradient != null) {
+            gradient = style.gradient.copy();
+        }
+        filterBlurRadius = style.filterBlurRadius;
+        backdropFilterBlurRadius = style.backdropFilterBlurRadius;
+        if (style.filterColorMatrix != null) {
+            filterColorMatrix = new float[style.filterColorMatrix.length];
+            System.arraycopy(style.filterColorMatrix, 0, filterColorMatrix, 0, filterColorMatrix.length);
+        }
+        if (style.backdropFilterColorMatrix != null) {
+            backdropFilterColorMatrix = new float[style.backdropFilterColorMatrix.length];
+            System.arraycopy(style.backdropFilterColorMatrix, 0, backdropFilterColorMatrix, 0, backdropFilterColorMatrix.length);
+        }
+    }
+
+    /// Creates a new style with the given attributes
+    ///
+    /// #### Parameters
+    ///
+    /// - `fgColor`: foreground color
+    ///
+    /// - `bgColor`: background color
+    ///
+    /// - `f`: font
+    ///
+    /// - `transparency`: transparency value
+    public Style(int fgColor, int bgColor, Font f, byte transparency) {
+        this(fgColor, bgColor, f, transparency, null, BACKGROUND_IMAGE_SCALED);
+    }
+
+    /// Creates a new style with the given attributes
+    ///
+    /// #### Parameters
+    ///
+    /// - `fgColor`: foreground color
+    ///
+    /// - `bgColor`: background color
+    ///
+    /// - `f`: font
+    ///
+    /// - `transparency`: transparency value
+    ///
+    /// - `im`: background image
+    private Style(int fgColor, int bgColor, Font f, byte transparency, Image im) {
+        this();
+        this.fgColor = fgColor;
+        this.bgColor = bgColor;
+        this.font = f;
+        this.transparency = transparency;
+        this.bgImage = im;
+    }
+
+    /// Creates a new style with the given attributes
+    ///
+    /// #### Parameters
+    ///
+    /// - `fgColor`: foreground color
+    ///
+    /// - `bgColor`: background color
+    ///
+    /// - `f`: font
+    ///
+    /// - `transparency`: transparency value
+    ///
+    /// - `im`: background image
+    ///
+    /// - `backgroundType`: @param backgroundType one of:
+    /// BACKGROUND_IMAGE_SCALED, BACKGROUND_IMAGE_TILE_BOTH,
+    /// BACKGROUND_IMAGE_TILE_VERTICAL, BACKGROUND_IMAGE_TILE_HORIZONTAL,
+    /// BACKGROUND_IMAGE_ALIGNED, BACKGROUND_GRADIENT_LINEAR_HORIZONTAL,
+    /// BACKGROUND_GRADIENT_LINEAR_VERTICAL, BACKGROUND_GRADIENT_RADIAL
+    public Style(int fgColor, int bgColor, Font f, byte transparency, Image im, byte backgroundType) {
+        this();
+        this.fgColor = fgColor;
+        this.bgColor = bgColor;
+        this.font = f;
+        this.transparency = transparency;
+        this.backgroundType = backgroundType;
+        this.bgImage = im;
+    }
+
+    /// Creates a "proxy" style whose setter methods map to the methods in the given styles passed and whose
+    /// getter methods are meaningless
+    ///
+    /// #### Parameters
+    ///
+    /// - `styles`: the styles to which we will proxy
+    ///
+    /// #### Returns
+    ///
+    /// a proxy style object
+    public static Style createProxyStyle(Style... styles) {
+        Style s = new Style();
+        s.proxyTo = styles;
+        return s;
+    }
+
+    Object getNativeOSCache() {
+        return nativeOSCache;
+    }
+
+    void setNativeOSCache(Object nativeOSCache) {
+        this.nativeOSCache = nativeOSCache;
+    }
+
+    /// Disables native OS optimizations that might collide with cell renderers which do things like sharing style
+    /// objects
+    public void markAsRendererStyle() {
+        renderer = true;
+    }
+
+    /// Indicates whether this style has been marked for use with renderers.
+    ///
+    /// #### Returns
+    ///
+    /// `true` if `#markAsRendererStyle()` was invoked.
+    public boolean isRendererStyle() {
+        return renderer;
+    }
+
+    /// Merges the new style with the current style without changing the elements that
+    /// were modified.
+    ///
+    /// #### Parameters
+    ///
+    /// - `style`: new values of styles from the current theme
+    public void merge(Style style) {
+        long tmp = modifiedFlag;
+
+        if ((modifiedFlag & FG_COLOR_MODIFIED) == 0) {
+            setFgColor(style.getFgColor());
+        }
+        if ((modifiedFlag & FG_ALPHA_MODIFIED) == 0) {
+            setFgAlpha(style.getFgAlpha());
+        }
+        if ((modifiedFlag & BG_COLOR_MODIFIED) == 0) {
+            setBgColor(style.getBgColor());
+        }
+        if ((modifiedFlag & BG_IMAGE_MODIFIED) == 0) {
+            setBgImage(style.getBgImage());
+        }
+        if ((modifiedFlag & BACKGROUND_TYPE_MODIFIED) == 0) {
+            setBackgroundType(style.getBackgroundType());
+        }
+        if ((modifiedFlag & BACKGROUND_ALIGNMENT_MODIFIED) == 0) {
+            setBackgroundAlignment(style.getBackgroundAlignment());
+        }
+        if ((modifiedFlag & BACKGROUND_GRADIENT_MODIFIED) == 0) {
+            setBackgroundGradientStartColor(style.getBackgroundGradientStartColor());
+            setBackgroundGradientEndColor(style.getBackgroundGradientEndColor());
+            setBackgroundGradientRelativeX(style.getBackgroundGradientRelativeX());
+            setBackgroundGradientRelativeY(style.getBackgroundGradientRelativeY());
+            setBackgroundGradientRelativeSize(style.getBackgroundGradientRelativeSize());
+        }
+        if ((modifiedFlag & FONT_MODIFIED) == 0) {
+            setFont(style.getFont());
+        }
+
+        if ((modifiedFlag & TRANSPARENCY_MODIFIED) == 0) {
+            setBgTransparency(style.getBgTransparency());
+        }
+
+        if ((modifiedFlag & OPACITY_MODIFIED) == 0) {
+            setOpacity(style.getOpacity());
+        }
+
+        if ((modifiedFlag & PADDING_MODIFIED) == 0) {
+            setPadding(style.padding[Component.TOP],
+                    style.padding[Component.BOTTOM],
+                    style.padding[Component.LEFT],
+                    style.padding[Component.RIGHT]);
+            setPaddingUnit(paddingUnit);
+        }
+
+        if ((modifiedFlag & MARGIN_MODIFIED) == 0) {
+            setMargin(style.margin[Component.TOP],
+                    style.margin[Component.BOTTOM],
+                    style.margin[Component.LEFT],
+                    style.margin[Component.RIGHT]);
+            setMarginUnit(style.marginUnit);
+        }
+
+        if ((modifiedFlag & BORDER_MODIFIED) == 0) {
+            setBorder(style.getBorder());
+        }
+
+        if ((modifiedFlag & TEXT_DECORATION_MODIFIED) == 0) {
+            setTextDecoration(style.getTextDecoration());
+        }
+
+        if ((modifiedFlag & ALIGNMENT_MODIFIED) == 0) {
+            setAlignment(style.getAlignment());
+        }
+
+        if ((modifiedFlag & ELEVATION_MODIFIED) == 0) {
+            setElevation(style.getElevation());
+        }
+        if ((modifiedFlag & ICON_GAP_MODIFIED) == 0) {
+            setIconGap(style.iconGap, style.iconGapUnit);
+        }
+        if ((modifiedFlag & LETTER_SPACING_MODIFIED) == 0) {
+            setLetterSpacing(style.letterSpacing);
+        }
+        if ((modifiedFlag & SURFACE_MODIFIED) == 0) {
+            setSurface(style.isSurface());
+        }
+
+        this.bgPainter = style.bgPainter;
+        modifiedFlag = tmp;
+    }
+
+    /// Gets the elevation value of this style.  Valid values include 0, 1, 2, 3, 4, 6, 8, 9, 12, 16, and 24.
+    ///
+    /// #### Returns
+    ///
+    /// The elevation value.  Default is 0.
+    ///
+    public int getElevation() {
+        return elevation;
+    }
+
+    /// Sets the elevation value.  Valid values include 0, 1, 2, 3, 4, 6, 8, 9, 12, 16, and 24.
+    ///
+    /// #### Parameters
+    ///
+    /// - `elevation`: The elevation value.
+    ///
+    public void setElevation(int elevation) {
+        setElevation(elevation, false);
+    }
+
+    /// Returns the icon gap in pixels.
+    ///
+    public int getIconGap() {
+        if (iconGap < 0) {
+            return -1;
+        }
+        return CN.convertToPixels(iconGap, iconGapUnit);
+    }
+
+    /// Returns the letter spacing (in EM units, font-size relative) applied to text
+    /// drawn with this style. 0 means the platform default (no extra spacing).
+    public float getLetterSpacing() {
+        return letterSpacing;
+    }
+
+    /// Sets the letter spacing in EM units (font-size relative). A native theme uses
+    /// this to match a Material/iOS text appearance's tracking per component. The
+    /// spacing is carried by the style's font so it affects both layout measurement
+    /// and rendering.
+    public void setLetterSpacing(float letterSpacing) {
+        setLetterSpacing(letterSpacing, false);
+    }
+
+    /// Sets the letter spacing in EM units. See [#setLetterSpacing(float)].
+    public void setLetterSpacing(float spacing, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setLetterSpacing(spacing, override);
+            }
+            return;
+        }
+        if (Math.abs(spacing - letterSpacing) > 0.00001) {
+            letterSpacing = spacing;
+            if (!override) {
+                modifiedFlag |= LETTER_SPACING_MODIFIED;
+            }
+            firePropertyChanged(LETTER_SPACING);
+        }
+    }
+
+    /// Sets the icon gap in the current units.
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: The icon gap.
+    ///
+    /// #### See also
+    ///
+    /// - #getIconGapUnit()
+    public void setIconGap(float gap) {
+        setIconGap(gap, false);
+    }
+
+    /// Returns the icon gap unit.  One of `#UNIT_TYPE_REM`, `#UNIT_TYPE_VMAX`, `#UNIT_TYPE_VMIN`,
+    /// `#UNIT_TYPE_VH`, `#UNIT_TYPE_VW`, `#UNIT_TYPE_SCREEN_PERCENTAGE`, `#UNIT_TYPE_DIPS`,
+    /// `#UNIT_TYPE_PIXELS`
+    ///
+    /// #### Returns
+    ///
+    /// The icon gap unit
+    ///
+    public int getIconGapUnit() {
+        return iconGapUnit;
+    }
+
+    /// Sets the icon gap unit.
+    ///
+    /// #### Parameters
+    ///
+    /// - `unit`: The icon gap unit.  One of the standard style units of measurement.
+    ///
+    public void setIconGapUnit(byte unit) {
+        setIconGapUnit(unit, false);
+    }
+
+    /// Checks whether the component is a surface.  Surface containers support a sort of z-index of descendants
+    /// via the elevation attribute.  Surfaces will render the shadows of elevated descendants to convey depth.
+    ///
+    /// #### Returns
+    ///
+    /// True if container should be rendered as a surface.
+    ///
+    public boolean isSurface() {
+        return surface;
+    }
+
+    /// Enables or disables surface rendering mode for component.  Surfaces can support a sort of
+    /// z-indexing of its descendants via their elevation properties.  The surface will render
+    /// the shadows of elevated descendants to convey depth.
+    ///
+    /// #### Parameters
+    ///
+    /// - `surface`: True to enable surface rendering mode.
+    ///
+    public void setSurface(boolean surface) {
+        setSurface(surface, false);
+    }
+
+    /// Returns true if the style was modified manually after it was created by the
+    /// look and feel. If the style was modified manually (by one of the set methods)
+    /// then it should be merged rather than overwritten.
+    ///
+    /// #### Returns
+    ///
+    /// true if the style was modified
+    public boolean isModified() {
+        return modifiedFlag != 0;
+    }
+
+    /// Background color for the component
+    ///
+    /// #### Returns
+    ///
+    /// the background color for the component
+    public int getBgColor() {
+        return bgColor;
+    }
+
+    /// Sets the background color for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `bgColor`: RRGGBB color that ignors the alpha component
+    public void setBgColor(int bgColor) {
+        setBgColor(bgColor, false);
+    }
+
+    /// Background image for the component
+    ///
+    /// #### Returns
+    ///
+    /// the background image for the component
+    public Image getBgImage() {
+        return bgImage;
+    }
+
+    /// Sets the background image for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `bgImage`: background image
+    public void setBgImage(Image bgImage) {
+        setBgImage(bgImage, false);
+    }
+
+    /// The type of the background defaults to BACKGROUND_IMAGE_SCALED
+    ///
+    /// #### Returns
+    ///
+    /// @return one of:
+    /// BACKGROUND_IMAGE_SCALED, BACKGROUND_IMAGE_TILE_BOTH,
+    /// BACKGROUND_IMAGE_TILE_VERTICAL, BACKGROUND_IMAGE_TILE_HORIZONTAL,
+    /// BACKGROUND_IMAGE_ALIGNED, BACKGROUND_GRADIENT_LINEAR_HORIZONTAL,
+    /// BACKGROUND_GRADIENT_LINEAR_VERTICAL, BACKGROUND_GRADIENT_RADIAL
+    public byte getBackgroundType() {
+        return backgroundType;
+    }
+
+    /// Sets the background type for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `backgroundType`: @param backgroundType one of BACKGROUND_IMAGE_SCALED, BACKGROUND_IMAGE_TILE_BOTH,
+    /// BACKGROUND_IMAGE_TILE_VERTICAL, BACKGROUND_IMAGE_TILE_HORIZONTAL,
+    /// BACKGROUND_IMAGE_ALIGNED, BACKGROUND_GRADIENT_LINEAR_HORIZONTAL,
+    /// BACKGROUND_GRADIENT_LINEAR_VERTICAL, BACKGROUND_GRADIENT_RADIAL
+    public void setBackgroundType(byte backgroundType) {
+        setBackgroundType(backgroundType, false);
+    }
+
+    /// Return the alignment for the image or tiled image
+    ///
+    /// #### Returns
+    ///
+    /// @return one of:
+    /// BACKGROUND_IMAGE_ALIGN_TOP, BACKGROUND_IMAGE_ALIGN_BOTTOM,
+    /// BACKGROUND_IMAGE_ALIGN_LEFT, BACKGROUND_IMAGE_ALIGN_RIGHT,
+    /// BACKGROUND_IMAGE_ALIGN_CENTER
+    ///
+    /// #### Deprecated
+    ///
+    /// the functionality of this method is now covered by background type
+    private byte getBackgroundAlignment() {
+        return backgroundAlignment;
+    }
+
+    /// Sets the background alignment for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `backgroundAlignment`: @param backgroundAlignment one of:
+    /// BACKGROUND_IMAGE_ALIGN_TOP, BACKGROUND_IMAGE_ALIGN_BOTTOM,
+    /// BACKGROUND_IMAGE_ALIGN_LEFT, BACKGROUND_IMAGE_ALIGN_RIGHT,
+    /// BACKGROUND_IMAGE_ALIGN_CENTER
+    ///
+    /// #### Deprecated
+    ///
+    /// the functionality of this method is now covered by background type
+    private void setBackgroundAlignment(byte backgroundAlignment) {
+        setBackgroundAlignment(backgroundAlignment, false);
+    }
+
+    /// Start color for the radial/linear gradient
+    ///
+    /// #### Returns
+    ///
+    /// the start color for the radial/linear gradient
+    public int getBackgroundGradientStartColor() {
+        if (backgroundGradient != null && backgroundGradient.length > 1) {
+            return ((Integer) backgroundGradient[0]).intValue();
+        }
+        return 0xffffff;
+    }
+
+    /// Sets the background color for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `backgroundGradientStartColor`: start color for the linear/radial gradient
+    public void setBackgroundGradientStartColor(int backgroundGradientStartColor) {
+        setBackgroundGradientStartColor(backgroundGradientStartColor, false);
+    }
+
+    /// End color for the radial/linear gradient
+    ///
+    /// #### Returns
+    ///
+    /// the end color for the radial/linear gradient
+    public int getBackgroundGradientEndColor() {
+        if (backgroundGradient != null && backgroundGradient.length > 1) {
+            return ((Integer) backgroundGradient[1]).intValue();
+        }
+        return 0;
+    }
+
+    /// Sets the background color for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `backgroundGradientEndColor`: end color for the linear/radial gradient
+    public void setBackgroundGradientEndColor(int backgroundGradientEndColor) {
+        setBackgroundGradientEndColor(backgroundGradientEndColor, false);
+    }
+
+    /// Background radial gradient relative center position X
+    ///
+    /// #### Returns
+    ///
+    /// value between 0 and 1 with 0.5 representing the center of the component
+    public float getBackgroundGradientRelativeX() {
+        if (backgroundGradient != null && backgroundGradient.length > 2) {
+            return ((Float) backgroundGradient[2]).floatValue();
+        }
+        return 0.5f;
+    }
+
+    /// Background radial gradient relative center position X
+    ///
+    /// #### Parameters
+    ///
+    /// - `backgroundGradientRelativeX`: x position of the radial gradient center
+    public void setBackgroundGradientRelativeX(float backgroundGradientRelativeX) {
+        setBackgroundGradientRelativeX(backgroundGradientRelativeX, false);
+    }
+
+    /// Background radial gradient relative center position Y
+    ///
+    /// #### Returns
+    ///
+    /// value between 0 and 1 with 0.5 representing the center of the component
+    public float getBackgroundGradientRelativeY() {
+        if (backgroundGradient != null && backgroundGradient.length > 3) {
+            return ((Float) backgroundGradient[3]).floatValue();
+        }
+        return 0.5f;
+    }
+
+    /// Background radial gradient relative center position Y
+    ///
+    /// #### Parameters
+    ///
+    /// - `backgroundGradientRelativeY`: y position of the radial gradient center
+    public void setBackgroundGradientRelativeY(float backgroundGradientRelativeY) {
+        setBackgroundGradientRelativeY(backgroundGradientRelativeY, false);
+    }
+
+    /// Background radial gradient relative size
+    ///
+    /// #### Returns
+    ///
+    /// value representing the relative size of the gradient
+    public float getBackgroundGradientRelativeSize() {
+        if (backgroundGradient != null && backgroundGradient.length > 4) {
+            return ((Float) backgroundGradient[4]).floatValue();
+        }
+        return 1f;
+    }
+
+    /// Background radial gradient relative size
+    ///
+    /// #### Parameters
+    ///
+    /// - `backgroundGradientRelativeSize`: the size of the radial gradient
+    public void setBackgroundGradientRelativeSize(float backgroundGradientRelativeSize) {
+        setBackgroundGradientRelativeSize(backgroundGradientRelativeSize, false);
+    }
+
+    /// Foreground color for the component
+    ///
+    /// #### Returns
+    ///
+    /// the foreground color for the component
+    public int getFgColor() {
+        return fgColor;
+    }
+
+    /// Sets the foreground color for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `fgColor`: foreground color
+    public final void setFgColor(int fgColor) {
+        setFgColor(fgColor, false);
+    }
+
+    /// Foreground alpha for the component
+    ///
+    /// #### Returns
+    ///
+    /// the foreground alpha for the component
+    ///
+    public int getFgAlpha() {
+        return fgAlpha;
+    }
+
+    /// Sets the foreground alpha for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `fgAlpha`: foreground alpha
+    public void setFgAlpha(int fgAlpha) {
+        setFgAlpha(fgAlpha, false);
+    }
+
+    /// Font for the component
+    ///
+    /// #### Returns
+    ///
+    /// the font for the component
+    public Font getFont() {
+        return font;
+    }
+
+    /// Sets the font for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `font`: the font
+    public void setFont(Font font) {
+        setFont(font, false);
+    }
+
+    /// Sets the elevation value.  Valid values include 0, 1, 2, 3, 4, 6, 8, 9, 12, 16, and 24.
+    ///
+    /// #### Parameters
+    ///
+    /// - `elevation`: The elevation value.
+    ///
+    /// - `override`: @param override  If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    ///
+    public void setElevation(int elevation, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setElevation(elevation, override);
+            }
+            return;
+        }
+        if (this.elevation != elevation) {
+            this.elevation = elevation;
+            if (!override) {
+                modifiedFlag |= ELEVATION_MODIFIED;
+            }
+            firePropertyChanged(ELEVATION);
+        }
+
+    }
+
+    /// Sets the icon gap.
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: The gap.
+    ///
+    /// - `units`: The units of the gap.
+    ///
+    /// - `override`: @param override If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    ///
+    /// #### See also
+    ///
+    /// - #setIconGapUnit(byte, boolean)
+    public void setIconGap(float gap, byte units, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setIconGap(gap, units, override);
+            }
+            return;
+        }
+        if (units != iconGapUnit || Math.abs(gap - iconGap) > 0.0001) {
+            iconGap = gap;
+            iconGapUnit = units;
+            if (!override) {
+                modifiedFlag |= ICON_GAP_MODIFIED;
+            }
+            firePropertyChanged(ICON_GAP);
+        }
+
+    }
+
+    /// Sets the icon gap.
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: the icon gap.
+    ///
+    /// - `override`: @param override If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    ///
+    /// #### See also
+    ///
+    /// - #setIconGapUnit(byte, boolean)
+    public void setIconGap(float gap, boolean override) {
+        setIconGap(gap, iconGapUnit, override);
+    }
+
+    /// Sets the icon gap.
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: The icon gap.
+    ///
+    /// - `unit`: The unit. One of the standard style units of measurement.
+    ///
+    public void setIconGap(float gap, byte unit) {
+        setIconGap(gap, unit, false);
+    }
+
+    /// Sets the icon gap unit.
+    ///
+    /// #### Parameters
+    ///
+    /// - `unit`: The icon gap unit.  One of the standard style units of measurement.
+    ///
+    /// - `override`: @param override If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    ///
+    public void setIconGapUnit(byte unit, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setIconGapUnit(unit);
+            }
+            return;
+        }
+        if (unit != iconGapUnit) {
+            this.iconGapUnit = unit;
+            if (!override) {
+                modifiedFlag |= ICON_GAP_MODIFIED;
+            }
+            firePropertyChanged(ICON_GAP);
+        }
+    }
+
+    /// Enables or disables surface rendering mode for component.  Surfaces can support a sort of
+    /// z-indexing of its descendants via their elevation properties.  The surface will render
+    /// the shadows of elevated descendants to convey depth.
+    ///
+    /// #### Parameters
+    ///
+    /// - `surface`: True to enable surface rendering mode.
+    ///
+    /// - `override`: @param override If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    ///
+    public void setSurface(boolean surface, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setSurface(surface, override);
+            }
+            return;
+        }
+        if (this.surface != surface) {
+            this.surface = surface;
+            if (!override) {
+                modifiedFlag |= SURFACE_MODIFIED;
+            }
+            firePropertyChanged(SURFACE);
+        }
+    }
+
+    /// Sets the Alignment of the Label to one of: CENTER, LEFT, RIGHT
+    ///
+    /// #### Parameters
+    ///
+    /// - `align`: alignment value
+    ///
+    /// - `override`: @param override If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    ///
+    /// #### See also
+    ///
+    /// - com.codename1.ui.Component#CENTER
+    ///
+    /// - com.codename1.ui.Component#LEFT
+    ///
+    /// - com.codename1.ui.Component#RIGHT
+    public void setAlignment(int align, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setAlignment(align, override);
+            }
+            return;
+        }
+        if (this.align != align) {
+            this.align = align;
+            if (!override) {
+                modifiedFlag |= ALIGNMENT_MODIFIED;
+            }
+            firePropertyChanged(ALIGNMENT);
+        }
+    }
+
+    /// Returns the alignment of the Label
+    ///
+    /// #### Returns
+    ///
+    /// the alignment of the Label one of: CENTER, LEFT, RIGHT
+    ///
+    /// #### See also
+    ///
+    /// - com.codename1.ui.Component#CENTER
+    ///
+    /// - com.codename1.ui.Component#LEFT
+    ///
+    /// - com.codename1.ui.Component#RIGHT
+    public int getAlignment() {
+        return align;
+    }
+
+    /// Sets the Alignment of the Label to one of: CENTER, LEFT, RIGHT
+    ///
+    /// #### Parameters
+    ///
+    /// - `align`: alignment value
+    ///
+    /// #### See also
+    ///
+    /// - com.codename1.ui.Component#CENTER
+    ///
+    /// - com.codename1.ui.Component#LEFT
+    ///
+    /// - com.codename1.ui.Component#RIGHT
+    public void setAlignment(int align) {
+        setAlignment(align, false);
+    }
+
+    /// Returns true if the underline text decoration is on, false otherwise
+    ///
+    /// #### Returns
+    ///
+    /// true if the underline text decoration is on, false otherwise
+    public boolean isUnderline() {
+        return ((textDecoration & TEXT_DECORATION_UNDERLINE) != 0);
+    }
+
+    /// Sets the underline text decoration for this style
+    ///
+    /// #### Parameters
+    ///
+    /// - `underline`: true to turn underline on, false to turn it off
+    public void setUnderline(boolean underline) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setUnderline(underline);
+            }
+            return;
+        }
+        if (underline != isUnderline()) {
+            if (underline) {
+                textDecoration |= TEXT_DECORATION_UNDERLINE;
+            } else {
+                textDecoration -= TEXT_DECORATION_UNDERLINE;
+            }
+        }
+    }
+
+    /// Sets the 3D text decoration for this style
+    ///
+    /// #### Parameters
+    ///
+    /// - `t`: true to turn 3d shadow effect on, false to turn it off
+    ///
+    /// - `raised`: indicates a raised or lowered effect
+    public void set3DText(boolean t, boolean raised) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.set3DText(t, raised);
+            }
+            return;
+        }
+        if (raised) {
+            if (t != isRaised3DText()) {
+                textDecoration = textDecoration & (~TEXT_DECORATION_3D_LOWERED);
+                if (t) {
+                    textDecoration |= TEXT_DECORATION_3D;
+                } else {
+                    textDecoration -= TEXT_DECORATION_3D;
+                }
+            }
+        } else {
+            if (t != isLowered3DText()) {
+                textDecoration = textDecoration & (~TEXT_DECORATION_3D);
+                if (t) {
+                    textDecoration |= TEXT_DECORATION_3D_LOWERED;
+                } else {
+                    textDecoration -= TEXT_DECORATION_3D_LOWERED;
+                }
+            }
+        }
+    }
+
+    /// Returns the text decoration state for the north
+    ///
+    /// #### Returns
+    ///
+    /// true if that is used
+    public boolean is3DTextNorth() {
+        return (textDecoration & TEXT_DECORATION_3D_SHADOW_NORTH) == TEXT_DECORATION_3D_SHADOW_NORTH;
+    }
+
+    /// Sets the text decoration to 3D text
+    ///
+    /// #### Parameters
+    ///
+    /// - `north`: true to enable 3d text with the shadow on top false otherwise
+    public void set3DTextNorth(boolean north) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.set3DTextNorth(north);
+            }
+            return;
+        }
+        textDecoration = TEXT_DECORATION_3D_SHADOW_NORTH;
+    }
+
+    /// Returns true if the 3D text decoration is on, false otherwise
+    ///
+    /// #### Returns
+    ///
+    /// true if the 3D text decoration is on, false otherwise
+    public boolean isRaised3DText() {
+        return ((textDecoration & TEXT_DECORATION_3D) != 0);
+    }
+
+    /// Returns true if the 3D text decoration is on, false otherwise
+    ///
+    /// #### Returns
+    ///
+    /// true if the 3D text decoration is on, false otherwise
+    public boolean isLowered3DText() {
+        return ((textDecoration & TEXT_DECORATION_3D_LOWERED) != 0);
+    }
+
+    /// Returns true if the overline text decoration is on, false otherwise
+    ///
+    /// #### Returns
+    ///
+    /// true if the overline text decoration is on, false otherwise
+    public boolean isOverline() {
+        return ((textDecoration & TEXT_DECORATION_OVERLINE) != 0);
+    }
+
+    /// Sets the overline text decoration for this style
+    ///
+    /// #### Parameters
+    ///
+    /// - `overline`: true to turn overline on, false to turn it off
+    public void setOverline(boolean overline) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setOverline(overline);
+            }
+            return;
+        }
+        if (overline != isOverline()) {
+            if (overline) {
+                textDecoration |= TEXT_DECORATION_OVERLINE;
+            } else {
+                textDecoration -= TEXT_DECORATION_OVERLINE;
+            }
+        }
+    }
+
+    /// Returns true if the strike through text decoration is on, false otherwise
+    ///
+    /// #### Returns
+    ///
+    /// true if the strike through  text decoration is on, false otherwise
+    public boolean isStrikeThru() {
+        return ((textDecoration & TEXT_DECORATION_STRIKETHRU) != 0);
+    }
+
+    /// Sets the strike through text decoration for this style
+    ///
+    /// #### Parameters
+    ///
+    /// - `strikethru`: true to turn strike through on, false to turn it off
+    public void setStrikeThru(boolean strikethru) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setStrikeThru(strikethru);
+            }
+            return;
+        }
+        if (strikethru != isStrikeThru()) {
+            if (strikethru) {
+                textDecoration |= TEXT_DECORATION_STRIKETHRU;
+            } else {
+                textDecoration -= TEXT_DECORATION_STRIKETHRU;
+            }
+        }
+    }
+
+    /// Returns the text decoration of this style
+    ///
+    /// #### Returns
+    ///
+    /// the text decoration of this style (bitmask of the TEXT_DECORATION_* constants)
+    public int getTextDecoration() {
+        return textDecoration;
+    }
+
+    /// Sets the text decoration of this style
+    ///
+    /// #### Parameters
+    ///
+    /// - `textDecoration`: the textDecoration to set (bitmask of the TEXT_DECORATION_* constants)
+    public void setTextDecoration(int textDecoration) {
+        setTextDecoration(textDecoration, false);
+    }
+
+    /// Sets the text decoration of this style
+    ///
+    /// #### Parameters
+    ///
+    /// - `textDecoration`: the textDecoration to set (bitmask of the TEXT_DECORATION_* constants)
+    ///
+    /// - `override`: @param override       If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setTextDecoration(int textDecoration, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setTextDecoration(textDecoration, override);
+            }
+            return;
+        }
+        this.textDecoration = textDecoration;
+        if (this.textDecoration != textDecoration) {
+            this.textDecoration = textDecoration;
+            if (!override) {
+                modifiedFlag |= TEXT_DECORATION_MODIFIED;
+            }
+            firePropertyChanged(TEXT_DECORATION);
+        }
+    }
+
+    /// Returns the transparency (opacity) level of the Component, zero indicates fully
+    /// transparent and FF indicates fully opaque.
+    ///
+    /// #### Returns
+    ///
+    /// the transparency level of the Component
+    public byte getBgTransparency() {
+        if (bgImage != null && backgroundType <= BACKGROUND_IMAGE_TILE_BOTH && backgroundType != BACKGROUND_NONE && (bgImage.isAnimation() || bgImage.isOpaque())) {
+            return (byte) 0xff;
+        }
+        return transparency;
+    }
+
+    /// Sets the Component transparency (opacity) level of the Component, zero indicates fully
+    /// transparent and FF indicates fully opaque.
+    ///
+    /// #### Parameters
+    ///
+    /// - `transparency`: transparency level as byte
+    public void setBgTransparency(byte transparency) {
+        setBgTransparency(transparency & 0xFF, false);
+    }
+
+    /// Sets the Component transparency level. Valid values should be a
+    /// number between 0-255
+    ///
+    /// #### Parameters
+    ///
+    /// - `transparency`: int value between 0-255
+    public void setBgTransparency(int transparency) {
+        setBgTransparency(transparency, false);
+    }
+
+    /// Returns the opacity value for the component
+    ///
+    /// #### Returns
+    ///
+    /// the opacity value
+    public int getOpacity() {
+        return opacity & 0xff;
+    }
+
+    /// Set the opacity value
+    ///
+    /// #### Parameters
+    ///
+    /// - `opacity`: the opacity value
+    public final void setOpacity(int opacity) {
+        setOpacity(opacity, false);
+    }
+
+    /// Sets the Component transparency level. Valid values should be a
+    /// number between 0-255
+    ///
+    /// #### Parameters
+    ///
+    /// - `opacity`: int value between 0-255
+    ///
+    /// - `override`: @param override If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public final void setOpacity(int opacity, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setOpacity(opacity, override);
+            }
+            return;
+        }
+        if (opacity < 0 || opacity > 255) {
+            throw new IllegalArgumentException("valid values are between 0-255: " + opacity);
+        }
+        if (this.opacity != (byte) opacity) {
+            this.opacity = (byte) opacity;
+
+            if (!override) {
+                modifiedFlag |= OPACITY_MODIFIED;
+            }
+            firePropertyChanged(OPACITY);
+        }
+    }
+
+    /// Strips all margin and padding from this style.
+    ///
+    public void stripMarginAndPadding() {
+        setPadding(0, 0, 0, 0);
+        setMargin(0, 0, 0, 0);
+        setBorder(Border.createEmpty());
+    }
+
+    /// Sets the Style Padding. Units are specified by `#setPaddingUnit(byte...)`
+    ///
+    /// #### Parameters
+    ///
+    /// - `top`: number of units to pad the top
+    ///
+    /// - `bottom`: number of units to pad the bottom
+    ///
+    /// - `left`: number of units to pad the left
+    ///
+    /// - `right`: number of units to pad the right
+    ///
+    /// #### See also
+    ///
+    /// - #setPaddingUnit(byte...)
+    public void setPadding(int top, int bottom, int left, int right) {
+        this.setPadding((float) top, (float) bottom, (float) left, (float) right);
+    }
+
+    /// Sets the Style Padding. Units are specified by `#setPaddingUnit(byte...)`
+    ///
+    /// #### Parameters
+    ///
+    /// - `top`: number of units to pad the top
+    ///
+    /// - `bottom`: number of units to pad the bottom
+    ///
+    /// - `left`: number of units to pad the left
+    ///
+    /// - `right`: number of units to pad the right
+    ///
+    /// #### See also
+    ///
+    /// - #setPaddingUnit(byte...)
+    public void setPadding(float top, float bottom, float left, float right) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setPadding(top, bottom, left, right);
+            }
+            return;
+        }
+        if (top < 0 || left < 0 || right < 0 || bottom < 0) {
+            throw new IllegalArgumentException("padding cannot be negative");
+        }
+        if (padding[Component.TOP] != top ||
+                padding[Component.BOTTOM] != bottom ||
+                padding[Component.LEFT] != left ||
+                padding[Component.RIGHT] != right) {
+            padding[Component.TOP] = top;
+            padding[Component.BOTTOM] = bottom;
+            padding[Component.LEFT] = left;
+            padding[Component.RIGHT] = right;
+
+            modifiedFlag |= PADDING_MODIFIED;
+            firePropertyChanged(PADDING);
+        }
+    }
+
+    /// Sets the Style Padding. Units are specified by `#setPaddingUnit(byte...)`
+    ///
+    /// #### Parameters
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// - `gap`: number of units to pad the orientation
+    public void setPadding(int orientation, int gap) {
+        setPadding(orientation, gap, false);
+    }
+
+    /// Sets the Style Padding. Units are specified by `#setPaddingUnit(byte...)`
+    ///
+    /// #### Parameters
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// - `gap`: number of units to pad the orientation
+    public void setPadding(int orientation, float gap) {
+        setPadding(orientation, gap, false);
+    }
+
+    /// Sets the Style Margin
+    ///
+    /// #### Parameters
+    ///
+    /// - `top`: number of margin using the current unit
+    ///
+    /// - `bottom`: number of margin using the current unit
+    ///
+    /// - `left`: number of margin using the current unit
+    ///
+    /// - `right`: number of margin using the current unit
+    public void setMargin(int top, int bottom, int left, int right) {
+        setMargin((float) top, (float) bottom, (float) left, (float) right);
+    }
+
+    /// Sets the Style Margin
+    ///
+    /// #### Parameters
+    ///
+    /// - `top`: number of margin using the current unit
+    ///
+    /// - `bottom`: number of margin using the current unit
+    ///
+    /// - `left`: number of margin using the current unit
+    ///
+    /// - `right`: number of margin using the current unit
+    public void setMargin(float top, float bottom, float left, float right) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setMargin(top, bottom, left, right);
+            }
+            return;
+        }
+        if (top < 0 || left < 0 || right < 0 || bottom < 0) {
+            throw new IllegalArgumentException("margin cannot be negative");
+        }
+        if (margin[Component.TOP] != top ||
+                margin[Component.BOTTOM] != bottom ||
+                margin[Component.LEFT] != left ||
+                margin[Component.RIGHT] != right) {
+            margin[Component.TOP] = top;
+            margin[Component.BOTTOM] = bottom;
+            margin[Component.LEFT] = left;
+            margin[Component.RIGHT] = right;
+
+            modifiedFlag |= MARGIN_MODIFIED;
+            firePropertyChanged(MARGIN);
+        }
+    }
+
+    /// Store current margin values into a cache that could be restored with restoreCachedMargins()
+    ///
+    /// #### Parameters
+    ///
+    /// - `override`: if true, margins are cached even if a previous cache already exists. If false, margins are cached only if no cache already exists.
+    /// Warning: This method is used internally when hidding a component with the Component.setHidden(true) method and expect a component with no previous margins cache.
+    /// So do not use this method on a component that would be hidden or flush its margins cache by calling flushMarginsCache() before hidding the component.
+    /// And do not use on an hidden component either or unhidding this component might result in unexpected results
+    public void cacheMargins(boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.cacheMargins(override);
+            }
+            return;
+        }
+        //else
+        if (override || cached_margin == null) {
+            cached_margin = new float[4];
+            System.arraycopy(margin, 0, cached_margin, 0, margin.length);
+        }
+    }
+
+    /// Restore cached margins and flush the margins cache
+    /// Warning: this method is used internally when unhidding a component with the Component.setHidden(false) method
+    /// Do not use it on an hidden component or it would result into unexpected results when unhidding this component
+    public void restoreCachedMargins() {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.restoreCachedMargins();
+            }
+            return;
+        }
+        //else
+        if (cached_margin != null) {
+            setMargin(cached_margin[0], cached_margin[1], cached_margin[2], cached_margin[3]);
+            cached_margin = null;
+        }
+    }
+
+    /// Flush the margins cache if one exists
+    public void flushMarginsCache() {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.flushMarginsCache();
+            }
+            return;
+        }
+        cached_margin = null;
+    }
+
+    /// Sets the Style Margin
+    ///
+    /// #### Parameters
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// - `gap`: number of margin using the current unit
+    public void setMargin(int orientation, int gap) {
+        setMargin(orientation, gap, false);
+    }
+
+    /// Sets the Style Margin
+    ///
+    /// #### Parameters
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// - `gap`: number of margin using the current unit
+    public void setMargin(int orientation, float gap) {
+        setMargin(orientation, gap, false);
+    }
+
+    /// Returns the Padding in the internal value regardless of the unit
+    ///
+    /// #### Parameters
+    ///
+    /// - `rtl`: flag indicating whether the padding is for an RTL bidi component
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// #### Returns
+    ///
+    /// amount of padding in the given orientation using current units.
+    ///
+    /// #### Deprecated
+    ///
+    /// Use `int)`
+    ///
+    /// #### See also
+    ///
+    /// - #getPaddingUnit()
+    public int getPaddingValue(boolean rtl, int orientation) {
+        return (int) getPaddingFloatValue(rtl, orientation);
+    }
+
+    /// Returns the Padding in the internal value regardless of the unit
+    ///
+    /// #### Parameters
+    ///
+    /// - `rtl`: flag indicating whether the padding is for an RTL bidi component
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// #### Returns
+    ///
+    /// amount of padding in the given orientation using current units.
+    ///
+    /// #### See also
+    ///
+    /// - #getPaddingUnit()
+    public float getPaddingFloatValue(boolean rtl, int orientation) {
+        if (orientation < Component.TOP || orientation > Component.RIGHT) {
+            throw new IllegalArgumentException("wrong orientation " + orientation);
+        }
+
+        if (rtl) {
+            switch (orientation) {
+                case Component.LEFT:
+                    orientation = Component.RIGHT;
+                    break;
+                case Component.RIGHT:
+                    orientation = Component.LEFT;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        return padding[orientation];
+    }
+
+    /// Returns the left padding in pixel or right padding in an RTL situation
+    ///
+    /// #### Parameters
+    ///
+    /// - `rtl`: indicates a right to left language
+    ///
+    /// #### Returns
+    ///
+    /// the padding in pixels
+    public int getPaddingLeft(boolean rtl) {
+        if (rtl) {
+            return convertUnit(paddingUnit, padding[Component.RIGHT], Component.RIGHT);
+        }
+        return convertUnit(paddingUnit, padding[Component.LEFT], Component.LEFT);
+    }
+
+    private void initPaddingUnits() {
+        if (paddingUnit == null) {
+            paddingUnit = new byte[]{UNIT_TYPE_PIXELS, UNIT_TYPE_PIXELS, UNIT_TYPE_PIXELS, UNIT_TYPE_PIXELS};
+        }
+    }
+
+    /// Sets left padding unit.
+    ///
+    /// #### Parameters
+    ///
+    /// - `unit`: @param unit One of of `#UNIT_TYPE_PIXELS`, `#UNIT_TYPE_DIPS`, `#UNIT_TYPE_SCREEN_PERCENTAGE`, `#UNIT_TYPE_VW`, `#UNIT_TYPE_VH`,
+    /// `#UNIT_TYPE_VMIN`, `#UNIT_TYPE_VMAX`, `#UNIT_TYPE_REM`.
+    ///
+    public void setPaddingUnitLeft(byte unit) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setPaddingUnitLeft(unit);
+            }
+            return;
+        }
+        initPaddingUnits();
+        paddingUnit[Component.LEFT] = unit;
+    }
+
+    /// Sets right padding unit.
+    ///
+    /// #### Parameters
+    ///
+    /// - `unit`: @param unit One of `#UNIT_TYPE_PIXELS`, `#UNIT_TYPE_DIPS`, `#UNIT_TYPE_SCREEN_PERCENTAGE`, `#UNIT_TYPE_VW`, `#UNIT_TYPE_VH`,
+    /// `#UNIT_TYPE_VMIN`, `#UNIT_TYPE_VMAX`, `#UNIT_TYPE_REM`.
+    ///
+    public void setPaddingUnitRight(byte unit) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setPaddingUnitRight(unit);
+            }
+            return;
+        }
+        initPaddingUnits();
+        paddingUnit[Component.RIGHT] = unit;
+    }
+
+    /// Sets top padding unit.
+    ///
+    /// #### Parameters
+    ///
+    /// - `unit`: @param unit One of `#UNIT_TYPE_PIXELS`, `#UNIT_TYPE_DIPS`, `#UNIT_TYPE_SCREEN_PERCENTAGE`, `#UNIT_TYPE_VW`, `#UNIT_TYPE_VH`,
+    /// `#UNIT_TYPE_VMIN`, `#UNIT_TYPE_VMAX`, `#UNIT_TYPE_REM`.
+    ///
+    public void setPaddingUnitTop(byte unit) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setPaddingUnitTop(unit);
+            }
+            return;
+        }
+        initPaddingUnits();
+        paddingUnit[Component.TOP] = unit;
+    }
+
+    /// Sets bottom padding unit.
+    ///
+    /// #### Parameters
+    ///
+    /// - `unit`: @param unit One of `#UNIT_TYPE_PIXELS`, `#UNIT_TYPE_DIPS`, `#UNIT_TYPE_SCREEN_PERCENTAGE`, `#UNIT_TYPE_VW`, `#UNIT_TYPE_VH`,
+    /// `#UNIT_TYPE_VMIN`, `#UNIT_TYPE_VMAX`, `#UNIT_TYPE_REM`.
+    ///
+    public void setPaddingUnitBottom(byte unit) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setPaddingUnitBottom(unit);
+            }
+            return;
+        }
+        initPaddingUnits();
+        paddingUnit[Component.BOTTOM] = unit;
+    }
+
+    /// Returns the right padding in pixel or left padding in an RTL situation
+    ///
+    /// #### Parameters
+    ///
+    /// - `rtl`: indicates a right to left language
+    ///
+    /// #### Returns
+    ///
+    /// the padding in pixels
+    public int getPaddingRight(boolean rtl) {
+        if (rtl) {
+            return convertUnit(paddingUnit, padding[Component.LEFT], Component.LEFT);
+        }
+        return convertUnit(paddingUnit, padding[Component.RIGHT], Component.RIGHT);
+    }
+
+    /// Returns the top padding in pixel
+    ///
+    /// #### Returns
+    ///
+    /// the padding in pixels
+    public int getPaddingTop() {
+        return convertUnit(paddingUnit, padding[Component.TOP], Component.TOP);
+    }
+
+    /// Sets the Style Padding on the top, this is equivalent to calling `setPadding(Component.TOP, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: amount to pad the top in current units.
+    ///
+    /// #### See also
+    ///
+    /// - #getPaddingUnit()
+    public void setPaddingTop(int gap) {
+        this.setPaddingTop((float) gap);
+    }
+
+    /// Sets the Style Padding on the top, this is equivalent to calling `setPadding(Component.TOP, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: Amount to pad the top in current units.
+    ///
+    /// #### See also
+    ///
+    /// - #getPaddingUnit()
+    ///
+    /// - #setPaddingUnit(byte...)
+    public void setPaddingTop(float gap) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setPaddingTop(gap);
+            }
+            return;
+        }
+        if (gap < 0) {
+            throw new IllegalArgumentException("padding cannot be negative");
+        }
+        if (padding[Component.TOP] != gap) {
+            padding[Component.TOP] = gap;
+            modifiedFlag |= PADDING_MODIFIED;
+            firePropertyChanged(PADDING);
+        }
+    }
+
+    /// Sets the Style Padding on the left, this is equivalent to calling `setPadding(Component.LEFT, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: Amount to pad the left in current units.
+    ///
+    /// #### See also
+    ///
+    /// - #getPaddingUnit()
+    ///
+    /// - #setPaddingUnit(byte...)
+    public void setPaddingLeft(int gap) {
+        this.setPaddingLeft((float) gap);
+    }
+
+    /// Sets the Style Padding on the left, this is equivalent to calling `setPadding(Component.LEFT, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: Amount to pad the left in current units.
+    ///
+    /// #### See also
+    ///
+    /// - #getPaddingUnit()
+    ///
+    /// - #setPaddingUnit(byte...)
+    public void setPaddingLeft(float gap) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setPaddingLeft(gap);
+            }
+            return;
+        }
+        if (gap < 0) {
+            throw new IllegalArgumentException("padding cannot be negative");
+        }
+        if (padding[Component.LEFT] != gap) {
+            padding[Component.LEFT] = gap;
+            modifiedFlag |= PADDING_MODIFIED;
+            firePropertyChanged(PADDING);
+        }
+    }
+
+    /// Sets the Style Padding on the right, this is equivalent to calling `setPadding(Component.RIGHT, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: Amount to pad the right in current units.
+    ///
+    /// #### See also
+    ///
+    /// - #getPaddingUnit()
+    ///
+    /// - #setPaddingUnit(byte...)
+    public void setPaddingRight(int gap) {
+        this.setPaddingRight((float) gap);
+    }
+
+    /// Sets the Style Padding on the right, this is equivalent to calling `setPadding(Component.RIGHT, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: Amount to pad the right in current units.
+    ///
+    /// #### See also
+    ///
+    /// - #getPaddingUnit()
+    ///
+    /// - #setPaddingUnit(byte...)
+    public void setPaddingRight(float gap) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setPaddingRight(gap);
+            }
+            return;
+        }
+        if (gap < 0) {
+            throw new IllegalArgumentException("padding cannot be negative");
+        }
+        if (padding[Component.RIGHT] != gap) {
+            padding[Component.RIGHT] = gap;
+            modifiedFlag |= PADDING_MODIFIED;
+            firePropertyChanged(PADDING);
+        }
+    }
+
+    /// Sets the Style Margin on the left, this is equivalent to calling `setMargin(Component.LEFT, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: number of left margin using the current unit
+    public void setMarginLeft(int gap) {
+        this.setMarginLeft((float) gap);
+    }
+
+    /// Sets the Style Margin on the left, this is equivalent to calling `setMargin(Component.LEFT, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: number of left margin using the current unit
+    public void setMarginLeft(float gap) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setMarginLeft(gap);
+            }
+            return;
+        }
+        if (gap < 0) {
+            throw new IllegalArgumentException("Margin cannot be negative");
+        }
+        if (margin[Component.LEFT] != gap) {
+            margin[Component.LEFT] = gap;
+            modifiedFlag |= MARGIN_MODIFIED;
+            firePropertyChanged(MARGIN);
+        }
+    }
+
+    /// Sets the Style Margin on the right, this is equivalent to calling `setMargin(Component.RIGHT, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: number of right margin using the current unit
+    public void setMarginRight(int gap) {
+        this.setMarginRight((float) gap);
+    }
+
+    /// Sets the Style Margin on the right, this is equivalent to calling `setMargin(Component.RIGHT, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: number of right margin using the current unit
+    public void setMarginRight(float gap) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setMarginRight(gap);
+            }
+            return;
+        }
+        if (gap < 0) {
+            throw new IllegalArgumentException("Margin cannot be negative");
+        }
+        if (margin[Component.RIGHT] != gap) {
+            margin[Component.RIGHT] = gap;
+            modifiedFlag |= MARGIN_MODIFIED;
+            firePropertyChanged(MARGIN);
+        }
+    }
+
+    /// Returns the bottom padding in pixel
+    ///
+    /// #### Returns
+    ///
+    /// the padding in pixels
+    public int getPaddingBottom() {
+        return convertUnit(paddingUnit, padding[Component.BOTTOM], Component.BOTTOM);
+    }
+
+    /// Sets the Style Padding on the bottom, this is equivalent to calling `setPadding(Component.BOTTOM, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: Amount to pad the bottom in current units.
+    ///
+    /// #### See also
+    ///
+    /// - #getPaddingUnit()
+    ///
+    /// - #setPaddingUnit(byte...)
+    public void setPaddingBottom(int gap) {
+        this.setPaddingBottom((float) gap);
+    }
+
+    /// Sets the Style Padding on the bottom, this is equivalent to calling `setPadding(Component.BOTTOM, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: Amount to pad the bottom in current units.
+    ///
+    /// #### See also
+    ///
+    /// - #getPaddingUnit()
+    ///
+    /// - #setPaddingUnit(byte...)
+    public void setPaddingBottom(float gap) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setPaddingBottom(gap);
+            }
+            return;
+        }
+        if (gap < 0) {
+            throw new IllegalArgumentException("padding cannot be negative");
+        }
+        if (padding[Component.BOTTOM] != gap) {
+            padding[Component.BOTTOM] = gap;
+            modifiedFlag |= PADDING_MODIFIED;
+            firePropertyChanged(PADDING);
+        }
+    }
+
+    /// The equivalent of getMarginLeft + getMarginRight
+    ///
+    /// #### Returns
+    ///
+    /// the side margin
+    public int getHorizontalMargins() {
+        return convertUnit(marginUnit, margin[Component.RIGHT], Component.RIGHT) +
+                convertUnit(marginUnit, margin[Component.LEFT], Component.LEFT);
+    }
+
+    /// The equivalent of getMarginTop + getMarginBottom
+    ///
+    /// #### Returns
+    ///
+    /// the vertical margin
+    public int getVerticalMargins() {
+        return convertUnit(marginUnit, margin[Component.TOP], Component.TOP) +
+                convertUnit(marginUnit, margin[Component.BOTTOM], Component.BOTTOM);
+    }
+
+    /// The equivalent of getPaddingLeft + getPaddingRight
+    ///
+    /// #### Returns
+    ///
+    /// the side padding
+    public int getHorizontalPadding() {
+        return convertUnit(paddingUnit, padding[Component.RIGHT], Component.RIGHT) +
+                convertUnit(paddingUnit, padding[Component.LEFT], Component.LEFT);
+    }
+
+    /// The equivalent of getPaddingTop + getPaddingBottom
+    ///
+    /// #### Returns
+    ///
+    /// the vertical padding
+    public int getVerticalPadding() {
+        return convertUnit(paddingUnit, padding[Component.TOP], Component.TOP) +
+                convertUnit(paddingUnit, padding[Component.BOTTOM], Component.BOTTOM);
+    }
+
+    /// Returns the right margin in pixels ignoring RTL
+    ///
+    /// #### Returns
+    ///
+    /// the margin in pixels
+    public int getMarginRightNoRTL() {
+        return convertUnit(marginUnit, margin[Component.RIGHT], Component.RIGHT);
+    }
+
+    /// Returns the left margin in pixels ignoring RTL
+    ///
+    /// #### Returns
+    ///
+    /// the margin in pixels
+    public int getMarginLeftNoRTL() {
+        return convertUnit(marginUnit, margin[Component.LEFT], Component.LEFT);
+    }
+
+    /// Returns the right padding in pixels ignoring RTL
+    ///
+    /// #### Returns
+    ///
+    /// the padding in pixels
+    public int getPaddingRightNoRTL() {
+        return convertUnit(paddingUnit, padding[Component.RIGHT], Component.RIGHT);
+    }
+
+    /// Returns the left padding in pixels ignoring RTL
+    ///
+    /// #### Returns
+    ///
+    /// the padding in pixels
+    public int getPaddingLeftNoRTL() {
+        return convertUnit(paddingUnit, padding[Component.LEFT], Component.LEFT);
+    }
+
+    /// Returns the right margin in pixel or left margin in an RTL situation
+    ///
+    /// #### Parameters
+    ///
+    /// - `rtl`: indicates a right to left language
+    ///
+    /// #### Returns
+    ///
+    /// the margin in pixels
+    public int getMarginRight(boolean rtl) {
+        if (rtl) {
+            return convertUnit(marginUnit, margin[Component.LEFT], Component.LEFT);
+        }
+        return convertUnit(marginUnit, margin[Component.RIGHT], Component.RIGHT);
+    }
+
+    /// Returns the left margin in pixel or right margin in an RTL situation
+    ///
+    /// #### Parameters
+    ///
+    /// - `rtl`: indicates a right to left language
+    ///
+    /// #### Returns
+    ///
+    /// the margin in pixels
+    public int getMarginLeft(boolean rtl) {
+        if (rtl) {
+            return convertUnit(marginUnit, margin[Component.RIGHT], Component.RIGHT);
+        }
+        return convertUnit(marginUnit, margin[Component.LEFT], Component.LEFT);
+    }
+
+    /// Returns the top margin in pixel
+    ///
+    /// #### Returns
+    ///
+    /// the margin in pixels
+    public int getMarginTop() {
+        return convertUnit(marginUnit, margin[Component.TOP], Component.TOP);
+    }
+
+    /// Sets the Style margin on the top, this is equivalent to calling `setMargin(Component.TOP, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: number of top margin using the current unit
+    public void setMarginTop(int gap) {
+        this.setMarginTop((float) gap);
+    }
+
+    /// Sets the Style margin on the top, this is equivalent to calling `setMargin(Component.TOP, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: number of top margin using the current unit
+    public void setMarginTop(float gap) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setMarginTop(gap);
+            }
+            return;
+        }
+        if (gap < 0) {
+            throw new IllegalArgumentException("Margin cannot be negative");
+        }
+        if (margin[Component.TOP] != gap) {
+            margin[Component.TOP] = gap;
+            modifiedFlag |= MARGIN_MODIFIED;
+            firePropertyChanged(MARGIN);
+        }
+    }
+
+    /// Returns the bottom margin in pixel
+    ///
+    /// #### Returns
+    ///
+    /// the margin in pixels
+    public int getMarginBottom() {
+        return convertUnit(marginUnit, margin[Component.BOTTOM], Component.BOTTOM);
+    }
+
+    /// Sets the Style Margin on the bottom, this is equivalent to calling `setMargin(Component.BOTTOM, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: number of bottom margin using the current unit
+    public void setMarginBottom(int gap) {
+        this.setMarginBottom((float) gap);
+    }
+
+    /// Sets the Style Margin on the bottom, this is equivalent to calling `setMargin(Component.BOTTOM, gap, false);`
+    ///
+    /// #### Parameters
+    ///
+    /// - `gap`: number of bottom margin using the current unit
+    public void setMarginBottom(float gap) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setMarginBottom(gap);
+            }
+            return;
+        }
+        if (gap < 0) {
+            throw new IllegalArgumentException("Margin cannot be negative");
+        }
+        if (margin[Component.BOTTOM] != gap) {
+            margin[Component.BOTTOM] = gap;
+            modifiedFlag |= MARGIN_MODIFIED;
+            firePropertyChanged(MARGIN);
+        }
+    }
+
+    /// Returns the Padding in using the current unit
+    ///
+    /// #### Parameters
+    ///
+    /// - `rtl`: flag indicating whether the padding is for an RTL bidi component
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// #### Returns
+    ///
+    /// number of padding pixels in the given orientation
+    public int getPadding(boolean rtl, int orientation) {
+        return convertUnit(paddingUnit, getPaddingFloatValue(rtl, orientation), orientation);
+    }
+
+    private int convertUnit(byte[] unitType, float v, int orientation) {
+        if (unitType != null) {
+            switch (unitType[orientation]) {
+                case UNIT_TYPE_REM:
+                    return Math.round(v * Font.getDefaultFont().getHeight());
+                case UNIT_TYPE_VH:
+                    return Math.round(v / 100f * CN.getDisplayHeight());
+                case UNIT_TYPE_VW:
+                    return Math.round(v / 100f * CN.getDisplayWidth());
+                case UNIT_TYPE_VMIN:
+                    return Math.round(v / 100f * Math.min(CN.getDisplayWidth(), CN.getDisplayHeight()));
+                case UNIT_TYPE_VMAX:
+                    return Math.round(v / 100f * Math.max(CN.getDisplayWidth(), CN.getDisplayHeight()));
+                case UNIT_TYPE_DIPS:
+                    return Display.getInstance().convertToPixels(v);
+                case UNIT_TYPE_SCREEN_PERCENTAGE:
+                    if (orientation == Component.TOP || orientation == Component.BOTTOM) {
+                        float h = Display.getInstance().getDisplayHeight();
+                        h = h / 100.0f * v;
+                        return (int) h;
+                    } else {
+                        float w = Display.getInstance().getDisplayWidth();
+                        w = w / 100.0f * v;
+                        return (int) w;
+                    }
+                default:
+                    return (int) v;
+            }
+        }
+        return (int) v;
+    }
+
+    /// Returns the Padding
+    ///
+    /// #### Parameters
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// #### Returns
+    ///
+    /// number of padding pixels in the given orientation
+    public int getPadding(int orientation) {
+        return getPadding(UIManager.getInstance().getLookAndFeel().isRTL(), orientation);
+    }
+
+    /// Returns the Margin
+    ///
+    /// #### Parameters
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// #### Returns
+    ///
+    /// number of margin using the current unit in the given orientation
+    public int getMargin(int orientation) {
+        return getMargin(UIManager.getInstance().getLookAndFeel().isRTL(), orientation);
+    }
+
+    /// Returns the Margin
+    ///
+    /// #### Parameters
+    ///
+    /// - `rtl`: flag indicating whether the padding is for an RTL bidi component
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// #### Returns
+    ///
+    /// number of margin using the current unit in the given orientation
+    public int getMargin(boolean rtl, int orientation) {
+        return convertUnit(marginUnit, getMarginFloatValue(rtl, orientation), orientation);
+    }
+
+    /// Returns the Margin
+    ///
+    /// #### Parameters
+    ///
+    /// - `rtl`: flag indicating whether the padding is for an RTL bidi component
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// #### Returns
+    ///
+    /// number of margin using the current unit in the given orientation
+    ///
+    /// #### Deprecated
+    ///
+    /// Use `int)`
+    public int getMarginValue(boolean rtl, int orientation) {
+        return (int) getMarginFloatValue(rtl, orientation);
+    }
+
+    /// Returns the Margin
+    ///
+    /// #### Parameters
+    ///
+    /// - `rtl`: flag indicating whether the padding is for an RTL bidi component
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// #### Returns
+    ///
+    /// number of margin using the current unit in the given orientation
+    ///
+    public float getMarginFloatValue(boolean rtl, int orientation) {
+        if (orientation < Component.TOP || orientation > Component.RIGHT) {
+            throw new IllegalArgumentException("wrong orientation " + orientation);
+        }
+        if (rtl) {
+            switch (orientation) {
+                case Component.LEFT:
+                    orientation = Component.RIGHT;
+                    break;
+                case Component.RIGHT:
+                    orientation = Component.LEFT;
+                    break;
+                default:
+                    break;
+            }
+        }
+        return margin[orientation];
+    }
+
+    /// Sets the background color for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `bgColor`: RRGGBB color that ignores the alpha component
+    ///
+    /// - `override`: @param override If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setBgColor(int bgColor, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setBgColor(bgColor, override);
+            }
+            return;
+        }
+        if (this.bgColor != bgColor) {
+            this.bgColor = bgColor;
+            if (!override) {
+                modifiedFlag |= BG_COLOR_MODIFIED;
+            }
+            firePropertyChanged(BG_COLOR);
+        }
+    }
+
+    /// Sets the background image for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `bgImage`: background image
+    ///
+    /// - `override`: @param override If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setBgImage(Image bgImage, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setBgImage(bgImage, override);
+            }
+            return;
+        }
+        if (this.bgImage != bgImage) { //NOPMD CompareObjectsWithEquals
+            this.bgImage = bgImage;
+            if (!override) {
+                modifiedFlag |= BG_IMAGE_MODIFIED;
+            }
+            firePropertyChanged(BG_IMAGE);
+        }
+    }
+
+    /// Sets the background type for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `backgroundType`: @param backgroundType one of BACKGROUND_IMAGE_SCALED, BACKGROUND_IMAGE_TILE_BOTH,
+    /// BACKGROUND_IMAGE_TILE_VERTICAL, BACKGROUND_IMAGE_TILE_HORIZONTAL,
+    /// BACKGROUND_IMAGE_ALIGNED, BACKGROUND_GRADIENT_LINEAR_HORIZONTAL,
+    /// BACKGROUND_GRADIENT_LINEAR_VERTICAL, BACKGROUND_GRADIENT_RADIAL
+    ///
+    /// - `override`: @param override       If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setBackgroundType(byte backgroundType, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setBackgroundType(backgroundType, override);
+            }
+            return;
+        }
+        if (this.backgroundType != backgroundType) {
+            this.backgroundType = backgroundType;
+            if (!override) {
+                modifiedFlag |= BACKGROUND_TYPE_MODIFIED;
+            }
+            firePropertyChanged(BACKGROUND_TYPE);
+        }
+    }
+
+    /// Sets the background alignment for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `backgroundAlignment`: @param backgroundAlignment one of:
+    /// BACKGROUND_IMAGE_ALIGN_TOP, BACKGROUND_IMAGE_ALIGN_BOTTOM,
+    /// BACKGROUND_IMAGE_ALIGN_LEFT, BACKGROUND_IMAGE_ALIGN_RIGHT,
+    /// BACKGROUND_IMAGE_ALIGN_CENTER
+    ///
+    /// - `override`: @param override            If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    ///
+    /// #### Deprecated
+    ///
+    /// the functionality of this method is now covered by background type
+    private void setBackgroundAlignment(byte backgroundAlignment, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setBackgroundAlignment(backgroundAlignment, override);
+            }
+            return;
+        }
+        if (this.backgroundAlignment != backgroundAlignment) {
+            this.backgroundAlignment = backgroundAlignment;
+            if (!override) {
+                modifiedFlag |= BACKGROUND_ALIGNMENT_MODIFIED;
+            }
+            firePropertyChanged(BACKGROUND_ALIGNMENT);
+        }
+    }
+
+    /// Returns the background gradient array which includes the start/end color
+    /// and optionally the x/y relative anchor for the radial gradient
+    ///
+    /// #### Returns
+    ///
+    /// @return the background gradient array which includes the start/end color
+    /// and optionally the x/y relative anchor for the radial gradient
+    Object[] getBackgroundGradient() {
+        if (backgroundGradient == null) {
+            Float c = Float.valueOf(0.5f);
+            backgroundGradient = new Object[]{Integer.valueOf(0xffffff), Integer.valueOf(0), c, c, Float.valueOf(1)};
+        }
+        return backgroundGradient;
+    }
+
+    /// Internal use background gradient setter
+    void setBackgroundGradient(Object[] backgroundGradient) {
+        this.backgroundGradient = backgroundGradient;
+    }
+
+    /// Sets the background color for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `backgroundGradientStartColor`: start color for the linear/radial gradient
+    ///
+    /// - `override`: @param override                     If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setBackgroundGradientStartColor(int backgroundGradientStartColor, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setBackgroundGradientStartColor(backgroundGradientStartColor, override);
+            }
+            return;
+        }
+        if (((Integer) getBackgroundGradient()[0]).intValue() != backgroundGradientStartColor) {
+            getBackgroundGradient()[0] = Integer.valueOf(backgroundGradientStartColor);
+            if (!override) {
+                modifiedFlag |= BACKGROUND_GRADIENT_MODIFIED;
+            }
+            firePropertyChanged(BACKGROUND_GRADIENT);
+        }
+    }
+
+    /// Sets the background color for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `backgroundGradientEndColor`: end color for the linear/radial gradient
+    ///
+    /// - `override`: @param override                   If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setBackgroundGradientEndColor(int backgroundGradientEndColor, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setBackgroundGradientEndColor(backgroundGradientEndColor, override);
+            }
+            return;
+        }
+        if (((Integer) getBackgroundGradient()[1]).intValue() != backgroundGradientEndColor) {
+            getBackgroundGradient()[1] = Integer.valueOf(backgroundGradientEndColor);
+            if (!override) {
+                modifiedFlag |= BACKGROUND_GRADIENT_MODIFIED;
+            }
+            firePropertyChanged(BACKGROUND_GRADIENT);
+        }
+    }
+
+    /// Background radial gradient relative center position X
+    ///
+    /// #### Parameters
+    ///
+    /// - `backgroundGradientRelativeX`: x position of the radial gradient center
+    ///
+    /// - `override`: @param override                    If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setBackgroundGradientRelativeX(float backgroundGradientRelativeX, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setBackgroundGradientRelativeX(backgroundGradientRelativeX, override);
+            }
+            return;
+        }
+        if (((Float) getBackgroundGradient()[2]).floatValue() != backgroundGradientRelativeX) {
+            getBackgroundGradient()[2] = Float.valueOf(backgroundGradientRelativeX);
+            if (!override) {
+                modifiedFlag |= BACKGROUND_GRADIENT_MODIFIED;
+            }
+            firePropertyChanged(BACKGROUND_GRADIENT);
+        }
+    }
+
+    /// Background radial gradient relative center position Y
+    ///
+    /// #### Parameters
+    ///
+    /// - `backgroundGradientRelativeY`: y position of the radial gradient center
+    ///
+    /// - `override`: @param override                    If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setBackgroundGradientRelativeY(float backgroundGradientRelativeY, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setBackgroundGradientRelativeY(backgroundGradientRelativeY, override);
+            }
+            return;
+        }
+        if (((Float) getBackgroundGradient()[3]).floatValue() != backgroundGradientRelativeY) {
+            getBackgroundGradient()[3] = Float.valueOf(backgroundGradientRelativeY);
+            if (!override) {
+                modifiedFlag |= BACKGROUND_GRADIENT_MODIFIED;
+            }
+            firePropertyChanged(BACKGROUND_GRADIENT);
+        }
+    }
+
+    /// Background radial gradient relative size
+    ///
+    /// #### Parameters
+    ///
+    /// - `backgroundGradientRelativeSize`: @param backgroundGradientRelativeSize the size of the radial gradient relative to the screens
+    /// larger dimension
+    ///
+    /// - `override`: @param override                       If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setBackgroundGradientRelativeSize(float backgroundGradientRelativeSize, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setBackgroundGradientRelativeSize(backgroundGradientRelativeSize, override);
+            }
+            return;
+        }
+        if (((Float) getBackgroundGradient()[4]).floatValue() != backgroundGradientRelativeSize) {
+            getBackgroundGradient()[4] = Float.valueOf(backgroundGradientRelativeSize);
+            if (!override) {
+                modifiedFlag |= BACKGROUND_GRADIENT_MODIFIED;
+            }
+            firePropertyChanged(BACKGROUND_GRADIENT);
+        }
+    }
+
+    /// Extended (multi-stop / angled / conic / repeating) gradient backing
+    /// `BACKGROUND_GRADIENT_LINEAR` / `BACKGROUND_GRADIENT_RADIAL_FULL` /
+    /// `BACKGROUND_GRADIENT_CONIC` / `BACKGROUND_GRADIENT_REPEATING_*`. May
+    /// be null if this Style uses no extended gradient.
+    public Gradient getGradient() {
+        return gradient;
+    }
+
+    /// Sets the extended gradient. Pass null to clear it.
+    public void setGradient(Gradient gradient) {
+        setGradient(gradient, false);
+    }
+
+    /// Internal setter variant honoring the override flag.
+    public void setGradient(Gradient gradient, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setGradient(gradient, override);
+            }
+            return;
+        }
+        this.gradient = gradient;
+        if (!override) {
+            modifiedFlag |= GRADIENT_MODIFIED;
+        }
+        firePropertyChanged(GRADIENT);
+    }
+
+    /// CSS filter:blur() radius applied to the component's foreground (the
+    /// component itself, after it has been painted). 0 disables the filter.
+    public float getFilterBlurRadius() {
+        return filterBlurRadius;
+    }
+
+    public void setFilterBlurRadius(float radius) {
+        setFilterBlurRadius(radius, false);
+    }
+
+    public void setFilterBlurRadius(float radius, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setFilterBlurRadius(radius, override);
+            }
+            return;
+        }
+        if (Float.compare(this.filterBlurRadius, radius) != 0) {
+            this.filterBlurRadius = radius;
+            if (!override) {
+                modifiedFlag |= FILTER_BLUR_MODIFIED;
+            }
+            firePropertyChanged(FILTER_BLUR);
+        }
+    }
+
+    /// CSS backdrop-filter:blur() radius applied to whatever is painted behind
+    /// the component before this component is drawn. 0 disables the filter.
+    public float getBackdropFilterBlurRadius() {
+        return backdropFilterBlurRadius;
+    }
+
+    public void setBackdropFilterBlurRadius(float radius) {
+        setBackdropFilterBlurRadius(radius, false);
+    }
+
+    public void setBackdropFilterBlurRadius(float radius, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setBackdropFilterBlurRadius(radius, override);
+            }
+            return;
+        }
+        if (Float.compare(this.backdropFilterBlurRadius, radius) != 0) {
+            this.backdropFilterBlurRadius = radius;
+            if (!override) {
+                modifiedFlag |= BACKDROP_FILTER_BLUR_MODIFIED;
+            }
+            firePropertyChanged(BACKDROP_FILTER_BLUR);
+        }
+    }
+
+    /// CSS filter color-matrix: 4x5 row-major float[20] composed from
+    /// `brightness` / `contrast` / `grayscale` / `hue-rotate` / `invert` /
+    /// `opacity` / `saturate` / `sepia`. Returns null when no color filter
+    /// is active (treat as identity).
+    public float[] getFilterColorMatrix() {
+        return filterColorMatrix;
+    }
+
+    public void setFilterColorMatrix(float[] matrix) {
+        setFilterColorMatrix(matrix, false);
+    }
+
+    public void setFilterColorMatrix(float[] matrix, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setFilterColorMatrix(matrix, override);
+            }
+            return;
+        }
+        this.filterColorMatrix = matrix;
+        if (!override) {
+            modifiedFlag |= FILTER_COLOR_MATRIX_MODIFIED;
+        }
+        firePropertyChanged(FILTER_COLOR_MATRIX);
+    }
+
+    /// CSS backdrop-filter color-matrix; same layout as `filterColorMatrix`
+    /// but applied to whatever is painted behind the component.
+    public float[] getBackdropFilterColorMatrix() {
+        return backdropFilterColorMatrix;
+    }
+
+    public void setBackdropFilterColorMatrix(float[] matrix) {
+        setBackdropFilterColorMatrix(matrix, false);
+    }
+
+    public void setBackdropFilterColorMatrix(float[] matrix, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setBackdropFilterColorMatrix(matrix, override);
+            }
+            return;
+        }
+        this.backdropFilterColorMatrix = matrix;
+        if (!override) {
+            modifiedFlag |= BACKDROP_FILTER_COLOR_MATRIX_MODIFIED;
+        }
+        firePropertyChanged(BACKDROP_FILTER_COLOR_MATRIX);
+    }
+
+    /// Returns true when the backgroundType requires the extended gradient
+    /// descriptor (i.e. legacy 2-color start/end accessors are not sufficient).
+    public boolean isExtendedGradientBackground() {
+        switch (backgroundType) {
+            case BACKGROUND_GRADIENT_LINEAR:
+            case BACKGROUND_GRADIENT_RADIAL_FULL:
+            case BACKGROUND_GRADIENT_CONIC:
+            case BACKGROUND_GRADIENT_REPEATING_LINEAR:
+            case BACKGROUND_GRADIENT_REPEATING_RADIAL:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// Sets the foreground color for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `fgColor`: foreground color
+    ///
+    /// - `override`: @param override If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public final void setFgColor(int fgColor, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setFgColor(fgColor, override);
+            }
+            return;
+        }
+        if (this.fgColor != fgColor) {
+            this.fgColor = fgColor;
+            if (!override) {
+                modifiedFlag |= FG_COLOR_MODIFIED;
+            }
+            firePropertyChanged(FG_COLOR);
+        }
+    }
+
+    /// Sets the foreground alpha for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `fgAlpha`: foreground alpha
+    ///
+    /// - `override`: @param override If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setFgAlpha(int fgAlpha, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setFgAlpha(fgAlpha, override);
+            }
+            return;
+        }
+        if (this.fgAlpha != fgAlpha) {
+            this.fgAlpha = fgAlpha;
+            if (!override) {
+                modifiedFlag |= FG_ALPHA_MODIFIED;
+            }
+            firePropertyChanged(FG_ALPHA);
+        }
+    }
+
+    /// Sets the font for the component
+    ///
+    /// #### Parameters
+    ///
+    /// - `font`: the font
+    ///
+    /// - `override`: @param override If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setFont(Font font, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setFont(font, override);
+            }
+            return;
+        }
+        if (this.font == null && font != null ||
+                (this.font != null && !this.font.equals(font))) {
+            this.font = font;
+            if (!override) {
+                modifiedFlag |= FONT_MODIFIED;
+            }
+            firePropertyChanged(FONT);
+        }
+    }
+
+    /// Sets the Component transparency level. Valid values should be a
+    /// number between 0-255
+    ///
+    /// #### Parameters
+    ///
+    /// - `transparency`: int value between 0-255
+    ///
+    /// - `override`: @param override     If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setBgTransparency(int transparency, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setBgTransparency(transparency, override);
+            }
+            return;
+        }
+        if (transparency < 0 || transparency > 255) {
+            throw new IllegalArgumentException("valid values are between 0-255");
+        }
+        if (this.transparency != (byte) transparency) {
+            this.transparency = (byte) transparency;
+
+            if (!override) {
+                modifiedFlag |= TRANSPARENCY_MODIFIED;
+            }
+            firePropertyChanged(TRANSPARENCY);
+        }
+    }
+
+    /// Sets the Style Padding
+    ///
+    /// #### Parameters
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// - `gap`: number of pixels to pad the orientation
+    ///
+    /// - `override`: @param override    If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setPadding(int orientation, int gap, boolean override) {
+        setPadding(orientation, (float) gap, override);
+    }
+
+    /// Sets the Style Padding
+    ///
+    /// #### Parameters
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// - `gap`: number of pixels to pad the orientation
+    ///
+    /// - `override`: @param override    If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setPadding(int orientation, float gap, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setPadding(orientation, gap, override);
+            }
+            return;
+        }
+        if (orientation < Component.TOP || orientation > Component.RIGHT) {
+            throw new IllegalArgumentException("wrong orientation " + orientation);
+        }
+        if (gap < 0) {
+            throw new IllegalArgumentException("padding cannot be negative");
+        }
+        if (padding[orientation] != gap) {
+            padding[orientation] = gap;
+
+            if (!override) {
+                modifiedFlag |= PADDING_MODIFIED;
+            }
+            firePropertyChanged(PADDING);
+        }
+    }
+
+    /// Sets the Style Margin
+    ///
+    /// #### Parameters
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// - `gap`: number of margin using the current unit
+    ///
+    /// - `override`: @param override    If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setMargin(int orientation, int gap, boolean override) {
+        setMargin(orientation, (float) gap, override);
+    }
+
+    /// Sets the Style Margin
+    ///
+    /// #### Parameters
+    ///
+    /// - `orientation`: one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+    ///
+    /// - `gap`: number of margin using the current unit
+    ///
+    /// - `override`: @param override    If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setMargin(int orientation, float gap, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setMargin(orientation, gap, override);
+            }
+            return;
+        }
+        if (orientation < Component.TOP || orientation > Component.RIGHT) {
+            throw new IllegalArgumentException("wrong orientation " + orientation);
+        }
+        if (gap < 0) {
+            throw new IllegalArgumentException("margin cannot be negative");
+        }
+        if (margin[orientation] != gap) {
+            margin[orientation] = gap;
+            if (!override) {
+                modifiedFlag |= MARGIN_MODIFIED;
+            }
+            firePropertyChanged(MARGIN);
+        }
+    }
+
+    /// Checks to see if change events are currently suppressed.
+    ///
+    /// #### Returns
+    ///
+    /// True if change events are suppressed.
+    ///
+    public boolean isSuppressChangeEvents() {
+        return suppressChangeEvents;
+    }
+
+    /// Enables or disables events.  Use this to temporarily suppress change events.
+    ///
+    /// #### Parameters
+    ///
+    /// - `suppress`: True to suppress change events.
+    ///
+    public void setSuppressChangeEvents(boolean suppress) {
+        this.suppressChangeEvents = suppress;
+    }
+
+    private void firePropertyChanged(String propertName) {
+        roundRectCache = null;
+        if (suppressChangeEvents) {
+            return;
+        }
+        if (listeners != null) {
+            listeners.fireStyleChangeEvent(propertName, this);
+            return;
+        }
+        StyleListener single = singleListener;
+        if (single == null) {
+            return;
+        }
+        if (Display.getInstance().isEdt()) {
+            // Exactly what EventDispatcher does for a single listener on the
+            // EDT: call it straight through.
+            single.styleChanged(propertName, this);
+            return;
+        }
+        // Off the EDT the dispatcher does something less obvious -- it snapshots
+        // the listeners and then either marshals through callSerially or DROPS
+        // the event, depending on a static flag. Rather than duplicate that
+        // decision here and risk drifting from it, promote to a real dispatcher
+        // and let it decide. Style changes off the EDT are rare, so the
+        // allocation this costs is rare too.
+        promoteToDispatcher();
+        listeners.fireStyleChangeEvent(propertName, this);
+    }
+
+    /// Moves the single held listener into a real EventDispatcher.
+    private void promoteToDispatcher() {
+        if (listeners != null) {
+            return;
+        }
+        EventDispatcher d = new EventDispatcher();
+        if (singleListener != null) {
+            d.addListener(singleListener);
+            singleListener = null;
+        }
+        listeners = d;
+    }
+
+    /// Adds a Style Listener to the Style Object.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: a style listener
+    public void addStyleListener(StyleListener l) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.addStyleListener(l);
+            }
+            return;
+        }
+        if (listeners == null) {
+            if (l == null) {
+                // EventDispatcher.addListener ignores null; match that rather
+                // than parking a null in the single slot.
+                return;
+            }
+            if (singleListener == null) {
+                singleListener = l;
+                return;
+            }
+            if (singleListener.equals(l)) {
+                // EventDispatcher de-duplicates, so a repeat add is a no-op.
+                // equals(), not ==, because that is what EventDispatcher's own
+                // ArrayList.contains uses.
+                return;
+            }
+            promoteToDispatcher();
+        }
+        listeners.addListener(l);
+    }
+
+    /// Removes a Style Listener from the Style Object.
+    ///
+    /// #### Parameters
+    ///
+    /// - `l`: a style listener
+    public void removeStyleListener(StyleListener l) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.removeStyleListener(l);
+            }
+            return;
+        }
+        if (listeners != null) {
+            listeners.removeListener(l);
+            return;
+        }
+        // ArrayList.remove is equals-based; match it.
+        if (singleListener != null && singleListener.equals(l)) {
+            singleListener = null;
+        }
+    }
+
+    /// This method removes all Listeners from the Style
+    public void removeListeners() {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.removeListeners();
+            }
+            return;
+        }
+        listeners = null;
+        singleListener = null;
+    }
+
+    void resetModifiedFlag() {
+        modifiedFlag = 0;
+    }
+
+    /// Sets the border for the style
+    ///
+    /// #### Parameters
+    ///
+    /// - `border`: new border object for the component
+    ///
+    /// - `override`: @param override If set to true allows the look and feel/theme to override
+    /// the value in this attribute when changing a theme/look and feel
+    public void setBorder(Border border, boolean override) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setBorder(border, override);
+            }
+            return;
+        }
+        if ((this.border == null && border != null) ||
+                (this.border != null && !this.border.equals(border))) {
+            this.border = border;
+            if (!override) {
+                modifiedFlag |= BORDER_MODIFIED;
+            }
+            firePropertyChanged(BORDER);
+        }
+    }
+
+    /// Returns the border for the style
+    ///
+    /// #### Returns
+    ///
+    /// the border
+    public Border getBorder() {
+        return border;
+    }
+
+    /// Sets the border for the style
+    ///
+    /// #### Parameters
+    ///
+    /// - `border`: new border object for the component
+    public void setBorder(Border border) {
+        setBorder(border, false);
+    }
+
+    /// Return the background painter for this style, normally this would be
+    /// the internal image/color painter but can be user defined
+    ///
+    /// #### Returns
+    ///
+    /// the background painter
+    public Painter getBgPainter() {
+        return bgPainter;
+    }
+
+    /// Defines the background painter for this style, normally this would be
+    /// the internal image/color painter but can be user defined
+    ///
+    /// #### Parameters
+    ///
+    /// - `bgPainter`: new painter to install into the style
+    public void setBgPainter(Painter bgPainter) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setBgPainter(bgPainter);
+            }
+            return;
+        }
+        this.bgPainter = bgPainter;
+        firePropertyChanged(PAINTER);
+    }
+
+    /// Indicates the units used for padding elements, if null pixels are used if not this is a 4 element array containing values
+    /// of of `#UNIT_TYPE_PIXELS`, `#UNIT_TYPE_DIPS`, `#UNIT_TYPE_SCREEN_PERCENTAGE`, `#UNIT_TYPE_VW`, `#UNIT_TYPE_VH`,
+    /// * `#UNIT_TYPE_VMIN`, `#UNIT_TYPE_VMAX`, `#UNIT_TYPE_REM`.
+    ///
+    /// #### Returns
+    ///
+    /// the paddingUnit
+    public byte[] getPaddingUnit() {
+        return paddingUnit;
+    }
+
+    /// Indicates the units used for padding elements, if null pixels are used if not this is a 4 element array containing values
+    /// of `#UNIT_TYPE_PIXELS`, `#UNIT_TYPE_DIPS`, `#UNIT_TYPE_SCREEN_PERCENTAGE`, `#UNIT_TYPE_VW`, `#UNIT_TYPE_VH`,
+    /// `#UNIT_TYPE_VMIN`, `#UNIT_TYPE_VMAX`, `#UNIT_TYPE_REM`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `paddingUnit`: the paddingUnit to set
+    public void setPaddingUnit(byte... paddingUnit) {
+        if (proxyTo != null) {
+            if (paddingUnit != null && paddingUnit.length < 4) {
+                paddingUnit = new byte[]{paddingUnit[0], paddingUnit[0], paddingUnit[0], paddingUnit[0]};
+            }
+            for (Style s : proxyTo) {
+                s.setPaddingUnit(paddingUnit);
+            }
+            return;
+        }
+        if (paddingUnit != null && paddingUnit.length < 4) {
+            this.paddingUnit = new byte[]{paddingUnit[0], paddingUnit[0], paddingUnit[0], paddingUnit[0]};
+        } else {
+            if (paddingUnit == null) {
+                this.paddingUnit = null;
+            } else {
+                if (this.paddingUnit == null) {
+                    this.paddingUnit = new byte[4];
+                }
+                System.arraycopy(paddingUnit, 0, this.paddingUnit, 0, 4);
+            }
+        }
+    }
+
+    /// Indicates the units used for margin elements, if null pixels are used if not this is a 4 element array containing values
+    /// of of `#UNIT_TYPE_PIXELS`, `#UNIT_TYPE_DIPS`, `#UNIT_TYPE_SCREEN_PERCENTAGE`, `#UNIT_TYPE_VW`, `#UNIT_TYPE_VH`,
+    /// * `#UNIT_TYPE_VMIN`, `#UNIT_TYPE_VMAX`, `#UNIT_TYPE_REM`.
+    ///
+    /// #### Returns
+    ///
+    /// the marginUnit
+    public byte[] getMarginUnit() {
+        return marginUnit;
+    }
+
+    /// Indicates the units used for margin elements, if null pixels are used if not this is a 4 element array containing values
+    /// of of `#UNIT_TYPE_PIXELS`, `#UNIT_TYPE_DIPS`, `#UNIT_TYPE_SCREEN_PERCENTAGE`, `#UNIT_TYPE_VW`, `#UNIT_TYPE_VH`,
+    /// * `#UNIT_TYPE_VMIN`, `#UNIT_TYPE_VMAX`, `#UNIT_TYPE_REM`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `marginUnit`: the marginUnit to set
+    public void setMarginUnit(byte... marginUnit) {
+        if (proxyTo != null) {
+            if (marginUnit != null && marginUnit.length < 4) {
+                marginUnit = new byte[]{marginUnit[0], marginUnit[0], marginUnit[0], marginUnit[0]};
+            }
+            for (Style s : proxyTo) {
+                s.setMarginUnit(marginUnit);
+            }
+            return;
+        }
+        if (marginUnit != null && marginUnit.length < 4) {
+            this.marginUnit = new byte[]{marginUnit[0], marginUnit[0], marginUnit[0], marginUnit[0]};
+        } else {
+            if (marginUnit == null) {
+                this.marginUnit = null;
+            } else {
+                if (this.marginUnit == null) {
+                    this.marginUnit = new byte[4];
+                }
+                System.arraycopy(marginUnit, 0, this.marginUnit, 0, 4);
+            }
+        }
+    }
+
+    private void initMarginUnits() {
+        if (marginUnit == null) {
+            marginUnit = new byte[]{UNIT_TYPE_PIXELS, UNIT_TYPE_PIXELS, UNIT_TYPE_PIXELS, UNIT_TYPE_PIXELS};
+        }
+    }
+
+    /// Sets left margin unit.
+    ///
+    /// #### Parameters
+    ///
+    /// - `unit`: @param unit One of `#UNIT_TYPE_PIXELS`, `#UNIT_TYPE_DIPS`, `#UNIT_TYPE_SCREEN_PERCENTAGE`, `#UNIT_TYPE_VW`, `#UNIT_TYPE_VH`,
+    /// `#UNIT_TYPE_VMIN`, `#UNIT_TYPE_VMAX`, `#UNIT_TYPE_REM`.
+    ///
+    public void setMarginUnitLeft(byte unit) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setMarginUnitLeft(unit);
+            }
+            return;
+        }
+        initMarginUnits();
+        marginUnit[Component.LEFT] = unit;
+    }
+
+    /// Sets right margin unit.
+    ///
+    /// #### Parameters
+    ///
+    /// - `unit`: @param unit One of `#UNIT_TYPE_PIXELS`, `#UNIT_TYPE_DIPS`, `#UNIT_TYPE_SCREEN_PERCENTAGE`, `#UNIT_TYPE_VW`, `#UNIT_TYPE_VH`,
+    /// `#UNIT_TYPE_VMIN`, `#UNIT_TYPE_VMAX`, `#UNIT_TYPE_REM`.
+    ///
+    public void setMarginUnitRight(byte unit) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setMarginUnitRight(unit);
+            }
+            return;
+        }
+        initMarginUnits();
+        marginUnit[Component.RIGHT] = unit;
+    }
+
+    /// Sets top margin unit.
+    ///
+    /// #### Parameters
+    ///
+    /// - `unit`: @param unit One of `#UNIT_TYPE_PIXELS`, `#UNIT_TYPE_DIPS`, `#UNIT_TYPE_SCREEN_PERCENTAGE`, `#UNIT_TYPE_VW`, `#UNIT_TYPE_VH`,
+    /// `#UNIT_TYPE_VMIN`, `#UNIT_TYPE_VMAX`, `#UNIT_TYPE_REM`.
+    ///
+    public void setMarginUnitTop(byte unit) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setMarginUnitTop(unit);
+            }
+            return;
+        }
+        initMarginUnits();
+        marginUnit[Component.TOP] = unit;
+    }
+
+    /// Sets bottom margin unit.
+    ///
+    /// #### Parameters
+    ///
+    /// - `unit`: @param unit One of `#UNIT_TYPE_PIXELS`, `#UNIT_TYPE_DIPS`, `#UNIT_TYPE_SCREEN_PERCENTAGE`, `#UNIT_TYPE_VW`, `#UNIT_TYPE_VH`,
+    /// `#UNIT_TYPE_VMIN`, `#UNIT_TYPE_VMAX`, `#UNIT_TYPE_REM`.
+    ///
+    public void setMarginUnitBottom(byte unit) {
+        if (proxyTo != null) {
+            for (Style s : proxyTo) {
+                s.setMarginUnitBottom(unit);
+            }
+            return;
+        }
+        initMarginUnits();
+        marginUnit[Component.BOTTOM] = unit;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null) {
+            return false;
+        }
+        if (getClass() != obj.getClass()) {
+            return false;
+        }
+        final Style other = (Style) obj;
+        if (this.fgColor != other.fgColor) {
+            return false;
+        }
+        if (this.fgAlpha != other.fgAlpha) {
+            return false;
+        }
+        if (this.bgColor != other.bgColor) {
+            return false;
+        }
+        if (!Objects.equals(this.font, other.font)) {
+            return false;
+        }
+        if (!Objects.equals(this.bgImage, other.bgImage)) {
+            return false;
+        }
+        if (!Objects.deepEquals(this.padding, other.padding)) {
+            return false;
+        }
+        if (!Objects.deepEquals(this.margin, other.margin)) {
+            return false;
+        }
+        if (!Objects.deepEquals(this.paddingUnit, other.paddingUnit)) {
+            return false;
+        }
+        if (!Objects.deepEquals(this.marginUnit, other.marginUnit)) {
+            return false;
+        }
+        if (this.transparency != other.transparency) {
+            return false;
+        }
+        if (this.opacity != other.opacity) {
+            return false;
+        }
+        if (this.backgroundType != other.backgroundType) {
+            return false;
+        }
+        if (this.backgroundAlignment != other.backgroundAlignment) {
+            return false;
+        }
+        if (!Objects.deepEquals(this.backgroundGradient,
+                other.backgroundGradient)) {
+            return false;
+        }
+        if (!Objects.equals(this.border, other.border)) {
+            return false;
+        }
+        if (this.align != other.align) {
+            return false;
+        }
+        if (this.textDecoration != other.textDecoration) {
+            return false;
+        }
+        if (this.elevation != other.elevation) {
+            return false;
+        }
+        return this.surface == other.surface;
+    }
+
+    @Override
+    public int hashCode() {
+        return System.identityHashCode(this);
+    }
+
+}

@@ -1,0 +1,111 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *  
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ * 
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ * 
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+#import "CN1RenderBackend.h"
+#ifdef CN1_USE_METAL
+#import "CN1AppleUI.h"
+#import <QuartzCore/CAMetalLayer.h>
+
+@import Metal;
+@import simd;
+#import "GLUIImage.h"
+#import "CN1RenderingView.h"
+
+
+// Metal-backed rendering view. Wraps a CAMetalLayer into a CN1View subclass.
+// Gated by CN1_USE_METAL, which every slice but watchOS defines.
+@interface METALView : CN1View<UITextViewDelegate, UITextFieldDelegate, CN1RenderingView> {
+@private
+    // The pixel dimensions of the CAMetalLayer's drawable.
+    int framebufferWidth;
+    int framebufferHeight;
+
+    // Orthographic projection matrix sized to (framebufferWidth, framebufferHeight).
+    // Rebuilt by updateFrameBufferSize:h: and uploaded to shaders as a uniform.
+    simd_float4x4 projectionMatrix;
+
+    // Set by updateFrameBufferSize: when a resize preserved a previous frame in
+    // screenTexture and that frame still needs to be pushed onto the layer to
+    // avoid a rotation black flash (#5162). Consumed (cleared) either by the
+    // deferred presentPreservedFrameIfNeeded that runs on the next main-runloop
+    // turn or by the next normal presentFramebuffer -- whichever lands first.
+    // Read/written on the main thread only, so no synchronisation is needed.
+    BOOL needsResizePresent;
+
+    // The persistent screenTexture is private GPU storage. iOS may discard or
+    // leave it stale across app suspension, and CN1 can resume with only
+    // partial dirty-region flushes. Mark it invalid on foreground; the first
+    // full-screen repaint clears it before drawing fresh content.
+    BOOL retainedFramebufferInvalid;
+
+    /// Direct-to-drawable only: whether THIS frame has already cleared its
+    /// drawable. The blur/glass/lens ops end the frame's encoder and open
+    /// another on the same drawable, and a second clear would erase everything
+    /// painted before the effect -- so only the first pass of a frame clears.
+    BOOL directFrameCleared;
+    BOOL clearRetainedFramebufferOnNextFrame;
+}
+@property (nonatomic, retain) id<MTLCommandQueue> commandQueue;
+@property (nonatomic, retain) id<MTLCommandBuffer> commandBuffer;
+@property (nonatomic, retain) MTLRenderPassDescriptor* renderPassDescriptor;
+@property (nonatomic, retain) id<MTLRenderCommandEncoder> renderCommandEncoder;
+@property (nonatomic, retain) id<CAMetalDrawable> drawable;
+// Persistent offscreen render target that accumulates ops across frames.
+// CN1's drawFrame only queues the ops that have changed since the previous
+// frame, and Metal drawables are ephemeral (each is cleared on acquire), so we
+// render into this reusable texture and blit it to the drawable at present
+// time.
+@property (nonatomic, retain) id<MTLTexture> screenTexture;
+// Stencil8 attachment used for polygon-shape clipping (#3921). Same
+// dimensions as screenTexture; cleared at the start of every frame so
+// reference-value-counter stencil reuse never crosses frame boundaries.
+// Pipeline states declare stencilAttachmentPixelFormat = Stencil8 even
+// though most draws bind an "always-pass / no-write" depth-stencil state
+// so they're functionally stencil-free; only the polygon-clip path
+// engages the stencil via ClipRect.m's CN1MetalApplyPolygonStencilClip
+// helper.
+@property (nonatomic, retain) id<MTLTexture> stencilTexture;
+@property (nonatomic, retain) CN1View* peerComponentsLayer;
+@property (nonatomic, readonly) int framebufferWidth;
+@property (nonatomic, readonly) int framebufferHeight;
+@property (nonatomic, readonly) simd_float4x4 projectionMatrix;
+
+-(void)textViewDidChange:(UITextView *)textView;
+-(void)deleteFramebuffer;
+- (void)setFramebuffer;
+- (BOOL)presentFramebuffer;
+- (void)blurScreenRegionX:(int)x y:(int)y w:(int)w h:(int)h radius:(float)radius;
+- (void)glassScreenRegionX:(int)x y:(int)y w:(int)w h:(int)h radius:(float)radius
+              cornerRadius:(float)cornerRadius sat:(float)sat scale:(float)scale
+                    offset:(float)offset refract:(float)refract specular:(float)specular;
+- (void)lensScreenRegionX:(int)x y:(int)y w:(int)w h:(int)h cornerRadius:(float)cornerRadius
+                  magnify:(float)magnify aberration:(float)aberration tintColor:(int)tintColor tintStrength:(float)tintStrength;
+-(void)presentPreservedFrameIfNeeded;
+-(void)updateFrameBufferSize:(int)w h:(int)h;
+-(void)invalidateRetainedFramebuffer;
+-(void)prepareRetainedFramebufferForDrawRect:(CGRect)rect displayWidth:(int)displayWidth displayHeight:(int)displayHeight;
+-(void)textFieldDidChange;
+-(void) keyboardDoneClicked;
+-(void) keyboardNextClicked;
+-(void) addPeerComponent:(CN1View*) view;
+@end
+#endif

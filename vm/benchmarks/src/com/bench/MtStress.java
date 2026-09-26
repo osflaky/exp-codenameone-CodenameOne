@@ -1,0 +1,104 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.bench;
+
+import java.util.HashMap;
+
+/**
+ * Multi-threaded allocate-during-GC stress. Several mutator threads allocate
+ * heavily (linked-list churn + HashMap churn + StringBuilder churn) in parallel
+ * while the concurrent GC fires repeatedly, exercising hard points #1 (objects
+ * allocated during a GC must survive) and #2 (concurrent sweep vs mutator alloc
+ * on BiBOP pages). Each thread folds its work into an independent checksum over
+ * a fixed deterministic range; main sums them (order-independent) so the total
+ * is identical on HotSpot and ParparVM regardless of scheduling -- any lost live
+ * object would corrupt the sum.
+ */
+public class MtStress {
+    static final int THREADS = 4;
+    static final long[] results = new long[THREADS];
+
+    static final class Node { int v; Node next; Node(int v, Node n){ this.v=v; this.next=n; } }
+
+    static long work(int seed) {
+        long checksum = 0;
+        // linked-list churn: build chains of up to 300, walk them, drop them
+        Node head = null; int len = 0;
+        for (int i = 0; i < 600000; i++) {
+            head = new Node(i ^ seed, head);
+            len++;
+            if (len >= 300) {
+                Node p = head; int steps = 0;
+                while (p != null) { checksum += p.v; p = p.next; steps++; }
+                checksum += steps;
+                head = null; len = 0;
+            }
+        }
+        // HashMap churn
+        HashMap<Integer,Integer> map = new HashMap<Integer,Integer>();
+        for (int i = 0; i < 300000; i++) {
+            Integer key = Integer.valueOf((i ^ seed) & 0x3FFF);
+            Integer prev = map.get(key);
+            map.put(key, Integer.valueOf(prev == null ? i : prev.intValue() + i));
+            if (prev != null) checksum += prev.intValue();
+            if (map.size() > 12000) map.clear();
+        }
+        checksum += map.size();
+        // StringBuilder churn
+        for (int i = 0; i < 120000; i++) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("t").append(seed).append('-').append(i).append('/').append(i * 31 ^ 0x55AA);
+            String s = sb.toString();
+            checksum += s.hashCode() + s.length();
+        }
+        return checksum;
+    }
+
+    public static void main(String[] args) throws Exception {
+        Thread[] ts = new Thread[THREADS];
+        for (int t = 0; t < THREADS; t++) {
+            final int idx = t;
+            ts[t] = new Thread(new Runnable() {
+                public void run() { results[idx] = work(idx * 0x9E3779B1); }
+            });
+        }
+        for (int t = 0; t < THREADS; t++) ts[t].start();
+        for (int t = 0; t < THREADS; t++) ts[t].join();
+        long total = 0;
+        for (int t = 0; t < THREADS; t++) total += results[t];
+        System.out.println("DONE " + total);
+
+        // Give the collector one complete cycle over the heap this workload
+        // built. Without it a -DCN1_GC_VERIFY build of this driver exits before
+        // any sweep finishes, so the verifier never runs and a clean result
+        // means only that nothing was ever checked. Prints nothing, so the
+        // byte-identical comparison against the host JVM is unaffected.
+        System.gc();
+        try {
+            Thread.sleep(250);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+    }
+}

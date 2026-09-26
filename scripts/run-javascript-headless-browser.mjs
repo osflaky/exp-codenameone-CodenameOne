@@ -1,0 +1,321 @@
+import fs from 'node:fs';
+
+let chromium;
+try {
+  ({ chromium } = await import('playwright'));
+} catch (playwrightError) {
+  try {
+    ({ chromium } = await import('@playwright/test'));
+  } catch (playwrightTestError) {
+    console.error('Unable to load Playwright. Install either "playwright" or "@playwright/test".');
+    console.error('Import from "playwright" failed:', String(playwrightError));
+    console.error('Import from "@playwright/test" failed:', String(playwrightTestError));
+    process.exit(2);
+  }
+}
+
+const url = process.env.URL;
+const logFile = process.env.LOG_FILE;
+const timeoutSeconds = Number(process.env.CN1_JS_BROWSER_LIFETIME_SECONDS || '120');
+
+if (!url) {
+  console.error('URL is required');
+  process.exit(2);
+}
+
+const SUITE_FINISHED_MARKER = 'CN1SS:SUITE:FINISHED';
+
+let suiteFinished = false;
+
+// The app captures its own screenshot by reading back the canvas and ships the bytes over
+// the shared cn1ss WebSocket transport. That transport is fine, but a canvas readback is no
+// longer the whole picture: the port promotes text into a DOM layer above the canvas, so a
+// canvas-only capture is missing every label on screen.
+//
+// Rather than fork the transport that iOS, Android, watch and TV also use, supply the image
+// to the port and let it travel that transport: browser_bridge.js awaits this hook inside the
+// screenshot host call and returns what it produces as the screenshot, so the cn1ss server
+// remains the only writer of the PNG. Writing the file here instead would be overwritten
+// moments later by the canvas-only bytes the same call goes on to send.
+//
+// Being awaited inside the host call is also what makes the capture safe: the worker is
+// blocked on that call, so the suite cannot advance while the screenshot is being taken.
+// Driving it from a console marker would race the next test's form onto the screen.
+let capturedCount = 0;
+const CAPTURE_TIMEOUT_MS = Number(process.env.CN1_JS_CAPTURE_TIMEOUT_MS || '4000');
+
+async function installCompositeCapture(page) {
+  if (process.env.CN1_JS_DISABLE_COMPOSITE_CAPTURE === '1') {
+    return;
+  }
+  await page.exposeFunction('__cn1CompositeCapture', async () => {
+    try {
+      // `animations: 'disabled'` is what makes the capture reproducible: it settles animations
+      // and waits for fonts, and without it the screenshot races the canvas presentation --
+      // dropping it turned 59 of 181 goldens into mismatches, the static graphics and chart
+      // tests among them.
+      //
+      // It can also wait too long on a screen that never settles, and the suite is blocked on
+      // this very promise, so the timeout and the race are the backstop: always resolve
+      // promptly. Falling back to the canvas readback costs the promoted text in one golden;
+      // hanging costs the whole test.
+      const shot = page.screenshot({ animations: 'disabled', timeout: CAPTURE_TIMEOUT_MS });
+      const buffer = await Promise.race([
+        shot,
+        new Promise(resolve => setTimeout(() => resolve(null), CAPTURE_TIMEOUT_MS))
+      ]);
+      if (!buffer) {
+        shot.catch(() => {});
+        append('screenshot:timeout');
+        return null;
+      }
+      capturedCount++;
+      return `data:image/png;base64,${buffer.toString('base64')}`;
+    } catch (err) {
+      // Fall back to the canvas readback rather than losing the test entirely.
+      append(`screenshot:failed:${String(err)}`);
+      return null;
+    }
+  });
+  append('screenshot:composited:hook-installed');
+}
+
+function append(line) {
+  const text = `[playwright] ${line}\n`;
+  if (logFile) {
+    fs.appendFileSync(logFile, text, 'utf8');
+  } else {
+    process.stdout.write(text);
+  }
+}
+
+const profileWorker = process.env.CN1_JS_PROFILE_WORKER === '1';
+const remoteDebugPort = Number(process.env.CN1_JS_CDP_PORT || '9242');
+let profiler = null;
+let profileFinalized = false;
+let finalizeProfile = async () => {};
+
+const launchArgs = [
+  '--autoplay-policy=no-user-gesture-required',
+  // Exercise the real browser camera path deterministically in CI. Chromium's
+  // fake device still flows through getUserMedia, MediaStream, <video>, canvas
+  // capture and JPEG encoding; only the physical sensor and permission prompt
+  // are replaced. This lets CameraApiTest validate the HTML5 implementation
+  // instead of skipping it or depending on runner hardware.
+  '--use-fake-device-for-media-stream',
+  '--use-fake-ui-for-media-stream',
+  '--disable-web-security',
+  '--allow-file-access-from-files',
+  // Headless pages count as hidden, so Chromium's background-timer machinery
+  // (IntensiveWakeUpThrottling in particular) batches re-armed setTimeout
+  // chains to ~one firing per MINUTE once the page's wake-up budget drains.
+  // The ParparVM worker schedules every Thread.sleep / Object.wait(timeout)
+  // through host timers, so the whole green-thread scheduler stalls in
+  // 12-60s bursts during quiet (no-host-event) phases -- observed as the
+  // screenshot suite crawling ~60s/test through the theme cluster with every
+  // thread parked past its wake deadline. Disable the throttling: this
+  // harness IS the foreground workload.
+  '--disable-background-timer-throttling',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-renderer-backgrounding',
+  '--disable-features=IntensiveWakeUpThrottling'
+];
+if (profileWorker) {
+  launchArgs.push(`--remote-debugging-port=${remoteDebugPort}`);
+}
+
+const browser = await chromium.launch({
+  headless: true,
+  args: launchArgs
+});
+
+// Raw CDP client over a single WebSocket. Playwright's newCDPSession() only
+// accepts a Page/Frame, so it cannot reach a dedicated worker target. With a
+// remote-debugging port + flatten:true we multiplex every session over one
+// socket via the `sessionId` field and can drive Profiler.* on the wedged VM
+// worker (V8 samples it out-of-process even while it spins synchronously).
+async function startWorkerProfiler() {
+  const ver = await (await fetch(`http://127.0.0.1:${remoteDebugPort}/json/version`)).json();
+  const ws = new WebSocket(ver.webSocketDebuggerUrl);
+  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+
+  let nextId = 1;
+  const pending = new Map();
+  let workerSessionId = null;
+  const ready = { resolve: null };
+  const workerReady = new Promise(r => { ready.resolve = r; });
+
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.id && pending.has(msg.id)) {
+      const { resolve, reject } = pending.get(msg.id);
+      pending.delete(msg.id);
+      msg.error ? reject(new Error(JSON.stringify(msg.error))) : resolve(msg.result);
+      return;
+    }
+    if (msg.method === 'Target.attachedToTarget') {
+      const t = msg.params.targetInfo;
+      if (t.type === 'page') {
+        send(msg.params.sessionId, 'Target.setAutoAttach',
+          { autoAttach: true, flatten: true, waitForDebuggerOnStart: false });
+      } else if ((t.type === 'worker' || t.type === 'dedicated_worker') && !workerSessionId) {
+        workerSessionId = msg.params.sessionId;
+        ready.resolve();
+      }
+    }
+  };
+
+  function send(sessionId, method, params) {
+    const id = nextId++;
+    const payload = { id, method, params: params || {} };
+    if (sessionId) payload.sessionId = sessionId;
+    return new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      ws.send(JSON.stringify(payload));
+    });
+  }
+
+  await send(null, 'Target.setAutoAttach',
+    { autoAttach: true, flatten: true, waitForDebuggerOnStart: false });
+  append(`profiler:cdp-connected port=${remoteDebugPort}`);
+
+  return {
+    async begin() {
+      await workerReady;
+      await send(workerSessionId, 'Profiler.enable');
+      await send(workerSessionId, 'Profiler.setSamplingInterval', { interval: 150 });
+      await send(workerSessionId, 'Profiler.start');
+      append(`profiler:started workerSession=${workerSessionId}`);
+    },
+    async stop() {
+      if (!workerSessionId) return null;
+      const { profile } = await send(workerSessionId, 'Profiler.stop');
+      return profile;
+    },
+    close() { try { ws.close(); } catch { /* ignore */ } }
+  };
+}
+
+try {
+  const page = await browser.newPage({
+    viewport: { width: 375, height: 667 },
+    // deviceScaleFactor=2 emulates a retina display so window.devicePixelRatio
+    // reports 2 — without it Chromium reports 1 and CN1 picks DENSITY_MEDIUM,
+    // which leaves padding/margin/font sizes about half of what an iOS/Android
+    // reference screenshot shows. Backing store is 750x1334 (similar area to
+    // the previous 1280x900 viewport; still comfortably smaller per-test).
+    deviceScaleFactor: 2
+  });
+
+  await installCompositeCapture(page);
+
+  page.on('console', msg => {
+    const text = msg.text();
+    append(`console:${msg.type()}:${text}`);
+    if (text.indexOf(SUITE_FINISHED_MARKER) >= 0) {
+      suiteFinished = true;
+    }
+  });
+  page.on('pageerror', err => append(`pageerror:${String(err)}`));
+  page.on('requestfailed', req => append(`requestfailed:${req.url()} ${req.failure()?.errorText || ''}`));
+  page.on('response', resp => {
+    if (resp.status() >= 400) {
+      append(`response:${resp.status()}:${resp.url()}`);
+    }
+  });
+
+  // Opt-in worker CPU profiler (CN1_JS_PROFILE_WORKER=1). A synchronous infinite
+  // loop in a translated method stops the worker's event loop but is still
+  // sampled by V8's out-of-process profiler, so it dominates the profile -> the
+  // hottest self-time node names the wedging method. Writes a .cpuprofile next
+  // to LOG_FILE on close.
+  if (profileWorker) {
+    try {
+      profiler = await startWorkerProfiler();
+      // Wait for the VM worker to attach + start sampling, in the background.
+      profiler.begin().catch(e => append(`profiler:beginError:${String(e)}`));
+    } catch (e) {
+      append(`profiler:startError:${String(e)}`);
+      profiler = null;
+    }
+  }
+
+  // Flush + analyze the CPU profile. Idempotent (guarded by profileFinalized)
+  // so it runs exactly once whether via clean lifetime exit OR a SIGTERM from
+  // the run-javascript-browser-tests.sh kill-timer (which fires before our
+  // lifetime loop ends when the worker wedges).
+  finalizeProfile = async () => {
+    if (!profiler || profileFinalized) return;
+    profileFinalized = true;
+    try {
+      const profile = await profiler.stop();
+      if (profile) {
+        // Aggregate self-time (hitCount) per function; the synchronous wedge
+        // loop dominates, so the hottest self-time node names the method.
+        const byFn = new Map();
+        for (const node of profile.nodes || []) {
+          const cf = node.callFrame || {};
+          const key = `${cf.functionName || '(anon)'}  ${cf.url || ''}:${cf.lineNumber}`;
+          byFn.set(key, (byFn.get(key) || 0) + (node.hitCount || 0));
+        }
+        const top = [...byFn.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
+        const total = [...byFn.values()].reduce((s, h) => s + h, 0) || 1;
+        append('profiler:TOP_SELFTIME');
+        for (const [key, hits] of top) {
+          append(`profiler:hot:${(100 * hits / total).toFixed(1)}%  hits=${hits}  ${key}`);
+        }
+        if (logFile) {
+          fs.writeFileSync(logFile.replace(/\.[^.]*$/, '') + '.cpuprofile', JSON.stringify(profile));
+        }
+      } else {
+        append('profiler:stop:no-worker-session');
+      }
+    } catch (e) {
+      append(`profiler:stopError:${String(e)}`);
+    } finally {
+      profiler.close();
+    }
+  };
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.on(sig, async () => {
+      append(`profiler:signal:${sig}`);
+      await finalizeProfile();
+      try { await browser.close(); } catch { /* ignore */ }
+      process.exit(0);
+    });
+  }
+
+  append(`goto:${url}`);
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  // VM liveness nudge from the Node side. Headless Chromium intensively
+  // throttles page AND worker timers (re-armed setTimeout chains batch to
+  // ~1/min once the hidden page's wake-up budget drains), which starves the
+  // ParparVM scheduler's sleep/wait wakeups and crawls the suite. CDP
+  // Runtime.evaluate is exempt from that throttling, so a Node interval
+  // pinging the bridge's __cn1NudgeVm (worker postMessage 'timer-wake' ->
+  // drain -> fire due wakeups) keeps the VM clock honest regardless of the
+  // browser's visibility heuristics.
+  const nudgeTimer = setInterval(() => {
+    page.evaluate('window.__cn1NudgeVm && window.__cn1NudgeVm()').catch(() => {});
+  }, 250);
+  nudgeTimer.unref?.();
+  await page.waitForTimeout(2000);
+
+  const start = Date.now();
+  while (Date.now() - start < timeoutSeconds * 1000) {
+    const state = await page.evaluate(() => ({
+      initialized: !!window.cn1Initialized,
+      started: !!window.cn1Started,
+      error: window.__parparError ? JSON.stringify(window.__parparError) : ''
+    }));
+    append(`state:${JSON.stringify(state)}`);
+    if (state.error || suiteFinished) {
+      break;
+    }
+    await page.waitForTimeout(1000);
+  }
+  await finalizeProfile();
+} finally {
+  append(`screenshot:composited:total=${capturedCount}`);
+  await browser.close();
+}

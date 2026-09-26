@@ -1,0 +1,212 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.ui.util;
+
+import com.codename1.ui.CN;
+import com.codename1.ui.Display;
+import com.codename1.ui.Form;
+import com.codename1.ui.TopLevelContainer;
+import com.codename1.ui.Graphics;
+import com.codename1.ui.animations.Animation;
+
+/// Simple timer callback that is invoked on the CodenameOne EDT thread rather
+/// than on a separate thread. Notice that the accuracy of this timer is very low!
+/// A timer must be linked to a specific form
+///
+/// @author Shai Almog
+public class UITimer {
+    private final Internal i = new Internal();
+    private Runnable internalRunnable;
+    private TopLevelContainer bound;
+    private long lastEllapse;
+    private int ms;
+    private boolean repeat;
+
+    /// This constructor is useful when deriving this class to implement a timer.
+    protected UITimer() {
+    }
+
+    /// Constructor that accepts a runnable to invoke on timer elapse
+    ///
+    /// #### Parameters
+    ///
+    /// - `r`: runnable instance
+    public UITimer(Runnable r) {
+        internalRunnable = r;
+    }
+
+    /// Convenience method to schedule a UITimer more easily
+    ///
+    /// #### Parameters
+    ///
+    /// - `timeMillis`: the time from now in milliseconds
+    ///
+    /// - `repeat`: whether the timer repeats
+    ///
+    /// - `parent`: the form to which the timer is bound
+    ///
+    /// - `r`: callback when the timer elapses
+    ///
+    /// #### Returns
+    ///
+    /// the timer instance
+    public static UITimer timer(int timeMillis, boolean repeat, Form parent, Runnable r) {
+        UITimer uit = new UITimer(r);
+        uit.schedule(timeMillis, repeat, parent);
+        return uit;
+    }
+
+    /// Schedules a timer bound to any top level, so a component inside a `Window` can
+    /// have one. `Component#getComponentForm()` is null there, and a port that bound
+    /// its timer to the form silently ran no timer at all inside a window.
+    ///
+    /// #### Parameters
+    ///
+    /// - `timeMillis`: the timer interval in milliseconds
+    ///
+    /// - `repeat`: whether the timer repeats
+    ///
+    /// - `parent`: the top level the timer is bound to
+    ///
+    /// - `r`: the task to run
+    ///
+    /// #### Returns
+    ///
+    /// the scheduled timer
+    public static UITimer timer(int timeMillis, boolean repeat, TopLevelContainer parent,
+            Runnable r) {
+        UITimer uit = new UITimer(r);
+        uit.schedule(timeMillis, repeat, parent);
+        return uit;
+    }
+
+    /// Convenience method to schedule a UITimer more easily on the current form
+    ///
+    /// #### Parameters
+    ///
+    /// - `timeMillis`: the time from now in milliseconds
+    ///
+    /// - `repeat`: whether the timer repeats
+    ///
+    /// - `r`: callback when the timer elapses
+    ///
+    /// #### Returns
+    ///
+    /// the timer instance
+    public static UITimer timer(int timeMillis, boolean repeat, Runnable r) {
+        UITimer uit = new UITimer(r);
+        // The top level the user is in, not the current form. Bound to the form, a
+        // timer started from inside a window was registered on a surface that is not
+        // being painted there, so it never elapsed.
+        //
+        // This cannot tell which surface its caller belongs to, so a component on a
+        // surface that is not the focused one gets a timer on the focused window
+        // instead -- and disposing that window takes the callback with it. The answer
+        // is for a caller that knows its own surface to name it, through the overload
+        // below that takes one, which is what the framework's own callers now do.
+        uit.schedule(timeMillis, repeat, CN.getCurrentTopLevel());
+        return uit;
+    }
+
+    /// Binds the timer to start at the given schedule
+    ///
+    /// #### Parameters
+    ///
+    /// - `timeMillis`: the time from now in milliseconds
+    ///
+    /// - `repeat`: whether the timer repeats
+    ///
+    /// - `bound`: the form to which the timer is bound
+    public void schedule(int timeMillis, boolean repeat, Form bound) {
+        schedule(timeMillis, repeat, (TopLevelContainer) bound);
+    }
+
+    /// Schedules this timer against any top level; see
+    /// `#timer(int, boolean, TopLevelContainer, Runnable)`.
+    ///
+    /// #### Parameters
+    ///
+    /// - `timeMillis`: the timer interval in milliseconds
+    ///
+    /// - `repeat`: whether the timer repeats
+    ///
+    /// - `bound`: the top level the timer is bound to
+    public void schedule(int timeMillis, boolean repeat, TopLevelContainer bound) {
+        lastEllapse = System.currentTimeMillis();
+        ms = timeMillis;
+        this.repeat = repeat;
+        this.bound = bound;
+        bound.registerAnimated(i);
+    }
+
+    /// Stops executing the timer
+    public void cancel() {
+        if (bound != null) {
+            bound.deregisterAnimated(i);
+        }
+    }
+
+
+    void testEllapse() {
+        long t = System.currentTimeMillis();
+        if (t - lastEllapse >= ms) {
+            if (!repeat) {
+                // Deregistered from whatever this timer was bound to, not from the
+                // current form. Those are the same thing for the Form overloads,
+                // which is why it went unnoticed, but a timer bound to a Window was
+                // never deregistered -- so a one-shot kept firing every interval
+                // forever. Falling back to the current form keeps the behaviour of
+                // the no-parent convenience overload, which binds to it.
+                TopLevelContainer target = bound != null ? bound : Display.getInstance().getCurrent();
+                if (target != null) {
+                    target.deregisterAnimated(i);
+                }
+            }
+            lastEllapse = t;
+            i.run();
+        }
+    }
+
+
+    class Internal implements Runnable, Animation {
+        /// {@inheritDoc}
+        @Override
+        public boolean animate() {
+            testEllapse();
+            return false;
+        }
+
+        /// {@inheritDoc}
+        @Override
+        public void paint(Graphics g) {
+        }
+
+        /// Invoked when the timer elapses
+        @Override
+        public void run() {
+            if (internalRunnable != null) {
+                internalRunnable.run();
+            }
+        }
+    }
+}

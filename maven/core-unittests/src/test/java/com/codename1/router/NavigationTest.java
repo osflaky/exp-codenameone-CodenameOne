@@ -1,0 +1,435 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.router;
+
+import com.codename1.junit.FormTest;
+import com.codename1.junit.UITestBase;
+import com.codename1.ui.Display;
+import com.codename1.ui.Form;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * Coverage for the static in-app navigation API {@link Navigation}.
+ *
+ * <p>The navigation stack is process-global static state, so each test works
+ * relative to a {@link #baseline()} captured at the start of the method and
+ * normalises the stack with the public {@link Navigation#popTo} API rather than
+ * reaching into the class (no reflection, no inner-state mutation). The
+ * package-private {@link NavigationEntry} constructor is reachable because the
+ * test shares the {@code com.codename1.router} package.
+ */
+class NavigationTest extends UITestBase {
+
+    /** A {@link RouteDispatcher} test double: returns a fresh titled Form for any
+     * registered path, null for unknown paths, or throws on demand. */
+    private static final class FakeDispatcher implements RouteDispatcher {
+        final Map<String, Boolean> known = new HashMap<String, Boolean>();
+        boolean explode;
+
+        FakeDispatcher route(String path) {
+            known.put(path, Boolean.TRUE);
+            return this;
+        }
+
+        public Form dispatch(String url) {
+            if (explode) {
+                throw new RuntimeException("dispatch blew up");
+            }
+            if (known.containsKey(url)) {
+                Form f = new Form();
+                f.setTitle(url);
+                return f;
+            }
+            return null;
+        }
+    }
+
+    private int baseline() {
+        return Navigation.getStack().size();
+    }
+
+    /** A Form that refuses to be shown, the way application code reached from show() -- a
+     * showListener, or an overridden onShowCompleted -- can. Forward navigation and back
+     * navigation are separated because a stack cannot be built out of forms that refuse both. */
+    private static final class RefusingForm extends Form {
+        private final boolean refuseForward;
+
+        RefusingForm(String title, boolean refuseForward) {
+            setTitle(title);
+            this.refuseForward = refuseForward;
+        }
+
+        public void show() {
+            if (refuseForward) {
+                throw new IllegalStateException("this form refuses to be shown");
+            }
+            super.show();
+        }
+
+        public void showBack() {
+            if (!refuseForward) {
+                throw new IllegalStateException("this form refuses to be shown");
+            }
+            super.showBack();
+        }
+    }
+
+    /** A dispatcher that answers one path with a form that refuses, and every other path with an
+     * ordinary one. */
+    private static final class RefusingDispatcher implements RouteDispatcher {
+        private final String refusing;
+        private final boolean refuseForward;
+
+        RefusingDispatcher(String refusing, boolean refuseForward) {
+            this.refusing = refusing;
+            this.refuseForward = refuseForward;
+        }
+
+        public Form dispatch(String url) {
+            if (refusing.equals(url)) {
+                return new RefusingForm(url, refuseForward);
+            }
+            Form f = new Form();
+            f.setTitle(url);
+            return f;
+        }
+    }
+
+    /**
+     * A navigation whose show() throws leaves the stack as it was.
+     *
+     * <p>The stack-change notification moved BEFORE show() so a listener sees the entry it is
+     * about to record, which is what makes a checkpoint describe the screen the user is going
+     * to. The cost of that ordering is this case: show() runs application code and can throw
+     * before the form is ever installed, and the entry left behind was then a screen nobody ever
+     * saw -- persisted by the checkpoint already queued, and restored after a process death.</p>
+     */
+    @FormTest
+    void navigateRollsTheStackBackWhenShowThrows() {
+        Navigation.setDispatcher(new FakeDispatcher().route("/a"));
+        Navigation.navigate("/a");
+        int before = baseline();
+        NavigationEntry current = Navigation.getCurrent();
+
+        Navigation.setDispatcher(new RefusingDispatcher("/explodes", true));
+        try {
+            Navigation.navigate("/explodes");
+            fail("show() did not throw, so this test is about nothing");
+        } catch (IllegalStateException expected) {
+            // The caller sees the failure. What must not survive it is the stack entry.
+        }
+
+        assertEquals(before, baseline(),
+                "the entry for a screen that was never shown stayed on the stack, so a "
+                        + "checkpoint persists it and a cold start restores a screen the user "
+                        + "never reached");
+        assertSame(current, Navigation.getCurrent(),
+                "the failed navigation is reported as the current entry");
+    }
+
+    /**
+     * A form that DID get shown keeps its stack entry, so the stack and the display agree.
+     *
+     * <p>show() installs the form and only then runs onShowCompleted and the show listeners, so a
+     * throw from one of those is a failure that happened after the navigation succeeded. Rolling
+     * the entry back regardless left Navigation.getCurrent() disagreeing with
+     * Display.getCurrent(): back() worked on a stack whose top was not the visible form, and a
+     * checkpoint persisted a screen the user was not on.</p>
+     *
+     * <p>Not fixed by re-showing the previous form, which runs a second full show cycle --
+     * transitions, listeners, whatever they do -- as error handling, on a form the application
+     * has not asked to see again, and which can throw in its turn.</p>
+     */
+    @FormTest
+    void aFormThatWasShownKeepsItsEntryWhenItsListenerThrows() {
+        Navigation.setDispatcher(new FakeDispatcher().route("/a"));
+        Navigation.navigate("/a");
+        int before = baseline();
+
+        Navigation.setDispatcher(new RouteDispatcher() {
+            public Form dispatch(String url) {
+                Form f = new Form();
+                f.setTitle(url);
+                f.addShowListener(new com.codename1.ui.events.ActionListener() {
+                    public void actionPerformed(com.codename1.ui.events.ActionEvent evt) {
+                        // The form is already installed by the time this runs.
+                        throw new IllegalStateException("the show listener failed");
+                    }
+                });
+                return f;
+            }
+        });
+        try {
+            Navigation.navigate("/shown-then-throws");
+            fail("the show listener did not throw, so this test is about nothing");
+        } catch (IllegalStateException expected) {
+            // The caller still sees it.
+        }
+
+        assertEquals(before + 1, baseline(),
+                "the entry for a form that IS on screen was rolled back, so the stack no longer "
+                        + "describes what the user is looking at");
+        assertSame(Display.getInstance().getCurrent(), Navigation.getCurrent().getForm(),
+                "Navigation.getCurrent() and Display.getCurrent() disagree, so back() works on a "
+                        + "stack whose top is not the visible form and a checkpoint persists a "
+                        + "screen the user is not on");
+    }
+
+    /**
+     * A stack the show callback CLEARED is not resurrected by the rollback.
+     *
+     * <p>The rollback exists so a screen the user never saw does not stay on the stack. But
+     * show() runs application code, and that code can navigate: the case that matters is a show
+     * listener discovering the session has expired, logging out -- which empties this stack on
+     * purpose -- and then throwing on the way out. Restoring unconditionally handed the
+     * signed-out account's forms straight back, reachable through getStack() and back(), and
+     * persisted by the next checkpoint. The rollback meant to help undid the one thing the
+     * logout existed to do.</p>
+     */
+    @FormTest
+    void aStackClearedByTheShowCallbackIsNotResurrected() {
+        Navigation.setDispatcher(new FakeDispatcher().route("/a").route("/b"));
+        Navigation.navigate("/a");
+        Navigation.navigate("/b");
+        assertTrue(baseline() >= 2, "the fixture did not build a stack to lose");
+
+        Navigation.setDispatcher(new RouteDispatcher() {
+            public Form dispatch(String url) {
+                return new Form() {
+                    public void show() {
+                        // A logout discovered on screen, and then a failure on the way out.
+                        Navigation.clearStack();
+                        throw new IllegalStateException("the session had expired");
+                    }
+                };
+            }
+        });
+        try {
+            Navigation.navigate("/whatever");
+            fail("show() did not throw, so this test is about nothing");
+        } catch (IllegalStateException expected) {
+            // The caller sees it, as it must.
+        }
+
+        assertEquals(0, baseline(),
+                "the rollback put the cleared stack back, so the signed-out account's forms are "
+                        + "reachable through back() again and the next checkpoint persists them");
+    }
+
+    /**
+     * A back whose showBack() throws puts the popped entry back.
+     */
+    @FormTest
+    void backRestoresThePoppedEntryWhenShowThrows() {
+        Navigation.setDispatcher(new RefusingDispatcher("/refuses", false));
+        Navigation.navigate("/refuses");
+        Navigation.navigate("/top");
+        int before = baseline();
+        NavigationEntry top = Navigation.getCurrent();
+
+        try {
+            Navigation.back();
+            fail("showBack() did not throw, so this test is about nothing");
+        } catch (IllegalStateException expected) {
+            // As above.
+        }
+
+        assertEquals(before, baseline(),
+                "the entry was popped for a screen that never appeared, so the stack now "
+                        + "describes a place the user is not");
+        assertSame(top, Navigation.getCurrent(), "the failed back moved the current entry");
+    }
+
+    /**
+     * A popTo whose showBack() throws puts every popped entry back.
+     */
+    @FormTest
+    void popToRestoresEveryPoppedEntryWhenShowThrows() {
+        Navigation.setDispatcher(new RefusingDispatcher("/refuses", false));
+        Navigation.navigate("/refuses");
+        NavigationEntry target = Navigation.getCurrent();
+        Navigation.navigate("/mid");
+        Navigation.navigate("/top");
+        int before = baseline();
+        NavigationEntry top = Navigation.getCurrent();
+
+        try {
+            Navigation.popTo(target);
+            fail("showBack() did not throw, so this test is about nothing");
+        } catch (IllegalStateException expected) {
+            // As above.
+        }
+
+        assertEquals(before, baseline(),
+                "popTo dropped several entries for a screen that never appeared");
+        assertSame(top, Navigation.getCurrent(), "the failed popTo moved the current entry");
+    }
+
+    @FormTest
+    void navigateReturnsFalseWithoutDispatcher() {
+        Navigation.setDispatcher(null);
+        int before = baseline();
+        assertFalse(Navigation.navigate("/anything"));
+        assertEquals(before, baseline());
+    }
+
+    @FormTest
+    void navigateReturnsFalseForNullPath() {
+        Navigation.setDispatcher(new FakeDispatcher().route("/x"));
+        assertFalse(Navigation.navigate(null));
+    }
+
+    @FormTest
+    void navigateReturnsFalseWhenNoRouteMatches() {
+        Navigation.setDispatcher(new FakeDispatcher().route("/known"));
+        int before = baseline();
+        assertFalse(Navigation.navigate("/unknown"));
+        assertEquals(before, baseline());
+    }
+
+    @FormTest
+    void navigateReturnsFalseWhenDispatcherThrows() {
+        FakeDispatcher d = new FakeDispatcher().route("/x");
+        d.explode = true;
+        Navigation.setDispatcher(d);
+        int before = baseline();
+        assertFalse(Navigation.navigate("/x"));
+        assertEquals(before, baseline());
+    }
+
+    @FormTest
+    void navigatePushesEntryAndBecomesCurrent() {
+        Navigation.setDispatcher(new FakeDispatcher().route("/home"));
+        int before = baseline();
+        assertTrue(Navigation.navigate("/home"));
+        assertEquals(before + 1, baseline());
+        assertEquals("/home", Navigation.getCurrent().getPath());
+        assertEquals("/home", Navigation.getCurrent().getTitle());
+    }
+
+    @FormTest
+    void getCurrentReturnsTopOfStack() {
+        Navigation.setDispatcher(new FakeDispatcher().route("/a").route("/b"));
+        Navigation.navigate("/a");
+        Navigation.navigate("/b");
+        assertEquals("/b", Navigation.getCurrent().getPath());
+    }
+
+    @FormTest
+    void backReturnsToPreviousEntry() {
+        Navigation.setDispatcher(new FakeDispatcher().route("/a").route("/b"));
+        Navigation.navigate("/a");
+        NavigationEntry a = Navigation.getCurrent();
+        Navigation.navigate("/b");
+        assertTrue(Navigation.back());
+        assertSame(a, Navigation.getCurrent());
+    }
+
+    @FormTest
+    void backReturnsFalseAtRoot() {
+        // Normalise to a single (or empty) stack using only the public API.
+        List<NavigationEntry> stack = Navigation.getStack();
+        if (!stack.isEmpty()) {
+            Navigation.popTo(stack.get(0));
+        }
+        assertTrue(Navigation.getStack().size() <= 1);
+        assertFalse(Navigation.back());
+    }
+
+    @FormTest
+    void getStackReturnsUnmodifiableSnapshotCopy() {
+        Navigation.setDispatcher(new FakeDispatcher().route("/x").route("/y"));
+        Navigation.navigate("/x");
+        final List<NavigationEntry> snapshot = Navigation.getStack();
+        int snapSize = snapshot.size();
+
+        assertThrows(UnsupportedOperationException.class, new org.junit.jupiter.api.function.Executable() {
+            public void execute() {
+                snapshot.add(null);
+            }
+        });
+
+        // A later navigation must not retroactively grow the earlier snapshot.
+        Navigation.navigate("/y");
+        assertEquals(snapSize, snapshot.size());
+    }
+
+    @FormTest
+    void popToNullReturnsFalse() {
+        assertFalse(Navigation.popTo(null));
+    }
+
+    @FormTest
+    void popToEntryNotOnStackReturnsFalse() {
+        NavigationEntry ghost = new NavigationEntry("/ghost", new Form());
+        assertFalse(Navigation.popTo(ghost));
+    }
+
+    @FormTest
+    void popToCurrentEntryIsNoopReturningTrue() {
+        Navigation.setDispatcher(new FakeDispatcher().route("/a"));
+        Navigation.navigate("/a");
+        NavigationEntry current = Navigation.getCurrent();
+        int before = baseline();
+        assertTrue(Navigation.popTo(current));
+        assertSame(current, Navigation.getCurrent());
+        assertEquals(before, baseline());
+    }
+
+    @FormTest
+    void popToEarlierEntryPopsInterveningFrames() {
+        Navigation.setDispatcher(new FakeDispatcher().route("/a").route("/b").route("/c"));
+        Navigation.navigate("/a");
+        NavigationEntry a = Navigation.getCurrent();
+        Navigation.navigate("/b");
+        Navigation.navigate("/c");
+        assertTrue(Navigation.popTo(a));
+        assertSame(a, Navigation.getCurrent());
+    }
+
+    @FormTest
+    void dispatchExternalUrlReturnsFalseForNullOrEmpty() {
+        assertFalse(Navigation.dispatchExternalUrl(null));
+        assertFalse(Navigation.dispatchExternalUrl(""));
+    }
+
+    @FormTest
+    void dispatchExternalUrlNavigatesWhenOnEdt() {
+        Navigation.setDispatcher(new FakeDispatcher().route("/deep"));
+        assertTrue(Navigation.dispatchExternalUrl("/deep"));
+        assertEquals("/deep", Navigation.getCurrent().getPath());
+    }
+
+    @FormTest
+    void navigationEntryTitleFallsBackToEmptyWhenFormHasNoTitle() {
+        NavigationEntry e = new NavigationEntry("/p", new Form());
+        assertEquals("/p", e.getPath());
+        assertEquals("", e.getTitle());
+        assertTrue(e.toString().contains("/p"));
+    }
+}

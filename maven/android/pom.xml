@@ -1,0 +1,411 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    
+    <parent>
+        <groupId>com.codenameone</groupId>
+        <artifactId>codenameone</artifactId>
+        <version>8.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.codenameone</groupId>
+    <artifactId>codenameone-android</artifactId>
+    <version>8.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>Codename One Android Port</name>
+    
+    <dependencies>
+        <dependency>
+            <groupId>com.codenameone</groupId>
+            <artifactId>codenameone-core</artifactId>
+
+        </dependency>
+       
+        
+    </dependencies>
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>6</maven.compiler.source>
+        <maven.compiler.target>6</maven.compiler.target>
+        <src.dir>src/main/java</src.dir>
+        <real.src.dir>../../Ports/Android/src</real.src.dir>
+        <codename1.src.dir>../../CodenameOne/src</codename1.src.dir>
+		<android.sdk.version>25.3.0</android.sdk.version>
+    </properties>
+
+    <build>
+        <sourceDirectory>${src.dir}</sourceDirectory>
+        <plugins>
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>4.7.3.4</version>
+                <configuration>
+                    <effort>Max</effort>
+                    <threshold>Low</threshold>
+                    <failOnError>true</failOnError>
+                    <xmlOutput>true</xmlOutput>
+                    <xmlOutputDirectory>${project.build.directory}</xmlOutputDirectory>
+                    <excludeFilterFile>${project.basedir}/../../Ports/Android/spotbugs-exclude.xml</excludeFilterFile>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>spotbugs</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+    
+    <profiles>
+        <profile>
+            <activation>
+                <file><exists>${real.src.dir}</exists></file>
+            </activation>
+            <id>bundle-android</id>
+
+            <build>
+
+
+
+
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <configuration>
+                            <excludes>
+                                <!-- The ARCore-backed AR impl compiles against
+                                     com.google.ar.core which is not part of
+                                     cn1-binaries; it is compiled inside user
+                                     app builds where AndroidGradleBuilder adds
+                                     the ARCore gradle dependency (and deletes
+                                     the package for non-AR apps). The sources
+                                     still ship in android_port_sources.jar
+                                     below because that zip takes the whole
+                                     source dir. -->
+                                <exclude>com/codename1/impl/android/ar/**</exclude>
+                                <!-- Optional AI implementations compile in the
+                                     generated app after PlatformFeatureCatalog
+                                     injects their ML Kit/LiteRT dependencies. -->
+                                <exclude>com/codename1/impl/android/ai/**</exclude>
+                                <!-- The BiometricPrompt-backed implementation
+                                     names android.hardware.biometrics, which is
+                                     API 28 to 30 and so newer than the
+                                     cn1-binaries android.jar this jar compiles
+                                     against. It compiles in the generated app,
+                                     where compileSdk is a modern platform, and
+                                     AndroidBiometrics loads it by name. Its
+                                     legacy counterpart, com/codename1/impl/
+                                     android/fingerprint, is NOT excluded: that
+                                     API does exist here. It is the app build,
+                                     against an API 37 platform that dropped
+                                     it, which deletes that one instead. -->
+                                <exclude>com/codename1/impl/android/biometrics/**</exclude>
+                                <!-- The SQLCipher-backed database impl compiles
+                                     against net.zetetic which is only on the
+                                     classpath of app builds that use encrypted
+                                     databases; AndroidGradleBuilder adds the
+                                     dependency and deletes the package for
+                                     everyone else. -->
+                                <exclude>com/codename1/impl/android/cipher/**</exclude>
+                                <!-- The nearby implementation needs an SDK far
+                                     newer than the one this jar is compiled
+                                     against (CompanionDeviceService is API 31,
+                                     AssociationInfo API 33) as well as
+                                     androidx.core.uwb and play-services-nearby,
+                                     which AndroidGradleBuilder adds only for an
+                                     app that referenced the matching package.
+                                     It compiles in the generated app instead;
+                                     the builder deletes whichever halves the
+                                     app did not ask for. -->
+                                <exclude>com/codename1/impl/android/nearby/**</exclude>
+                                <!-- The Play Install Referrer implementation
+                                     names com.android.installreferrer, which
+                                     PlatformFeatureCatalog adds only for an app
+                                     that referenced com.codename1.analytics.
+                                     invite. It compiles in the generated app;
+                                     AndroidGradleBuilder deletes the package
+                                     for everyone else, so no other app carries
+                                     the dependency or the Play service bind
+                                     permission that comes with it. -->
+                                <exclude>com/codename1/impl/android/referrer/**</exclude>
+                                <!-- BillingSupport is written against the Play
+                                     Billing ProductDetails API, which needs
+                                     billing 8 or newer; cn1-binaries carries
+                                     the 4.0.0 jar this module used to compile
+                                     it against, and Play stopped accepting
+                                     apps built below 8 on Aug 31 2026. Like
+                                     the four above it ships as source and
+                                     compiles inside the app build, where
+                                     AndroidGradleBuilder adds the real billing
+                                     dependency at the version the app asked
+                                     for and deletes the file for apps with no
+                                     in-app purchase. PlayBillingVersions is
+                                     what keeps that compile honest: it refuses
+                                     a build below the floor with a sentence,
+                                     rather than letting javac fail in the
+                                     generated project. -->
+                                <exclude>com/codename1/impl/android/BillingSupport.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+
+                        <artifactId>maven-antrun-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <phase>process-sources</phase>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                                <configuration>
+                                    <target>
+                                        <mkdir dir="${project.build.outputDirectory}/com/codename1/android"/>
+                                        <!-- android_port_sources.jar is the
+                                             bundle AndroidGradleBuilder unzips
+                                             into the user app's APK assets/.
+                                             AndroidMaterialTheme.res must be in
+                                             here for the runtime to find it;
+                                             pull it directly from the canonical
+                                             Themes/ copy rather than staging
+                                             into Ports/Android/src/. The .res
+                                             is kept in sync by
+                                             .github/workflows/native-themes-sync.yml. -->
+                                        <zip destfile="${project.build.outputDirectory}/com/codename1/android/android_port_sources.jar">
+                                            <fileset dir="${real.src.dir}" />
+                                            <fileset dir="${codename1.src.dir}"/>
+                                            <fileset dir="${project.basedir}/../../Themes">
+                                                <include name="AndroidMaterialTheme.res"/>
+                                            </fileset>
+                                        </zip>
+                                    </target>
+                                </configuration>
+                            </execution>
+
+
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+
+        </profile>
+        <profile>
+            <!-- This profile is not build by default.  It builds an uber artifact with all of the android
+                 dependencies that can be added to android native modules to add sanity check, autocompletion
+                 etc...
+
+                 To build you need to do:
+
+                 Clone the cn1-binaries repo at https://github.com/codenameone/cn1-binaries
+
+                 mvn install -Dcn1.binaries=/path/to/cn1-binaries
+
+            -->
+
+
+            <id>compile-android</id>
+            <activation>
+                <file><exists>${cn1.binaries}</exists></file>
+                <property><name>cn1.binaries</name></property>
+            </activation>
+            <properties>
+                <src.dir>../../Ports/Android/src</src.dir>
+            </properties>
+            <dependencies>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>android-support-v7-appcompat</artifactId>
+                    <version>${project.version}</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/android-support-v7-appcompat.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>android-support-v7-cardview</artifactId>
+                    <version>${project.version}</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/android-support-v7-cardview.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>android-support-v7-gridlayout</artifactId>
+                    <version>${project.version}</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/android-support-v7-gridlayout.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>google-services</artifactId>
+                    <version>3.0.0</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/google-services-3.0.0.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>play-services-auth</artifactId>
+                    <version>12.0.0</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/play-services-auth-12.0.0.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>play-services-base</artifactId>
+                    <version>12.0.0</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/play-services-base-12.0.0.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>play-services-basement</artifactId>
+                    <version>12.0.0</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/play-services-basement-12.0.0.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>play-services-location</artifactId>
+                    <version>12.0.0</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/play-services-location-12.0.0.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>android</artifactId>
+                    <version>${project.version}</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/android.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>facebook</artifactId>
+                    <version>${project.version}</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/facebook.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>google-play-services</artifactId>
+                    <version>${project.version}</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/google-play-services.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>zooz_iap</artifactId>
+                    <version>${project.version}</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/zooz_iap.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>support-v4</artifactId>
+                    <version>26.1.0</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/support-v4-26.1.0.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>support-compat-v4</artifactId>
+                    <version>26.1.0</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/support-compat-v4-26.1.0.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>support-media-compat</artifactId>
+                    <version>26.1.0</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/support-media-compat-26.1.0.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>support-core-utils</artifactId>
+                    <version>26.1.0</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/support-core-utils-26.1.0.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>support-annotations</artifactId>
+                    <version>26.1.0-alpha1</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/support-annotations-26.0.0-alpha1.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>support-core-ui</artifactId>
+                    <version>26.1.0</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/support-core-ui-26.1.0.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>support-fragment</artifactId>
+                    <version>26.1.0</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/support-fragment-26.1.0.jar</systemPath>
+                </dependency>
+                <dependency>
+                    <groupId>com.codenameone.cn1binaries</groupId>
+                    <artifactId>play-services-tasks</artifactId>
+                    <version>12.0.0</version>
+                    <scope>system</scope>
+                    <systemPath>${cn1.binaries}/android/play-services-tasks-12.0.0.jar</systemPath>
+                </dependency>
+            </dependencies>
+
+            <build>
+
+
+                    <resources>
+                        <resource>
+                            <directory>${src.dir}</directory>
+                        </resource>
+                        <!-- Themes/AndroidMaterialTheme.res is the single
+                             source of truth; pull it into the Android port
+                             jar here instead of pre-staging a copy under
+                             Ports/Android/src/. The .res is committed and
+                             kept in sync by
+                             .github/workflows/native-themes-sync.yml. -->
+                        <resource>
+                            <directory>${project.basedir}/../../Themes</directory>
+                            <includes>
+                                <include>AndroidMaterialTheme.res</include>
+                            </includes>
+                        </resource>
+                    </resources>
+
+
+                <plugins>
+
+                    <plugin>
+                        <artifactId>maven-assembly-plugin</artifactId>
+                        <version>3.3.0</version>
+
+                            <configuration>
+                            <descriptors>
+                              <descriptor>src/main/assembly/distribution.xml</descriptor>
+                            </descriptors>
+                          </configuration>
+
+                        <executions>
+                            <execution>
+                                <id>make-assembly</id>
+                                <phase>package</phase> 
+                                <goals>
+                                    <goal>single</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+    
+</project>

@@ -1,0 +1,91 @@
+= Codename One Maven Support
+
+This folder contains Maven projects for building Codename One.
+
+Use the https://start.codenameone.com[Codename One initializr] to generate a Maven Codename one project.
+
+For information about using Codename One's Maven support see https://shannah.github.io/codenameone-maven-manual/[The Codename One Maven Manual].
+
+== Building From Source
+
+=== Building the Main Codename One Project
+
+[source, bash]
+----
+git clone https://github.com/codenameone/CodenameOne
+cd CodenameOne/maven
+mvn install
+----
+
+=== Building Archetype Projects
+
+The `cn1app-archetype` and `cn1lib-archetype` Maven archetypes are part of this
+reactor (under `maven/cn1app-archetype/` and `maven/cn1lib-archetype/`). They
+build alongside the rest of the project — no separate checkout is needed.
+
+=== Cutting a Release
+
+Releases are published to the Codename One Maven repository at
+https://repo.codenameone.com/maven2, hosted on Cloudflare R2. They are no longer
+published to Maven Central; see `scripts/r2/README.md` for why, and for the rules the
+publishing scripts enforce.
+
+NOTE: SNAPSHOT versions do not trigger a release.
+
+==== Step 1: Update Version to New Release Version
+
+[source,bash]
+----
+# change to the version number you want to deploy
+NEWVERSION=7.0.15
+
+cd maven
+bash update-version.sh $NEWVERSION && git push && git push --tags
+----
+
+Push release tags *one at a time*. The release workflow serialises on a single
+`concurrency` group, and GitHub keeps only one pending member per group -- so a third tag
+pushed while a release is running silently replaces the second, which is then never
+published. See the "tag bursts" limitation in `scripts/r2/README.md`.
+
+Then check that the
+https://github.com/codenameone/CodenameOne/actions/workflows/release.yml[Release] workflow
+completes successfully.
+
+The workflow decides its verdict in a single final step, so a red job lists every
+component that failed rather than the first one. A release is discoverable only once it
+has been marked complete, so a failed run leaves its artifacts orphaned and invisible
+rather than half-published; re-running the tag uploads what is missing and marks it.
+
+==== Step 2: Update Version to New Snapshot Version
+
+[source,bash]
+----
+NEXTVERSION=7.0.16-SNAPSHOT
+bash update-version.sh $NEXTVERSION && git push
+----
+
+==== Verifying a Release
+
+There is no staging repository to close and no propagation delay to wait out -- an
+artifact is either in the bucket or it is not. Confirm the tag is discoverable:
+
+[source,bash]
+----
+curl -s "https://repo.codenameone.com/maven2/com/codenameone/codenameone-core/maven-metadata.xml?cb=$RANDOM"
+----
+
+The cache-busting parameter is not superstition: Cloudflare caches 404s, so a check run
+moments too early can otherwise keep serving the negative.
+
+==== Bumping a Frozen Artifact
+
+Some artifacts are resolved by a release at a version that is not the release's own:
+`codenameone-designer` and `codenameone-javase-svg` at `cn1.designer.version`, and
+`cn1-builder-resources-{common,android}` at their pinned version. They are published
+nowhere but Maven Central, so they have to be copied into the repository once.
+`scripts/r2/frozen-coordinates.py` derives that set from the tree rather than listing it.
+
+After bumping any such pin, run the *Seed frozen artifacts to R2* workflow before pushing
+the next release tag. The release refuses to build while a pinned version is absent from
+the repository, so the ordering is enforced rather than remembered.

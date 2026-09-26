@@ -1,0 +1,1013 @@
+== Advanced theming
+
+Before getting into CSS, this section introduces a few advanced theme concepts. Those ideas also apply to CSS because CSS uses features such as theme constants.
+
+=== Working with UIIDs
+
+A UIID (User Interface Identifier) uniquely identifies a group of theme definitions for UI components. For example, a `Button` UIID can be linked to a component, and the theme can then define that component's appearance.
+
+A major advantage of UIIDs is the ability to change a component's UIID. For example, to create a multiline label, use code like this:
+
+[source,java]
+----
+include::../demos/common/src/main/java/com/codenameone/developerguide/advancedtheming/AdvancedThemingSnippets.java[tag=textAreaLabel,indent=0]
+----
+
+TIP: Components such as https://www.codenameone.com/javadoc/com/codename1/components/SpanLabel.html[SpanLabel] use this approach internally.
+
+UIIDs can be customized in the GUI builder and support per-component styling.
+
+NOTE: The component class name often matches the UIID, but the two remain separate entities.
+
+Looking a UIID up isn't a single lookup. The state, the appearance and any
+`derive` chain each get a turn before the default style is reached:
+
+.The order UIManager searches when a component asks for its style
+image::img/theme-style-cascade.svg[The order UIManager searches to resolve a UIID into a Style,scaledwidth=85%]
+
+[[theme-layering-section]]
+=== Theme layering
+
+Theme layering helps in two common cases:
+
+- A platform needs a slightly different theme.
+- A specific use case needs theme customization. For example, a user might select larger fonts.
+
+Theme layering is straightforward and doesn't require rebuilding the entire theme. A theme can be applied on top of another theme, like CSS cascading. To create a layer, add a new theme with the #Add Theme# button.
+
+IMPORTANT: Remove the `includeNativeBool` constant from the new theme.
+
+In the new theme, define the changes you need. For example, to use a larger default font, define that property for the relevant UIIDs and leave the other properties unchanged.
+
+In a non-GUI-builder app, the theme loading code looks like this by default:
+
+[source,java]
+----
+include::../demos/common/src/main/java/com/codenameone/developerguide/advancedtheming/AdvancedThemingSnippets.java[tag=initFirstTheme,indent=0]
+----
+
+Update it to look like this:
+
+[source,java]
+----
+include::../demos/common/src/main/java/com/codenameone/developerguide/advancedtheming/AdvancedThemingSnippets.java[tag=initNamedTheme,indent=0]
+----
+
+NOTE: This example assumes that the main theme is named `Theme`, not the layer theme that was added.
+
+The original code relies on the theme being at position 0 in the theme name array. That might not always be true.
+
+To add the theme layer, use:
+
+[source,java]
+----
+include::../demos/common/src/main/java/com/codenameone/developerguide/advancedtheming/AdvancedThemingSnippets.java[tag=addThemeProps,indent=0]
+----
+
+The `addThemeProps` call places the secondary theme on top of the primary "Theme" and keeps the original UIIDs in "Theme" intact.
+
+To apply theme changes to a running application, call `Form`'s `refreshTheme()`. This updates the UI and provides visual feedback for the theme changes.
+
+=== Override resources in platform
+
+When you adapt an application to different OS conventions, one common need is to use different icons. Sometimes you also need to change behavior based on device type, for example to use a different UI structure for a tablet.
+
+Codename One lets you override a resource for a specific platform. You can redefine a resource for that platform and add platform-specific resources.
+
+.Override resources for specific platform
+image::img/override-resource.png[Override resources for specific platform]
+
+`Overridden` resources take precedence over embedded resources, which lets you change the look or even behavior for a specific platform or OS.
+
+IMPORTANT: Overriding the theme is dangerous because a theme has external dependencies, such as image borders. The solution is to use <<theme-layering-section,theme layering>> and override the layer.
+
+To override a resource, select the platform where the override applies.
+
+[[override-platform]]
+.Override for platform, allows you to override the checked resources and replace them with another resource
+image::img/override-platform.png["Override for platform, allows you to override the checked resources and replace them with another resource"]
+
+You can then click the green checkbox to mark that resource as specific to this platform. All resources added while that platform is selected apply to that platform. If you change your mind, delete the override in override mode and it will stop applying.
+
+[[theme-constants-section]]
+=== Theme constants
+
+The Codename One Designer has a tab for creating constants. These constants can add global values and behavior hints to Codename One and its components. Constants are always strings. Some conventions let the UI adapt to input types. For example, a constant that ends with `Bool` is treated as a boolean value and displays as a checkbox. An `Int` suffix displays a numeric picker, and an `Image` suffix shows a combo box for picking an image.
+
+IMPORTANT: The combo box in the designer for adding a theme constant is editable, so you can type any value you want.
+
+To use a constant, call the appropriate https://www.codenameone.com/javadoc/com/codename1/ui/plaf/UIManager.html[UIManager] methods:
+
+* `getThemeConstant`
+* `isThemeConstant`
+* `getThemeImageConstant`
+
+Internally, Codename One has many built-in constants, and the list keeps growing. As features are added, the list is updated, but theme constants are inherently ad hoc and some may not appear here.
+
+.Theme Constants
+|===
+|Constant	|Description/Argument
+
+|alwaysTensileBool
+|Enables tensile drag even when there is no scrolling in the container (only for scrollable containers)
+
+|backGestureThresholdInt
+|The threshold for the back gesture in the https://www.codenameone.com/javadoc/com/codename1/ui/util/SwipeBackSupport.html[SwipeBackSupport] class, defaults to 5
+
+|backUsesTitleBool
+|Indicates to the GUI builder that the back command should use the title of the previous form and not just the word "Back"
+
+|buttonRippleBool
+|`true` to activate the material design ripple effect on the buttons. This effect draws a growing circle from the point of touch onwards. This is `false` by default except for Android where it defaults to `true`. This is equivalent to `setButtonRippleEffectDefault(bool)` in the `Button` class
+
+|capsButtonTextBool
+|`true` to activate the caps text mode in the buttons. When activated `setText` on `Button` and all the constructors will invoke `upcase()` on all the strings effectively making the application buttons use uppercase exclusively. This is `false` by default except for Android where it defaults to `true`. It's equivalent to `Button.setCapsTextDefault(boolean)` and can be tuned to an individual `Component` via `Component.setRippleEffect(boolean)`
+
+|capsButtonUiids
+|A list of the UIID's that should be capitalized by default (in supported platforms) other than the `Button` and `RaisedButton` which are already capitalized. This list can be separated by spaces or commas for example, `capsButtonUiids=UpcaseButton,OtherCustomButton`
+
+|defaultCommandImage
+|Image to give a command with no icon
+
+|defaultNativeWindowModeBool
+|`true` to back every newly created `Dialog` and `InteractionDialog` with a real operating system window on desktop platforms. Ignored where there is no windowing system, so it changes nothing on mobile or the web. Equivalent to `Dialog.setDefaultNativeWindowMode(boolean)`, and overridden for one dialog by `setNativeWindowMode(boolean)`
+
+|dialogButtonCommandsBool
+|Place commands in the dialogs as buttons
+
+|dialogBlurRadiusInt
+|Sets the default Gaussian blur radius for the background of the dialogs. The default value is -1 indicating no blur
+
+|dialogPosition
+|Place the dialog in an arbitrary border layout position (for example, North, South, Center, etc.)
+
+|centeredPopupBool
+|Popup of the combo box will appear in the center of the screen
+
+|changeTabOnFocusBool
+|Useful for feature phones, allows changing the tab when the focus changes, without pressing a key
+
+|checkBoxCheckDisImage
+|CheckBox image to use instead of Codename One drawing it on its own
+
+|checkBoxCheckedImage
+|CheckBox image to use instead of Codename One drawing it on its own
+
+|checkBoxOppositeSideBool
+|Indicates the check box should be drawn on the opposite side to the text and not next to the text
+
+|checkBoxUncheckDisImage
+|CheckBox image to use instead of Codename One drawing it on its own
+
+|checkBoxUncheckedImage
+|CheckBox image to use instead of Codename One drawing it on its own
+
+|comboImage
+|Combo image to use instead of Codename One drawing it on its own
+
+|commandBehavior
+|Deprecated: don't use this constant as it conflicts with the `Toolbar`. Indicates how commands should act, as a touch menu, native menu etc. Possible values:
+SoftKey, Touch, Bar, Title, Right, Native
+
+|ComponentGroupBool
+|Enables component group, which allows components to be logically grouped together, so the UIID's of components would be modified based on their group placement. This allows for some unique styling effects where the first/last elements have different styles from the rest of the elements. It's disabled by default, thus leaving its usage up to the designer
+
+|dialogTransitionIn
+|Default transition for dialog
+
+|dialogTransitionInImage
+|Default transition https://www.codenameone.com/javadoc/com/codename1/ui/Image.html[Image] for dialog, causes a https://www.codenameone.com/javadoc/com/codename1/ui/animations/Timeline.html[Timeline] transition effect
+
+|dialogTransitionOut
+|Default transition for dialog
+
+|defaultCommandImage
+|An image to place on a command if none is defined, only applies to touch commands
+
+|defaultEmblemImage
+|The emblem painted on the side of the multibutton, by default this is an arrow on some platforms
+
+|emblemUiid
+|Overrides the UIID applied to emblem labels rendered by composite buttons such as `MultiButton` and `SpanMultiButton`.
+
+|iconUiid
+|Allows theming the icon component used by `SpanLabel`, `SpanButton`, `MultiButton`, and `SpanMultiButton` when they fetch icon styling via theme constants.
+
+|iosScrollMotionBool
+|Enables iOS-style scroll physics (nonlinear rubber-band during drag and critically damped tensile snap-back). When unset it defaults to `true` on the iOS platform and `false` elsewhere. Set explicitly to override the platform default. See <<scroll-motion-tuning-section>>
+
+|imageviewerNavigationArrowsBool
+|Enables side navigation arrows by default for `ImageViewer` instances using the `ImageViewer` UIID (or a lowercased custom UIID prefix).
+
+|imageviewerThumbnailBarHeightMM
+|Sets the default thumbnail strip height (in millimeters) for `ImageViewer` navigation thumbnails.
+
+|imageviewerThumbnailsBool
+|Enables the bottom thumbnail strip by default for `ImageViewer` instances using the `ImageViewer` UIID (or a lowercased custom UIID prefix).
+
+|textUiid
+|Overrides the text component UIID for `SpanLabel`, `SpanButton`, `MultiButton`, and `SpanMultiButton` instances when provided as a theme constant.
+
+|useLargerTextScaleBool
+|When `true`, UIManager applies the larger text accessibility scale from `Display.getLargerTextScale()` when `Display.isLargerTextEnabled()` is enabled.
+
+|dialogTransitionOutImage
+|Default transition https://www.codenameone.com/javadoc/com/codename1/ui/Image.html[Image] for dialog, causes a https://www.codenameone.com/javadoc/com/codename1/ui/animations/Timeline.html[Timeline] transition effect
+
+|DecayMotionScaleFactorInt
+|Velocity-to-distance multiplier for the exponential-decay scroll motion (see <<scroll-motion-tuning-section>>). Default is `950`. Larger values make flicks travel farther for the same release velocity
+
+|disabledColor
+|Color to use when disabling entries by default
+
+|dlgButtonCommandUIID
+|The UIID used for dialog button commands
+
+|dlgCommandButtonSizeInt
+// vale-skip: write-good.TooWordy — 'Minimum' is the precise term for a numeric lower bound; 'least' would imply a comparison rather than a constraint.
+|Minimum size to give to command buttons in the dialog
+
+|dlgCommandGridBool
+|Places the dialog commands in a grid for uniform sizes
+
+|dlgInvisibleButtons
+|Includes an RRGGBB color for the line separating dialog buttons, as is the case with Android 4 and iOS 7 buttons in dialogs
+
+|dlgSlideDirection
+|Slide hints
+
+|dlgSlideInDirBool
+|Slide hints
+
+|dlgSlideOutDirBool
+|Slide hints
+
+|drawMapPointerBool
+|Indicates whether a pointer should appear in the center of the map component
+
+|fadeScrollBarBool
+|Boolean indicating if the scrollbar should fade when there is inactivity
+
+|setFadeScrollBarSpeed(int) _(API)_
+// vale-skip: Microsoft.ComplexWords — 'Approximate' is the correct technical term for an estimated duration; 'about' would lose precision in a numeric formula context.
+|Sets the per-frame opacity decrement for scrollbar fading (not milliseconds). Approximate fade duration is `durationMs ~= (255 / speed) * (1000 / frameRate)`. At 60 FPS: speed `5` ~= `850ms`, `3` ~= `1400ms`, `2` ~= `2100ms`, `1` ~= `4250ms`
+
+|fadeScrollEdgeBool
+|Places a fade effect at the edges of the screen to show that it's possible to scroll until you reach the edge (common on Android)
+
+|fadeScrollEdgeInt
+|Amount of pixels to fade out at the edge
+
+|firstCharRTLBool
+|Indicates to the https://www.codenameone.com/javadoc/com/codename1/ui/list/GenericListCellRenderer.html[GenericListCellRenderer] that it should determine RTL status based on the first character in the sentence
+
+|noTextModeBool
+|Indicates that the on/off switch in iOS shouldn't draw text on top of the switch, which is the case for iOS 7+ but not for prior versions
+
+|fixedSelectionInt
+|Number corresponding to the fixed selection constants in https://www.codenameone.com/javadoc/com/codename1/ui/List.html[List]
+
+|formTransitionIn
+|Default transition for form
+
+|formTransitionInImage
+|Default transition https://www.codenameone.com/javadoc/com/codename1/ui/Image.html[Image] for form, causes a https://www.codenameone.com/javadoc/com/codename1/ui/animations/Timeline.html[Timeline] transition effect
+
+|formTransitionOut
+|Default transition for form
+
+|formTransitionOutImage
+|Default transition https://www.codenameone.com/javadoc/com/codename1/ui/Image.html[Image] for form, causes a https://www.codenameone.com/javadoc/com/codename1/ui/animations/Timeline.html[Timeline] transition effect
+
+|globalToobarBool
+|Indicates that the Toolbar API should be on/off by default for all forms
+
+|hasRaisedButtonBool
+|Is true in platforms where the theme has the `RaisedButton` UIID defined. This is only true in the native Android theme to allow some material design guidelines
+
+|hideBackCommandBool
+|Hides the back command from the side menu when possible
+
+|hideEmptyTitleBool
+|Indicates that a title with no content should be hidden even if the border for the title occupies space
+
+|hideLeftSideMenuBool
+|Hides the side menu icon that appears on the left side of the UI
+
+|hideRightSideMenuBool
+|Hides the toolbar menu icon that appears on the right side of the title area
+
+|ignorListFocusBool
+|Hide the focus component of the list when the list doesn't have focus
+
+|infiniteImage
+|The image used by the infinite progress component, the component will rotate it as needed
+
+|infiniteMaterialDesignSize
+|Size (in millimeters) of the generated material design spinner when `InfiniteProgress` runs in material mode. Defaults to 6.667mm
+
+|infiniteMaterialImageSize
+|Size (in millimeters) of the generated spinner image when no custom `infiniteImage` is provided. Defaults to 7mm
+
+|infiniteDefaultColor
+|Hex RGB color used for the autogenerated material spinner when `infiniteImage` isn't supplied. Defaults to `777777`
+
+|interactionDialogSpeedInt
+|Controls the duration in milliseconds that `InteractionDialog` uses when animating into and out of the layered pane (including the directional dispose helpers). Defaults to `400` if the constant isn't defined.
+
+|includeNativeBool
+|True to derive from the platform native theme, false to create a blank theme that only uses the basic defaults
+
+|labelGap
+|Positive floating point value representing the default gap value between the label text and the icon in millimeters
+
+|listItemGapInt
+|Built-in item gap in the list, this defaults to 2, which predated padding/margin in Codename One
+
+|listLongPressBool
+|Indicates whether a list should handle long press events, defaults to true
+
+|mapTileLoadingImage
+|An image to preview while loading the https://www.codenameone.com/javadoc/com/codename1/maps/MapComponent.html[MapComponent] tile
+
+|mapTileLoadingText
+|The text of the tiles in the https://www.codenameone.com/javadoc/com/codename1/maps/MapComponent.html[MapComponent] during loading, defaults to "Loading..."
+
+|mapZoomButtonsBool
+|Indicates whether buttons should be drawn on the map component
+
+|mediaBackImage
+|Media icon used by the media player class
+
+|mediaFwdImage
+|Media icon used by the media player class
+
+|mediaPauseImage
+|Media icon used by the media player class
+
+|mediaPlayImage
+|Media icon used by the media player class
+
+|menuButtonBottomBool
+|When set to true this flag aligns the menu button to the bottom portion of the title. Defaults to false
+
+|menuButtonTopBool
+|When set to true this flag aligns the menu button to the top portion of the title. Defaults to false
+
+|landscapeTitleUiidBool
+|When true the toolbar swaps to landscape-specific UIIDs (such as `ToolbarLandscape`/`BackCommandLandscape`) for layout and icon styling
+
+|menuHeightPercent
+|Allows positioning and sizing the menu
+
+|menuImage
+|The three dot menu image used in Android and the https://www.codenameone.com/javadoc/com/codename1/ui/Toolbar.html[Toolbar] to show more command entries
+
+|menuImageSize
+|The size in millimeters (floating point value) of the generated side menu image, this is only used if you don't supply a custom image. The default value is 4.5.
+
+|menuPrefSizeBool
+|Allows positioning and sizing the menu
+
+|menuSlideDirection
+|Defines menu entrance effect
+
+|menuSlideInDirBool
+|Defines menu entrance effect
+
+|menuSlideOutDirBool
+|Defines menu entrance effect
+
+|menuTransitionIn
+|Defines menu entrance effect
+
+|menuTransitionInImage
+|Defines menu entrance effect
+
+|menuTransitionOut
+|Defines menu exit effect
+
+|menuTransitionOutImage
+|Defines menu entrance effect
+
+|menuWidthPercent
+|Allows positioning and sizing the menu
+
+|iosStyleBackArrowBool
+|Renders the back command using the iOS-style chevron arrow (with a small icon gap) when the toolbar shows back text
+
+|minimizeOnBackBool
+|Indicates whether the form should minimize the entire application when the physical back button is pressed (if available) and no command is defined as the back command. Defaults to true
+
+|onOffIOSModeBool
+|Indicates whether the on/off switch should use the iOS or Android mode
+
+|otherPopupRendererBool
+|Indicates that a separate renderer UIID/instance should be used to the list within the combo box popup
+
+|PackTouchMenuBool
+|Enables preferred sized packing of the touch menu (true by default), when set to false this allows manually determining the touch menu size using percentages
+
+|paintsTitleBarBool
+|Indicates that the StatusBar UIID should be added to the top of the form to space down the title area, as is the case on iOS 7+ where the status bar is painted on top of the UI
+
+|rightSideMenuImage
+|Overrides the default icon used for the right-side toolbar menu button
+
+|rightSideMenuPressImage
+|Optional pressed-state icon for the right-side toolbar menu button
+
+|popupCancelBodyBool
+|Indicates that a cancel button should appear within the combo box popup
+
+|PopupDialogArrowBool
+|Indicates whether the popup dialog has an arrow, notice that this constant will change if you change UIID of the popup dialog
+
+|PopupDialogArrowBottomImage
+|Image of the popup dialog arrow, notice that this constant will change if you change UIID of the popup dialog
+
+|PopupDialogArrowTopImage
+|Image of the popup dialog arrow, notice that this constant will change if you change UIID of the popup dialog
+
+|PopupDialogArrowLeftImage
+|Image of the popup dialog arrow, notice that this constant will change if you change UIID of the popup dialog
+
+|PopupDialogArrowRightImage
+|Image of the popup dialog arrow, notice that this constant will change if you change UIID of the popup dialog
+
+|popupNoTitleAddPaddingInt
+|Adds padding to a popup when no title is present
+
+|popupTitleBool
+|Indicates that a title should appear within the combo box popup
+
+|pullToRefreshImage
+|The arrow image used to draw the `pullToRefresh` animation
+
+|pureTouchBool
+|Indicates the pure touch mode
+
+|radioOppositeSideBool
+|Indicates the radio button should be drawn on the opposite side to the text and not next to the text
+
+|radioSelectedDisImage
+|Radio button image
+
+|radioSelectedImage
+|Radio button image
+
+|radioUnselectedDisImage
+|Radio button image
+
+|radioUnselectedImage
+|Radio button image
+
+|radioSelectedDisFocusImage
+|Radio button image
+
+|radioSelectedFocusImage
+|Radio button image
+
+|radioUnselectedDisFocusImage
+|Radio button image
+
+|radioUnselectedFocusImage
+|Radio button image
+
+|releaseRadiusInt
+|Indicates the distance from the button with dragging, in which the button should be released, defaults to 0
+
+|rendererShowsNumbersBool
+|Indicates whether renderers should render the entry number
+
+|reverseSoftButtonsBool
+|Swaps the softbutton positions
+
+|rightSideMenuImage
+|Same as sideMenuImage only for the right side, optional and defaults to sideMenuImage
+
+|rightSideMenuPressImage
+|Same as sideMenuPressImage only for the right side, optional and defaults to sideMenuPressImage
+
+|rubberBandCoefficientInt
+|Resistance coefficient for the iOS-style rubber-band compression used while the finger drags past a scroll edge. Value is interpreted as hundredths, so `55` means `0.55` (the iOS reference value). Larger values let the content be pulled farther for the same finger travel; smaller values make the content feel stiffer. Only active when `iosScrollMotionBool` is `true`. See <<scroll-motion-tuning-section>>
+
+|ScrollMotion
+|Selects the post-release flick model. `DECAY` (default) uses exponential velocity decay controlled by `ScrollMotionTimeConstantInt` and `DecayMotionScaleFactorInt`. Any other value (for example, `FRICTION`) falls back to the linear-friction model. See <<scroll-motion-tuning-section>>
+
+|ScrollMotionTimeConstantInt
+|Time constant in milliseconds for the exponential-decay flick model (active when `ScrollMotion=DECAY`). Default is `500`. Smaller values stop the flick sooner
+
+|scrollVisibleBool
+|`true`/`false` default is platform dependent. Toggles whether the scroll bar is visible
+
+|showBackCommandOnTitleBool
+|Used by the https://www.codenameone.com/javadoc/com/codename1/ui/Toolbar.html[Toolbar] API to show whether the back button should appear on the title
+
+|shrinkPopupTitleBool
+|Indicates the title of the popup should be set to 0 if it's missing
+
+|sideMenuAnimSpeedInt
+|The speed at which a sidemenu moves defaults to 300 milliseconds
+
+|sideMenuFoldedSwipeBool
+|Indicates the side menu could be opened via swiping
+
+|sideMenuImage
+|The image representing the side menu, three lines (Hamburger menu)
+
+|sideMenuPressImage
+|Optional pressed version of the sideMenuImage
+
+|sideMenuScrollVisibleBool
+|Indicates whether the scroll bar on the side menu should be visible or not, defaults to hidden
+
+|sideMenuShadowBool
+|Indicates whether the shadow for the side menu should be drawn
+
+|sideMenuShadowImage
+|The image used when drawing the shadow (a default is used if this isn't supplied)
+
+|sideMenuSizeTabPortraitInt
+|The size of the side menu when expanded in a tablet in portrait mode
+
+|sideMenuSizePortraitInt
+|The size of the side menu when expanded in a phone in portrait mode
+
+|sideMenuSizeTabLandscapeInt
+|The size of the side menu when expanded in a tablet in landscape mode
+
+|sideMenuSizeLandscapeInt
+|The size of the side menu when expanded in a phone in landscape mode
+
+|sideMenuTensileDragBool
+|Enables/disables the tensile drag behavior within the opened side menu
+
+|sideSwipeActivationInt
+|Indicates the threshold in the side menu bar at which a swipe should trigger activation, defaults to 15 (percent)
+
+|sideSwipeSensitiveInt
+|Indicates the region of the screen that's sensitive to side swipe in the side menu bar, defaults to 10 (percent)
+
+|sigButtonOKUIID
+|Defines the UIID applied to the confirmation button in the signature capture dialog (defaults to `Button`).
+
+|sigButtonResetUIID
+|Defines the UIID applied to the reset/clear button in the signature capture dialog (defaults to `Button`).
+
+|sigButtonCancelUIID
+|Defines the UIID applied to the cancel button in the signature capture dialog (defaults to `Button`).
+
+|slideDirection
+|Default slide transition settings
+
+|slideInDirBool
+|Default slide transition settings
+
+|slideOutDirBool
+|Default slide transition settings
+
+|sliderThumbImage
+|The thumb image that can appear on the sliders
+
+|snapGridBool
+|Snap to grid toggle
+
+|statusBarScrollsUpBool
+|Indicates that a tap on the status bar should scroll up the UI, only relevant in OSes where paintsTitleBarBool is true
+
+|switchButtonPadInt
+|Indicates the padding in the on/off switch, defaults to 16
+
+|switchMaskImage
+|Indicates the mask image used in iOS mode to draw on top of the switch
+
+|switchOnImage
+|Indicates the on image used in iOS mode to draw the on/off switch
+
+|switchOffImage
+|Indicates the off image used in iOS mode to draw the on/off switch
+
+|TabEnableAutoImageBool
+|Indicates images should be filled by default for tabs
+
+|TabSelectedImage
+|Default selected image for tabs (if TabEnableAutoImageBool=true)
+
+|TabUnselectedImage
+|Default unselected image for tabs (if TabEnableAutoImageBool=true)
+
+|tabPlacementInt
+|The placement of the tabs in the https://www.codenameone.com/javadoc/com/codename1/ui/Tabs.html[Tabs] component: TOP = 0, LEFT = 1, BOTTOM = 2, RIGHT = 3
+
+|tabsSlideSpeedInt
+|The time of the animation that occurs (in milliseconds) between releasing a swiped tab and reaching the next tab. Defaults to 200
+
+|tabsFillRowsBool
+|Indicates if the tabs should fill the row using flow layout
+
+|tabsGridBool
+|Indicates whether tabs should use a grid layout thus forcing all tabs to have identical sizes
+
+|tabsOnTopBool
+|Indicates the tabs should be drawn on top of their content in a layered UI, this allows a tab to intrude into the content of the tabs
+
+|textCmpVAlignInt
+|The vertical alignment of the text component: TOP = 0, CENTER = 4, BOTTOM = 2
+
+|textComponentErrorColor
+|A hex RGB color which defaults to null in which case this has no effect. When defined this will change the color of the border and label to the given color to match the material design styling. This implements the red border underline in cases of error and the label text color change
+
+|textComponentOnTopBool
+|Toggles the on top mode which makes things look like they do on Android. This defaults to true on Android and false on other OSes. This can also be manipulated via the `onTopMode(boolean)` method in `InputComponent`, but the layout will only use the theme constant
+
+|textComponentAnimBool
+|toggles the animation mode which again can be manipulated by a method in `InputComponent`. If you want to keep the UI static without the floating hint effect set this to false. Notice this defaults to true only on Android
+
+|textComponentFieldUIID
+|sets the UIID of the text field to something other than `TextField` this is useful for platforms such as iOS where the look of the text field is different within the text component. This allows you to make the background of the text field transparent when it's within the `TextComponent` and make it different from the regular text field
+
+|textFieldCursorColorInt
+|The color of the cursor as an integer (not hex)
+
+|tickerSpeedInt
+|The speed of label/button etc. (in milliseconds)
+
+|tintColor
+|The aarrggbb hex color to tint the screen when a dialog is shown
+
+|topMenuSizeTabPortraitInt
+|The size of the side menu when expanded and attached to the top in a tablet in portrait mode
+
+|topMenuSizePortraitInt
+|The size of the side menu when expanded and attached to the top in a phone in portrait mode
+
+|topMenuSizeTabLandscapeInt
+|The size of the side menu when expanded and attached to the top in a tablet in landscape mode
+
+|topMenuSizeLandscapeInt
+|The size of the side menu when expanded and attached to the top in a phone in landscape mode
+
+|touchCommandFillBool
+|Indicates how the touch menu should lay out the commands within
+
+|touchCommandFlowBool
+|Indicates how the touch menu should lay out the commands within
+
+|transitionSpeedInt
+|Indicates the default speed for transitions
+
+|treeFolderImage
+|Picture of a folder for the https://www.codenameone.com/javadoc/com/codename1/ui/tree/Tree.html[Tree] class
+
+|treeFolderOpenImage
+|Picture of a folder expanded for the `Tree` class
+
+|treeNodeImage
+|Picture of a file node for the `Tree` class
+
+|tensileDragBool
+|Indicates that tensile drag should be enabled/disabled. This is set by platform themes
+
+|tensileSnapMinDurationInt
+// vale-skip: write-good.TooWordy — 'Minimum' is the precise term for the numeric lower bound on duration.
+|Minimum duration in milliseconds for the tensile snap-back animation when the finger is released past a scroll edge. Defaults to `400` when `iosScrollMotionBool` is `true` and `300` otherwise. The actual duration scales with the distance being snapped; this is only a floor
+
+|tensileSnapMotion
+|Motion curve used for the tensile snap-back. `SPRING` (the default when `iosScrollMotionBool` is `true`) applies a critically damped spring envelope that settles softly. `DECELERATION` (the default elsewhere) applies the legacy quadratic ease-out. See <<scroll-motion-tuning-section>>
+|===
+
+[[scroll-motion-tuning-section]]
+==== Scroll motion tuning
+
+Scroll feel is controlled by three stages, each tunable via theme constants:
+
+. *While the finger is dragging past an edge*--when `iosScrollMotionBool` is `true`, the over-edge distance is compressed by the iOS UIScrollView rubber-band function `c * d * dim / (c * d + dim)`, where `d` is the raw finger displacement past the edge, `dim` is the viewport dimension, and `c` is `rubberBandCoefficientInt / 100` (default `0.55`). The result is that the content feels heavier the farther you pull it, asymptotically approaching `dim`. When `iosScrollMotionBool` is `false`, the legacy behavior is used: a linear 1:1 follow clamped to `tensileLength`.
+. *After the finger is lifted, while there is still velocity*--the `ScrollMotion` constant selects the model. `DECAY` (default) uses exponential velocity decay with a time constant of `ScrollMotionTimeConstantInt` milliseconds and a distance scale of `DecayMotionScaleFactorInt`. Any other value (for example, `FRICTION`) falls back to linear friction.
+. *When the scroll comes to rest past an edge*--a tensile snap-back animates the content back to the edge. `tensileSnapMotion` picks the curve: `SPRING` is a critically damped envelope (iOS-like soft settle) and `DECELERATION` is the legacy quadratic ease-out. The duration scales with distance but never falls below `tensileSnapMinDurationInt` milliseconds.
++
+`iosScrollMotionBool` is the single switch that flips stage 1 and the default of stage 3 to the iOS-matching behavior. It defaults to `true` on the iOS platform only. Every individual constant can still be overridden regardless of this switch, so you can, for example, enable the nonlinear rubber-band globally (`iosScrollMotionBool=true`) while keeping the legacy quadratic snap-back (`tensileSnapMotion=DECELERATION`).
+
+.Tuning suggestions
+* To make scrolling feel stiffer on iOS (less pull), reduce `rubberBandCoefficientInt` from `55` toward `35`.
+* To make flicks stop sooner, reduce `ScrollMotionTimeConstantInt` (default `500`) or `DecayMotionScaleFactorInt` (default `950`).
+* To enable iOS-style physics on Android or desktop for consistency, set `iosScrollMotionBool=true` explicitly.
+* To disable iOS physics on the simulator while debugging, set `iosScrollMotionBool=false` in your development theme.
+
+.Dynamic Theme Swapping & Theme Constants
+****
+Once a theme constant is set by a theme, it isn't removed on a refresh when replacing the theme.
+
+For example, if one would set the `comboImage` constant to a specific value in theme A and then switch to theme B, that doesn't define the `comboImage`, the original theme A `comboImage` might remain!
+
+The reason for this is simple: when extracting the constant values, components keep the values in cache locally and just don't track the change in value. Furthermore, since the components allow manually setting values, it's impractical for them to track whether a value was set by a constant or explicitly by the user.
+
+The solution for this is to either manually reset undesired values before replacing a theme (for example, for the case, above by calling the default look and feel method for setting the combo image with a null value), or defining a constant value to replace the existing value.
+****
+
+=== Native theming
+
+Codename One uses a theme constant called `includeNativeBool`, when that constant is set to `true` Codename One starts by loading the native theme first and then applying all the theme settings. This means your theme "derives" the style of the native theme first, like the cascading effect of CSS. Internally this is what the <<theme-layering-section,theme layering>> section covered.
+
+By avoiding this flag you can create themes that look _EXACTLY_ the same on all platforms.
+
+WARNING: If you avoid the native theming you might be on your own. A few small device oddities such as the iOS status bar
+are abstracted by native theming. Without it you will need to do everything from scratch
+
+You can simulate different OS platforms by using the native theme menu option
+
+.The native theme menu option
+image::img/designer-native-theme-menu.png[The native theme menu option,scaledwidth=30%]
+
+Developers can pick the platform of their liking and see how the theme will appear in that particular platform by selecting it and having the preview update on the fly.
+
+=== Under the hood of the theme engine
+
+To truly understand a theme you need to understand what it is. Internally a theme is a `Hashtable` key/value pair between UIID based keys and their respective values. For example: the key:
+
+[source,java]
+----
+include::../demos/common/src/main/java/com/codenameone/developerguide/advancedtheming/AdvancedThemingSnippets.java[tag=buttonFgColor,indent=0]
+----
+
+Will set the foreground color of the https://www.codenameone.com/javadoc/com/codename1/ui/Button.html[Button] UIID to white.
+
+When a Codename One https://www.codenameone.com/javadoc/com/codename1/ui/Component.html[Component] is instantiated it requests a https://www.codenameone.com/javadoc/com/codename1/ui/plaf/Style.html[Style] object from the https://www.codenameone.com/javadoc/com/codename1/ui/plaf/UIManager.html[UIManager] class. The `Style` object is based on the settings within the theme and can be modified through code or by using the theme.
+
+You can replace the theme dynamically in runtime and refresh the styles assigned to the various components using the https://www.codenameone.com/javadoc/com/codename1/ui/Component.html#refreshTheme()[refreshTheme()] method.
+
+NOTE: It's a common mistake to invoke `refreshTheme()` without actually changing the theme. You see developers doing it when all they need is a `repaint()` or `revalidate()`. Since `refreshTheme()` is **** expensive recommend that you don't use it unless you need to...
+
+A theme `Hashtable` key comprises:
+
+`[UIID.][type#]attribute`
+
+The _UIID_, corresponds to the component’s UIID for example: `Button`, https://www.codenameone.com/javadoc/com/codename1/ui/CheckBox.html[CheckBox] etc. It's optional and may be omitted to address the global default style.
+
+The type is omitted for the default unselected type, and may be one of _sel_ (selected type), _dis_ (disabled type) or _press_ (pressed type). The attribute should be one of:
+
+*	`derive` - the value for this attribute should be a string representing the base component.
+*	`bgColor` - represents the background color for the component, if applicable, in a web hex string format RRGGBB for example: ff0000 for red.
+*	`fgColor` - represents the foreground color, if applicable.
+*	`border` - an instance of the border class, used to display the border for the component.
+*	`bgImage` - an https://www.codenameone.com/javadoc/com/codename1/ui/Image.html[Image] object used in the background of a component.
+*	`transparency` - a `String` containing a number between 0-255 representing the alpha value for the background. This applies to the bgColor.
+*	`margin` - the margin of the component as a `String` containing 4 comma separated numbers for top, bottom, left, right.
+*	`padding` - the padding of the component, it has an identical format to the margin attribute.
+*	`font` - A https://www.codenameone.com/javadoc/com/codename1/ui/Font.html[Font] object instance.
+*	`alignment` - an `Integer` object containing the LEFT/RIGHT/CENTER constant values defined in Component.
+*	`textDecoration` - an `Integer` value containing one of the TEXT_DECORATION_* constant values defined in Style.
+*	`backgroundType` - a `Byte` object containing one of the constants for the background type defined in https://www.codenameone.com/javadoc/com/codename1/ui/plaf/Style.html[Style] under BACKGROUND_*.
+*	`backgroundGradient` - contains an `Object` array containing 2 integers for the colors of the gradient. If the gradient is radial it contains 3 floating points defining the x, y & size of the gradient.
+
+To set the foreground color of a selected button to red, a theme will define a property like:
+
+`Button.sel#fgColor=ff0000`
+
+This information is useful for understanding how things work within Codename One, but it can also be useful in runtime.
+
+For example: to increase the size of all fonts in the application, you can do something like:
+
+[source,java]
+----
+include::../demos/common/src/main/java/com/codenameone/developerguide/advancedtheming/AdvancedThemingSnippets.java[tag=addThemeHashtable,indent=0]
+----
+
+[[understanding-images-and-multi-images]]
+=== Understanding images and Multi-Images
+
+NOTE: This section provides a high-level overview of images. You dive deeper into the various types of images in the <<deep-into-images-section,graphics section>>.
+
+When working with a theme, you often use images for borders or backgrounds. You also use images within the GUI for various purposes and most such images will be extracted from the resource file.
+
+Adding a standard JPEG/PNG image to the resource file is straight forward, and the resulting image can be viewed within the images section. For example, due to the wide difference between device types, an image that would be appropriate in size for an iPhone 3gs would not be appropriate in size for a Nexus device or an iPhone 4 (but perhaps, it will be right for iPad 1 and iPad 2).
+
+The density of the devices varies and Codename One tries to simplify the process by unifying everything into one set of values to show density. For simplicity's sake, density is sometimes expressed in pixels, but it's mapped internally to actual screen measurements where possible.
+
+A multi-image is an image that has many varieties for different densities, and thus looks sharp in all the
+densities. Since scaling on the device can’t interpolate the data (due to performance considerations), significant scaling on the device becomes impractical. For example, a multi-image will provide the "right" resolution image for the given device type.
+
+From the programming perspective this is seamless, a developer accesses one image and has no ability to access the images in the different resolutions. Within the designer, but, you can explicitly define images for many resolutions and perform high quality scaling so the "right" image is available.
+
+You can use two basic methods to add a multi-image: quick add and standard add.
+
+Both methods rely on understanding the source resolution of the image, for example: if you have an icon that you expect to be
+128×128 pixels on iPhone 4, 102×102 on nexus one and 64×64 on iPhone 3gs. You can provide the source image
+as the 128 pixel image and perform a quick add option while picking the # High# density option.
+
+This will show to the algorithm that your source image is designed for the " high" density and it will scale for
+the rest of the densities accordingly.
+
+TIP: This relies on the common use case of asking your designer to design for one high end device (for example: iPhone X) then you can take the resources and add them as "HD" resources. They will automatically adapt to the lower resolutions
+
+Or, you can use the standard add multi-image dialog and set it like this:
+
+image::img/select-image-resolutions.png[Multi-image resolution dialog,scaledwidth=50%]
+
+Notice that you selected the square image option, essentially eliminating the height option. Setting values to 0 prevents the
+system from generating a multi-image entry for that resolution, which will mean a device in that category will fall
+on the closest alternative.
+
+The percentage value will change the entire column, and it means the percentage of the screen. For example: You know
+the icon is 128 for the high resolution, you can move the percentage until you reach something close to
+128 in the " High" row and the other rows will represent a size that should be pretty close in physical
+size to the 128 figure.
+
+// vale-skip: Microsoft.ComplexWords — 'approximate' is correct here (an estimate of pixel density); 'about pixel density' would be wrong English.
+At runtime, you can always find the host device's approximate pixel density using the `Display.getDeviceDensity()`
+method. This will return one of:
+
+.Densities
+|=====
+| Constant | Density | Example Device
+| `Display.DENSITY_VERY_LOW` | ~ 88 ppi |
+| `Display.DENSITY_LOW` | ~ 120 ppi | Android ldpi devices
+| `Display.DENSITY_MEDIUM` | ~ 160 ppi | iPhone 3GS, iPad, Android mdpi devices
+| `Display.DENSITY_HIGH` | ~ 240 ppi | Android hdpi devices
+| `Display.DENSITY_VERY_HIGH` | ~ 320 ppi | iPhone 4, iPad Air 2, Android xhdpi devices
+| `Display.DENSITY_HD` | ~ 540 ppi| iPhone 6+, Android xxhdpi devices
+| `Display.DENSITY_560` | ~ 750 ppi | Android xxxhdpi devices
+| `Density.DENSITY_2HD` | ~ 1000 ppi |
+| `Density.DENSITY_4K` | ~ 1250ppi |
+|=====
+
+=== Use millimeters for Padding/Margin and font sizes
+
+// vale-skip: write-good.TooWordy — 'rarely' is the natural word here; 'seldom' (vale's preferred substitute) reads as archaic in modern technical writing.
+When configuring your styles, you should rarely use "Pixels" as the unit for padding, margins, font size,
+and border thickness because the results will be inconsistent on different densities. Instead, you should use
+millimeters for all non-zero units of measurement.
+
+As you now understand the <<density-and-dpi,complexities of DPI>> it should be clear why this is important.
+
+==== Fractions of millimeters
+
+Sometimes millimeters don't give you enough precision for what you want to do. The designer allows you to specify integer values for most units. For example, you can achieve more precise results when working directly in Java. The `Display.convertToPixels()` method will allow you to convert millimeters (or DIPS) to pixels. It also takes an integer input, but you can use it to get a multiplier that you can then use to convert any millimeter value you want into pixels.
+
+For example:
+
+[source,java]
+----
+include::../demos/common/src/main/java/com/codenameone/developerguide/advancedtheming/AdvancedThemingSnippets.java[tag=pixelsPerMM,indent=0]
+----
+
+And now you can set the padding on an element to 1.5mm. For example:
+
+[source,java]
+----
+include::../demos/common/src/main/java/com/codenameone/developerguide/advancedtheming/AdvancedThemingSnippets.java[tag=paddingFromMM,indent=0]
+----
+
+=== Creating a great looking side menu
+
+.Side Menu final result
+image::img/styled-sidemenu-result.png[Side Menu final result,scaledwidth=50%]
+
+A side menu is a crucial piece of an elegant application. You will explain how one creates a simple side menu that's elegant, portable and easy to build. This is a good "starting point" side menu from which you can build more elaborate designs.
+
+To get this result you will start from a native theme and a bare-bones application to keep things simple.
+
+The code for the side menu is this:
+
+[source,java]
+----
+include::../demos/common/src/main/java/com/codenameone/developerguide/advancedtheming/AdvancedThemingSideMenu.java[tag=sideMenu,indent=0]
+----
+
+
+<1> This is the icon which was used instead of a logo it appears in the top right of the side menu
+<2> This is the top bar containing the tagline and the icon it's styled as if it's a command but you can put anything here for example: an image etc.
+<3> The commands are added as usual to the side menu with no styling or functionality, the entire look is determined by the theme
+
+Next you will open the designer tool to style the UI
+
+.Open the side menu so you will get the right values in the combo box on add
+image::img/styled-sidemenu-1.png[Open the side menu so you will get the right values in the combo box on add,scaledwidth=40%]
+
+Now when you press #Add# the side menu entries will appear in the combo box (you can type them but this is more convenient). You will start with the #SideNavigationPanel# style:
+
+.The SideNavigationPanel has an opaque white background
+image::img/styled-sidemenu-2.png[The SideNavigationPanel has an opaque white background,scaledwidth=40%]
+
+The #SideCommand# style is a bit more elaborate, you start with a white foreground and an opaque bluish/purple color:
+
+.The SideCommand has a white foreground and opaque bluish background
+image::img/styled-sidemenu-3.png[The SideCommand has a white foreground and opaque bluish background,scaledwidth=40%]
+
+You will set padding to 3 millimeters which provides everything a good feel and spacing. This is important for finger touch sensitivity.
+
+.Padding is 3mm so it will feel spacious and touch friendly
+image::img/styled-sidemenu-4.png[Padding is 3mm so it will feel spacious and touch friendly,scaledwidth=40%]
+
+You will set margin to 0 except for the bottom one pixel which will leave a nice white line by showing off the background. This means the commands will have a space between them and the white style you gave to the #SideNavigationPanel# will appear through that space.
+
+.Margin is 0 except for a thin line below each command
+image::img/styled-sidemenu-5.png[Margin is 0 except for a thin line below each command,scaledwidth=40%]
+
+Setting the border to empty is crucial!
+
+The iOS version of the side command inherits a border style so you must "remove" it by defining a different border in this case an empty border. Since borders take precedence over color this would have prevented the color changes you made from appearing.
+
+.Border must be defined as Empty
+image::img/styled-sidemenu-6.png[Border must be defined as Empty,scaledwidth=40%]
+
+Next you need to pick a good looking font and make sure it's large enough. You use millimeters size it for all OS’s and override the derived text decoration which has a value in the iOS native theme so it can impact the final look.
+
+.Pick a good looking font for the side command
+image::img/styled-sidemenu-7.png[Pick a good looking font for the side command,scaledwidth=40%]
+
+Next you need to move to the selected tab and add a new side command entry that derives from the unselected version. You will pick a new color that’s slightly deeper and will make the selected style appear selected. You will also copy and paste this selected style to the pressed style.
+
+.Selected & Pressed SideCommand
+image::img/styled-sidemenu-8.png[Selected & Pressed SideCommand,scaledwidth=40%]
+
+.Color for the Selected/Pressed SideCommand
+image::img/styled-sidemenu-9.png[Color for the Selected/Pressed SideCommand,scaledwidth=40%]
+
+The #SidemenuTagline# is a #SideCommand# style that was slightly adapted. You will remove the padding and margin because the whole section is wrapped in a side command and you don't want double padding. You will leave 1mm padding at the top for a bit of spacing from the logo.
+
+.Padding of the SidemenuTagline
+image::img/styled-sidemenu-10.png[Padding of the SidemenuTagline,scaledwidth=40%]
+
+You will also update the font to a smaller size and italic styling so it will feel like a tagline.
+
+.Font for the SideMenuTagline is slightly smaller and italic
+image::img/styled-sidemenu-11.png[Font for the SideMenuTagline is slightly smaller and italic,scaledwidth=40%]
+
+The last change for the theme is for the #StatusBarSideMenu# UIID which is a spacing on the top of the sidemenu. This spacing is there for iOS devices which render the clock/battery/reception symbols on top of the app. You will set the padding to 0.
+
+.StatusBarSideMenu padding for the top of the side menu
+image::img/styled-sidemenu-11.png[StatusBarSideMenu padding for the top of the side menu,scaledwidth=40%]
+
+Finally, you will add the icon image (or a logo if you have it) into the theme as a multi image so you can use it within the side menu as a good looking logo. A large icon image works as a 2HD multi-image but you can use many strategies to get a fitting image for this spot.
+
+TIP: Rounded images work well here, you can round images dynamically using masking
+
+These steps produce the UI above as a side menu, they might seem like a long set of steps but each step is pretty simple as you walk through each one. This does show off the versatility and power of Codename One as a change to one step can create a radically different UI design.
+
+=== From a design to a theme
+
+A design usually arrives as a mock-up from someone who doesn't write apps, and
+the work is the same whichever tool it came out of: decide which components and
+layout managers reproduce the structure, export the images you need at the
+densities you need, and then style it.
+
+.Sign up form design
+image::img/psd2app-image1.png[Sign up form design,scaledwidth=25%]
+
+The structure is the part worth doing on paper first. Nesting containers to match
+the design, rather than positioning things absolutely, is what keeps it working
+across screen sizes and platforms:
+
+.Component hierarchy and layouts
+image::img/psd2app-image2.png[Component hierarchy and layouts,scaledwidth=50%]
+
+Export the artwork the design needs before writing the code. This one needs
+three pieces: the header background, and the camera icon with the round button it
+sits on.
+
+[cols="1,1,1",frame=none,grid=none]
+|===
+a| .The header background
+image::img/background.jpg[The header background,scaledwidth=60%]
+a| .The camera icon
+image::img/camera.png[The camera icon,scaledwidth=20%]
+a| .The button behind it
+image::img/camera-button.png[The button behind it,scaledwidth=35%]
+|===
+
+Only images a stylesheet names reach the compiled theme, and the camera pieces
+are fetched by name at runtime rather than used as a background, so the theme
+below carries a selector that exists purely to import them. Each is declared at
+its source density so the compiler produces a multi-image and every screen gets
+an appropriately sized file, which is what `theme.getImage` then returns.
+
+That hierarchy is ordinary component code. The code below builds the form,
+starting with a separator the design uses between fields:
+
+[source,java]
+----
+include::../demos/common/src/main/java/com/codenameone/developerguide/advancedtheming/PsdTutorialDemo.java[tag=createSeparator,indent=0]
+----
+
+[source,java]
+----
+include::../demos/common/src/main/java/com/codenameone/developerguide/advancedtheming/PsdTutorialDemo.java[tag=psdStart,indent=0]
+----
+
+Style it with <<CSS>>. Ten UIIDs cover this design, and every value in it maps to an
+ordinary CSS property: the scaled header image is `cn1-background-type`, a UIID
+that only varies a color inherits the rest with `cn1-derive`, and the pressed
+and selected states are the `.pressed` and `.selected` classes rather than
+separate definitions. Sizes are in millimetres so they hold their physical size
+across densities.
+
+[source,css]
+----
+include::../demos/common/src/main/css/guide-snippets-theme.css[tag=psd-theme,indent=0]
+----
+
+That's the whole theme. With it in place the same code produces the design:
+
+.The result in the simulator
+image::img/psd2app-image3.png[The result in the simulator,scaledwidth=25%]

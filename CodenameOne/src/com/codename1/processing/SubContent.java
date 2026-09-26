@@ -1,0 +1,180 @@
+/*
+ * Copyright (c) 2012, Eric Coolman, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.processing;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Vector;
+
+/// Internal class, do not use.
+///
+/// An accessor implementation for working with subset of data.
+///
+/// @author Eric Coolman
+class SubContent implements StructuredContent {
+
+    private final List<StructuredContent> root;
+    private StructuredContent parent;
+
+    /// Construct from subset of content.
+    ///
+    /// #### Parameters
+    ///
+    /// - `content`: subset content
+    public SubContent(List<StructuredContent> content) {
+        this.root = content;
+    }
+
+    /// INTERNAL - link a node to it's parent so we can traverse backwards when
+    /// required.
+    ///
+    /// #### Parameters
+    ///
+    /// - `content`: a subset of data.
+    ///
+    /// - `parent`: the parent element of content.
+    SubContent(List<StructuredContent> content, StructuredContent parent) {
+        this.root = content;
+        this.parent = parent;
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see
+     * com.codename1.processing.StructuredContent#getChildren(java.lang.String)
+     */
+    @Override
+    public List getChildren(String name) {
+        List v;
+        if (root instanceof Vector) {
+            v = new Vector();
+        } else {
+            v = new ArrayList();
+        }
+        for (StructuredContent sc : root) {
+            v.addAll(sc.getChildren(name));
+        }
+        return v;
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see com.codename1.processing.StructuredContent#getChild(int)
+     */
+    @Override
+    public StructuredContent getChild(int index) {
+        if (root != null && !root.isEmpty()) {
+            return root.get(0).getChild(0);
+        }
+        return null;
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see
+     * com.codename1.processing.StructuredContent#getDescendants(java.lang.String
+     * )
+     */
+    @Override
+    public List getDescendants(String name) {
+        List v;
+        if (root instanceof Vector) {
+            v = new Vector();
+        } else {
+            v = new ArrayList();
+        }
+        for (StructuredContent sc : root) {
+            v.addAll(sc.getDescendants(name));
+        }
+        return v;
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see
+     * com.codename1.processing.StructuredContent#getAttribute(java.lang.String)
+     */
+    @Override
+    public String getAttribute(String name) {
+        // A node set has no single attribute value, so this cannot answer for
+        // one. Result reads attributes per node instead -- see nodes().
+        return null;
+    }
+
+    /// INTERNAL - the nodes this set holds.
+    ///
+    /// A caller that has to answer per node rather than for the set as a whole
+    /// -- reading an attribute, which has no meaning across several elements
+    /// -- needs them individually.
+    List<StructuredContent> nodes() {
+        return root;
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see com.codename1.processing.StructuredContent#getAttributes()
+     */
+    @Override
+    public Map getAttributes() {
+        return null;
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see com.codename1.processing.StructuredContent#getParent()
+     */
+    @Override
+    public StructuredContent getParent() {
+        return parent;
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see com.codename1.processing.StructuredContent#getText()
+     */
+    @Override
+    public String getText() {
+        return null;
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see com.codename1.processing.StructuredContent#getNativeRoot()
+     */
+    @Override
+    public Object getNativeRoot() {
+        if (parent != null) {
+            return parent.getNativeRoot();
+        }
+        return null;
+    }
+}

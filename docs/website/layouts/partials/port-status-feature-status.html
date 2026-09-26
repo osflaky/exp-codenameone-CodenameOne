@@ -1,0 +1,158 @@
+{{- $feature := .feature -}}
+{{- $port := .port -}}
+{{- $report := .report -}}
+{{- $contract := .contract -}}
+{{- $supplement := .supplement -}}
+{{- $now := .now -}}
+{{- $state := "unknown" -}}
+{{- $mark := "?" -}}
+{{- $label := "No current report" -}}
+{{- $documentedSkips := slice -}}
+{{- if $report -}}
+  {{- $passed := 0 -}}
+  {{- $failed := 0 -}}
+  {{- $skipped := 0 -}}
+  {{- $notRun := 0 -}}
+  {{- $awaiting := 0 -}}
+  {{- /* The tests this port is actually on the hook for. A feature whose baselines
+         are scoped away from this port is answered by whatever is left -- reading
+         one of seven when six of them never applied made a fully covered port look
+         mostly uncovered. */ -}}
+  {{- $applicable := 0 -}}
+  {{- $failedTests := slice -}}
+  {{- $skippedTests := slice -}}
+  {{- range $feature.tests -}}
+    {{- /* A test scoped to other ports does not apply here: this port has no
+         windowing system, was never asked for the capability, and will never
+         carry the test in its report. Counting it as awaiting would leave a
+         permanent "waiting for this port's next run" against something that
+         is never coming, which reads as a gap rather than as not applicable. */ -}}
+    {{- $scope := index $contract.test_scopes . -}}
+    {{- if and $scope (not (in $scope $port.id)) -}}
+      {{- continue -}}
+    {{- end -}}
+    {{- $applicable = add $applicable 1 -}}
+    {{- $result := index $report.tests . -}}
+    {{- /* Absent and "not-run" are different claims. "not-run" means this port
+           ran the suite with the test in its contract and nothing reported
+           back, which is a defect. Absent means the run predates the test --
+           the ordinary state of every port for a day after one is registered --
+           and calling that a defect is what used to make registering a test
+           require editing eleven reports. */ -}}
+    {{- $status := "awaiting" -}}
+    {{- with $result -}}{{- $status = .status -}}{{- end -}}
+    {{- if eq $status "pass" -}}
+      {{- $passed = add $passed 1 -}}
+    {{- else if eq $status "fail" -}}
+      {{- $failed = add $failed 1 -}}
+      {{- $failedTests = $failedTests | append . -}}
+    {{- else if eq $status "skip" -}}
+      {{- $skipped = add $skipped 1 -}}
+      {{- $skippedTests = $skippedTests | append . -}}
+    {{- else if eq $status "awaiting" -}}
+      {{- $awaiting = add $awaiting 1 -}}
+    {{- else -}}
+      {{- $notRun = add $notRun 1 -}}
+    {{- end -}}
+  {{- end -}}
+  {{- /* A skip only reads as green when the errata account for that test AND
+         for the reason the run actually gave. Matching on the test name alone
+         let any future skip of a named test render as documented: the video
+         round trip reports encoder trouble as a skip on that test, so an
+         encoder that regressed would have shown a green, explained cell that
+         said nothing about what went wrong. An unrecognized reason -- or a
+         skip carrying none -- stays a partial result. */ -}}
+  {{- $documented := gt (len $skippedTests) 0 -}}
+  {{- range $skippedTests -}}
+    {{- $test := . -}}
+    {{- $result := index $report.tests $test -}}
+    {{- $reasons := slice -}}
+    {{- with $result -}}{{- with .reasons -}}{{- $reasons = . -}}{{- end -}}{{- end -}}
+    {{- $found := false -}}
+    {{- range $supplement.skip_reasons -}}
+      {{- if eq .test $test -}}
+        {{- $codes := .reason_codes -}}
+        {{- if $codes -}}
+          {{- $allMatched := gt (len $reasons) 0 -}}
+          {{- range $reasons -}}
+            {{- $reason := . -}}
+            {{- $ok := false -}}
+            {{- range $codes -}}
+              {{- /* A code documents this skip only when the reason matches
+                     AND, where the erratum names ports, this is one of them.
+                     Encoder trouble is expected on the Apple simulators and
+                     nowhere else, so the same code from a port whose encoder is
+                     meant to work stays undocumented and cannot render green. */ -}}
+              {{- $portAllowed := true -}}
+              {{- with .ports -}}
+                {{- $portAllowed = in . $port.id -}}
+              {{- end -}}
+              {{- /* An empty prefix is not a match. hasPrefix answers true for
+                     every reason against "", so a code that lost its prefix to a
+                     typo would render any future skip of that test as green and
+                     documented. The contract validator refuses such an erratum,
+                     and this is the same rule on the side that draws the tick. */ -}}
+              {{- if and $portAllowed .prefix (hasPrefix $reason .prefix) -}}{{- $ok = true -}}{{- end -}}
+            {{- end -}}
+            {{- if not $ok -}}{{- $allMatched = false -}}{{- end -}}
+          {{- end -}}
+          {{- if $allMatched -}}{{- $found = true -}}{{- end -}}
+        {{- else -}}
+          {{- $found = true -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+    {{- if not $found -}}{{- $documented = false -}}{{- end -}}
+  {{- end -}}
+  {{- $bootstrapComplete := and (eq $report.bootstrap_source "successful-master-workflow") (eq $report.workflow_conclusion "success") -}}
+  {{- $complete := or $report.suite_finished $bootstrapComplete -}}
+  {{- $total := $applicable -}}
+  {{- $state = "partial" -}}
+  {{- $mark = "−" -}}
+  {{- $awaitingNote := cond (gt $awaiting 0) (printf ", %d awaiting this port's next run" $awaiting) "" -}}
+  {{- $label = printf "%d passed, %d skipped, %d not run%s" $passed $skipped $notRun $awaitingNote -}}
+  {{- /* Evidence is per feature. A run that stopped early leaves its own
+         unreached tests as "not run" below, and the port card reports the
+         incomplete run; that is not a reason to withdraw the result of a
+         feature whose every mapped test reported back. */ -}}
+  {{- $incomplete := cond $complete "" " (the suite run stopped early)" -}}
+  {{- if gt $failed 0 -}}
+    {{- $state = "fail" -}}
+    {{- $mark = "×" -}}
+    {{- $label = printf "%d failed: %s" $failed (delimit $failedTests ", ") -}}
+  {{- else if eq $passed $total -}}
+    {{- $state = "pass" -}}
+    {{- $mark = "✓" -}}
+    {{- $label = printf "All %d mapped test%s passed%s" $total (cond (eq $total 1) "" "s") $incomplete -}}
+  {{- else if and $documented (eq (add $passed $skipped) $total) -}}
+    {{- $state = "pass" -}}
+    {{- $mark = "✓" -}}
+    {{- $documentedSkips = $skippedTests -}}
+    {{- if eq $passed 0 -}}
+      {{- $label = printf "%s skipped by the CI environment, see the skipped-test errata%s" (delimit $skippedTests ", ") $incomplete -}}
+    {{- else -}}
+      {{- $label = printf "%d of %d mapped tests passed; %s skipped by the CI environment, see the skipped-test errata%s" $passed $total (delimit $skippedTests ", ") $incomplete -}}
+    {{- end -}}
+  {{- else if not $complete -}}
+    {{- $label = printf "Suite did not finish; %d passed, %d skipped, %d not run%s" $passed $skipped $notRun $awaitingNote -}}
+  {{- else if eq $skipped $total -}}
+    {{- $label = "All mapped tests skipped" -}}
+  {{- end -}}
+  {{- $generated := time.AsTime $report.generated_at -}}
+  {{- $staleSeconds := mul (int $contract.stale_after_days) 86400 -}}
+  {{- $stale := gt (sub $now.Unix $generated.Unix) $staleSeconds -}}
+  {{- if $stale -}}
+    {{- if ne $state "fail" -}}
+      {{- $state = "stale" -}}
+      {{- $mark = "!" -}}
+      {{- $documentedSkips = slice -}}
+    {{- end -}}
+    {{- $label = printf "Stale report. %s" $label -}}
+  {{- end -}}
+{{- end -}}
+{{- $label = printf "%s: %s" $port.name $label -}}
+<td data-feature-cell data-port="{{ $port.id }}" data-feature="{{ $feature.id }}" class="is-{{ $state }}{{ if $documentedSkips }} has-documented-skip{{ end }}"{{ with $documentedSkips }} data-documented-skip="{{ delimit . " " }}"{{ end }} title="{{ $label }}">
+  <span class="cn1-port-status__mark is-{{ $state }}" aria-hidden="true">{{ $mark }}</span>
+  {{- if $documentedSkips }}<sup class="cn1-port-status__note" aria-hidden="true">*</sup>{{ end }}
+  <span class="screen-reader-text">{{ $label }}</span>
+</td>

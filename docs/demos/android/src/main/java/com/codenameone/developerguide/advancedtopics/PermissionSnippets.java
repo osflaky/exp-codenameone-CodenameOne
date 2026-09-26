@@ -1,0 +1,85 @@
+package com.codenameone.developerguide.advancedtopics;
+
+import com.codename1.components.InfiniteProgress;
+import com.codename1.contacts.Contact;
+import com.codename1.ui.Display;
+import com.codename1.ui.Form;
+import com.codename1.ui.layouts.BoxLayout;
+import com.codename1.components.MultiButton;
+import com.codename1.impl.android.AndroidNativeUtil;
+import com.codename1.impl.android.PermissionPromptCallback;
+
+/**
+ * Snippets related to Android runtime permissions.
+ */
+public class PermissionSnippets {
+
+    public void showContactsWithPermission() {
+        // tag::contactsPermission[]
+        Form f = new Form("Contacts", BoxLayout.y());
+        f.add(new InfiniteProgress());
+        Display.getInstance().invokeAndBlock(() -> {
+            Contact[] ct = Display.getInstance().getAllContacts(true, true, false, true, true, false);
+            Display.getInstance().callSerially(() -> {
+                f.removeAll();
+                for (Contact c : ct) {
+                    MultiButton mb = new MultiButton(c.getDisplayName());
+                    mb.setTextLine2(c.getPrimaryPhoneNumber());
+                    f.add(mb);
+                }
+                f.revalidate();
+            });
+        });
+
+        f.show();
+        // end::contactsPermission[]
+    }
+
+    public void customizePermissionPrompt() {
+        // tag::permissionPrompt[]
+        Display.getInstance().setProperty(
+                "android.permission.READ_CONTACTS",
+                "MyCoolChatApp needs access to your contacts so we can show you which of your friends already have MyCoolChatApp installed");
+        // end::permissionPrompt[]
+    }
+
+    public void checkForPermission() {
+        // tag::androidCheckForPermission[]
+        if (!AndroidNativeUtil.checkForPermission(
+                android.Manifest.permission.READ_PHONE_STATE,
+                "This should be the description shown to the user...")) {
+            // you didn't get the permission, you might want to return here
+        }
+        // you have the permission, do what you need
+        // end::androidCheckForPermission[]
+    }
+
+
+    public void customizePermissionPromptLocalization() {
+        // tag::permissionPromptLocalization[]
+        com.codename1.ui.plaf.UIManager.getInstance().setBundle(new java.util.Hashtable<String, String>() {{
+            put("android.permission.READ_CONTACTS", "Localized rationale for contacts");
+            put("android.permission.READ_CONTACTS.title", "Localized permission title");
+            put("android.permission.READ_CONTACTS.askAgain", "Localized ask again");
+            put("android.permission.READ_CONTACTS.dontAsk", "Localized don't ask");
+        }});
+        // end::permissionPromptLocalization[]
+    }
+
+    public void installNativePermissionPromptCallback() {
+        // tag::androidPermissionPromptCallback[]
+        AndroidNativeUtil.setPermissionPromptCallback(new PermissionPromptCallback() {
+            @Override
+            public boolean showPermissionPrompt(String permission, String title, String body, String positiveButtonText, String negativeButtonText) {
+                return com.codename1.ui.Dialog.show(title, body, positiveButtonText, negativeButtonText);
+            }
+
+            @Override
+            public void showPermissionMessage(String permission, String title, String body, String okButtonText) {
+                com.codename1.ui.Dialog.show(title, body, okButtonText, null);
+            }
+        });
+        // end::androidPermissionPromptCallback[]
+    }
+
+}

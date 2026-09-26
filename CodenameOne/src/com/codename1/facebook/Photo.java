@@ -1,0 +1,278 @@
+/*
+ * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores
+ * CA 94065 USA or visit www.oracle.com if you need additional information or
+ * have any questions.
+ */
+package com.codename1.facebook;
+
+import java.util.Hashtable;
+import java.util.Vector;
+
+/// This class represents a Facebook Photo Object
+/// http://developers.facebook.com/docs/reference/api/photo/
+///
+/// @author Chen Fishbein
+public class Photo extends FBObject {
+
+    private final User from = new User();
+    private String iconUrl;
+    private String pictureUrl;
+    private String sourceUrl;
+    private int height;
+    private int width;
+    private String link;
+    private String created_time;
+    private String updated_time;
+    private int position;
+    private Vector images;
+    private Vector comments;
+
+    /// Empty Contructor
+    public Photo() {
+    }
+
+    /// Constructor with properties to initialize this photo.
+    public Photo(Hashtable props) {
+        super(props);
+        init(props);
+    }
+
+    /// Get created_time
+    ///
+    /// #### Returns
+    ///
+    /// created_time
+    ///
+    /// #### Deprecated
+    ///
+    /// Use `#getCreatedTime()`.
+    @Deprecated
+    @SuppressWarnings("PMD.MethodNamingConventions")
+    public String getCreated_time() {
+        return getCreatedTime();
+    }
+
+    /// Get created time.
+    ///
+    /// #### Returns
+    ///
+    /// created time
+    public String getCreatedTime() {
+        return created_time;
+    }
+
+    /// Get from
+    ///
+    /// #### Returns
+    ///
+    /// from
+    public User getFrom() {
+        return from;
+    }
+
+    /// Get height
+    ///
+    /// #### Returns
+    ///
+    /// height
+    public int getHeight() {
+        return height;
+    }
+
+    /// Get iconUrl
+    ///
+    /// #### Returns
+    ///
+    /// iconUrl
+    public String getIconUrl() {
+        return iconUrl;
+    }
+
+    /// Get link
+    ///
+    /// #### Returns
+    ///
+    /// link
+    public String getLink() {
+        return link;
+    }
+
+    /// Get pictureUrl
+    ///
+    /// #### Returns
+    ///
+    /// pictureUrl
+    public String getPictureUrl() {
+        return pictureUrl;
+    }
+
+    /// Get position
+    ///
+    /// #### Returns
+    ///
+    /// position
+    public int getPosition() {
+        return position;
+    }
+
+    /// Get sourceUrl
+    ///
+    /// #### Returns
+    ///
+    /// sourceUrl
+    public String getSourceUrl() {
+        return sourceUrl;
+    }
+
+    /// Get updated_time
+    ///
+    /// #### Returns
+    ///
+    /// updated_time
+    ///
+    /// #### Deprecated
+    ///
+    /// Use `#getUpdatedTime()`.
+    @Deprecated
+    @SuppressWarnings("PMD.MethodNamingConventions")
+    public String getUpdated_time() {
+        return getUpdatedTime();
+    }
+
+    /// Get updated time.
+    ///
+    /// #### Returns
+    ///
+    /// updated time
+    public String getUpdatedTime() {
+        return updated_time;
+    }
+
+    /// Get width
+    ///
+    /// #### Returns
+    ///
+    /// width
+    public int getWidth() {
+        return width;
+    }
+
+    /// Get images vector where each entry is a String of a url
+    ///
+    /// #### Returns
+    ///
+    /// images
+    public Vector getImages() {
+        return images;
+    }
+
+    /// Gets the comments on this Photos, where each
+    /// entry is a Post Object
+    ///
+    /// #### Returns
+    ///
+    /// a Vector of Post Objects
+    public Vector getComments() {
+        return comments;
+    }
+
+    /// copies the relevant values from the given hashtable
+    ///
+    /// #### Parameters
+    ///
+    /// - `props`: an hashtable to copy from
+    @Override
+    public void copy(Hashtable props) {
+        super.copy(props);
+        init(props);
+    }
+
+    private void init(Hashtable toCopy) {
+        super.copy(toCopy);
+        Hashtable f = (Hashtable) toCopy.get("from");
+        if (f != null) {
+            from.copy(f);
+        }
+        iconUrl = (String) toCopy.get("icon");
+        pictureUrl = (String) toCopy.get("picture");
+        sourceUrl = (String) toCopy.get("source");
+        String heightStr = (String) toCopy.get("height");
+        if (heightStr != null) {
+            height = Integer.parseInt(heightStr);
+        }
+        String widthStr = (String) toCopy.get("width");
+        if (widthStr != null) {
+            width = Integer.parseInt(widthStr);
+        }
+        link = (String) toCopy.get("link");
+        created_time = (String) toCopy.get("created_time");
+        updated_time = (String) toCopy.get("updated_time");
+        String positionStr = (String) toCopy.get("position");
+        if (positionStr != null) {
+            position = Integer.parseInt(positionStr);
+        }
+
+        images = (Vector) toCopy.get("images");
+
+        Hashtable data = (Hashtable) toCopy.get("comments");
+        if (data != null) {
+            comments = new Vector();
+            Vector commentsArray = (Vector) data.get("data");
+            for (int i = 0; i < commentsArray.size(); i++) {
+                Hashtable comment = (Hashtable) commentsArray.elementAt(i);
+                Post p = new Post();
+                p.copy(comment);
+                comments.addElement(p);
+            }
+        }
+
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        return super.equals(o);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = super.hashCode();
+        result = 31 * result + from.hashCode();
+        result = 31 * result + (iconUrl != null ? iconUrl.hashCode() : 0);
+        result = 31 * result + (pictureUrl != null ? pictureUrl.hashCode() : 0);
+        result = 31 * result + (sourceUrl != null ? sourceUrl.hashCode() : 0);
+        result = 31 * result + height;
+        result = 31 * result + width;
+        result = 31 * result + (link != null ? link.hashCode() : 0);
+        result = 31 * result + (created_time != null ? created_time.hashCode() : 0);
+        result = 31 * result + (updated_time != null ? updated_time.hashCode() : 0);
+        result = 31 * result + position;
+        result = 31 * result + (images != null ? images.hashCode() : 0);
+        result = 31 * result + (comments != null ? comments.hashCode() : 0);
+        return result;
+    }
+}

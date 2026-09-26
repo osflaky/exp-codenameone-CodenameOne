@@ -1,0 +1,74 @@
+toc::[]
+
+[preface]
+== Preface
+
+This developer guide comes directly from the `docs` directory of the https://github.com/codenameone/CodenameOne/[Codename One Git repository]. The documentation is written in AsciiDoc and published from the main branch to several targets.
+
+=== Where else to look
+
+This guide is the conceptual and tutorial reference. These resources cover the rest:
+
+* https://www.codenameone.com/javadoc/[Codename One Javadoc] -- the complete API reference.
+* https://www.codenameone.com/developer-guide/[Web edition of this guide] and the
+  https://www.codenameone.com/files/developer-guide.pdf[downloadable PDF].
+* https://www.codenameone.com/how-do-i/["`How Do I?`" video tutorials] -- short screencasts for common tasks.
+* https://www.codenameone.com/blog/[The Codename One blog] -- release notes and deep dives.
+* https://www.codenameone.com/discussion-forum/[The community discussion forum] -- questions and answers.
+* https://github.com/codenameone/CodenameOne/[The Codename One repository] -- source and issue tracker.
+
+<<<
+
+**Authors**
+
+This document includes content from the following contributors and from earlier community wiki edits:
+
+- https://github.com/shai-almog[Shai Almog]
+- https://github.com/Isborg[Ismael Baum]
+- https://twitter.com/ericcoolmandev[Eric Coolman]
+- https://github.com/chen-fishbein/[Chen Fishbein]
+- https://github.com/shannah/[Steve Hannah]
+- https://github.com/kheops37[Matt]
+
+<<<
+
+**Rights & Licensing**
+
+You may copy, redistribute, or print this document without prior permission from Codename One. You may not charge for the document itself, but charging for printing costs remains permitted.
+
+If you print or reproduce sections and make changes, state that the result is a modified copy. Also link to the original source at https://www.codenameone.com/developer-guide/.
+
+<<<<
+
+**Conventions**
+
+This guide uses several notations for tips and further guidance.
+
+When additional information breaks from the current tutorial flow, use a sidebar like this:
+
+.Sidebar
+****
+Dig deeper into details that don't quite fit the current flow. Sidebars cover important detours. You can skip them while reading and return to them later.
+****
+
+Here are common conventions for highlighting notes:
+
+IMPORTANT: This is an important note
+
+TIP: This is a helpful tip
+
+NOTE: This is a general informational note. It may be interesting, but it isn't crucial.
+
+WARNING: This is a warning. Pay attention to it.
+
+#This# convention is used when referring to a button or widget to press in the UI. For example, press the button labeled #Press Here#.
+
+Quotes appear as follows:
+[quote,By Author]
+____
+This is a quote
+____
+
+*Bold* provides light emphasis for a specific word or two within a sentence.
+
+<<<

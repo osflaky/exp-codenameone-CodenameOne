@@ -1,0 +1,13 @@
+// Generated from docs/developer-guide source blocks. Edit the guide snippets here, not inline.
+
+// tag::basics-xml-001[]
+<?xml version="1.0" encoding="UTF-8"?>
+
+<component type="Form" name="SignInForm" title="Sign in" layout="LayeredLayout" autoLayout="true">
+    <component type="Label" name="heading" text="Welcome back" layeredInsets="12% auto auto 8%" />
+    <component type="TextField" name="email" hint="Email" layeredInsets="26% 8% auto 8%"
+        guidedReferences="heading|-|-|-" />
+    <component type="Button" name="signIn" text="Sign in" actionEvent="onSignIn"
+        layeredInsets="62% 8% auto 8%" guidedReferences="email|-|-|-" />
+</component>
+// end::basics-xml-001[]

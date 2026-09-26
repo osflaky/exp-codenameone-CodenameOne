@@ -1,0 +1,48 @@
+=== Install legacy Cn1lib (`install-cn1lib`)
+
+Installs a legacy cn1lib file as a dependency in this application project.
+
+See <<project-dependencies>> for fuller coverage of project dependencies.
+
+NOTE: Using this goal explicitly is a last resort. The best solution for installing add-ons into your project is <<managing-addons-in-control-center>>.
+
+==== Usage example
+
+[source,bash]
+----
+include::../demos/common/src/main/snippets/developer-guide/appendix-goal-install-cn1lib.sh[tag=appendix-goal-install-cn1lib-bash-001,indent=0]
+----
+
+This will generate a Maven pom project for this lib inside the "cn1libs" directory, and it will add a dependency inside the common/pom.xml file.
+
+NOTE: The generated project isn't a <<cn1lib-archetype, cn1lib-archetype>> project, and it isn't meant to change. It's merely a Maven wrapper around the cn1lib file that provides compatibility with Maven's dependency mechanism.
+
+==== Removing the Cn1lib later
+
+If you need to remove the cn1lib later (that is, revert an installation), you can remove the `<dependency>` tag that was added to the common/pom.xml file for the cn1lib.
+
+You can also remove the directory that was created inside the cn1libs folder for this cn1lib - but this step isn't necessary.
+
+==== Parameters
+
+file::
+Path to the cn1lib file you want to install.
+
+groupId::
+The groupId to use for the generated pom project. Optional. If not specified, it will use the same groupId as the root project.
+
+artifactId::
+The artifactId to use for the generated pom project. Optional. If not provided, it will generate an artifactId derived from the project's artifactId.
+
+version::
+The version to use for the generated pom project. Optional. If not provided, it will use the project version.
+
+updatePom::
+A boolean flag indicating whether it should automatically update the pom.xml file with the dependency.
++
+Default is `true`
+
+overwrite::
+A boolean flag indicating whether it should overwrite an existing project of the same name. Default false.
++
+Default is `false`

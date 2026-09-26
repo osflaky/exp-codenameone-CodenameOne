@@ -1,0 +1,597 @@
+/*
+ * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores
+ * CA 94065 USA or visit www.oracle.com if you need additional information or
+ * have any questions.
+ */
+package com.codename1.io;
+
+import com.codename1.compat.java.util.Objects;
+import com.codename1.impl.CodenameOneImplementation;
+import com.codename1.impl.CodenameOneThread;
+import com.codename1.ui.Command;
+import com.codename1.ui.Dialog;
+import com.codename1.ui.Display;
+import com.codename1.ui.Form;
+import com.codename1.ui.TextArea;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.layouts.BorderLayout;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Reader;
+import java.io.Writer;
+
+
+/// Pluggable logging framework that allows a developer to log into storage
+/// using the file connector API. It is highly recommended to use this
+/// class coupled with Netbeans preprocessing tags to reduce its overhead
+/// completely in runtime.
+///
+/// @author Shai Almog
+public class Log {
+    /// Constant indicating the logging level Debug is the default and the lowest level
+    /// followed by info, warning and error
+    public static final int DEBUG = 1;
+    /// Constant indicating the logging level Debug is the default and the lowest level
+    /// followed by info, warning and error
+    public static final int INFO = 2;
+    /// Constant indicating the logging level Debug is the default and the lowest level
+    /// followed by info, warning and error
+    public static final int WARNING = 3;
+    /// Constant indicating the logging level Debug is the default and the lowest level
+    /// followed by info, warning and error
+    public static final int ERROR = 4;
+    /// Indicates that log reporting to the cloud should be disabled
+    public static final int REPORTING_NONE = 0;
+    /// Indicates that log reporting to the cloud should occur regardless of whether an error occurred
+    public static final int REPORTING_DEBUG = 1;
+    /// Indicates that log reporting to the cloud should occur only if an error occurred
+    public static final int REPORTING_PRODUCTION = 3;
+    // Legacy crash-protection state. Once bindCrashProtection() backed an
+    // upload-to-codenameone.com flow that toggled this flag on. Both the
+    // bind and the field are deprecated -- the new com.codename1.crash
+    // path handles capture + upload directly. The constant `false` here
+    // keeps isCrashBound() returning a stable answer for legacy callers
+    // (CodenameOneThread.handleException + a couple of Storage hooks) so
+    // they take the same "no legacy crash binding" branch they would
+    // have if nobody had ever called bindCrashProtection.
+    private static final boolean crashBound = false;
+    private static Log instance = new Log();
+    private static boolean initialized;
+    private final long zeroTime = System.currentTimeMillis();
+    private int level = DEBUG;
+    private Writer output;
+    private boolean fileWriteEnabled = false;
+    private String fileURL = null;
+    private boolean logDirty;
+    private int reporting = REPORTING_NONE;
+
+    /// Prevent new Log() syntax. Use getInstance()
+    protected Log() {
+    }
+
+    /// Indicates the level of log reporting, this allows developers to send device logs to the cloud
+    /// thus tracking crashes or functionality in the device.
+    ///
+    /// #### Returns
+    ///
+    /// one of REPORTING_NONE, REPORTING_DEBUG, REPORTING_PRODUCTION
+    public static int getReportingLevel() {
+        return instance.reporting;
+    }
+
+    /// Indicates the level of log reporting, this allows developers to send device logs to the cloud
+    /// thus tracking crashes or functionality in the device.
+    ///
+    /// #### Parameters
+    ///
+    /// - `level`: one of REPORTING_NONE, REPORTING_DEBUG, REPORTING_PRODUCTION
+    public static void setReportingLevel(int level) {
+        instance.reporting = level;
+    }
+
+    /// Returns a server generated unique device id that is cached locally and is only valid per application.
+    /// Notice that this device id is specific to your application and to a specific install, it is guaranteed
+    /// to be completely unique or -1 if unavailable (which can be due to a network error). Warning: this
+    /// method might block while accessing the server!s
+    ///
+    /// #### Returns
+    ///
+    /// a unique device id
+    ///
+    /// #### Deprecated
+    ///
+    /// this will no longer work. Use `#getUniqueDeviceKey()`
+    public static long getUniqueDeviceId() {
+        return -1;
+    }
+
+    /// Returns a server generated unique device id that is cached locally and is only valid per application.
+    /// Notice that this device id is specific to your application and to a specific install, it is guaranteed
+    /// to be completely unique or null if unavailable (which can be due to a network error). Warning: this
+    /// method might block while accessing the server!s
+    ///
+    /// #### Returns
+    ///
+    /// a unique device id
+    public static String getUniqueDeviceKey() {
+        String devId = Preferences.get("DeviceKey__$", null);
+        if (devId != null) {
+            return devId;
+        }
+
+        devId = Preferences.get("UDeviceKey__$", null);
+        if (devId != null) {
+            return devId;
+        }
+
+        String buildKey = Display.getInstance().getProperty("build_key", null);
+        if (buildKey == null) {
+            buildKey = "";
+        }
+
+        // request the device id from the server
+        ConnectionRequest r = new ConnectionRequest() {
+            @Override
+            protected void readResponse(InputStream input) throws IOException {
+                com.codename1.io.Preferences.set("UDeviceKey__$", Util.readToString(input));
+            }
+
+            @Override
+            protected void handleErrorResponseCode(int code, String message) {
+                Log.p("Error in sending log to server: " + code + " " + message);
+            }
+
+            @Override
+            protected void handleException(Exception err) {
+                err.printStackTrace();
+            }
+        };
+        r.setPost(true);
+        r.setUrl(Display.getInstance().getProperty("cloudServerURL", "https://cloud.codenameone.com/register/device"));
+        r.addArgument("appName", Display.getInstance().getProperty("AppName", ""));
+        r.addArgument("buildKey", buildKey);
+        r.addArgument("builtByUser", Display.getInstance().getProperty("built_by_user", ""));
+        r.addArgument("packageName", Display.getInstance().getProperty("package_name", ""));
+        r.addArgument("appVersion", Display.getInstance().getProperty("AppVersion", "0.1"));
+        r.addArgument("platformName", Display.getInstance().getPlatformName());
+        //r.addArgument("u", Display.getInstance().getProperty("udid", ""));
+        com.codename1.io.NetworkManager.getInstance().addToQueueAndWait(r);
+        return Preferences.get("UDeviceKey__$", null);
+    }
+
+    /// Sends the current log to the cloud. Notice that this method is synchronous and
+    /// returns only when the sending completes
+    public static void sendLog() {
+        sendLogImpl(true);
+    }
+
+    /// Sends the current log to the cloud and returns immediately
+    public static void sendLogAsync() {
+        sendLogImpl(true);
+    }
+
+    /// Sends the current log to the cloud regardless of the reporting level
+    private static void sendLogImpl(boolean sync) {
+        try {
+            // this can cause a crash
+            if (!Display.isInitialized()) {
+                return;
+            }
+            if (!instance.logDirty) {
+                return;
+            }
+            instance.logDirty = false;
+            String devId = getUniqueDeviceKey();
+            if (devId == null) {
+                if (Display.getInstance().isSimulator()) {
+                    Dialog.show("Send Log Error", "Device Not Registered: Sending a log from an unregistered device is impossible", "OK", null);
+                } else {
+                    Log.p("Device Not Registered: Sending a log from an unregistered device is impossible");
+                }
+                return;
+            }
+            ConnectionRequest r = new ConnectionRequest();
+            r.setPost(false);
+            MultipartRequest m = new MultipartRequest();
+            m.setUrl("https://crashreport.codenameone.com/CrashReporterEmail/sendCrashReport");
+            byte[] read = Util.readInputStream(Storage.getInstance().createInputStream("CN1Log__$"));
+            m.addArgument("i", devId);
+            m.addArgument("u", Display.getInstance().getProperty("built_by_user", ""));
+            m.addArgument("p", Display.getInstance().getProperty("package_name", ""));
+            m.addArgument("v", Display.getInstance().getProperty("AppVersion", "0.1"));
+            m.addData("log", read, "text/plain");
+            m.setFailSilently(true);
+            if (sync) {
+                NetworkManager.getInstance().addToQueueAndWait(m);
+            } else {
+                NetworkManager.getInstance().addToQueue(m);
+            }
+        } catch (Throwable ex) {
+            ex.printStackTrace();
+        }
+    }
+
+    /// Installs a log subclass that can replace the logging destination/behavior
+    ///
+    /// #### Parameters
+    ///
+    /// - `newInstance`: the new instance for the Log object
+    public static void install(Log newInstance) {
+        instance = newInstance;
+    }
+
+    /// Default println method invokes the print instance method, uses DEBUG level
+    ///
+    /// #### Parameters
+    ///
+    /// - `text`: the text to print
+    public static void p(String text) {
+        p(text, DEBUG);
+    }
+
+    /// Default println method invokes the print instance method, uses given level
+    ///
+    /// #### Parameters
+    ///
+    /// - `text`: the text to print
+    ///
+    /// - `level`: one of DEBUG, INFO, WARNING, ERROR
+    public static void p(String text, int level) {
+        instance.print(text, level);
+    }
+
+    /// This method is a shorthand form for logThrowable
+    ///
+    /// #### Parameters
+    ///
+    /// - `t`: the exception
+    public static void e(Throwable t) {
+        instance.logThrowable(t);
+    }
+
+    /// Deletes the current log file
+    public static void deleteLog() {
+        if (instance.output != null) {
+            Util.cleanup(instance.output);
+            instance.output = null;
+        }
+        if (instance.getFileURL() == null) {
+            Storage.getInstance().deleteStorageFile("CN1Log__$");
+        } else {
+            if (FileSystemStorage.getInstance().exists(instance.getFileURL())) {
+                FileSystemStorage.getInstance().delete(instance.getFileURL());
+            }
+        }
+    }
+
+    /// Returns the logging level for printing log details, the lower the value
+    /// the more verbose would the printouts be
+    ///
+    /// #### Returns
+    ///
+    /// one of DEBUG, INFO, WARNING, ERROR
+    public static int getLevel() {
+        return instance.level;
+    }
+
+    /// Sets the logging level for printing log details, the lower the value
+    /// the more verbose would the printouts be
+    ///
+    /// #### Parameters
+    ///
+    /// - `level`: one of DEBUG, INFO, WARNING, ERROR
+    public static void setLevel(int level) {
+        instance.level = level;
+    }
+
+    /// Returns the contents of the log as a single long string to be displayed by
+    /// the application any way it sees fit
+    ///
+    /// #### Returns
+    ///
+    /// string containing the whole log
+    ///
+    /// #### Deprecated
+    ///
+    /// this hasn't been maintained in ages, use sendLog() instead
+    public static String getLogContent() {
+        try {
+            String text = "";
+            if (instance.isFileWriteEnabled()) {
+                if (instance.getFileURL() == null) {
+                    instance.setFileURL("file:///" + FileSystemStorage.getInstance().getRoots()[0] + "/codenameOne.log");
+                }
+                Reader r = null; //NOPMD CloseResource
+                try {
+                    r = Util.getReader(FileSystemStorage.getInstance().openInputStream(instance.getFileURL()));
+                    char[] buffer = new char[1024];
+                    int size = r.read(buffer);
+                    StringBuilder textBuilder = new StringBuilder();
+                    while (size > -1) {
+                        textBuilder.append(new String(buffer, 0, size));
+                        size = r.read(buffer);
+                    }
+                    text = textBuilder.toString();
+                } finally {
+                    Util.cleanup(r);
+                }
+            }
+            return text;
+        } catch (IOException ex) {
+            ex.printStackTrace();
+            return "";
+        }
+    }
+
+    /// Places a form with the log as a TextArea on the screen, this method can
+    /// be attached to appear at a given time or using a fixed global key. Using
+    /// this method might cause a problem with further log output
+    ///
+    /// #### Deprecated
+    ///
+    /// this method is an outdated method that's no longer supported
+    public static void showLog() {
+        try {
+            String text = getLogContent();
+            TextArea area = new TextArea(text, 5, 20);
+            Form f = new Form("Log");
+            f.setScrollable(false);
+            final Form current = Display.getInstance().getCurrent();
+            Command back = new Command("Back") {
+                @Override
+                public void actionPerformed(ActionEvent ev) {
+                    current.show();
+                }
+            };
+            f.addCommand(back);
+            f.setBackCommand(back);
+            f.setLayout(new BorderLayout());
+            f.addComponent(BorderLayout.CENTER, area);
+            f.show();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+    }
+
+    /// Returns the singleton instance of the log
+    ///
+    /// #### Returns
+    ///
+    /// the singleton instance of the log
+    public static Log getInstance() {
+        return instance;
+    }
+
+    /// @deprecated Replaced by `com.codename1.crash.CrashProtection`,
+    /// which captures the full structured crash record (Java exception
+    /// + native crash data + platform log snapshot) and uploads it to
+    /// the managed crash-reporting service. Call
+    /// `CrashProtection.install()` plus `CrashProtection.setEnabled(true)`
+    /// from your `Lifecycle.init` instead. This method is now a no-op.
+    @Deprecated
+    public static void bindCrashProtection(final boolean consumeError) {
+    }
+
+    /// Returns true if the user bound crash protection
+    ///
+    /// #### Returns
+    ///
+    /// true if crash protection is bound
+    public static boolean isCrashBound() {
+        return crashBound;
+    }
+
+    /// Logs an exception to the log, by default print is called with the exception
+    /// details, on supported devices the stack trace is also physically written to
+    /// the log
+    ///
+    /// #### Parameters
+    ///
+    /// - `t`
+    protected void logThrowable(Throwable t) {
+        if (t == null) {
+            p("Exception logging invoked with null exception...");
+            return;
+        }
+        print("Exception: " + t.getClass().getName() + " - " + t.getMessage(), ERROR);
+        Thread thr = Thread.currentThread();
+        if (thr instanceof CodenameOneThread && ((CodenameOneThread) thr).hasStackFrame()) {
+            print(((CodenameOneThread) thr).getStack(t), ERROR);
+        }
+        t.printStackTrace();
+        try {
+            synchronized (this) {
+                Writer w = getWriter(); //NOPMD CloseResource - shared writer managed by Log
+                Util.getImplementation().printStackTraceToStream(t, w);
+                w.flush();
+            }
+        } catch (IOException err) {
+            err.printStackTrace();
+        }
+    }
+
+    /// Default log implementation prints to the console and the file connector
+    /// if applicable. Also prepends the thread information and time before
+    ///
+    /// #### Parameters
+    ///
+    /// - `text`: the text to print
+    ///
+    /// - `level`: one of DEBUG, INFO, WARNING, ERROR
+    protected void print(String text, int level) {
+        if (!initialized) {
+            initialized = true;
+            try {
+                InputStream is = null; //NOPMD CloseResource
+                try {
+                    is = Display.getInstance().getResourceAsStream(getClass(), "/cn1-version-numbers");
+                    if (is != null) {
+                        print("Codename One revisions: " + Util.readToString(is), INFO);
+                    }
+                } finally {
+                    Util.cleanup(is);
+                }
+            } catch (IOException err) {
+                // shouldn't happen...
+                err.printStackTrace();
+            }
+        }
+        if (this.level > level) {
+            return;
+        }
+        logDirty = true;
+        text = getThreadAndTimeStamp() + " - " + text;
+        CodenameOneImplementation impl = Util.getImplementation();
+        if (impl != null) {
+            impl.systemOut(text);
+        } else {
+            System.out.println(text);
+        }
+        try {
+            synchronized (this) {
+                Writer w = getWriter(); //NOPMD CloseResource - shared writer managed by Log
+                w.write(text + "\n");
+                w.flush();
+            }
+        } catch (Throwable err) {
+            err.printStackTrace();
+        }
+    }
+
+    /// Default method for creating the output writer into which we write, this method
+    /// creates a simple log file using the file connector
+    ///
+    /// #### Returns
+    ///
+    /// writer object
+    ///
+    /// #### Throws
+    ///
+    /// - `IOException`: when thrown by the connector
+    protected Writer createWriter() throws IOException {
+        try {
+            if (getFileURL() == null) {
+                return Util.getWriter(Storage.getInstance().createOutputStream("CN1Log__$"));
+            }
+            if (FileSystemStorage.getInstance().exists(getFileURL())) {
+                return Util.getWriter(FileSystemStorage.getInstance().openOutputStream(getFileURL(),
+                        (int) FileSystemStorage.getInstance().getLength(getFileURL())));
+            } else {
+                return Util.getWriter(FileSystemStorage.getInstance().openOutputStream(getFileURL()));
+            }
+        } catch (IOException err) {
+            return fallbackWriterAfterError();
+        } catch (RuntimeException err) {
+            return fallbackWriterAfterError();
+        }
+    }
+
+    private Writer fallbackWriterAfterError() {
+        setFileWriteEnabled(false);
+        // currently return a "dummy" writer so we won't fail on device
+        return Util.getWriter(new ByteArrayOutputStream());
+    }
+
+    private Writer getWriter() throws IOException {
+        if (output == null) {
+            output = createWriter();
+        }
+        return output;
+    }
+
+    /// Returns a simple string containing a timestamp and thread name.
+    ///
+    /// #### Returns
+    ///
+    /// timestamp string for use in the log
+    protected String getThreadAndTimeStamp() {
+        long time = System.currentTimeMillis() - zeroTime;
+        long milli = time % 1000;
+        time /= 1000;
+        long sec = time % 60;
+        time /= 60;
+        long min = time % 60;
+        time /= 60;
+        long hour = time % 60;
+
+        return "[" + Thread.currentThread().getName() + "] " + hour + ":" + min + ":" + sec + "," + milli;
+    }
+
+    /// Indicates whether GCF's file writing should be used to generate the log file
+    ///
+    /// #### Returns
+    ///
+    /// the fileWriteEnabled
+    public boolean isFileWriteEnabled() {
+        return fileWriteEnabled;
+    }
+
+    /// Indicates whether GCF's file writing should be used to generate the log file
+    ///
+    /// #### Parameters
+    ///
+    /// - `fileWriteEnabled`: the fileWriteEnabled to set
+    public void setFileWriteEnabled(boolean fileWriteEnabled) {
+        this.fileWriteEnabled = fileWriteEnabled;
+    }
+
+    /// Indicates the URL where the log file is saved
+    ///
+    /// #### Returns
+    ///
+    /// the fileURL
+    public String getFileURL() {
+        return fileURL;
+    }
+
+    /// Indicates the URL where the log file is saved
+    ///
+    /// #### Parameters
+    ///
+    /// - `fileURL`: the fileURL to set
+    public void setFileURL(String fileURL) {
+        if (!Objects.equals(this.fileURL, fileURL)) {
+            try {
+                this.fileURL = fileURL;
+                output = createWriter();
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
+        }
+    }
+
+    /// Activates the filesystem tracking of file open/close operations
+    public void trackFileSystem() {
+        Util.getImplementation().setLogListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent evt) {
+                String s = (String) evt.getSource();
+                // don't log the creation of the log itself
+                if (output != null) {
+                    p(s);
+                }
+            }
+        });
+    }
+}

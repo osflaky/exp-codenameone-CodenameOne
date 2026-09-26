@@ -1,0 +1,292 @@
+#!/usr/bin/env bash
+# Build a sample "Hello Codename One" Android application using the locally-built Codename One Android port
+set -euo pipefail
+
+ba_log() { echo "[build-android-app] $1"; }
+
+REPO_ROOT="$(pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO_ROOT"
+
+# shellcheck source=scripts/lib/inject-maps-key.sh
+. "$SCRIPT_DIR/lib/inject-maps-key.sh"
+inject_google_maps_key "$REPO_ROOT"
+
+TMPDIR="${TMPDIR:-/tmp}"; TMPDIR="${TMPDIR%/}"
+DOWNLOAD_DIR="${TMPDIR%/}/codenameone-tools"
+ENV_DIR="$DOWNLOAD_DIR/tools"
+
+ENV_FILE="$ENV_DIR/env.sh"
+ba_log "Loading workspace environment from $ENV_FILE"
+if [ -f "$ENV_FILE" ]; then
+  ba_log "Workspace environment file metadata"
+  ls -l "$ENV_FILE" | while IFS= read -r line; do ba_log "$line"; done
+  ba_log "Workspace environment file contents"
+  sed 's/^/[build-android-app] ENV: /' "$ENV_FILE"
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  ba_log "Loaded environment: JAVA_HOME=${JAVA_HOME:-<unset>} JAVA17_HOME=${JAVA17_HOME:-<unset>} MAVEN_HOME=${MAVEN_HOME:-<unset>}"
+else
+  ba_log "Workspace tools not found. Run scripts/setup-workspace.sh before this script." >&2
+  exit 1
+fi
+
+# --- Tool validations ---
+if [ -z "${JAVA_HOME:-}" ] || [ ! -x "$JAVA_HOME/bin/java" ]; then
+  ba_log "JAVA_HOME validation failed. Current value: ${JAVA_HOME:-<unset>}" >&2
+  if [ -n "${JAVA_HOME:-}" ]; then
+    ba_log "Contents of JAVA_HOME directory"
+    if [ -d "$JAVA_HOME" ]; then ls -l "$JAVA_HOME" | while IFS= read -r line; do ba_log "$line"; done; else ba_log "JAVA_HOME directory does not exist"; fi
+  fi
+  ba_log "JAVA_HOME is not set correctly. Please run scripts/setup-workspace.sh first." >&2
+  exit 1
+fi
+if [ -z "${JAVA17_HOME:-}" ] || [ ! -x "$JAVA17_HOME/bin/java" ]; then
+  ba_log "JAVA17_HOME validation failed. Current value: ${JAVA17_HOME:-<unset>}" >&2
+  if [ -n "${JAVA17_HOME:-}" ]; then
+    ba_log "Contents of JAVA17_HOME directory"
+    if [ -d "$JAVA17_HOME" ]; then ls -l "$JAVA17_HOME" | while IFS= read -r line; do ba_log "$line"; done; else ba_log "JAVA17_HOME directory does not exist"; fi
+  fi
+  ba_log "JAVA17_HOME is not set correctly. Please run scripts/setup-workspace.sh first." >&2
+  exit 1
+fi
+if [ -z "${MAVEN_HOME:-}" ] || [ ! -x "$MAVEN_HOME/bin/mvn" ]; then
+  ba_log "MAVEN_HOME validation failed. Current value: ${MAVEN_HOME:-<unset>}" >&2
+  if [ -n "${MAVEN_HOME:-}" ]; then
+    ba_log "Contents of MAVEN_HOME directory"
+    if [ -d "$MAVEN_HOME" ]; then ls -l "$MAVEN_HOME" | while IFS= read -r line; do ba_log "$line"; done; else ba_log "MAVEN_HOME directory does not exist"; fi
+  fi
+  ba_log "Maven is not available. Please run scripts/setup-workspace.sh first." >&2
+  exit 1
+fi
+
+ba_log "Using JAVA_HOME at $JAVA_HOME"
+ba_log "Using JAVA17_HOME at $JAVA17_HOME"
+ba_log "Using Maven installation at $MAVEN_HOME"
+export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
+
+ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+if [ -z "$ANDROID_SDK_ROOT" ]; then
+  if [ -d "/usr/local/lib/android/sdk" ]; then ANDROID_SDK_ROOT="/usr/local/lib/android/sdk"
+  elif [ -d "$HOME/Android/Sdk" ]; then ANDROID_SDK_ROOT="$HOME/Android/Sdk"; fi
+fi
+if [ -z "$ANDROID_SDK_ROOT" ] || [ ! -d "$ANDROID_SDK_ROOT" ]; then
+  ba_log "Android SDK not found. Set ANDROID_SDK_ROOT or ANDROID_HOME to a valid installation." >&2
+  exit 1
+fi
+export ANDROID_SDK_ROOT ANDROID_HOME="$ANDROID_SDK_ROOT"
+ba_log "Using Android SDK at $ANDROID_SDK_ROOT"
+
+# CN1_APP_DIR lets this script build any CN1 app (e.g. the dedicated IAP
+# purchase-test app), not just hellocodenameone. Default preserves prior
+# behaviour exactly.
+APP_DIR="${CN1_APP_DIR:-scripts/hellocodenameone}"
+
+[ -d "$APP_DIR" ] || { ba_log "Failed to create Codename One application project" >&2; exit 1; }
+[ -f "$APP_DIR/build.sh" ] && chmod +x "$APP_DIR/build.sh"
+
+# --- Build Android gradle project ---
+ba_log "Building Android gradle project ($APP_DIR) using Codename One port"
+(
+  cd "$REPO_ROOT/$APP_DIR"
+  # The sample targets Java 17, so both the maven-compiler-plugin
+  # and any forked tooling need a 17 JDK. Mirrors what build-ios-app.sh
+  # does for the iOS pipeline.
+  export JAVA_HOME="$JAVA17_HOME"
+  export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
+  # xvfb-run only exists on the Linux CI runners (headless X for the theme
+  # compiler's AWT bits); on macOS the build runs directly against the
+  # regular window server.
+  MVN_WRAP=""
+  if command -v xvfb-run >/dev/null 2>&1; then
+    MVN_WRAP="xvfb-run -a"
+  fi
+  $MVN_WRAP "$MAVEN_HOME/bin/mvn" -B package \
+    -DskipTests \
+    -Dcodename1.platform=android \
+    -Dcodename1.buildTarget=android-source \
+    -Dmaven.compiler.fork=true \
+    -Dmaven.compiler.executable="$JAVA17_HOME/bin/javac" \
+    -Dopen=false \
+    -U -e
+)
+cd "$REPO_ROOT"
+
+GRADLE_PROJECT_DIR=$(find "$APP_DIR/android/target" -maxdepth 2 -type d -name "*-android-source" | head -n 1 || true)
+if [ -z "$GRADLE_PROJECT_DIR" ]; then
+  ba_log "Failed to locate generated Android project" >&2
+  ba_log "Contents of $APP_DIR/android/target:" >&2
+  ls -R "$APP_DIR/android/target" >&2 || ba_log "Unable to list $APP_DIR/android/target" >&2
+  exit 1
+fi
+
+# The API level this build compiles and targets. 36 by default, which is what
+# the screenshot baselines and the emulator leg were taken against, so a change
+# here changes what the suite is comparing. Overridable so the same script can
+# be pointed at a newer platform -- see scripts/verify-android-app-compile-sdk.sh,
+# which is how CI proves the generated project still builds at API 37.
+ANDROID_APP_COMPILE_SDK="${CN1_ANDROID_COMPILE_SDK:-36}"
+ANDROID_APP_TARGET_SDK="${CN1_ANDROID_TARGET_SDK:-$ANDROID_APP_COMPILE_SDK}"
+
+# The sdkmanager package that carries a platform. Every level up to 36 is named
+# by the bare number; from 37 there is no unsuffixed package at all -- only
+# android-37.0, android-37.1 and android-37.2 -- so asking for "android-37"
+# installs nothing and the build then fails on a missing target rather than on
+# anything real.
+android_platform_package() {
+  if [ "$1" -ge 37 ]; then
+    echo "platforms;android-$1.0"
+  else
+    echo "platforms;android-$1"
+  fi
+}
+
+ba_log "Normalizing Android Gradle project in $GRADLE_PROJECT_DIR (compileSdk $ANDROID_APP_COMPILE_SDK, targetSdk $ANDROID_APP_TARGET_SDK)"
+
+# --- Install Android instrumentation harness for coverage ---
+# CN1_ANDROID_TEST_SOURCE_DIR overrides the instrumentation sources (the
+# purchase-test app installs its own); the destination package mirrors the
+# app's codename1.packageName so it works for any app, not just hellocodenameone.
+ANDROID_TEST_SOURCE_DIR="${CN1_ANDROID_TEST_SOURCE_DIR:-$SCRIPT_DIR/device-runner-app/androidTest}"
+ANDROID_TEST_ROOT="$GRADLE_PROJECT_DIR/app/src/androidTest"
+APP_PACKAGE="$(sed -n 's/^codename1.packageName=//p' "$REPO_ROOT/$APP_DIR/common/codenameone_settings.properties" | head -n1)"
+APP_PACKAGE="${APP_PACKAGE:-com.codenameone.examples.hellocodenameone}"
+ANDROID_TEST_JAVA_DIR="$ANDROID_TEST_ROOT/java/$(printf '%s' "$APP_PACKAGE" | tr . /)"
+if [ -d "$ANDROID_TEST_ROOT" ]; then
+  ba_log "Removing template Android instrumentation tests from $ANDROID_TEST_ROOT"
+  rm -rf "$ANDROID_TEST_ROOT"
+fi
+mkdir -p "$ANDROID_TEST_JAVA_DIR"
+if [ ! -d "$ANDROID_TEST_SOURCE_DIR" ]; then
+  ba_log "Android instrumentation test sources not found: $ANDROID_TEST_SOURCE_DIR" >&2
+  exit 1
+fi
+cp "$ANDROID_TEST_SOURCE_DIR"/*.java "$ANDROID_TEST_JAVA_DIR"/
+ba_log "Installed Android instrumentation tests in $ANDROID_TEST_JAVA_DIR"
+
+# Ensure AndroidX flags in gradle.properties
+# --- BEGIN: robust Gradle patch for AndroidX tests ---
+GRADLE_PROPS="$GRADLE_PROJECT_DIR/gradle.properties"
+grep -q '^android.useAndroidX=' "$GRADLE_PROPS" 2>/dev/null || echo 'android.useAndroidX=true' >> "$GRADLE_PROPS"
+grep -q '^android.enableJetifier=' "$GRADLE_PROPS" 2>/dev/null || echo 'android.enableJetifier=true' >> "$GRADLE_PROPS"
+grep -q '^android.suppressUnsupportedCompileSdk=' "$GRADLE_PROPS" 2>/dev/null || \
+  echo "android.suppressUnsupportedCompileSdk=$ANDROID_APP_COMPILE_SDK,$ANDROID_APP_COMPILE_SDK.0" >> "$GRADLE_PROPS"
+
+# More heap than the builder's generated default, for this script only.
+#
+# The generated project asks for -Xmx2048m, which was written for a build that
+# forks its heavy work out. This script runs --no-daemon, so resource merging,
+# dexing and packaging all happen in one single-use JVM, and packageDebug reads
+# each entry into a byte[] as it writes it -- the last allocation in the
+# sequence, on a heap the earlier steps have already filled and fragmented.
+# That is why the failure appeared as an intermittent OutOfMemoryError inside
+# PackageAndroidArtifact rather than a build that never worked: identical
+# inputs, decided by GC timing. Nothing here caps the JVM below the runner's
+# memory, so the headroom is free.
+#
+# Overwritten rather than appended: java.util.Properties would take the last
+# occurrence, but a file listing the same key twice with different values is a
+# trap for whoever reads it next.
+if grep -q '^org.gradle.jvmargs=' "$GRADLE_PROPS" 2>/dev/null; then
+  sed -i.bak 's/^org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx4096m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8/' "$GRADLE_PROPS"
+  rm -f "$GRADLE_PROPS.bak"
+else
+  echo 'org.gradle.jvmargs=-Xmx4096m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8' >> "$GRADLE_PROPS"
+fi
+ba_log "Gradle JVM args: $(grep '^org.gradle.jvmargs=' "$GRADLE_PROPS")"
+
+APP_BUILD_GRADLE="$GRADLE_PROJECT_DIR/app/build.gradle"
+ROOT_BUILD_GRADLE="$GRADLE_PROJECT_DIR/build.gradle"
+PATCH_GRADLE_SOURCE_PATH="$SCRIPT_DIR/android/lib"
+PATCH_GRADLE_MAIN_CLASS="PatchGradleFiles"
+
+if [ ! -f "$PATCH_GRADLE_SOURCE_PATH/$PATCH_GRADLE_MAIN_CLASS.java" ]; then
+  ba_log "Missing gradle patch helper: $PATCH_GRADLE_SOURCE_PATH/$PATCH_GRADLE_MAIN_CLASS.java" >&2
+  exit 1
+fi
+
+PATCH_GRADLE_JAVA="${JDK_HOME:-$JAVA17_HOME}/bin/java"
+if [ ! -x "$PATCH_GRADLE_JAVA" ]; then
+  ba_log "JDK java binary missing at $PATCH_GRADLE_JAVA" >&2
+  exit 1
+fi
+
+PATCH_GRADLE_MODULES=(--app "$APP_BUILD_GRADLE")
+# A companion Wear build adds a second application module. It needs the same compileSdk pin as
+# the phone one, so that both modules compile against the platform this job installs rather than
+# whichever one happens to be newest on the runner. AGP 8.13.2 is tested up to 36 and only warns
+# above it, and the suite's targetSdk-dependent behaviour is what the screenshots were taken
+# against, so the pin is about reproducibility -- not about API 37, which the port has compiled
+# against since #5723. That claim is no longer taken on trust: the same project is rebuilt at
+# API 37 by scripts/verify-android-app-compile-sdk.sh, and the port's sources are compared
+# against the two platforms by scripts/check-android-api-removals.py.
+WEAR_BUILD_GRADLE="$GRADLE_PROJECT_DIR/wear/build.gradle"
+if [ -f "$WEAR_BUILD_GRADLE" ]; then
+  ba_log "Wear module present; pinning its SDK levels too"
+  PATCH_GRADLE_MODULES+=(--app "$WEAR_BUILD_GRADLE")
+fi
+
+"$PATCH_GRADLE_JAVA" "$PATCH_GRADLE_SOURCE_PATH/$PATCH_GRADLE_MAIN_CLASS.java" \
+  --root "$ROOT_BUILD_GRADLE" \
+  "${PATCH_GRADLE_MODULES[@]}" \
+  --compile-sdk "$ANDROID_APP_COMPILE_SDK" \
+  --target-sdk "$ANDROID_APP_TARGET_SDK"
+# --- END: robust Gradle patch ---
+
+echo "----- app/build.gradle tail -----"
+tail -n 80 "$APP_BUILD_GRADLE" | sed 's/^/| /'
+echo "---------------------------------"
+
+ba_log "Invoking Gradle build in $GRADLE_PROJECT_DIR"
+chmod +x "$GRADLE_PROJECT_DIR/gradlew"
+ORIGINAL_JAVA_HOME="$JAVA_HOME"
+export JAVA_HOME="${JDK_HOME:-$JAVA17_HOME}"
+(
+  cd "$GRADLE_PROJECT_DIR"
+  SDK_PLATFORM_PACKAGE=$(android_platform_package "$ANDROID_APP_COMPILE_SDK")
+  SDK_BUILD_TOOLS_PACKAGE="build-tools;$ANDROID_APP_COMPILE_SDK.0.0"
+  # SDK-root copy first; see scripts/verify-android-app-compile-sdk.sh for why
+  # the one on PATH is the wrong default.
+  SDKMANAGER=""
+  if [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+    SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+  elif command -v sdkmanager >/dev/null 2>&1; then
+    SDKMANAGER="sdkmanager"
+  fi
+  if [ -n "$SDKMANAGER" ]; then
+    ba_log "Ensuring $SDK_PLATFORM_PACKAGE and $SDK_BUILD_TOOLS_PACKAGE are installed"
+    yes | "$SDKMANAGER" "$SDK_PLATFORM_PACKAGE" "$SDK_BUILD_TOOLS_PACKAGE" >/dev/null 2>&1 || \
+      ba_log "Warning: unable to install Android SDK $ANDROID_APP_COMPILE_SDK components"
+    yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+  fi
+  # --stacktrace, always. A packaging failure inside
+  # PackageAndroidArtifact$IncrementalSplitterRunnable reports only "a failure
+  # occurred while executing" without it, so the CI log names the task and nothing
+  # else -- and the workspace is gone by the time anyone reads it. It costs nothing
+  # on a successful build and is the difference between diagnosing the next
+  # occurrence and guessing at it.
+  ./gradlew --no-daemon --stacktrace assembleDebug
+)
+export JAVA_HOME="$ORIGINAL_JAVA_HOME"
+
+# The PHONE module's APK, named explicitly. A companion build assembles two application
+# modules, so an unqualified find returns whichever the filesystem happened to walk first --
+# and traversal order is not a contract about which artifact is the product. Callers install
+# what this reports, so picking the watch-only APK would hand them the wrong app.
+APK_PATH=$(find "$GRADLE_PROJECT_DIR/app" -path "*/outputs/apk/debug/*.apk" 2>/dev/null | head -n 1 || true)
+if [ -z "$APK_PATH" ]; then
+  # A project whose module is not called "app" -- or a layout without one -- falls back to the
+  # old search, minus anything under a wear module, which is never the phone artifact.
+  APK_PATH=$(find "$GRADLE_PROJECT_DIR" -path "*/outputs/apk/debug/*.apk" \
+      -not -path "*/wear/*" | head -n 1 || true)
+fi
+[ -n "$APK_PATH" ] || { ba_log "Gradle build completed but no APK was found" >&2; exit 1; }
+ba_log "Successfully built Android APK at $APK_PATH"
+
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  {
+    echo "gradle_project_dir=$GRADLE_PROJECT_DIR"
+    echo "apk_path=$APK_PATH"
+  } >> "$GITHUB_OUTPUT"
+  ba_log "Published GitHub Actions outputs for downstream steps"
+fi

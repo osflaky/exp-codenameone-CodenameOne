@@ -1,0 +1,272 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+package com.codename1.components;
+
+import com.codename1.ui.Display;
+import com.codename1.ui.Image;
+import com.codename1.ui.Label;
+import com.codename1.ui.geom.Dimension;
+import com.codename1.ui.plaf.Style;
+import com.codename1.ui.TopLevelContainer;
+
+/// Label that simplifies the usage of scale to fill/fit. This is effectively equivalent to just setting the style image
+/// on a label but more convenient for some special circumstances. One major difference is that preferred size
+/// equals the image in this case.
+///
+/// The default UIID for this component is "`Label`".
+///
+/// ```java
+/// TableLayout tl = new TableLayout(2, 2);
+/// Form hi = new Form("ScaleImageButton/Label", tl);
+/// Style s = UIManager.getInstance().getComponentStyle("Button");
+/// Image icon = FontImage.createMaterial(FontImage.MATERIAL_WARNING, s);
+/// ScaleImageLabel fillLabel = new ScaleImageLabel(icon);
+/// fillLabel.setBackgroundType(Style.BACKGROUND_IMAGE_SCALED_FILL);
+/// ScaleImageButton fillButton = new ScaleImageButton(icon);
+/// fillButton.setBackgroundType(Style.BACKGROUND_IMAGE_SCALED_FILL);
+/// hi.add(tl.createConstraint().widthPercentage(20), new ScaleImageButton(icon)).
+///         add(tl.createConstraint().widthPercentage(80), new ScaleImageLabel(icon)).
+///         add(fillLabel).
+///         add(fillButton);
+/// hi.show();
+/// ```
+///
+/// @author Shai Almog
+public class ScaleImageLabel extends Label {
+
+    private int preferredH = -1;
+    private int preferredW = -1;
+
+    /// Default constructor
+    public ScaleImageLabel() {
+        setUIIDFinal("Label");
+        setShowEvenIfBlank(true);
+        getAllStyles().setBackgroundType(Style.BACKGROUND_IMAGE_SCALED_FIT);
+    }
+
+    /// Create a version with the given image
+    ///
+    /// #### Parameters
+    ///
+    /// - `i`: image
+    public ScaleImageLabel(Image i) {
+        setUIIDFinal("Label");
+        setShowEvenIfBlank(true);
+        getAllStyles().setBackgroundType(Style.BACKGROUND_IMAGE_SCALED_FIT);
+        setIcon(i);
+    }
+
+    /// Returns the background type for the component
+    ///
+    /// #### Returns
+    ///
+    /// @return One of Style.BACKGROUND_IMAGE_SCALED_FIT,
+    /// Style.BACKGROUND_IMAGE_SCALED_FILL or Style.BACKGROUND_IMAGE_SCALE
+    public byte getBackgroundType() {
+        return getUnselectedStyle().getBackgroundType();
+    }
+
+    /// Sets the behavior of the background to one of Style.BACKGROUND_IMAGE_SCALED_FIT,
+    /// Style.BACKGROUND_IMAGE_SCALED_FILL, Style.BACKGROUND_IMAGE_SCALE
+    ///
+    /// #### Parameters
+    ///
+    /// - `behavior`: the background behavior
+    public void setBackgroundType(byte behavior) {
+        getAllStyles().setBackgroundType(behavior);
+    }
+
+    /// {@inheritDoc}
+    @Override
+    protected Dimension calcPreferredSize() {
+        Image i = getIcon();
+        if (i == null) {
+            return new Dimension();
+        }
+        // The surface this label lives on rather than the main display, so the
+        // oversized-preferred-width clamp below is measured against the window the
+        // label is actually in.
+        TopLevelContainer scaleTop = getTopLevelContainer();
+        int dw = scaleTop != null && scaleTop.asContainer().getWidth() > 0
+                ? scaleTop.asContainer().getWidth()
+                : Display.getInstance().getDisplayWidth();
+        int iw = i.getWidth();
+        int ih = i.getHeight();
+
+        // a huge preferred width might be requested that is bigger than screen size. Normally this isn't a problem but in
+        // a scrollable container the vertical height might be granted providing so much space as to make this unrealistic...
+        if (iw > dw) {
+            float ratio = ((float) iw) / ((float) dw);
+            iw = (int) (((float) iw) / ratio);
+            ih = (int) (((float) ih) / ratio);
+        }
+        Style s = getStyle();
+        return new Dimension(iw + s.getPaddingLeftNoRTL() + s.getPaddingRightNoRTL(), ih +
+                s.getPaddingTop() + s.getPaddingBottom());
+    }
+
+    /// {@inheritDoc}
+    ///
+    /// Overriden to support animations
+    @Override
+    protected void initComponent() {
+        super.initComponent();
+        checkAnimation(getIcon());
+    }
+
+    void checkAnimation(Image icon) {
+        if (icon != null && icon.isAnimation()) {
+            registerForAnimation();
+        }
+    }
+
+    /// Returns the background image
+    ///
+    /// #### Returns
+    ///
+    /// the bg image
+    @Override
+    public Image getIcon() {
+        return getUnselectedStyle().getBgImage();
+    }
+
+    /// Instead of setting the icon sets the background image
+    ///
+    /// #### Parameters
+    ///
+    /// - `i`: the image
+    @Override
+    public void setIcon(Image i) {
+        setShouldCalcPreferredSize(true);
+        getAllStyles().setBgImage(i);
+        if (i != null && i.isAnimation()) {
+            checkAnimation(i);
+        }
+        repaint();
+    }
+
+    /// Scale image label doesn't support text this method is overriden to do nothing
+    @Override
+    public void setText(String text) {
+    }
+
+    /// {@inheritDoc}
+    /// Overriden to prevent the setUIID from replacing the code
+    @Override
+    public void setUIID(String id) {
+        byte type = getBackgroundType();
+        Image icon = getIcon();
+        super.setUIID(id);
+        setIcon(icon);
+        getAllStyles().setBackgroundType(type);
+    }
+
+    @Override
+    protected void refreshTheme(String id, boolean merge) {
+        byte type = getBackgroundType();
+        Image icon = getIcon();
+        super.refreshTheme(id, merge);
+        setIcon(icon);
+        getAllStyles().setBackgroundType(type);
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String[] getPropertyNames() {
+        return new String[]{"backgroundType"};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Class[] getPropertyTypes() {
+        return new Class[]{Byte.class};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String[] getPropertyTypeNames() {
+        return new String[]{"Byte"};
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Object getPropertyValue(String name) {
+        if ("backgroundType".equals(name)) {
+            return getBackgroundType();
+        }
+        return null;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public String setPropertyValue(String name, Object value) {
+        if ("backgroundType".equals(name)) {
+            setBackgroundType(((Byte) value).byteValue());
+            return null;
+        }
+        return super.setPropertyValue(name, value);
+    }
+
+    @Override
+    public int getPreferredH() {
+        if (preferredH > 0) {
+            return preferredH;
+        }
+        if (preferredW > 0) {
+            Image i = getIcon();
+            // PMD Fix (CollapsibleIfStatements): Combine the nested icon and width checks into a single conditional.
+            if (i != null && preferredW < i.getWidth()) {
+                return (int) (i.getHeight() * preferredW / (double) i.getWidth());
+            }
+        }
+        return super.getPreferredH();
+    }
+
+    @Override
+    public void setPreferredH(int preferredH) {
+        this.preferredH = preferredH;
+    }
+
+    @Override
+    public int getPreferredW() {
+        if (preferredW > 0) {
+            return preferredW;
+        }
+        if (preferredH > 0) {
+            Image i = getIcon();
+            // PMD Fix (CollapsibleIfStatements): Merge the icon nullity and height comparison into one condition.
+            if (i != null && preferredH < i.getHeight()) {
+                return (int) (i.getWidth() * preferredH / (double) i.getHeight());
+            }
+        }
+        return super.getPreferredW();
+    }
+
+    @Override
+    public void setPreferredW(int preferredW) {
+        this.preferredW = preferredW;
+    }
+
+
+}

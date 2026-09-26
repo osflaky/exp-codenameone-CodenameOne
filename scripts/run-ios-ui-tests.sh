@@ -1,0 +1,1276 @@
+#!/usr/bin/env bash
+# Run Codename One iOS UI tests on the simulator and compare screenshots
+set -euo pipefail
+
+ri_log() { echo "[run-ios-ui-tests] $1"; }
+
+ensure_dir() { mkdir -p "$1" 2>/dev/null || true; }
+
+extract_base64_stats() {
+  local out_file="$1"
+  shift
+
+  local log_file lines found=0
+  : > "$out_file"
+  for log_file in "$@"; do
+    [ -f "$log_file" ] || continue
+    lines="$(grep 'CN1SS:STAT:' "$log_file" 2>/dev/null | sed -E 's/^.*CN1SS:STAT://')" || true
+    if [ -z "${lines:-}" ]; then
+      continue
+    fi
+    found=1
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      echo "$line" >> "$out_file"
+    done <<< "$lines"
+  done
+
+  if [ "$found" -eq 1 ] && [ -f "$out_file" ]; then
+    awk '!seen[$0]++' "$out_file" > "$out_file.tmp" && mv "$out_file.tmp" "$out_file"
+  else
+    rm -f "$out_file"
+  fi
+}
+
+if [ $# -lt 1 ]; then
+  ri_log "Usage: $0 <workspace_path> [app_bundle] [scheme]" >&2
+  exit 2
+fi
+
+WORKSPACE_PATH="$1"
+APP_BUNDLE_PATH="${2:-}"
+REQUESTED_SCHEME="${3:-}"
+
+# If $2 isn’t a dir and $3 is empty, treat $2 as the scheme.
+if [ -n "$APP_BUNDLE_PATH" ] && [ ! -d "$APP_BUNDLE_PATH" ] && [ -z "$REQUESTED_SCHEME" ]; then
+  REQUESTED_SCHEME="$APP_BUNDLE_PATH"
+  APP_BUNDLE_PATH=""
+fi
+
+if [ ! -d "$WORKSPACE_PATH" ]; then
+  ri_log "Xcode workspace/project not found at $WORKSPACE_PATH" >&2
+  exit 3
+fi
+
+XCODE_CONTAINER_FLAG="-workspace"
+if [[ "$WORKSPACE_PATH" == *.xcodeproj ]]; then
+  XCODE_CONTAINER_FLAG="-project"
+fi
+
+if [ -n "$APP_BUNDLE_PATH" ]; then
+  ri_log "Using simulator app bundle at $APP_BUNDLE_PATH"
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
+
+CN1SS_HELPER_SOURCE_DIR="$SCRIPT_DIR/common/java"
+source "$SCRIPT_DIR/lib/cn1ss.sh"
+
+if [ ! -f "$CN1SS_HELPER_SOURCE_DIR/Cn1ssScreenshotServer.java" ]; then
+  ri_log "Missing CN1SS helper: $CN1SS_HELPER_SOURCE_DIR/Cn1ssScreenshotServer.java" >&2
+  exit 3
+fi
+cn1ss_log() { ri_log "$1"; }
+
+TMPDIR="${TMPDIR:-/tmp}"; TMPDIR="${TMPDIR%/}"
+DOWNLOAD_DIR="${TMPDIR}/codenameone-tools"
+ENV_DIR="$DOWNLOAD_DIR/tools"
+ENV_FILE="$ENV_DIR/env.sh"
+
+ri_log "Loading workspace environment from $ENV_FILE"
+[ -f "$ENV_FILE" ] || { ri_log "Missing env file: $ENV_FILE"; exit 3; }
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+
+# Toolchain selection lives in one place; see scripts/lib/xcode.sh for the
+# resolution order and for CN1_XCODE_MAJOR, the single knob that moves the
+# whole tree to the next Xcode.
+# shellcheck source=lib/xcode.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/xcode.sh"
+cn1_select_xcode ri_log || exit 3
+
+if [ -z "${JAVA17_HOME:-}" ] || [ ! -x "$JAVA17_HOME/bin/java" ]; then
+  ri_log "JAVA17_HOME not set correctly" >&2
+  exit 3
+fi
+if [ ! -x "$XCODEBUILD" ]; then
+  ri_log "xcodebuild not found at $XCODEBUILD" >&2
+  exit 3
+fi
+if ! command -v xcrun >/dev/null 2>&1; then
+  ri_log "xcrun not found" >&2
+  exit 3
+fi
+
+JAVA17_BIN="$JAVA17_HOME/bin/java"
+
+cn1ss_setup "$JAVA17_BIN" "$CN1SS_HELPER_SOURCE_DIR"
+
+ARTIFACTS_DIR="${ARTIFACTS_DIR:-${GITHUB_WORKSPACE:-$REPO_ROOT}/artifacts}"
+mkdir -p "$ARTIFACTS_DIR"
+TEST_LOG="$ARTIFACTS_DIR/device-runner.log"
+
+SDK_LIST="$("$XCODEBUILD" -showsdks 2>/dev/null || true)"
+RUNTIME_LIST="$(xcrun simctl list runtimes available 2>/dev/null || true)"
+DOWNLOAD_PLATFORMS="${XCODE_DOWNLOAD_PLATFORMS:-}"
+if [ -z "$DOWNLOAD_PLATFORMS" ] && [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
+  DOWNLOAD_PLATFORMS="true"
+fi
+DOWNLOAD_PLATFORMS="${DOWNLOAD_PLATFORMS:-false}"
+ri_log "XCODE_DOWNLOAD_PLATFORMS=${DOWNLOAD_PLATFORMS}"
+
+if ! printf '%s\n' "$SDK_LIST" | grep -q "iphonesimulator" || ! printf '%s\n' "$RUNTIME_LIST" | grep -q "iOS"; then
+  if [ "$DOWNLOAD_PLATFORMS" = "true" ]; then
+    ri_log "Attempting to download missing iOS platform via $XCODEBUILD -downloadPlatform iOS"
+    "$XCODEBUILD" -downloadPlatform iOS || true
+    SDK_LIST="$("$XCODEBUILD" -showsdks 2>/dev/null || true)"
+    RUNTIME_LIST="$(xcrun simctl list runtimes available 2>/dev/null || true)"
+  else
+    ri_log "Missing simulator SDKs/runtimes detected. Set XCODE_DOWNLOAD_PLATFORMS=true to attempt auto-download."
+  fi
+fi
+
+if ! printf '%s\n' "$SDK_LIST" | grep -q "iphonesimulator"; then
+  ri_log "No iOS simulator SDKs detected in Xcode. Install the iOS platform in Xcode > Settings > Components (or set XCODE_DOWNLOAD_PLATFORMS=true)." >&2
+  printf '%s\n' "$SDK_LIST" > "$ARTIFACTS_DIR/xcodebuild-showsdks.log"
+  exit 3
+fi
+
+if ! printf '%s\n' "$RUNTIME_LIST" | grep -q "iOS"; then
+  ri_log "No available iOS simulator runtimes detected. Install an iOS simulator runtime in Xcode > Settings > Components (or set XCODE_DOWNLOAD_PLATFORMS=true)." >&2
+  printf '%s\n' "$RUNTIME_LIST" > "$ARTIFACTS_DIR/simctl-runtimes.log"
+  exit 3
+fi
+
+if [ -z "$REQUESTED_SCHEME" ]; then
+  if [[ "$WORKSPACE_PATH" == *.xcworkspace ]]; then
+    REQUESTED_SCHEME="$(basename "$WORKSPACE_PATH" .xcworkspace)"
+  elif [[ "$WORKSPACE_PATH" == *.xcodeproj ]]; then
+    REQUESTED_SCHEME="$(basename "$WORKSPACE_PATH" .xcodeproj)"
+  else
+    REQUESTED_SCHEME="$(basename "$WORKSPACE_PATH")"
+  fi
+fi
+SCHEME="$REQUESTED_SCHEME"
+
+scheme_list_contains() {
+  local scheme_name="$1"
+  local listed="$2"
+  printf '%s\n' "$listed" | awk '
+    /^[[:space:]]+[[:graph:]].*/ {
+      sub(/^[[:space:]]+/, "", $0)
+      if ($0 == target) found=1
+    }
+    END { exit found ? 0 : 1 }
+  ' target="$scheme_name"
+}
+
+if [[ "$WORKSPACE_PATH" == *.xcworkspace ]] && [[ "$SCHEME" != *" ("* ]]; then
+  WORKSPACE_BASENAME="$(basename "$WORKSPACE_PATH" .xcworkspace)"
+  XCODEBUILD_LIST="$("$XCODEBUILD" "$XCODE_CONTAINER_FLAG" "$WORKSPACE_PATH" -list 2>/dev/null || true)"
+  PROJECT_QUALIFIED_SCHEME="$SCHEME ($WORKSPACE_BASENAME project)"
+  WORKSPACE_QUALIFIED_SCHEME="$SCHEME ($WORKSPACE_BASENAME Workspace)"
+  if scheme_list_contains "$PROJECT_QUALIFIED_SCHEME" "$XCODEBUILD_LIST"; then
+    SCHEME="$PROJECT_QUALIFIED_SCHEME"
+    ri_log "Resolved ambiguous workspace scheme to $SCHEME"
+  elif scheme_list_contains "$WORKSPACE_QUALIFIED_SCHEME" "$XCODEBUILD_LIST"; then
+    SCHEME="$WORKSPACE_QUALIFIED_SCHEME"
+    ri_log "Resolved ambiguous workspace scheme to $SCHEME"
+  fi
+fi
+ri_log "Using scheme $SCHEME"
+
+# The golden-image directory defaults to scripts/ios/screenshots-metal, the
+# baseline for the iOS simulator. Callers can override via SCREENSHOT_REF_DIR
+# (absolute or relative to the repo root) so a variant suite can ship its own
+# golden set.
+if [ -n "${SCREENSHOT_REF_DIR:-}" ]; then
+  if [ ! -d "$SCREENSHOT_REF_DIR" ]; then
+    ri_log "SCREENSHOT_REF_DIR override '$SCREENSHOT_REF_DIR' is not a directory" >&2
+    exit 3
+  fi
+  # Convert to absolute so downstream tools (cn1ss-helpers, etc.) don't
+  # trip over cwd changes.
+  SCREENSHOT_REF_DIR="$(cd "$SCREENSHOT_REF_DIR" && pwd)"
+  ri_log "Using screenshot reference dir from SCREENSHOT_REF_DIR: $SCREENSHOT_REF_DIR"
+else
+  SCREENSHOT_REF_DIR="$SCRIPT_DIR/ios/screenshots-metal"
+fi
+SCREENSHOT_TMP_DIR="$(mktemp -d "${TMPDIR}/cn1-ios-tests-XXXXXX" 2>/dev/null || echo "${TMPDIR}/cn1-ios-tests")"
+SCREENSHOT_RAW_DIR="$SCREENSHOT_TMP_DIR/raw"
+SCREENSHOT_PREVIEW_DIR="$SCREENSHOT_TMP_DIR/previews"
+mkdir -p "$SCREENSHOT_RAW_DIR" "$SCREENSHOT_PREVIEW_DIR"
+
+export CN1SS_OUTPUT_DIR="$SCREENSHOT_RAW_DIR"
+export CN1SS_PREVIEW_DIR="$SCREENSHOT_PREVIEW_DIR"
+
+# Tight golden gate for the iOS sim pipelines. The comparator's
+# stock default (0.30% of a 1179x2556 capture = ~9k px) let widget-level
+# regressions -- e.g. the dark ChatInput +/Mic buttons rendering square
+# instead of round, ~2-3k px of corners -- pass silently, so the stale golden
+# stayed in the tree while the render had long since changed. The sim renders
+# deterministically; screens with real run-to-run noise (GPU 3D, maps, video,
+# toast timing) carry explicit per-test .tolerance files that override this.
+export CN1SS_MAX_MISMATCH_PERCENT="${CN1SS_MAX_MISMATCH_PERCENT:-0.05}"
+
+# Start the host-side WebSocket screenshot server on the fixed standard port.
+# The iOS simulator shares the host loopback, so the device-runner defaults to
+# ws://127.0.0.1:8765 with no per-launch URL injection. PNGs the app sends land
+# directly in $WS_RAW_DIR; if WS delivers nothing the legacy base64/syslog
+# decode below is used instead, so this is purely additive.
+WS_RAW_DIR="$SCREENSHOT_TMP_DIR/ws"
+mkdir -p "$WS_RAW_DIR"
+if cn1ss_start_ws_server "$WS_RAW_DIR"; then
+  ri_log "WebSocket screenshot server listening on port ${CN1SS_WS_PORT} (out=$WS_RAW_DIR)"
+else
+  ri_log "The websocket screenshot server did not start, and there is NO fallback:"
+  ri_log "Cn1ssDeviceRunnerHelper says so in as many words, and the device"
+  ri_log "streams every screenshot over that socket. Continuing would run the"
+  ri_log "whole suite, deliver nothing, and fail on a count gate many minutes"
+  ri_log "from here with no mention of the transport. Stopping instead."
+  exit 6
+fi
+
+# Patch scheme env vars to point to our runtime dirs. Use the requested scheme
+# filename, not an xcodebuild-disambiguated name like
+# "AppName (AppName project)".
+SCHEME_FILE_NAME="$REQUESTED_SCHEME"
+SCHEME_FILE="$WORKSPACE_PATH/xcshareddata/xcschemes/$SCHEME_FILE_NAME.xcscheme"
+if [ ! -f "$SCHEME_FILE" ] && [[ "$WORKSPACE_PATH" == *.xcworkspace ]]; then
+  PROJECT_DIR="$(cd "$(dirname "$WORKSPACE_PATH")" && pwd)"
+  PROJECT_SCHEME_FILE="$PROJECT_DIR/$(basename "$WORKSPACE_PATH" .xcworkspace).xcodeproj/xcshareddata/xcschemes/$SCHEME_FILE_NAME.xcscheme"
+  if [ -f "$PROJECT_SCHEME_FILE" ]; then
+    SCHEME_FILE="$PROJECT_SCHEME_FILE"
+  fi
+fi
+if [ -f "$SCHEME_FILE" ]; then
+  if sed --version >/dev/null 2>&1; then
+    # GNU sed
+    sed -i -e "s|__CN1SS_OUTPUT_DIR__|$SCREENSHOT_RAW_DIR|g" \
+           -e "s|__CN1SS_PREVIEW_DIR__|$SCREENSHOT_PREVIEW_DIR|g" "$SCHEME_FILE"
+  else
+    # BSD sed (macOS)
+    sed -i '' -e "s|__CN1SS_OUTPUT_DIR__|$SCREENSHOT_RAW_DIR|g" \
+              -e "s|__CN1SS_PREVIEW_DIR__|$SCREENSHOT_PREVIEW_DIR|g" "$SCHEME_FILE"
+  fi
+  ri_log "Injected CN1SS_* envs into scheme: $SCHEME_FILE"
+else
+  ri_log "Scheme file not found for env injection: $SCHEME_FILE"
+fi
+
+# The newest simulator OS this toolchain can actually drive. Destinations above
+# it are rejected below, because xcodebuild lists runtimes it cannot build for.
+SIM_SDK_VERSION="$("$XCODEBUILD" -showsdks 2>/dev/null | awk '/iphonesimulator/ {print $NF}' | tail -n 1 | sed 's/iphonesimulator//')"
+SIM_SDK_MAJOR="${SIM_SDK_VERSION%%.*}"
+case "$SIM_SDK_MAJOR" in
+  ''|*[!0-9]*)
+    # This used to fall back to 20, which was above every shipping SDK when it
+    # was written and is now below one: under Xcode 27 a failed parse would
+    # silently mark every genuine iOS 27 destination invalid and the run would
+    # end in "no usable destination" with nothing pointing at the cause. There
+    # is no safe guess here -- a ceiling that is too low rejects everything and
+    # one that is too high picks a destination that cannot build -- so say so.
+    ri_log "Could not read the iphonesimulator SDK version from '$XCODEBUILD -showsdks'." >&2
+    ri_log "Got: '${SIM_SDK_VERSION:-<empty>}'. Without it there is no way to tell which" >&2
+    ri_log "simulator runtimes this Xcode can drive." >&2
+    exit 3
+    ;;
+esac
+MAX_SIM_OS_MAJOR="$SIM_SDK_MAJOR"
+ri_log "Simulator SDK is $SIM_SDK_VERSION; destinations above iOS $MAX_SIM_OS_MAJOR are ignored."
+
+trim_whitespace() {
+  local value="$1"
+  value="${value#${value%%[![:space:]]*}}"
+  value="${value%${value##*[![:space:]]}}"
+  printf '%s' "$value"
+}
+
+normalize_destination() {
+  local raw="$1"
+  IFS=',' read -r -a parts <<< "$raw"
+  local platform="" id="" os="" name=""
+  local extras=()
+  for part in "${parts[@]}"; do
+    part="$(trim_whitespace "$part")"
+    case "$part" in
+      platform=*) platform="${part#platform=}" ;;
+      id=*) id="${part#id=}" ;;
+      OS=*) os="${part#OS=}" ;;
+      os=*) os="${part#os=}" ;;
+      name=*) name="${part#name=}" ;;
+      '') ;;
+      *) extras+=("$part") ;;
+    esac
+  done
+  [ -z "$platform" ] && platform="iOS Simulator"
+
+  local components=("platform=$platform")
+  [ -n "$id" ] && components+=("id=$id")
+  [ -n "$os" ] && components+=("OS=$os")
+  [ -n "$name" ] && components+=("name=$name")
+  if [ ${#extras[@]} -gt 0 ]; then
+    for extra in "${extras[@]}"; do
+      [ -n "$extra" ] && components+=("$extra")
+    done
+  fi
+
+  local joined="${components[0]}" part
+  for part in "${components[@]:1}"; do
+    joined+=",$part"
+  done
+
+  printf '%s\n' "$joined"
+}
+
+auto_select_destination() {
+  local show_dest rc=0 best_line="" best_key="" line payload platform id name os priority key part value
+  set +e
+  show_dest="$("$XCODEBUILD" "$XCODE_CONTAINER_FLAG" "$WORKSPACE_PATH" -scheme "$SCHEME" -sdk iphonesimulator -showdestinations 2>/dev/null)"
+  rc=$?
+  set -e
+
+  [ -z "${show_dest:-}" ] && return $rc
+
+  local section=""
+  while IFS= read -r line; do
+    case "$line" in
+      *"Available destinations"*) section="available"; continue ;;
+      *"Ineligible destinations"*|*"Local destinations"*) section="other"; continue ;;
+    esac
+    [ "$section" != "available" ] && continue
+    case "$line" in
+      *{*}*)
+        payload="$(printf '%s\n' "$line" | sed -n 's/.*{\(.*\)}/\1/p')"
+        [ -z "$payload" ] && continue
+        platform=""; id=""; name=""; os=""
+        IFS=',' read -r -a parts <<< "$payload"
+        for part in "${parts[@]}"; do
+          part="$(trim_whitespace "$part")"
+          key="${part%%:*}"
+          value="${part#*:}"
+          [ "$value" = "$part" ] && continue
+          key="$(trim_whitespace "$key")"
+          value="$(trim_whitespace "$value")"
+          case "$key" in
+            platform) platform="$value" ;;
+            id) id="$value" ;;
+            name) name="$value" ;;
+            OS|os|"OS version") os="$value" ;;
+          esac
+        done
+        [ "$platform" != "iOS Simulator" ] && continue
+        [ -z "$id" ] && continue
+        # Skip placeholder device IDs
+        case "$id" in
+          *Placeholder*|*placeholder*) continue ;;
+        esac
+        priority=0
+        case "$(printf '%s' "$name" | tr 'A-Z' 'a-z')" in
+          *iphone*) priority=2 ;;
+          *ipad*) priority=1 ;;
+        esac
+        validity=1
+        major="${os%%.*}"
+        case "$major" in ''|*[!0-9]*) major=0 ;; esac
+        if [ "$major" -gt "$MAX_SIM_OS_MAJOR" ] 2>/dev/null; then
+          validity=0
+        fi
+        IFS='.' read -r v1 v2 v3 <<< "$os"
+        v1=${v1:-0}; v2=${v2:-0}; v3=${v3:-0}
+        key=$(printf '%d-%d-%03d-%03d-%03d' "$validity" "$priority" "$v1" "$v2" "$v3")
+        if [ -z "$best_key" ] || [[ "$key" > "$best_key" ]]; then
+          best_key="$key"
+          best_line="platform=iOS Simulator,id=$id"
+          [ -n "$os" ] && best_line="$best_line,OS=$os"
+          [ -n "$name" ] && best_line="$best_line,name=$name"
+        fi
+        ;;
+    esac
+  done <<< "$show_dest"
+
+  [ -n "$best_line" ] && printf '%s\n' "$best_line"
+  [ -n "$best_line" ] && return 0
+
+  return $rc
+}
+
+fallback_sim_destination() {
+  if ! command -v xcrun >/dev/null 2>&1; then
+    return
+  fi
+
+  local best_line="" best_key="" current_version="" lower_name="" lower_state=""
+
+  while IFS= read -r raw_line; do
+    case "$raw_line" in
+      --\ iOS\ *--)
+        current_version="$(printf '%s\n' "$raw_line" | sed -n 's/.*-- iOS \([0-9.]*\) --.*/\1/p')"
+        continue
+        ;;
+      --\ *--)
+        current_version=""
+        continue
+        ;;
+    esac
+
+    [ -z "$current_version" ] && continue
+    line="${raw_line#${raw_line%%[![:space:]]*}}"
+    [ -z "$line" ] && continue
+
+    name="${line%% (*}"
+    rest="${line#* (}"
+    [ "$rest" = "$line" ] && continue
+    id="${rest%%)*}"
+    state="${line##*(}"
+    state="${state%)}"
+    name="$(trim_whitespace "$name")"
+    id="$(trim_whitespace "$id")"
+    state="$(trim_whitespace "$state")"
+    [ -z "$name" ] && continue
+    [ -z "$id" ] && continue
+    # Skip placeholder device IDs
+    case "$id" in
+      *Placeholder*|*placeholder*) continue ;;
+    esac
+
+    lower_name="$(printf '%s' "$name" | tr 'A-Z' 'a-z')"
+    case "$lower_name" in
+      *iphone*) priority=2 ;;
+      *ipad*) priority=1 ;;
+      *) priority=0 ;;
+    esac
+
+    lower_state="$(printf '%s' "$state" | tr 'A-Z' 'a-z')"
+    boot=0
+    [ "$lower_state" = "booted" ] && boot=1
+
+    validity=1
+    major="${current_version%%.*}"
+    case "$major" in ''|*[!0-9]*) major=0 ;; esac
+    if [ "$major" -gt "$MAX_SIM_OS_MAJOR" ] 2>/dev/null; then
+      validity=0
+    fi
+
+    IFS='.' read -r v1 v2 v3 <<< "$current_version"
+    v1=${v1:-0}; v2=${v2:-0}; v3=${v3:-0}
+
+    candidate_key=$(printf '%d-%d-%03d-%03d-%03d-%d' "$validity" "$priority" "$v1" "$v2" "$v3" "$boot")
+    if [ -z "$best_key" ] || [[ "$candidate_key" > "$best_key" ]]; then
+      best_key="$candidate_key"
+      best_line="platform=iOS Simulator,id=$id"
+      [ -n "$current_version" ] && best_line="$best_line,OS=$current_version"
+      best_line="$best_line,name=$name"
+    fi
+  done < <(xcrun simctl list devices available 2>/dev/null)
+
+  if [ -n "$best_line" ]; then
+    printf '%s\n' "$best_line"
+  fi
+}
+
+# Create a throwaway iOS simulator from the newest available iOS runtime + an
+# iPhone device type. Used after `xcodebuild -downloadPlatform iOS` installs a
+# runtime for the active Xcode but no device of that runtime exists yet, so
+# -showdestinations / `simctl list` still surface nothing buildable. Building
+# against a device of the freshly-installed runtime works where a device from a
+# *different* Xcode's runtime does not. Mirrors run-ios-native-tests.sh. Echoes
+# "platform=iOS Simulator,id=<udid>" or nothing on failure.
+create_ios_sim_destination() {
+  command -v xcrun >/dev/null 2>&1 || return
+  command -v python3 >/dev/null 2>&1 || return
+  local pair runtime device_type new_id
+  # Pick the newest available iOS runtime AND a device type that runtime
+  # *actually supports* (from its supportedDeviceTypes). A naive alphabetical
+  # pick of all iPhone device types selects "iPhone Xs Max" ("X" > "1"), which is
+  # too old for a current runtime, so `simctl create` fails with "Unable to
+  # create a device for device type: ... runtime: iOS 26.x". Prefer the
+  # highest-numbered plain iPhone among the runtime's supported types.
+  pair="$(xcrun simctl list -j runtimes available 2>/dev/null | python3 -c '
+import json,sys,re
+data=json.load(sys.stdin)
+rs=[r for r in data.get("runtimes",[]) if r.get("isAvailable") and r.get("identifier","").startswith("com.apple.CoreSimulator.SimRuntime.iOS-")]
+rs.sort(key=lambda r: [int(x) for x in re.findall(r"\d+", r.get("version","0"))][:3], reverse=True)
+if not rs:
+    sys.exit(0)
+rt=rs[0]
+dts=[d for d in rt.get("supportedDeviceTypes",[]) if "iPhone" in d.get("name","")]
+def num(d):
+    m=re.search(r"iPhone (\d+)", d.get("name",""))
+    return int(m.group(1)) if m else -1
+dts.sort(key=num, reverse=True)
+if dts:
+    print(rt["identifier"]+"|"+dts[0]["identifier"])
+' 2>/dev/null || true)"
+  runtime="${pair%%|*}"
+  device_type="${pair##*|}"
+  [ -z "$pair" ] && return
+  [ -z "$runtime" ] && return
+  [ -z "$device_type" ] && return
+  new_id="$(xcrun simctl create "cn1-ui-tests" "$device_type" "$runtime" 2>/dev/null || true)"
+  # simctl prints just the UDID on success; on failure the error text can reach
+  # stdout. Only emit a destination when it is a real UDID (hex + dashes, no
+  # spaces) so a failed create can never be booted as a garbage "id".
+  if [[ "$new_id" =~ ^[0-9A-Fa-f-]+$ ]]; then
+    printf 'platform=iOS Simulator,id=%s\n' "$new_id"
+  fi
+}
+
+
+
+SIM_DESTINATION="${IOS_SIM_DESTINATION:-}"
+USE_GENERIC_BUILD_DESTINATION="false"
+if [ -z "$SIM_DESTINATION" ]; then
+  SELECTED_DESTINATION="$(auto_select_destination || true)"
+  if [ -n "${SELECTED_DESTINATION:-}" ]; then
+    SIM_DESTINATION="$SELECTED_DESTINATION"
+    ri_log "Auto-selected simulator destination '$SIM_DESTINATION'"
+  else
+    ri_log "Simulator auto-selection did not return a destination"
+    SHOW_DEST_LOG="$ARTIFACTS_DIR/xcodebuild-showdestinations.log"
+    "$XCODEBUILD" "$XCODE_CONTAINER_FLAG" "$WORKSPACE_PATH" -scheme "$SCHEME" -sdk iphonesimulator -showdestinations \
+      > "$SHOW_DEST_LOG" 2>&1 || true
+    # The active Xcode is missing the iOS Simulator platform when -showdestinations
+    # reports it "not installed" OR lists no iOS Simulator destination at all. The
+    # latter happens on runners whose selected Xcode only has the tvOS platform
+    # installed: the scheme enumerates only Apple TV destinations even though
+    # `simctl` can boot an iOS device belonging to a *different* Xcode's runtime,
+    # so building -- even against that device's id= -- fails with "Unable to find
+    # a destination matching ... { platform:iOS Simulator }". The top-of-script
+    # runtime probe doesn't catch this because simctl's runtime list is global and
+    # already shows the other Xcode's iOS runtime. Download the iOS platform for
+    # the active Xcode and re-run discovery.
+    IOS_PLATFORM_MISSING="false"
+    if grep -q "not installed" "$SHOW_DEST_LOG" || ! grep -q "platform:iOS Simulator" "$SHOW_DEST_LOG"; then
+      IOS_PLATFORM_MISSING="true"
+    fi
+    if [ "$IOS_PLATFORM_MISSING" = "true" ]; then
+      if [ "$DOWNLOAD_PLATFORMS" = "true" ]; then
+        ri_log "No iOS simulator platform for the active Xcode; downloading via $XCODEBUILD -downloadPlatform iOS"
+        "$XCODEBUILD" -downloadPlatform iOS || true
+        "$XCODEBUILD" "$XCODE_CONTAINER_FLAG" "$WORKSPACE_PATH" -scheme "$SCHEME" -sdk iphonesimulator -showdestinations \
+          > "$SHOW_DEST_LOG" 2>&1 || true
+        SELECTED_DESTINATION="$(auto_select_destination || true)"
+        if [ -n "${SELECTED_DESTINATION:-}" ]; then
+          SIM_DESTINATION="$SELECTED_DESTINATION"
+          ri_log "Auto-selected simulator destination after platform download '$SIM_DESTINATION'"
+        fi
+        # Installing the runtime does not create a device, and -showdestinations
+        # can keep reporting no concrete iOS destination until one exists.
+        # Create a device from the freshly-installed runtime and build against it.
+        if [ -z "$SIM_DESTINATION" ]; then
+          CREATED_DESTINATION="$(create_ios_sim_destination || true)"
+          if [ -n "${CREATED_DESTINATION:-}" ]; then
+            SIM_DESTINATION="$CREATED_DESTINATION"
+            ri_log "Created iOS simulator destination after platform download '$SIM_DESTINATION'"
+          fi
+        fi
+        # If discovery/creation produced a destination the platform is now usable.
+        [ -n "$SIM_DESTINATION" ] && IOS_PLATFORM_MISSING="false"
+      else
+        ri_log "Destinations report no iOS simulator platform. Set XCODE_DOWNLOAD_PLATFORMS=true to attempt auto-download."
+      fi
+    fi
+    # Bail with a clear error only when the iOS platform is genuinely absent and
+    # we obtained no destination. If the platform is present but no device was
+    # auto-selected, fall through to the simctl fallback below.
+    if [ "$IOS_PLATFORM_MISSING" = "true" ] && [ -z "$SIM_DESTINATION" ]; then
+      ri_log "No iOS simulator platform available for the active Xcode. See $SHOW_DEST_LOG" >&2
+      exit 3
+    fi
+  fi
+fi
+if [ -z "$SIM_DESTINATION" ]; then
+  FALLBACK_DESTINATION="$(fallback_sim_destination || true)"
+  if [ -n "${FALLBACK_DESTINATION:-}" ]; then
+    SIM_DESTINATION="$FALLBACK_DESTINATION"
+    USE_GENERIC_BUILD_DESTINATION="true"
+    ri_log "Using fallback simulator destination '$SIM_DESTINATION'"
+  else
+    SIM_DESTINATION="platform=iOS Simulator,name=iPhone 16"
+    USE_GENERIC_BUILD_DESTINATION="true"
+    ri_log "Falling back to default simulator destination '$SIM_DESTINATION'"
+  fi
+fi
+
+SIM_DESTINATION="$(normalize_destination "$SIM_DESTINATION")"
+BUILD_DESTINATION="$SIM_DESTINATION"
+if [ "$USE_GENERIC_BUILD_DESTINATION" = "true" ]; then
+  BUILD_DESTINATION="generic/platform=iOS Simulator"
+fi
+
+# Extract UDID and prefer id-only destination to avoid OS/SDK mismatches
+SIM_UDID="$(printf '%s\n' "$SIM_DESTINATION" | sed -n 's/.*id=\([^,]*\).*/\1/p' | tr -d '\r[:space:]')"
+if [ -n "$SIM_UDID" ]; then
+  ri_log "Booting simulator $SIM_UDID"
+  BOOT_START=$(date +%s)
+  xcrun simctl boot "$SIM_UDID" >/dev/null 2>&1 || true
+  xcrun simctl bootstatus "$SIM_UDID" -b
+  BOOT_END=$(date +%s)
+  echo "Simulator Boot : $(( (BOOT_END - BOOT_START) * 1000 )) ms" >> "$ARTIFACTS_DIR/ios-test-stats.txt"
+  SIM_DESTINATION="id=$SIM_UDID"
+fi
+if [ -n "$SIM_UDID" ]; then
+  # We have a concrete simulator that simctl already booted, so build against
+  # its id rather than generic/platform=iOS Simulator. The generic destination
+  # is resolved through the same `xcodebuild -showdestinations` enumeration that
+  # returned no iOS devices for this scheme on tvOS-heavy GitHub runners (the
+  # generated project gained tvOS support, so -showdestinations lists only Apple
+  # TV destinations). A generic build there fails with "Unable to find a
+  # destination matching ... { platform:iOS Simulator }" even though an iPhone
+  # simulator is booted and usable. An id= destination is matched directly
+  # against the booted device and sidesteps that enumeration. ARCHS is still
+  # pinned below while USE_GENERIC_BUILD_DESTINATION is set.
+  BUILD_DESTINATION="$SIM_DESTINATION"
+  ri_log "Building on concrete simulator destination '$BUILD_DESTINATION' and running on '$SIM_DESTINATION'"
+elif [ "$USE_GENERIC_BUILD_DESTINATION" = "true" ]; then
+  ri_log "Building with generic simulator destination '$BUILD_DESTINATION' and running on '$SIM_DESTINATION'"
+else
+  BUILD_DESTINATION="$SIM_DESTINATION"
+fi
+ri_log "Running DeviceRunner on destination '$SIM_DESTINATION'"
+
+HOST_ARCH="$(uname -m 2>/dev/null || echo arm64)"
+case "$HOST_ARCH" in
+  arm64|x86_64) BUILD_ARCH="$HOST_ARCH" ;;
+  *) BUILD_ARCH="arm64" ;;
+esac
+SIMULATOR_EXCLUDED_ARCHS="armv7 armv7s"
+FORCE_SIMULATOR_ARCH="false"
+PODFILE_LOCK="$(dirname "$WORKSPACE_PATH")/Podfile.lock"
+if [ -f "$PODFILE_LOCK" ] && grep -q "GoogleMLKit/" "$PODFILE_LOCK"; then
+  # Google ML Kit's iOS binaries contain a device arm64 slice and an
+  # x86_64 simulator slice, but no arm64 simulator slice. Xcode otherwise
+  # selects arm64 on Apple Silicon and the linker rejects the device object.
+  BUILD_ARCH="x86_64"
+  SIMULATOR_EXCLUDED_ARCHS="arm64 armv7 armv7s"
+  FORCE_SIMULATOR_ARCH="true"
+  ri_log "Google ML Kit detected; selecting its supported x86_64 simulator slice"
+fi
+
+# A shared/stable derived-data dir can be supplied via CN1_IOS_DERIVED_DATA so the compiled
+# app + core are reused by a later step in the same job (e.g. the native test build) and across
+# re-runs, instead of compiling the whole translated core from scratch every time. Unset = a
+# fresh per-run dir (previous behavior), leaving other pipelines unchanged.
+if [ -n "${CN1_IOS_DERIVED_DATA:-}" ]; then
+  DERIVED_DATA_DIR="$CN1_IOS_DERIVED_DATA"
+  mkdir -p "$DERIVED_DATA_DIR"
+  ri_log "Reusing shared derived data at $DERIVED_DATA_DIR (incremental build)"
+else
+  DERIVED_DATA_DIR="$SCREENSHOT_TMP_DIR/derived"
+  rm -rf "$DERIVED_DATA_DIR"
+fi
+BUILD_LOG="$ARTIFACTS_DIR/xcodebuild-build.log"
+
+ri_log "Building simulator app with xcodebuild"
+COMPILE_START=$(date +%s)
+# No -sdk here on purpose. -destination already determines the platform, and -sdk
+# overrides SDKROOT for *every* target in the scheme -- including the watch app a
+# companion project embeds, which would then be compiled against the iOS SDK
+# (TARGET_OS_WATCH becomes 0, the Metal backend activates, and the sources the
+# watch slice excludes go missing at link time).
+XCODE_BUILD_CMD=(
+  "$XCODEBUILD"
+  "$XCODE_CONTAINER_FLAG" "$WORKSPACE_PATH"
+  -scheme "$SCHEME"
+  -configuration Debug
+  -destination "$BUILD_DESTINATION"
+  -destination-timeout 120
+  -derivedDataPath "$DERIVED_DATA_DIR"
+)
+if [ "$USE_GENERIC_BUILD_DESTINATION" = "true" ] || [ "$FORCE_SIMULATOR_ARCH" = "true" ]; then
+  ri_log "Forcing simulator ARCHS=$BUILD_ARCH"
+  # The override has to be scoped to the simulator SDK: unscoped, it is forced on
+  # every target including the watch app a companion project embeds, whose device
+  # ABI is arm64_32. That matters most for the Rosetta case, where
+  # SIMULATOR_EXCLUDED_ARCHS excludes arm64 outright.
+  #
+  # It must go through an xcconfig rather than a command-line override, because
+  # xcodebuild does NOT honour per-SDK conditionals in command-line settings --
+  # "ARCHS[sdk=iphonesimulator*]=x" parses as ARCHS with the literal value
+  # "iphonesimulator*]=x", every target then warns "None of the architectures in
+  # ARCHS are valid", and the build silently compiles NOTHING while still copying
+  # resources. An xcconfig is where the conditional syntax is actually evaluated,
+  # and it sits below target-level settings, so the watch target's own
+  # ARCHS[sdk=watchos*]=arm64_32 still wins where it applies.
+  ARCH_XCCONFIG="$(mktemp -t cn1-ios-archs).xcconfig"
+  {
+    printf 'ARCHS[sdk=iphonesimulator*] = %s\n' "$BUILD_ARCH"
+    printf 'EXCLUDED_ARCHS[sdk=iphonesimulator*] = %s\n' "$SIMULATOR_EXCLUDED_ARCHS"
+  } > "$ARCH_XCCONFIG"
+  ri_log "Simulator arch xcconfig -> $ARCH_XCCONFIG"
+  XCODE_BUILD_CMD+=(
+    -xcconfig "$ARCH_XCCONFIG"
+    "ONLY_ACTIVE_ARCH=YES"
+  )
+fi
+# Optimize the translated C (Xcode's Debug config defaults to -O0). With -O0 the
+# scalar baseline is unvectorized, so the SIMD benchmark overstates the speedup;
+# -O2 lets the compiler auto-vectorize scalar, making the SIMD-vs-scalar
+# comparison honest and apples-to-apples with the Windows /O2 build. Override with
+# CN1_TEST_OPT_LEVEL (0/1/2/3/s) to compare.
+CN1_TEST_OPT_LEVEL="${CN1_TEST_OPT_LEVEL:-2}"
+XCODE_BUILD_CMD+=("GCC_OPTIMIZATION_LEVEL=$CN1_TEST_OPT_LEVEL")
+ri_log "Building translated C at -O$CN1_TEST_OPT_LEVEL (GCC_OPTIMIZATION_LEVEL)"
+# Warning census (CN1_WARNING_CENSUS=1, set by our workflows and by nothing a
+# customer runs). The five settings below are OFF in the Xcode template, which
+# quietens the translator's output at the cost of also blinding the ~85k lines of
+# hand-written port natives compiled alongside it. Turning them back on for the
+# census measures what restoring each would cost before any of them is changed in
+# the template.
+#
+# These must be command-line overrides rather than an xcconfig: Xcode's precedence
+# is command line > target > project > xcconfig, so an xcconfig saying YES loses to
+# the project-level NO and would measure nothing at all -- a gate that reads
+# nothing and reports success.
+if [ "${CN1_WARNING_CENSUS:-0}" = "1" ]; then
+  ri_log "Warning census: re-enabling the warnings the template disables"
+  XCODE_BUILD_CMD+=(
+    "CLANG_WARN_EMPTY_BODY=YES"
+    "CLANG_WARN_ENUM_CONVERSION=YES"
+    "CLANG_WARN_INT_CONVERSION=YES"
+    "CLANG_WARN__DUPLICATE_METHOD_MATCH=YES"
+    "GCC_WARN_UNUSED_VARIABLE=YES"
+  )
+fi
+XCODE_BUILD_CMD+=(build)
+if ! "${XCODE_BUILD_CMD[@]}" | tee "$BUILD_LOG"; then
+  # CI runners occasionally lose the booted device between simctl boot and the
+  # xcodebuild connection (CoreSimulator wedges; the boot itself took minutes).
+  # When the failure is specifically "no device matching the destination", the
+  # device list -- not the build -- is at fault: restart CoreSimulator, re-boot
+  # (or recreate) the simulator and retry the build once before giving up.
+  if grep -q "Unable to find a device matching the provided destination" "$BUILD_LOG" \
+      && [ -n "$SIM_UDID" ]; then
+    ri_log "Destination '$SIM_UDID' vanished mid-job; restarting CoreSimulator and retrying the build once"
+    xcrun simctl shutdown all >/dev/null 2>&1 || true
+    launchctl remove com.apple.CoreSimulator.CoreSimulatorService >/dev/null 2>&1 || true
+    sleep 5
+    if ! xcrun simctl list devices 2>/dev/null | grep -q "$SIM_UDID"; then
+      NEW_DEST="$(create_ios_sim_destination || true)"
+      if [ -n "$NEW_DEST" ]; then
+        SIM_UDID="${NEW_DEST##*id=}"
+        SIM_DESTINATION="$NEW_DEST"
+        ri_log "Recreated simulator destination '$SIM_DESTINATION'"
+      fi
+    fi
+    xcrun simctl boot "$SIM_UDID" >/dev/null 2>&1 || true
+    XCODE_BUILD_CMD=("${XCODE_BUILD_CMD[@]/id=*/id=$SIM_UDID}")
+    if ! "${XCODE_BUILD_CMD[@]}" | tee "$BUILD_LOG"; then
+      ri_log "STAGE:XCODE_BUILD_FAILED -> See $BUILD_LOG (after destination retry)"
+      exit 10
+    fi
+  else
+    ri_log "STAGE:XCODE_BUILD_FAILED -> See $BUILD_LOG"
+    exit 10
+  fi
+fi
+COMPILE_END=$(date +%s)
+COMPILATION_TIME=$((COMPILE_END - COMPILE_START))
+ri_log "Compilation time: ${COMPILATION_TIME}s"
+
+# Attribute this build's warnings to whoever owns the code and hold the result
+# against the leg's baseline. A new warning kind fails here; so does a baselined
+# one that has stopped reproducing, which is what keeps the file from drifting
+# into a description of a build nobody runs.
+#
+# --probe re-runs the whole chain with one synthetic warning injected and asserts
+# it comes back as new. That is what catches this gate going blind -- a missing
+# manifest, a wrong baseline path, everything silently bucketed as vendored -- on
+# the day it breaks rather than the day someone notices it never fired.
+#
+# The tool exits 2 on its own if this build compiled less than the one the
+# baseline came from, so an incremental build cannot quietly report a small
+# number and pass.
+if [ "${CN1_WARNING_CENSUS:-0}" = "1" ]; then
+  CN1_WARNING_MANIFEST="${CN1_WARNING_MANIFEST:-$ARTIFACTS_DIR/cn1-source-manifest.txt}"
+  if [ ! -f "$CN1_WARNING_MANIFEST" ]; then
+    ri_log "STAGE:WARNING_CENSUS_FAILED -> no manifest at $CN1_WARNING_MANIFEST"
+    exit 12
+  fi
+  CN1_WARNING_ARGS=(
+    --leg "${CN1_WARNING_LEG:-ios-sim-debug}"
+    --log "$BUILD_LOG"
+    --manifest "$CN1_WARNING_MANIFEST"
+  )
+  if ! "$REPO_ROOT/scripts/check-native-warnings.sh" "${CN1_WARNING_ARGS[@]}" \
+      --json "$ARTIFACTS_DIR/native-warnings.json"; then
+    ri_log "STAGE:WARNING_CENSUS_FAILED -> see the census output above"
+    exit 12
+  fi
+  # GITHUB_STEP_SUMMARY is cleared for the probe: the tool writes the census to that
+  # file directly, so redirecting stdout does not stop a second one being published --
+  # and the probe's census contains the synthetic warning it injects, which would read
+  # as a real finding to anyone looking at the step summary.
+  if ! GITHUB_STEP_SUMMARY= "$REPO_ROOT/scripts/check-native-warnings.sh" "${CN1_WARNING_ARGS[@]}" --probe > /dev/null; then
+    ri_log "STAGE:WARNING_CENSUS_FAILED -> the gate did not react to an injected warning"
+    exit 12
+  fi
+  ri_log "Warning census clean and the gate verified against an injected warning"
+fi
+
+BUILD_SETTINGS="$("$XCODEBUILD" "$XCODE_CONTAINER_FLAG" "$WORKSPACE_PATH" -scheme "$SCHEME" -sdk iphonesimulator -configuration Debug -showBuildSettings 2>/dev/null || true)"
+TARGET_BUILD_DIR="$(printf '%s\n' "$BUILD_SETTINGS" | awk -F' = ' '/ TARGET_BUILD_DIR /{print $2; exit}')"
+WRAPPER_NAME="$(printf '%s\n' "$BUILD_SETTINGS" | awk -F' = ' '/ WRAPPER_NAME /{print $2; exit}')"
+if [ -z "$WRAPPER_NAME" ]; then
+  ri_log "FATAL: Unable to determine build wrapper name"
+  exit 11
+fi
+if [ -z "$APP_BUNDLE_PATH" ]; then
+  CANDIDATE_BUNDLE="$DERIVED_DATA_DIR/Build/Products/Debug-iphonesimulator/$WRAPPER_NAME"
+  if [ -d "$CANDIDATE_BUNDLE" ]; then
+    APP_BUNDLE_PATH="$CANDIDATE_BUNDLE"
+  fi
+fi
+if [ -z "$APP_BUNDLE_PATH" ] && [ -n "$TARGET_BUILD_DIR" ]; then
+  CANDIDATE_BUNDLE="$TARGET_BUILD_DIR/$WRAPPER_NAME"
+  if [ -d "$CANDIDATE_BUNDLE" ]; then
+    APP_BUNDLE_PATH="$CANDIDATE_BUNDLE"
+  fi
+fi
+if [ -z "$APP_BUNDLE_PATH" ]; then
+  CANDIDATE_BUNDLE="$(find "$DERIVED_DATA_DIR" -path "*/Debug-iphonesimulator/$WRAPPER_NAME" -type d -print -quit 2>/dev/null || true)"
+  if [ -d "$CANDIDATE_BUNDLE" ]; then
+    APP_BUNDLE_PATH="$CANDIDATE_BUNDLE"
+  fi
+fi
+if [ -z "$APP_BUNDLE_PATH" ]; then
+  ri_log "FATAL: Simulator app bundle missing for wrapper $WRAPPER_NAME"
+  exit 11
+fi
+if [ ! -d "$APP_BUNDLE_PATH" ]; then
+  ri_log "FATAL: Simulator app bundle missing at $APP_BUNDLE_PATH"
+  exit 11
+fi
+BUNDLE_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP_BUNDLE_PATH/Info.plist" 2>/dev/null || true)"
+if [ -z "$BUNDLE_IDENTIFIER" ]; then
+  ri_log "FATAL: Unable to determine CFBundleIdentifier"
+  exit 11
+fi
+APP_PROCESS_NAME="${WRAPPER_NAME%.app}"
+
+  SIM_DEVICE_ID=""
+  SIM_DEVICE_ID="$(printf '%s\n' "$SIM_DESTINATION" | sed -n 's/.*id=\([^,]*\).*/\1/p' | tr -d '\r' | sed 's/[[:space:]]//g')"
+  if [ -z "$SIM_DEVICE_ID" ] || [ "$SIM_DEVICE_ID" = "$SIM_DESTINATION" ]; then
+    SIM_DEVICE_NAME="$(printf '%s\n' "$SIM_DESTINATION" | sed -n 's/.*name=\([^,]*\).*/\1/p')"
+    SIM_DEVICE_NAME="$(trim_whitespace "${SIM_DEVICE_NAME:-}")"
+    if [ -n "$SIM_DEVICE_NAME" ]; then
+      resolved_id=""
+      in_ios=0
+      while IFS= read -r raw_line; do
+        case "$raw_line" in
+          --\ iOS\ *--) in_ios=1; continue ;;
+          --\ *--) in_ios=0; continue ;;
+        esac
+        [ "$in_ios" -eq 0 ] && continue
+        line="${raw_line#${raw_line%%[![:space:]]*}}"
+        [ -z "$line" ] && continue
+        name_part="${line%% (*}"
+        rest="${line#* (}"
+        [ "$rest" = "$line" ] && continue
+        id_part="${rest%%)*}"
+        name_candidate="$(trim_whitespace "$name_part")"
+        if [ "$name_candidate" = "$SIM_DEVICE_NAME" ]; then
+          resolved_id="$(trim_whitespace "$id_part")"
+          break
+        fi
+      done < <(xcrun simctl list devices available 2>/dev/null)
+      SIM_DEVICE_ID="$resolved_id"
+    fi
+  fi
+
+  if [ -n "$SIM_DEVICE_ID" ]; then
+    ri_log "Booting simulator $SIM_DEVICE_ID"
+    BOOT_START=$(date +%s)
+    xcrun simctl boot "$SIM_DEVICE_ID" >/dev/null 2>&1 || true
+    xcrun simctl bootstatus "$SIM_DEVICE_ID" -b
+    BOOT_END=$(date +%s)
+    echo "Simulator Boot (Run) : $(( (BOOT_END - BOOT_START) * 1000 )) ms" >> "$ARTIFACTS_DIR/ios-test-stats.txt"
+  else
+    ri_log "Warning: simulator UDID not resolved; relying on default booted device"
+    xcrun simctl bootstatus booted -b || true
+  fi
+
+  LOG_STREAM_PID=0
+  APP_CONSOLE_PID=0
+  cleanup() {
+    if [ "$LOG_STREAM_PID" -ne 0 ]; then
+      kill "$LOG_STREAM_PID" >/dev/null 2>&1 || true
+      wait "$LOG_STREAM_PID" 2>/dev/null || true
+    fi
+    if [ "$APP_CONSOLE_PID" -ne 0 ]; then
+      kill "$APP_CONSOLE_PID" >/dev/null 2>&1 || true
+      wait "$APP_CONSOLE_PID" 2>/dev/null || true
+    fi
+    if [ -n "$SIM_DEVICE_ID" ] && [ -n "$BUNDLE_IDENTIFIER" ]; then
+      xcrun simctl terminate "$SIM_DEVICE_ID" "$BUNDLE_IDENTIFIER" >/dev/null 2>&1 || true
+    fi
+  }
+  trap cleanup EXIT
+
+  # Second, unfiltered per-process stream: the CN1SS predicate below hides the
+  # app's own diagnostics. When the suite wedged mid-run on CI (EDT deadlocked
+  # in a static initializer while logging an exception) the exception text and
+  # the VM's "GC trapped" messages were unrecoverable without this.
+  APP_PROC_NAME="$(basename "$APP_BUNDLE_PATH" .app)"
+
+  RUN_LOG_START="$(date '+%Y-%m-%d %H:%M:%S')"
+  ri_log "Streaming simulator logs to $TEST_LOG"
+  if [ -n "$SIM_DEVICE_ID" ]; then
+    xcrun simctl terminate "$SIM_DEVICE_ID" "$BUNDLE_IDENTIFIER" >/dev/null 2>&1 || true
+    xcrun simctl uninstall "$SIM_DEVICE_ID" "$BUNDLE_IDENTIFIER" >/dev/null 2>&1 || true
+
+    xcrun simctl spawn "$SIM_DEVICE_ID" \
+      log stream --style compact --level debug \
+      --predicate '(composedMessage CONTAINS "CN1SS") OR (eventMessage CONTAINS "CN1SS")' \
+      > "$TEST_LOG" 2>&1 &
+    LOG_STREAM_PID=$!
+    xcrun simctl spawn "$SIM_DEVICE_ID" \
+      log stream --style compact \
+      --predicate 'processImagePath CONTAINS "'"$APP_PROC_NAME"'"' \
+      > "$ARTIFACTS_DIR/app-console.log" 2>&1 &
+    APP_CONSOLE_PID=$!
+  else
+    xcrun simctl spawn booted log stream --style compact --level debug --predicate '(composedMessage CONTAINS "CN1SS") OR (eventMessage CONTAINS "CN1SS")' > "$TEST_LOG" 2>&1 &
+    LOG_STREAM_PID=$!
+    xcrun simctl spawn booted log stream --style compact --predicate 'processImagePath CONTAINS "'"$APP_PROC_NAME"'"' > "$ARTIFACTS_DIR/app-console.log" 2>&1 &
+    APP_CONSOLE_PID=$!
+  fi
+  sleep 2
+
+  LAUNCH_LOG="$ARTIFACTS_DIR/simctl-launch.log"
+
+  # Thread Metal validation env vars (if set in the caller's environment)
+  # through to the launched app. simctl on Xcode 26 does NOT take a
+  # --setenv flag (`xcrun simctl help launch` confirms); the documented
+  # mechanism is exporting SIMCTL_CHILD_<NAME>=<value> in the shell that
+  # invokes simctl, which the launch helper unwraps into <NAME>=<value>
+  # for the child. CI's Metal job sets MTL_DEBUG_LAYER /
+  # MTL_DEBUG_LAYER_ERROR_MODE at the step level so iOS render-pass /
+  # pipeline-state mismatches (issue #5103) abort the app immediately
+  # instead of producing undefined behaviour off-CI.
+  if [ -n "${MTL_DEBUG_LAYER:-}" ]; then
+    export SIMCTL_CHILD_MTL_DEBUG_LAYER="${MTL_DEBUG_LAYER}"
+    ri_log "Forwarding MTL_DEBUG_LAYER=${MTL_DEBUG_LAYER} to simulator app (via SIMCTL_CHILD_)"
+  fi
+  if [ -n "${MTL_DEBUG_LAYER_ERROR_MODE:-}" ]; then
+    export SIMCTL_CHILD_MTL_DEBUG_LAYER_ERROR_MODE="${MTL_DEBUG_LAYER_ERROR_MODE}"
+    ri_log "Forwarding MTL_DEBUG_LAYER_ERROR_MODE=${MTL_DEBUG_LAYER_ERROR_MODE} to simulator app (via SIMCTL_CHILD_)"
+  fi
+
+  launch_simulator_app() {
+    local target="$1"
+    local attempt=1
+    local max_attempts=5
+    while true; do
+      local output
+      if output="$(xcrun simctl launch "$target" "$BUNDLE_IDENTIFIER" 2>&1)"; then
+        printf '%s\n' "$output" >> "$LAUNCH_LOG"
+        return 0
+      fi
+      printf '%s\n' "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] simctl launch failed (attempt $attempt): $output" >> "$LAUNCH_LOG"
+      if [ "$attempt" -ge "$max_attempts" ]; then
+        return 1
+      fi
+      ri_log "simctl launch failed (attempt $attempt), retrying"
+      # "Application unknown to FrontBoard" is a classic Xcode 26 Simulator
+      # registration race: simctl install reports success before FrontBoard's
+      # app database has caught up. The standard workaround is to bounce
+      # FrontBoard via launchctl - this forces a rescan. If that fails, we
+      # fall back to reinstalling the .app bundle so the registration kicks
+      # off again. Both are no-ops on the success path.
+      if printf '%s' "$output" | grep -q "unknown to FrontBoard"; then
+        ri_log "FrontBoard could not locate $BUNDLE_IDENTIFIER; bouncing FrontBoard + reinstalling app"
+        xcrun simctl spawn "$target" launchctl kickstart -k system/com.apple.FrontBoard.systemappservices >/dev/null 2>&1 || true
+        xcrun simctl uninstall "$target" "$BUNDLE_IDENTIFIER" >/dev/null 2>&1 || true
+        sleep 2
+        xcrun simctl install "$target" "$APP_BUNDLE_PATH" >/dev/null 2>&1 || true
+      fi
+      xcrun simctl bootstatus "$target" -b >/dev/null 2>&1 || true
+      sleep $((attempt * 5))
+      attempt=$((attempt + 1))
+    done
+  }
+
+  ri_log "Installing simulator app bundle"
+  INSTALL_START=$(date +%s)
+  if [ -n "$SIM_DEVICE_ID" ]; then
+    if ! xcrun simctl install "$SIM_DEVICE_ID" "$APP_BUNDLE_PATH"; then
+      ri_log "FATAL: simctl install failed"
+      exit 11
+    fi
+    INSTALL_END=$(date +%s)
+    # Pre-grant location and pin a fixed coordinate so native maps (Apple
+    # MapKit) render real tiles in CI instead of stalling on a location
+    # permission prompt.
+    xcrun simctl privacy "$SIM_DEVICE_ID" grant location "$BUNDLE_IDENTIFIER" >/dev/null 2>&1 || true
+    xcrun simctl location "$SIM_DEVICE_ID" set 41.0,13.0 >/dev/null 2>&1 || true
+
+    LAUNCH_START=$(date +%s)
+    if ! launch_simulator_app "$SIM_DEVICE_ID"; then
+      ri_log "FATAL: simctl launch failed (see $LAUNCH_LOG)"
+      exit 11
+    fi
+    LAUNCH_END=$(date +%s)
+  else
+    if ! xcrun simctl install booted "$APP_BUNDLE_PATH"; then
+      ri_log "FATAL: simctl install failed"
+      exit 11
+    fi
+    INSTALL_END=$(date +%s)
+    # Pre-grant location and pin a coordinate (see note above) so native maps
+    # render real tiles in CI rather than blocking on the location prompt.
+    xcrun simctl privacy booted grant location "$BUNDLE_IDENTIFIER" >/dev/null 2>&1 || true
+    xcrun simctl location booted set 41.0,13.0 >/dev/null 2>&1 || true
+
+    LAUNCH_START=$(date +%s)
+    if ! launch_simulator_app booted; then
+      ri_log "FATAL: simctl launch failed (see $LAUNCH_LOG)"
+      exit 11
+    fi
+    LAUNCH_END=$(date +%s)
+  fi
+  echo "App Install : $(( (INSTALL_END - INSTALL_START) * 1000 )) ms" >> "$ARTIFACTS_DIR/ios-test-stats.txt"
+  echo "App Launch : $(( (LAUNCH_END - LAUNCH_START) * 1000 )) ms" >> "$ARTIFACTS_DIR/ios-test-stats.txt"
+
+# Timestamp marker so crash reports written during this run can be picked
+# out of ~/Library/Logs/DiagnosticReports afterwards (find -newer). The
+# simulator app is a host process, so its crash reports land on the host.
+LAUNCH_MARKER="$ARTIFACTS_DIR/.launch-marker"
+touch "$LAUNCH_MARKER"
+APP_EXECUTABLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$APP_BUNDLE_PATH/Info.plist" 2>/dev/null || true)"
+
+# When the suite times out the app is usually not idle: ParparVM's
+# SignalHandler (CodenameOne_GLAppDelegate.m) converts SIGSEGV into a Java
+# NPE and returns, so a thread that faulted outside a Java try frame
+# re-executes the faulting instruction forever ("We had a signal 11" spam
+# in the device log). The simulator app is a plain host process, so a
+# `sample` taken at timeout contains the exact faulting stack (and, for
+# genuine deadlocks, every thread's wait state).
+capture_hang_diagnostics() {
+  local pid spam
+  if [ -n "$APP_EXECUTABLE_NAME" ]; then
+    pid="$(pgrep -x "$APP_EXECUTABLE_NAME" 2>/dev/null | head -n 1 || true)"
+  else
+    pid=""
+  fi
+  if [ -n "$pid" ]; then
+    ri_log "Sampling hung app (pid=$pid) -> app-hang-sample.txt"
+    sample "$pid" 5 -file "$ARTIFACTS_DIR/app-hang-sample.txt" >/dev/null 2>&1 || true
+  else
+    ri_log "No live ${APP_EXECUTABLE_NAME:-<unknown>} process found to sample"
+  fi
+  spam="$(grep -c 'We had a signal' "$TEST_LOG" 2>/dev/null || echo 0)"
+  if [ "${spam:-0}" -gt 0 ]; then
+    ri_log "Signal-handler loop detected: ${spam} 'We had a signal' lines in device log (a crashed thread is spinning in ParparVM's SignalHandler; see app-hang-sample.txt for the faulting stack)"
+  fi
+}
+
+END_MARKER="CN1SS:SUITE:FINISHED"
+# Keep two independent bounds on the suite:
+#
+# * the absolute limit prevents a continuously noisy process from occupying a
+#   runner indefinitely;
+# * the idle limit fails a genuinely stalled DeviceRunner promptly, while a
+#   growing suite that is still emitting CN1SS progress may finish normally.
+#
+# The GL suite exceeded the old 1500-second absolute limit on CI while still
+# making progress and was terminated one second after its final screenshot
+# test started. Keep a bounded ten-minute growth allowance. The benchmark
+# phase has a measured 530-second gap between records, so use a 12-minute idle
+# limit to distinguish that valid work from a genuinely stalled runner.
+TIMEOUT_SECONDS="${CN1SS_SUITE_TIMEOUT_SECONDS:-2100}"
+IDLE_TIMEOUT_SECONDS="${CN1SS_SUITE_IDLE_TIMEOUT_SECONDS:-720}"
+START_TIME="$(date +%s)"
+LAST_PROGRESS_TIME="$START_TIME"
+LAST_PROGRESS_LINE=""
+SUITE_TIMEOUT_REASON=""
+ri_log "Waiting for DeviceRunner completion marker ($END_MARKER)"
+while true; do
+  if grep -q "$END_MARKER" "$TEST_LOG"; then
+    ri_log "Detected DeviceRunner completion marker"
+    break
+  fi
+  NOW="$(date +%s)"
+  PROGRESS_LINE="$(grep 'CN1SS:' "$TEST_LOG" 2>/dev/null | tail -n 1 || true)"
+  if [ -n "$PROGRESS_LINE" ] && [ "$PROGRESS_LINE" != "$LAST_PROGRESS_LINE" ]; then
+    LAST_PROGRESS_LINE="$PROGRESS_LINE"
+    LAST_PROGRESS_TIME="$NOW"
+  fi
+  if [ $(( NOW - START_TIME )) -ge $TIMEOUT_SECONDS ]; then
+    SUITE_TIMEOUT_REASON="DeviceRunner did not emit completion marker within the ${TIMEOUT_SECONDS}s absolute limit"
+    ri_log "STAGE:TIMEOUT -> $SUITE_TIMEOUT_REASON"
+    capture_hang_diagnostics
+    break
+  fi
+  if [ $(( NOW - LAST_PROGRESS_TIME )) -ge $IDLE_TIMEOUT_SECONDS ]; then
+    SUITE_TIMEOUT_REASON="DeviceRunner emitted no CN1SS progress for ${IDLE_TIMEOUT_SECONDS}s"
+    ri_log "STAGE:TIMEOUT -> $SUITE_TIMEOUT_REASON"
+    capture_hang_diagnostics
+    break
+  fi
+  sleep 5
+done
+END_TIME=$(date +%s)
+echo "Test Execution : $(( (END_TIME - START_TIME) * 1000 )) ms" >> "$ARTIFACTS_DIR/ios-test-stats.txt"
+
+sleep 3
+
+kill "$LOG_STREAM_PID" >/dev/null 2>&1 || true
+wait "$LOG_STREAM_PID" 2>/dev/null || true
+LOG_STREAM_PID=0
+
+FALLBACK_LOG="$ARTIFACTS_DIR/device-runner-fallback.log"
+xcrun simctl spawn "$SIM_DEVICE_ID" \
+  log show --style syslog --start "$RUN_LOG_START" \
+  --predicate '(composedMessage CONTAINS "CN1SS") OR (eventMessage CONTAINS "CN1SS")' \
+  > "$FALLBACK_LOG" 2>/dev/null || true
+
+# Collect any crash reports the OS wrote for the app during this run
+# (simulator app crashes report to the host's DiagnosticReports).
+CRASH_REPORT_DIR="$HOME/Library/Logs/DiagnosticReports"
+if [ -d "$CRASH_REPORT_DIR" ] && [ -n "$APP_EXECUTABLE_NAME" ]; then
+  while IFS= read -r crash_file; do
+    [ -n "$crash_file" ] || continue
+    ri_log "Collected crash report: $(basename "$crash_file")"
+    cp -f "$crash_file" "$ARTIFACTS_DIR/" 2>/dev/null || true
+  done < <(find "$CRASH_REPORT_DIR" -maxdepth 1 -name "${APP_EXECUTABLE_NAME}*" -newer "$LAUNCH_MARKER" 2>/dev/null)
+fi
+
+BASE64_STATS_FILE="$ARTIFACTS_DIR/base64-performance-stats.txt"
+extract_base64_stats "$BASE64_STATS_FILE" "$TEST_LOG" "$FALLBACK_LOG"
+if [ -s "$BASE64_STATS_FILE" ]; then
+  ri_log "Base64 benchmark stats captured at $BASE64_STATS_FILE"
+fi
+
+BASE64_BENCHMARK_FAILURE_LINE="$( (grep -h "CN1SS:ERR:suite test=Base64NativePerformanceTest failed" "$TEST_LOG" "$FALLBACK_LOG" || true) | tail -n 1 )"
+if [ -n "$BASE64_BENCHMARK_FAILURE_LINE" ]; then
+  ri_log "Detected Base64 benchmark failure line: $BASE64_BENCHMARK_FAILURE_LINE"
+fi
+
+SUITE_FAILURE_LINES="$(cn1ss_collect_suite_failures "$TEST_LOG" "$FALLBACK_LOG")"
+if [ -n "$SUITE_FAILURE_LINES" ]; then
+  ri_log "Detected DeviceRunner assertion/test failure(s); artifacts and screenshot report will still be collected before failing."
+fi
+
+SWIFT_DIAG_LINE="$( (grep -h "CN1SS:INFO:swift_diag_status=" "$TEST_LOG" "$FALLBACK_LOG" || true) | tail -n 1 )"
+if [ -n "$SWIFT_DIAG_LINE" ]; then
+  ri_log "Detected swift diagnostic status line: $SWIFT_DIAG_LINE"
+  if ! echo "$SWIFT_DIAG_LINE" | grep -q "swift_diag_status=OK "; then
+    ri_log "STAGE:SWIFT_DIAG_FAILED -> $SWIFT_DIAG_LINE"
+    exit 13
+  fi
+else
+  ri_log "STAGE:SWIFT_DIAG_MISSING -> No swift_diag_status marker found"
+fi
+
+if [ -n "$SIM_DEVICE_ID" ]; then
+  xcrun simctl terminate "$SIM_DEVICE_ID" "$BUNDLE_IDENTIFIER" >/dev/null 2>&1 || true
+fi
+
+# The app has exited; stop the WS server and adopt whatever it received. One
+# <test>.png per delivered screenshot is in $WS_RAW_DIR. When WS delivered at
+# least one image we use that set directly and skip the legacy syslog/base64
+# decode entirely.
+cn1ss_stop_ws_server
+declare -a COMPARE_ENTRIES=()
+WS_DELIVERED=0
+if [ -d "${WS_RAW_DIR:-}" ]; then
+  for ws_png in "$WS_RAW_DIR"/*.png; do
+    [ -s "$ws_png" ] || continue
+    ws_test="$(basename "$ws_png" .png)"
+    ws_dest="$SCREENSHOT_TMP_DIR/${ws_test}.png"
+    cp -f "$ws_png" "$ws_dest" 2>/dev/null || continue
+    COMPARE_ENTRIES+=("${ws_test}=${ws_dest}")
+    WS_DELIVERED=$(( WS_DELIVERED + 1 ))
+  done
+fi
+if [ "$WS_DELIVERED" -gt 0 ]; then
+  ri_log "WebSocket transport delivered ${WS_DELIVERED} screenshot(s); using WS path (legacy decode skipped)"
+fi
+
+# WebSocket is the only transport now. If it delivered nothing the on-device
+# suite either never ran or produced no screenshots -- fail loudly; there is
+# no syslog/base64/file fallback any more.
+if [ "$WS_DELIVERED" -eq 0 ]; then
+  ri_log "STAGE:MARKERS_NOT_FOUND -> no screenshots delivered over WebSocket"
+  ri_log "---- CN1SS lines from log ----"
+  (grep "CN1SS:" "$TEST_LOG" 2>/dev/null || true) | sed 's/^/[CN1SS] /'
+  exit 12
+fi
+
+COMPARE_JSON="$SCREENSHOT_TMP_DIR/screenshot-compare.json"
+SUMMARY_FILE="$SCREENSHOT_TMP_DIR/screenshot-summary.txt"
+COMMENT_FILE="$SCREENSHOT_TMP_DIR/screenshot-comment.md"
+export CN1SS_PORT_ID="${CN1SS_PORT_ID:-ios-metal}"
+export CN1SS_SUITE_LOG="$TEST_LOG"
+export CN1SS_SUITE_LOG_2="$FALLBACK_LOG"
+export CN1SS_BINARY_PATH="$APP_BUNDLE_PATH"
+
+export CN1SS_PREVIEW_DIR="$SCREENSHOT_PREVIEW_DIR"
+# All four of these are tunable from the caller so the Metal job can post
+# a separate PR comment instead of overwriting the GL job's comment.
+# Keep the historical GL defaults so existing GL invocations are unchanged.
+export CN1SS_COMMENT_MARKER="${CN1SS_COMMENT_MARKER:-<!-- CN1SS_IOS_COMMENT -->}"
+export CN1SS_COMMENT_LOG_PREFIX="${CN1SS_COMMENT_LOG_PREFIX:-[run-ios-device-tests]}"
+export CN1SS_PREVIEW_SUBDIR="${CN1SS_PREVIEW_SUBDIR:-ios}"
+export CN1SS_SUCCESS_MESSAGE="${CN1SS_SUCCESS_MESSAGE:-✅ Native iOS screenshot tests passed.}"
+REPORT_TITLE="${CN1SS_REPORT_TITLE:-iOS screenshot updates}"
+
+# Load VM translation time if available
+CN1SS_VM_TIME=0
+if [ -f "$ARTIFACTS_DIR/vm_time.txt" ]; then
+  CN1SS_VM_TIME=$(cat "$ARTIFACTS_DIR/vm_time.txt")
+  ri_log "Loaded VM translation time: ${CN1SS_VM_TIME}s"
+fi
+export CN1SS_VM_TIME
+export CN1SS_COMPILATION_TIME="$COMPILATION_TIME"
+
+cn1ss_process_and_report \
+  "$REPORT_TITLE" \
+  "$COMPARE_JSON" \
+  "$SUMMARY_FILE" \
+  "$COMMENT_FILE" \
+  "$SCREENSHOT_REF_DIR" \
+  "$SCREENSHOT_PREVIEW_DIR" \
+  "$ARTIFACTS_DIR" \
+  "${COMPARE_ENTRIES[@]}"
+comment_rc=$?
+
+cp -f "$BUILD_LOG" "$ARTIFACTS_DIR/xcodebuild-build.log" 2>/dev/null || true
+cp -f "$TEST_LOG" "$ARTIFACTS_DIR/device-runner.log" 2>/dev/null || true
+
+if [ -n "$SUITE_TIMEOUT_REASON" ]; then
+  ri_log "STAGE:TIMEOUT -> failing because $SUITE_TIMEOUT_REASON"
+  exit 18
+fi
+
+if [ -n "$BASE64_BENCHMARK_FAILURE_LINE" ]; then
+  ri_log "STAGE:BENCHMARK_FAILED -> $BASE64_BENCHMARK_FAILURE_LINE"
+  exit 16
+fi
+
+if [ -n "$SUITE_FAILURE_LINES" ]; then
+  ri_log "STAGE:DEVICE_RUNNER_TEST_FAILED -> assertion/test failure(s) are not allowed:"
+  printf '%s\n' "$SUITE_FAILURE_LINES" | sed 's/^/[CN1SS-FAIL] /'
+  exit 19
+fi
+
+# Screenshot mismatch / count-regression guards are centralised in
+# cn1ss_process_and_report (scripts/lib/cn1ss.sh), which returns these
+# codes only when CN1SS_FAIL_ON_MISMATCH=1:
+#   15 - a screenshot differs from / errored against its stored baseline
+#   17 - fewer screenshots were produced than there are stored references
+#        (a test failed to emit; the suite most likely hung or crashed
+#        partway, dropping every screenshot after the failure - the exact
+#        symptom behind the Metal suite silently reporting 107/122).
+# The count floor is the size of $SCREENSHOT_REF_DIR, optionally raised via
+# CN1SS_MIN_SCREENSHOTS. comment_rc already carries those codes, so simply
+# surface it (after the benchmark guard above) as this script's exit status.
+if [ "${comment_rc:-0}" -eq 15 ] || [ "${comment_rc:-0}" -eq 17 ]; then
+  ri_log "STAGE:SCREENSHOT_REGRESSION -> failing with exit ${comment_rc} (see cn1ss FATAL message above)."
+fi
+
+exit $comment_rc

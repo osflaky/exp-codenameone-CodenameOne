@@ -1,0 +1,498 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.certificatewizard.api;
+
+import com.codename1.certificatewizard.cloud.APNsKeysApi;
+import com.codename1.certificatewizard.cloud.AppGroupsApi;
+import com.codename1.certificatewizard.cloud.BundleIDsApi;
+import com.codename1.certificatewizard.cloud.CertificatesApi;
+import com.codename1.certificatewizard.cloud.CredentialApi;
+import com.codename1.certificatewizard.cloud.DevicesApi;
+import com.codename1.certificatewizard.cloud.ProfilesApi;
+import com.codename1.certificatewizard.cloud.model.ApnsKeyRequest;
+import com.codename1.certificatewizard.cloud.model.ApnsKeyStatus;
+import com.codename1.certificatewizard.cloud.model.AppGroupDTO;
+import com.codename1.certificatewizard.cloud.model.AscCredentialRequest;
+import com.codename1.certificatewizard.cloud.model.AscCredentialStatus;
+import com.codename1.certificatewizard.cloud.model.BundleIdDTO;
+import com.codename1.certificatewizard.cloud.model.CapabilityRequest;
+import com.codename1.certificatewizard.cloud.model.CreateAppGroupRequest;
+import com.codename1.certificatewizard.cloud.model.CertDTO;
+import com.codename1.certificatewizard.cloud.model.CreateBundleIdRequest;
+import com.codename1.certificatewizard.cloud.model.CreateCertRequest;
+import com.codename1.certificatewizard.cloud.model.CreateProfileRequest;
+import com.codename1.certificatewizard.cloud.model.DeviceDTO;
+import com.codename1.certificatewizard.cloud.model.ProfileDTO;
+import com.codename1.certificatewizard.cloud.model.RegisterDeviceRequest;
+import com.codename1.io.FileSystemStorage;
+import com.codename1.io.NetworkEvent;
+import com.codename1.io.Util;
+import com.codename1.io.rest.Response;
+import com.codename1.io.rest.Rest;
+import com.codename1.util.OnComplete;
+
+import java.io.IOException;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
+
+public final class CloudSigningService implements SigningService {
+    public static final String DEFAULT_BASE_URL = "https://cloud.codenameone.com";
+
+    private final String baseUrl;
+    private final String bearerToken;
+    private final String downloadDir;
+
+    private final CredentialApi credentialApi;
+    private final CertificatesApi certificatesApi;
+    private final BundleIDsApi bundleIdsApi;
+    private final DevicesApi devicesApi;
+    private final ProfilesApi profilesApi;
+    private final APNsKeysApi apnsKeysApi;
+    private final AppGroupsApi appGroupsApi;
+
+    public CloudSigningService(String baseUrl, String token, String downloadDir) {
+        this.baseUrl = baseUrl == null || baseUrl.trim().isEmpty() ? DEFAULT_BASE_URL : baseUrl.trim();
+        this.bearerToken = normalizeBearer(token);
+        this.downloadDir = downloadDir;
+        credentialApi = CredentialApi.of(this.baseUrl);
+        certificatesApi = CertificatesApi.of(this.baseUrl);
+        bundleIdsApi = BundleIDsApi.of(this.baseUrl);
+        devicesApi = DevicesApi.of(this.baseUrl);
+        profilesApi = ProfilesApi.of(this.baseUrl);
+        apnsKeysApi = APNsKeysApi.of(this.baseUrl);
+        appGroupsApi = AppGroupsApi.of(this.baseUrl);
+    }
+
+    public void refresh(OnComplete<Result<SigningState>> callback) {
+        if (!hasToken()) {
+            callback.completed(Result.ok(SigningState.empty()));
+            return;
+        }
+        final AscCredentialStatus[] cred = new AscCredentialStatus[1];
+        final List<CertDTO>[] certs = new List[1];
+        final List<BundleIdDTO>[] bundles = new List[1];
+        final List<DeviceDTO>[] devices = new List[1];
+        final List<ProfileDTO>[] profiles = new List[1];
+        final List<ApnsKeyStatus>[] apns = new List[1];
+        final List<AppGroupDTO>[] appGroups = new List[1];
+
+        credentialApi.getCredential(bearerToken, r1 -> {
+            if (authFailure(r1)) {
+                callback.completed(Result.ok(SigningState.empty()));
+                return;
+            }
+            if (!ok(r1)) {
+                callback.completed(Result.fail(error(r1)));
+                return;
+            }
+            cred[0] = r1.getResponseData();
+            if (cred[0] == null || !Boolean.TRUE.equals(cred[0].configured())) {
+                callback.completed(Result.ok(toState(cred[0], null, null, null, null, null, null)));
+                return;
+            }
+            certificatesApi.listCertificates(bearerToken, r2 -> {
+                if (authFailure(r2)) {
+                    callback.completed(Result.ok(SigningState.empty()));
+                    return;
+                }
+                if (!ok(r2)) {
+                    callback.completed(Result.fail(error(r2)));
+                    return;
+                }
+                certs[0] = r2.getResponseData();
+                bundleIdsApi.listBundleIds(bearerToken, r3 -> {
+                    if (authFailure(r3)) {
+                        callback.completed(Result.ok(SigningState.empty()));
+                        return;
+                    }
+                    if (!ok(r3)) {
+                        callback.completed(Result.fail(error(r3)));
+                        return;
+                    }
+                    bundles[0] = r3.getResponseData();
+                    devicesApi.listDevices(bearerToken, r4 -> {
+                        if (authFailure(r4)) {
+                            callback.completed(Result.ok(SigningState.empty()));
+                            return;
+                        }
+                        if (!ok(r4)) {
+                            callback.completed(Result.fail(error(r4)));
+                            return;
+                        }
+                        devices[0] = r4.getResponseData();
+                        profilesApi.listProfiles(bearerToken, r5 -> {
+                            if (authFailure(r5)) {
+                                callback.completed(Result.ok(SigningState.empty()));
+                                return;
+                            }
+                            if (!ok(r5)) {
+                                callback.completed(Result.fail(error(r5)));
+                                return;
+                            }
+                            profiles[0] = r5.getResponseData();
+                            apnsKeysApi.listApnsKeys(bearerToken, r6 -> {
+                                if (authFailure(r6)) {
+                                    callback.completed(Result.ok(SigningState.empty()));
+                                    return;
+                                }
+                                if (!ok(r6)) {
+                                    callback.completed(Result.fail(error(r6)));
+                                    return;
+                                }
+                                apns[0] = r6.getResponseData();
+                                appGroupsApi.listAppGroups(bearerToken, r7 -> {
+                                    // App Groups are additive, and this is the last of
+                                    // the seven calls -- the six before it already
+                                    // proved both the login and the Apple key are good.
+                                    // Failing to list them is no reason to throw the
+                                    // whole account away and show an error instead:
+                                    // Apple answers 404 here for accounts it does not
+                                    // offer the resource to, which failed every refresh,
+                                    // and so every "Sync with Apple" that had just
+                                    // succeeded.
+                                    if (ok(r7)) {
+                                        appGroups[0] = r7.getResponseData();
+                                    }
+                                    callback.completed(Result.ok(toState(cred[0], certs[0], bundles[0],
+                                            devices[0], profiles[0], apns[0], appGroups[0])));
+                                });
+                            });
+                        });
+                    });
+                });
+            });
+        });
+    }
+
+    public void saveCredential(String keyId, String issuerId, String privateKeyP8, OnComplete<Result<Void>> callback) {
+        credentialApi.putCredential(new AscCredentialRequest(keyId, issuerId, privateKeyP8), bearerToken,
+                r -> done(r, callback));
+    }
+
+    public void deleteCredential(OnComplete<Result<Void>> callback) {
+        credentialApi.deleteCredential(bearerToken, r -> done(r, callback));
+    }
+
+    public void createCertificate(String certificateType, String displayName, OnComplete<Result<Void>> callback) {
+        certificatesApi.createCertificate(new CreateCertRequest(certificateType, displayName), bearerToken,
+                r -> done(r, callback));
+    }
+
+    /// "Sync with Apple": reconcile BOTH certificates and provisioning profiles.
+    ///
+    /// This used to call the certificate reconcile alone, and there was no profile reconcile to
+    /// call -- the profile list was served from rows this wizard had itself created, so a sync
+    /// could not bring it into step with Apple no matter how often it ran. That is issue #5793:
+    /// a list showing 11 of an account's 24 profiles, a row for a profile deleted in the portal
+    /// that answers "Apple no longer has this item" straight after a sync, and a create refused
+    /// for a duplicate name that is invisible here.
+    ///
+    /// Sequential rather than parallel, and profiles second: the certificate pass is the one
+    /// whose failure means the key is unusable, and reporting that is more useful than reporting
+    /// whichever of the two happened to answer first.
+    ///
+    /// **A failure of either half is a failed sync, including 404.** The profile half used to be
+    /// allowed to answer 404 or 405 and still be reported as a success, as a compatibility shim
+    /// for "a wizard newer than the signing service it is talking to". That window never actually
+    /// existed in a release -- the service route shipped first and the first wizard that calls it
+    /// shipped four days later -- and the shim cost more than it could ever have bought, because
+    /// 404 is also what the service answers when APPLE said 404. The message it discards is
+    /// literally *"Apple no longer has this item ... Use Sync with Apple to bring your Codename
+    /// One account back in step"*, so the one reply that most needs showing was the one reported
+    /// as "Synced with Apple". Issue #5832 is a developer watching profiles they deleted in the
+    /// portal survive a sync that said it worked.
+    public void reconcile(OnComplete<Result<Void>> callback) {
+        reconcile(bearerToken, certificatesApi, profilesApi, callback);
+    }
+
+    /// The sequencing on its own, so a test can drive it with fakes. This class builds its API
+    /// clients in its constructor (`RestClients.create`, which wants a live CN1 runtime), so
+    /// there is no other way to assert what a given pair of replies is reported as -- and what a
+    /// reply is reported as is the whole of issue #5832.
+    static void reconcile(String bearerToken, CertificatesApi certs, ProfilesApi profs,
+                          OnComplete<Result<Void>> callback) {
+        certs.reconcileCertificates(bearerToken, r -> {
+            if (!ok(r)) {
+                callback.completed(Result.fail(error(r)));
+                return;
+            }
+            profs.reconcileProfiles(bearerToken, rr -> {
+                if (ok(rr)) {
+                    callback.completed(Result.<Void>ok(null));
+                    return;
+                }
+                callback.completed(Result.<Void>fail(error(rr)));
+            });
+        });
+    }
+
+    public void revokeCertificate(Long id, OnComplete<Result<Void>> callback) {
+        certificatesApi.revokeCertificate(id, bearerToken, r -> done(r, callback));
+    }
+
+    public void createBundleId(String identifier, String name, String platform, boolean push,
+                               OnComplete<Result<Void>> callback) {
+        bundleIdsApi.createBundleId(new CreateBundleIdRequest(identifier, name, platform), bearerToken, r -> {
+            if (!ok(r)) {
+                callback.completed(Result.fail(error(r)));
+                return;
+            }
+            BundleIdDTO created = r.getResponseData();
+            if (push && created != null && created.id() != null) {
+                bundleIdsApi.enableCapability(created.id(), new CapabilityRequest("PUSH_NOTIFICATIONS", null),
+                        bearerToken, rr -> done(rr, callback));
+            } else {
+                callback.completed(Result.ok(null));
+            }
+        });
+    }
+
+    public void createAppGroup(String identifier, String name, OnComplete<Result<SigningState.AppGroup>> callback) {
+        appGroupsApi.createAppGroup(new CreateAppGroupRequest(identifier, name), bearerToken, r -> {
+            if (!ok(r)) {
+                callback.completed(Result.<SigningState.AppGroup>fail(error(r)));
+                return;
+            }
+            AppGroupDTO created = r.getResponseData();
+            if (created == null) {
+                callback.completed(Result.<SigningState.AppGroup>fail("Server returned no App Group"));
+                return;
+            }
+            callback.completed(Result.ok(new SigningState.AppGroup(created.id(), created.identifier(),
+                    created.name())));
+        });
+    }
+
+    public void enableAppGroupCapability(String bundleIdAppleId, List<String> appGroupIds,
+                                         OnComplete<Result<Void>> callback) {
+        bundleIdsApi.enableCapability(bundleIdAppleId, new CapabilityRequest("APP_GROUPS", appGroupIds),
+                bearerToken, r -> done(r, callback));
+    }
+
+    public void enablePushCapability(String bundleIdAppleId, OnComplete<Result<Void>> callback) {
+        bundleIdsApi.enableCapability(bundleIdAppleId, new CapabilityRequest("PUSH_NOTIFICATIONS", null),
+                bearerToken, r -> done(r, callback));
+    }
+
+    public void registerDevice(String name, String udid, String platform, OnComplete<Result<Void>> callback) {
+        String plat = platform == null || platform.trim().isEmpty() ? "IOS" : platform.trim();
+        devicesApi.registerDevice(new RegisterDeviceRequest(name, udid, plat), bearerToken, r -> done(r, callback));
+    }
+
+    public void createProfile(String name, String profileType, String bundleIdAppleId, List<String> certificateAppleIds,
+                              List<String> deviceAppleIds, OnComplete<Result<Void>> callback) {
+        profilesApi.createProfile(new CreateProfileRequest(name, profileType, bundleIdAppleId,
+                certificateAppleIds, deviceAppleIds), bearerToken, r -> done(r, callback));
+    }
+
+    public void deleteProfile(Long id, OnComplete<Result<Void>> callback) {
+        profilesApi.deleteProfile(id, bearerToken, r -> done(r, callback));
+    }
+
+    public void saveApnsKey(String keyId, String teamId, String privateKeyP8, String displayName,
+                            OnComplete<Result<Void>> callback) {
+        apnsKeysApi.putApnsKey(new ApnsKeyRequest(keyId, teamId, privateKeyP8, displayName), bearerToken,
+                r -> done(r, callback));
+    }
+
+    public void deleteApnsKey(String keyId, OnComplete<Result<Void>> callback) {
+        apnsKeysApi.deleteApnsKey(keyId, bearerToken, r -> done(r, callback));
+    }
+
+    public void clearSigningData(OnComplete<Result<Void>> callback) {
+        credentialApi.clearSigningData(bearerToken, r -> done(r, callback));
+    }
+
+    public void downloadP12(Long certificateId, String password, String suggestedName, OnComplete<Result<String>> callback) {
+        String url = baseUrl + "/appsec/7.0/apple/certificates/" + certificateId + "/p12";
+        Rest.get(url).queryParam("password", password == null ? "" : password)
+                .header("Authorization", bearerToken)
+                .onError(evt -> {
+                    evt.consume();
+                    callback.completed(Result.<String>fail(networkError(evt)));
+                }, false)
+                .onErrorCodeBytes(r -> saveBytes(r, suggestedName, callback))
+                .fetchAsBytes(r -> saveBytes(r, suggestedName, callback));
+    }
+
+    public void downloadProfile(Long profileId, String suggestedName, OnComplete<Result<String>> callback) {
+        String url = baseUrl + "/appsec/7.0/apple/profiles/" + profileId + "/download";
+        Rest.get(url).header("Authorization", bearerToken)
+                .onError(evt -> {
+                    evt.consume();
+                    callback.completed(Result.<String>fail(networkError(evt)));
+                }, false)
+                .onErrorCodeBytes(r -> saveBytes(r, suggestedName, callback))
+                .fetchAsBytes(r -> saveBytes(r, suggestedName, callback));
+    }
+
+    private boolean hasToken() {
+        return bearerToken != null && bearerToken.length() > "Bearer ".length();
+    }
+
+    private static String normalizeBearer(String token) {
+        if (token == null || token.trim().isEmpty()) {
+            return "";
+        }
+        String t = token.trim();
+        return t.startsWith("Bearer ") ? t : "Bearer " + t;
+    }
+
+    private static boolean ok(Response<?> r) {
+        return r != null && r.getResponseCode() >= 200 && r.getResponseCode() < 300;
+    }
+
+    private static boolean authFailure(Response<?> r) {
+        return r != null && (r.getResponseCode() == 401 || r.getResponseCode() == 403);
+    }
+
+    /**
+     * The failure behind a non-2xx reply. On an error status the generated REST
+     * client hands us the raw body in {@code getResponseData()} (see the
+     * {@code onErrorCodeString} handler it emits), and the signing service puts
+     * a sentence written for this UI there -- so that body, not a status-derived
+     * guess, is the message wherever it is usable.
+     */
+    private static SigningError error(Response<?> r) {
+        if (r == null) {
+            return SigningError.from(0, null, null);
+        }
+        return SigningError.from(r.getResponseCode(), bodyOf(r), r.getResponseErrorMessage());
+    }
+
+    private static String bodyOf(Response<?> r) {
+        Object data = r.getResponseData();
+        if (data instanceof String) {
+            return (String) data;
+        }
+        if (data instanceof byte[]) {
+            byte[] raw = (byte[]) data;
+            if (raw.length > 0) {
+                try {
+                    return new String(raw, "UTF-8");
+                } catch (java.io.UnsupportedEncodingException ex) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static SigningError networkError(NetworkEvent evt) {
+        if (evt == null) {
+            return SigningError.from(0, null, null);
+        }
+        String message = evt.getMessage();
+        if ((message == null || message.trim().isEmpty()) && evt.getError() != null) {
+            message = evt.getError().getMessage();
+        }
+        return SigningError.from(evt.getResponseCode(), null, message);
+    }
+
+    private static void done(Response<?> r, OnComplete<Result<Void>> callback) {
+        callback.completed(ok(r) ? Result.<Void>ok(null) : Result.<Void>fail(error(r)));
+    }
+
+    private SigningState toState(AscCredentialStatus cred, List<CertDTO> certs, List<BundleIdDTO> bundles,
+                                 List<DeviceDTO> devices, List<ProfileDTO> profiles, List<ApnsKeyStatus> apns,
+                                 List<AppGroupDTO> appGroups) {
+        List<SigningState.Certificate> outCerts = new ArrayList<SigningState.Certificate>();
+        if (certs != null) {
+            for (CertDTO c : certs) {
+                outCerts.add(new SigningState.Certificate(c.id(), c.appleCertId(), c.certificateType(),
+                        c.displayName(), c.serialNumber(), c.expiresAt(), c.status(),
+                        Boolean.TRUE.equals(c.privateKeyPresent())));
+            }
+        }
+        List<SigningState.BundleId> outBundles = new ArrayList<SigningState.BundleId>();
+        if (bundles != null) {
+            for (BundleIdDTO b : bundles) {
+                // null, not false: the bundle-id listing reports no capabilities at all, and
+                // the wizard must not turn that silence into a claim about push (issue #5657).
+                outBundles.add(new SigningState.BundleId(b.id(), b.identifier(), b.name(), b.platform(), null));
+            }
+        }
+        List<SigningState.Device> outDevices = new ArrayList<SigningState.Device>();
+        if (devices != null) {
+            for (DeviceDTO d : devices) {
+                outDevices.add(new SigningState.Device(d.id(), d.name(), d.udid(), d.platform(), d.status()));
+            }
+        }
+        List<SigningState.Profile> outProfiles = new ArrayList<SigningState.Profile>();
+        if (profiles != null) {
+            for (ProfileDTO p : profiles) {
+                outProfiles.add(new SigningState.Profile(p.id(), p.appleProfileId(), p.name(), p.profileType(),
+                        p.bundleId(), p.uuid(), p.expiresAt(), p.status()));
+            }
+        }
+        List<SigningState.ApnsKey> outApns = new ArrayList<SigningState.ApnsKey>();
+        if (apns != null) {
+            for (ApnsKeyStatus a : apns) {
+                outApns.add(new SigningState.ApnsKey(a.keyId(), a.teamId(), a.displayName(), a.createdAt()));
+            }
+        }
+        List<SigningState.AppGroup> outGroups = new ArrayList<SigningState.AppGroup>();
+        if (appGroups != null) {
+            for (AppGroupDTO g : appGroups) {
+                outGroups.add(new SigningState.AppGroup(g.id(), g.identifier(), g.name()));
+            }
+        }
+        SigningState.Credential c = cred == null ? new SigningState.Credential(false, null, null)
+                : new SigningState.Credential(Boolean.TRUE.equals(cred.configured()), cred.keyId(), cred.issuerId());
+        return new SigningState(c, outCerts, outBundles, outDevices, outProfiles, outApns, outGroups);
+    }
+
+    private void saveBytes(Response<byte[]> response, String suggestedName, OnComplete<Result<String>> callback) {
+        if (!ok(response)) {
+            callback.completed(Result.<String>fail(error(response)));
+            return;
+        }
+        byte[] data = response.getResponseData();
+        if (data == null) {
+            callback.completed(Result.fail("Server returned no data"));
+            return;
+        }
+        String dir = downloadDir == null || downloadDir.isEmpty()
+                ? FileSystemStorage.getInstance().getAppHomePath() : downloadDir;
+        String path = join(dir, suggestedName);
+        OutputStream out = null;
+        try {
+            out = FileSystemStorage.getInstance().openOutputStream(path);
+            out.write(data);
+            out.flush();
+            callback.completed(Result.ok(path));
+        } catch (IOException ex) {
+            callback.completed(Result.fail(ex.getMessage()));
+        } finally {
+            Util.cleanup(out);
+        }
+    }
+
+    private static String join(String dir, String name) {
+        if (dir.endsWith("/") || dir.endsWith("\\")) {
+            return dir + name;
+        }
+        return dir + "/" + name;
+    }
+}

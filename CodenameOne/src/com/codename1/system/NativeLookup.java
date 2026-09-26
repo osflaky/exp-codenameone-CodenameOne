@@ -1,0 +1,106 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.system;
+
+import com.codename1.io.Log;
+
+import java.util.HashMap;
+
+/// Creates an instance of the native interface which will call the underlying
+/// platform using the convention documented in the package docs.
+/// To understand more
+/// about native interfaces you can check out this
+/// [quick "How Do I?" tutorial](https://www.codenameone.com/how-do-i---access-native-device-functionality-invoke-native-interfaces.html).
+///
+/// Alternatively you can dig deeper into [this tutorial for integrating 3rd party native libraries](https://www.codenameone.com/blog/integrating-3rd-party-native-sdks-part-1.html).
+///
+/// @author Shai Almog
+public final class NativeLookup {
+    private static final HashMap<Class, Class> interfaceToClassLookup = new HashMap<Class, Class>();
+    /// Indicates whether stack traces should be printed when lookup fails
+    private static boolean verbose = true;
+
+    private NativeLookup() {
+    }
+
+    /// Indicates whether stack traces should be printed when lookup fails
+    ///
+    /// #### Returns
+    ///
+    /// the verbose
+    public static boolean isVerbose() {
+        return verbose;
+    }
+
+    /// Indicates whether stack traces should be printed when lookup fails
+    ///
+    /// #### Parameters
+    ///
+    /// - `aVerbose`: the verbose to set
+    public static void setVerbose(boolean aVerbose) {
+        verbose = aVerbose;
+    }
+
+    /// Creates an instance of the given native interface and returns it for
+    /// user callbacks.
+    ///
+    /// #### Parameters
+    ///
+    /// - `c`: the class of the NativeInterface sub interface
+    ///
+    /// #### Returns
+    ///
+    /// @return an instance of that interface that can be invoked or null if the native interface isn't
+    /// present on the underlying platform (e.g. simulator platform).
+    // NativeLookup is itself the sanctioned escape hatch for class-by-name
+    // resolution; the JavaSE simulator path falls back to a name-derived
+    // *Impl lookup that the registered map cannot cover.
+    @SuppressWarnings("BanClassForName")
+    public static <T extends NativeInterface> T create(Class<T> c) {
+        try {
+            Class cls = interfaceToClassLookup.get(c);
+            if (cls != null) {
+                return (T) cls.newInstance();
+            }
+            // special case for JavaSE native interfaces
+            return (T) Class.forName(c.getName() + "Impl").newInstance();
+        } catch (Throwable ex) {
+            if (verbose) {
+                Log.e(ex);
+            }
+        }
+        return null;
+    }
+
+    /// Do NOT invoke this method. This method is invoked internally by the stub to register the implementation class
+    /// that matches a specific interface type.
+    ///
+    /// #### Parameters
+    ///
+    /// - `ni`: the native interface
+    ///
+    /// - `cls`: the stub class matching said interface
+    public static void register(Class ni, Class cls) {
+        interfaceToClassLookup.put(ni, cls);
+    }
+}

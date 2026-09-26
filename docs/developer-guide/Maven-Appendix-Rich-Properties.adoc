@@ -1,0 +1,30 @@
+[#rich-properties-file]
+[appendix]
+== Rich properties file (rpf) format
+
+The rich properties file (rpf) format is used to store configuration for the `generate-app-project` goal. The format is the same as a regular properties file except that it can accommodate properties whose values are "rich" and lengthy.
+
+"Rich" properties use the following syntax:
+
+[source,rpf]
+----
+include::../demos/common/src/main/snippets/developer-guide/maven-appendix-rich-properties.txt[tag=maven-appendix-rich-properties-rpf-001,indent=0]
+----
+<1> The property key appears on a new line wrapped in square brackets.
+<2> A separator consisting of 3 or more equals signs on the next line.
+<3> The property value, which can be one or more lines of content.
+<4> The separator with the same number of equals signs on a line of its own.
+
+=== Example rich properties file
+
+[source,rpf]
+----
+include::../demos/common/src/main/snippets/developer-guide/maven-appendix-rich-properties.txt[tag=maven-appendix-rich-properties-rpf-002,indent=0]
+----
+
+Many of the properties of this file are regular properties. Two rich properties exist: `bio` and `xmldata`.
+
+
+
+
+

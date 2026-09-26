@@ -1,0 +1,207 @@
+.cn1-menu-search-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+  line-height: 1;
+  min-width: 1.25rem;
+}
+
+.cn1-search-page {
+  --cn1-search-soft-text: #4d5f8e;
+  --cn1-search-link: #1d52ff;
+  --cn1-search-link-strong: #102154;
+}
+
+.dark .cn1-search-page {
+  --cn1-search-soft-text: rgba(217, 228, 255, 0.85);
+  --cn1-search-link: #afc1ff;
+  --cn1-search-link-strong: #f5f8ff;
+}
+
+.cn1-search-shell {
+  border: 1px solid #d7e2ff;
+  border-radius: 14px;
+  padding: 1rem;
+  background: #f5f8ff;
+}
+
+.dark .cn1-search-shell {
+  background: rgba(68, 82, 123, 0.22);
+  border-color: rgba(29, 82, 255, 0.35);
+}
+
+.cn1-search-label {
+  display: block;
+  font-size: 0.86rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+  color: var(--cn1-search-link);
+}
+
+.cn1-search-input {
+  width: 100%;
+  border: 1px solid #c9d6ff;
+  border-radius: 10px;
+  padding: 0.75rem 0.85rem;
+  background: #fff;
+  color: #1c2a55;
+  font-family: "Poppins", sans-serif;
+  font-size: 0.98rem;
+}
+
+.dark .cn1-search-input {
+  background: rgba(8, 17, 55, 0.5);
+  color: #f5f8ff;
+  border-color: rgba(175, 193, 255, 0.4);
+}
+
+.cn1-search-status {
+  margin: 0.7rem 0 0;
+  font-size: 0.86rem;
+  color: var(--cn1-search-soft-text);
+}
+
+.cn1-search-note {
+  margin: 0.7rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--cn1-search-soft-text);
+}
+
+.cn1-search-note a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.cn1-search-results {
+  margin-top: 0.9rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.cn1-search-result {
+  border: 1px solid #d7e2ff;
+  border-radius: 10px;
+  padding: 0.75rem 0.8rem;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.dark .cn1-search-result {
+  background: rgba(8, 17, 55, 0.22);
+  border-color: rgba(175, 193, 255, 0.25);
+}
+
+.cn1-search-result h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.cn1-search-result h2 a {
+  color: var(--cn1-search-link-strong);
+  text-decoration: none;
+}
+
+.cn1-search-result h2 a:hover {
+  color: var(--cn1-search-link);
+}
+
+.cn1-search-result p {
+  margin: 0.4rem 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--cn1-search-soft-text);
+}
+
+.cn1-search-result__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.cn1-search-result__url {
+  font-size: 0.8rem;
+  text-decoration: none;
+  color: var(--cn1-search-link);
+}
+
+.cn1-search-result__date {
+  font-size: 0.78rem;
+  color: var(--cn1-search-soft-text);
+  white-space: nowrap;
+}
+
+/* API reference hits, listed above the page results on the search page. */
+.cn1-search-api {
+  margin: 1.5rem 0 2rem;
+}
+
+.cn1-search-api__title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--cn1-muted);
+  margin: 0 0 0.5rem;
+}
+
+.cn1-search-api__results {
+  border: 1px solid var(--cn1-border);
+  border-radius: var(--cn1-radius);
+  overflow: hidden;
+}
+
+.cn1-search-api__hit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.15rem 0.7rem;
+  padding: 0.55rem 0.8rem;
+  border-bottom: 1px solid var(--cn1-border);
+  text-decoration: none;
+  color: inherit;
+}
+
+.cn1-search-api__hit:last-child {
+  border-bottom: none;
+}
+
+.cn1-search-api__hit:hover,
+.cn1-search-api__hit:focus-visible {
+  background: var(--cn1-surface-soft);
+}
+
+.cn1-search-api__name {
+  font-family: var(--cn1-mono);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--cn1-accent);
+  background: none;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+
+.cn1-search-api__kind {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--cn1-muted);
+  align-self: center;
+}
+
+.cn1-search-api__context {
+  grid-column: 1 / -1;
+  font-family: var(--cn1-mono);
+  font-size: 0.75rem;
+  color: var(--cn1-muted);
+  overflow-wrap: anywhere;
+}
+
+.cn1-search-api__summary {
+  grid-column: 1 / -1;
+  font-size: 0.85rem;
+  color: var(--cn1-muted);
+}

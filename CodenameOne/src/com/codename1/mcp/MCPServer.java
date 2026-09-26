@@ -1,0 +1,736 @@
+/*
+ * Copyright (c) 2026, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.mcp;
+
+import com.codename1.ai.Tool;
+import com.codename1.io.JSONParser;
+import com.codename1.io.Log;
+import com.codename1.util.Base64;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/// A Model Context Protocol server. Speaks JSON-RPC 2.0 over a pluggable
+/// {@link MCPTransport}, dispatching the MCP methods `initialize`, `tools/list`,
+/// `tools/call`, `resources/list`, `resources/read`, `ping` and the
+/// `notifications/*` family.
+///
+/// Tools are {@link com.codename1.ai.Tool} instances. The built in tools from
+/// {@link McpUiTools} expose the accessibility semantics tree so any application is
+/// drivable without code; applications add domain tools with {@link #addTool(Tool)}.
+///
+/// The message dispatch is thread free and reentrant: {@link #handleMessage(String)}
+/// takes one request line and returns one response line (or null for a notification),
+/// which makes it directly unit testable. {@link #start(MCPTransport)} wraps that in a
+/// reader thread over the transport.
+public class MCPServer {
+    /// Standard JSON-RPC and MCP error codes.
+    public static final int PARSE_ERROR = -32700;
+    public static final int INVALID_REQUEST = -32600;
+    public static final int METHOD_NOT_FOUND = -32601;
+    public static final int INVALID_PARAMS = -32602;
+    public static final int INTERNAL_ERROR = -32603;
+    public static final int RESOURCE_NOT_FOUND = -32002;
+
+    /// MCP protocol revision advertised when the client does not request one, or requests
+    /// one this server does not implement.
+    public static final String DEFAULT_PROTOCOL_VERSION = "2024-11-05";
+
+    /// The MCP protocol revisions this server actually implements.
+    private static final String[] SUPPORTED_PROTOCOL_VERSIONS = {"2024-11-05"};
+
+    private static boolean isSupportedProtocol(String version) {
+        if (version == null) {
+            return false;
+        }
+        for (String v : SUPPORTED_PROTOCOL_VERSIONS) {
+            if (v.equals(version)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static final String SCREEN_RESOURCE_URI = "cn1://screen.png";
+
+    private final Map<String, Tool> tools = new LinkedHashMap<String, Tool>();
+    private String serverName = "Codename One MCP";
+    private String serverVersion = "1.0";
+    private boolean screenshotEnabled = true;
+    private boolean running;
+    /// Bumped by every start(), so a reader thread can tell its own run from a later one that
+    /// happens to have been handed the same transport instance.
+    private int startGeneration;
+    private MCPTransport transport;
+    private MCPVerbosity verbosity = MCPVerbosity.OFF;
+
+    /// Sets how much of the MCP conversation is echoed to the Codename One log for
+    /// debugging. Defaults to {@link MCPVerbosity#OFF}.
+    public void setVerbosity(MCPVerbosity verbosity) {
+        this.verbosity = verbosity == null ? MCPVerbosity.OFF : verbosity;
+    }
+
+    public MCPVerbosity getVerbosity() {
+        return verbosity;
+    }
+
+    public MCPServer() {
+        List<Tool> builtIn = McpUiTools.builtInTools();
+        for (Tool t : builtIn) {
+            tools.put(t.getName(), t);
+        }
+    }
+
+    /// Registers a developer defined tool, replacing any existing tool with the same
+    /// name. This is how an application publishes domain specific data and actions.
+    public synchronized void addTool(Tool tool) {
+        if (tool != null) {
+            tools.put(tool.getName(), tool);
+        }
+    }
+
+    /// Removes a previously registered tool by name.
+    public synchronized void removeTool(String name) {
+        tools.remove(name);
+    }
+
+    /// Sets the server identity reported to the host during `initialize`.
+    public void setServerInfo(String name, String version) {
+        if (name != null) {
+            this.serverName = name;
+        }
+        if (version != null) {
+            this.serverVersion = version;
+        }
+    }
+
+    /// Enables or disables the built in screenshot resource. Enabled by default.
+    public void setScreenshotEnabled(boolean screenshotEnabled) {
+        this.screenshotEnabled = screenshotEnabled;
+    }
+
+    public synchronized boolean isRunning() {
+        return running;
+    }
+
+    /// Starts serving over the given transport on a dedicated reader thread.
+    public synchronized void start(MCPTransport transport) {
+        if (running) {
+            return;
+        }
+        this.transport = transport;
+        running = true;
+        startGeneration++;
+        final int generation = startGeneration;
+        // Captured for the thread rather than read back off the field. A later start()
+        // replaces the field, and a reader thread that followed it would end up serving a
+        // transport the server no longer considers its own -- while the transport it was
+        // actually given was never closed.
+        final MCPTransport mine = transport;
+        Thread readerThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                runLoop(mine, generation);
+            }
+        }, "cn1-mcp-server");
+        readerThread.start();
+    }
+
+    /// Stops serving and closes the transport.
+    public synchronized void stop() {
+        running = false;
+        if (transport != null) {
+            transport.close();
+        }
+    }
+
+    /// True while `t` is still the transport this server is serving over. False once stop()
+    /// has run, or once a restart handed the server a different transport -- in both cases
+    /// the thread holding `t` owns it alone and has to close it itself.
+    private synchronized boolean isCurrent(MCPTransport t, int generation) {
+        // The generation as well as the identity. A caller that stops and restarts with
+        // the SAME transport instance would otherwise leave the old reader thread looking
+        // current, so it could run on beside the replacement and eventually stop the
+        // server and close the transport underneath it.
+        return running && startGeneration == generation
+                && transport == t; // NOPMD identity is the question, not equality
+    }
+
+    /// Clears the running flag when this thread is still the current run, and answers the
+    /// only other question a thread unwinding from `t` has: does it close `t`?
+    ///
+    /// Both halves have to be decided together under this lock. Deciding "am I current" and
+    /// then closing outside it leaves a window where a `stop()`/`start(sameTransport)` pair
+    /// hands `t` to a fresh generation -- and the old thread, correctly declining to stop
+    /// the *server*, would still close the transport the replacement is now serving over,
+    /// killing a server that had just been restarted.
+    ///
+    /// Three cases, only one of which closes nothing:
+    ///
+    /// - still current: this run is over, so clear `running` and close.
+    /// - superseded, and the replacement holds a different transport: nobody else can close
+    ///   `t`, so this thread must. Leaking it is not benign -- an open transport stays
+    ///   registered process-wide and every later `open()` is refused.
+    /// - superseded, and the replacement holds this same transport: leave it alone. It is
+    ///   the live server's transport now, and the replacement thread will close it.
+    ///
+    /// The close happens here, under the monitor, rather than being reported back to a
+    /// caller that closes afterwards. Deciding and then closing outside the lock leaves
+    /// the very gap this method exists to remove: a reader reaching EOF clears `running`,
+    /// a restart over the same transport lands in the gap, and the close then lands on
+    /// the replacement's transport.
+    private synchronized void releaseAndCloseIfCurrent(MCPTransport t, int generation) {
+        boolean mine;
+        if (startGeneration == generation
+                && transport == t) { // NOPMD identity: is this still our transport?
+            running = false;
+            mine = true;
+        } else {
+            mine = transport != t; // NOPMD identity: reused by the replacement, or orphaned?
+        }
+        if (mine) {
+            // Closing under the monitor matches stop(), which is synchronized and closes
+            // the same way. A transport's close() releases a socket; it does not call
+            // back into the server, so there is nothing here to deadlock against.
+            t.close();
+        }
+    }
+
+    /// Unwinds an open this thread performed and must not keep: clears `running` when the
+    /// server is still on this run, and closes `t` either way.
+    ///
+    /// Unconditionally, which is the one thing it does differently from
+    /// `releaseAndCloseIfCurrent`, and the difference is the whole reason it exists. That
+    /// method's same-transport rule -- leave `t` alone, the replacement owns it -- is
+    /// right for a thread unwinding from the read loop, where the replacement has already
+    /// opened the transport and closing it would kill a live server. It is wrong here:
+    /// this runs inside the transport's monitor, so the replacement is still blocked and
+    /// has opened nothing, and the listener registered on `t` is this thread's alone.
+    /// Declining to close it left the replacement's own `open()` refused with "already
+    /// listening" -- and that IOException stopped the server the restart had just brought
+    /// up.
+    ///
+    /// Only ever called while holding `t`'s open lock, which is what makes "the
+    /// replacement cannot have opened yet" true rather than merely likely.
+    private synchronized void discardOwnOpen(MCPTransport t, int generation) {
+        if (startGeneration == generation
+                && transport == t) { // NOPMD identity: is this still our transport?
+            running = false;
+        }
+        t.close();
+    }
+
+    /// Opens `t` for this generation, serialized against any other generation opening the
+    /// same transport. Returns false when this thread is done and must not read.
+    ///
+    /// Serialized per TRANSPORT, and the WHOLE open -- the attempt, its failure path, and
+    /// the teardown of a superseded one -- happens inside. A stop()/start() over the SAME
+    /// transport while the old reader is still parked in open() would otherwise have both
+    /// generations open one instance: the same-transport rule then correctly declines to
+    /// close it on the way out, and the transport is left holding two listeners with one
+    /// handle for them, so the first is leaked and outlives stop().
+    ///
+    /// The teardown has to be in here too, not after. Releasing the lock first let the
+    /// replacement acquire it and call open() while this thread's now-stale listener was
+    /// still registered -- and a transport refuses a second listener, so the replacement
+    /// took an IOException and stopped the server it had just started.
+    ///
+    /// Per transport and not per server, which is what a server-wide lock got wrong: a
+    /// restart over a DIFFERENT transport has nothing to serialize against, and making it
+    /// wait behind a superseded open that may never return deadlocks the restart. Not the
+    /// server monitor either: open() blocks, and holding that across it would make stop()
+    /// wait on what it is stopping.
+    ///
+    /// And deliberately NOT the transport's own monitor, which is what this used to be.
+    /// [MCPTransport] is a public interface: an implementation is entitled to write
+    /// `synchronized void close()`, and with such a transport the two locks were taken in
+    /// opposite orders -- this thread held the transport and waited for the server monitor
+    /// inside `isCurrent`, while `stop()` held the server monitor and waited for the
+    /// transport inside `close()`. Both threads park forever. The same ownership also
+    /// blocked the one call that can end a legitimately blocking `open()`: `close()` could
+    /// not run until `open()` returned, and `open()` was waiting for `close()`. A lock the
+    /// server owns and no transport can name has neither problem, and the ordering below
+    /// has one direction only -- open lock, then server monitor, then whatever the
+    /// transport locks internally.
+    private boolean openSerialized(MCPTransport t, int generation) {
+        Object openLock = acquireOpenLock(t);
+        try {
+            synchronized (openLock) {
+                if (!isCurrent(t, generation)) {
+                    releaseAndCloseIfCurrent(t, generation);
+                    return false;
+                }
+                try {
+                    t.open();
+                } catch (IOException ex) {
+                    // The transport failed to start listening. Log defensively: the CN1
+                    // Log routes through the platform implementation, which may not be
+                    // registered yet when the server is auto-started early in
+                    // Display.init(), and a raw NullPointerException here would silently
+                    // kill the reader thread.
+                    try {
+                        Log.e(ex);
+                    } catch (Throwable logErr) {
+                        System.err.println("[cn1.mcp] transport open failed: " + ex);
+                    }
+                    // A failed open can still have registered something -- the loopback
+                    // transport claims the process-wide slot before it binds -- so this
+                    // unwinds the same way a successful one does.
+                    discardOwnOpen(t, generation);
+                    return false;
+                }
+                if (!isCurrent(t, generation)) {
+                    // Same window, the far side of it: the server moved on while open()
+                    // was in flight. The listener now on `t` is this thread's and has to
+                    // go.
+                    discardOwnOpen(t, generation);
+                    return false;
+                }
+                return true;
+            }
+        } finally {
+            releaseOpenLock(t);
+        }
+    }
+
+    /// The per-transport open locks, and how many threads are currently holding a
+    /// reference to each.
+    ///
+    /// A plain map would grow one entry per transport instance the process ever serves.
+    /// The count is what makes removal safe: dropping an entry while a thread is parked on
+    /// that monitor would let the next generation mint a second lock for the same
+    /// transport, and two generations serializing on different objects are not serialized
+    /// at all.
+    private final List<Object[]> openLocks = new ArrayList<Object[]>();
+
+    /// Transports with a reader still inside their loop, and which generation it belongs
+    /// to.
+    ///
+    /// A restart over the SAME transport instance is the case this exists for. Both
+    /// production transports clear their closed flag in open(), so a reader still parked
+    /// in readMessage() from the previous generation is looking at a live stream again the
+    /// moment the replacement opens -- and it can take a frame the new client sent. The
+    /// frame is then handled by a loop that belongs to a stopped server, or dropped
+    /// entirely; the new session simply never sees it, which reads as a client that hangs.
+    ///
+    /// stop() closes the transport before any of this, so the stale read unwinds
+    /// immediately and the wait below is measured in the time that takes rather than in
+    /// anything the client controls.
+    private final List<Object[]> activeReaders = new ArrayList<Object[]>();
+
+    /// How long a replacement waits for the previous reader of the same transport before
+    /// opening anyway.
+    ///
+    /// Bounded rather than indefinite, and the bound is the whole design. `stop()` closes
+    /// the transport first, so a reader blocked on a real socket unwinds in microseconds
+    /// and this wait is never observed. [MCPTransport] is a public interface, though, and
+    /// an implementation is entitled to a `readMessage()` that parks until something other
+    /// than `close()` releases it -- the loopback test transport is exactly that. Waiting
+    /// forever for such a reader deadlocks the restart against a thread only the caller
+    /// can end, which is worse than the overlap this is guarding against: the loop already
+    /// re-checks `isCurrent` after every read, so a stale reader cannot HANDLE anything,
+    /// and what is left is a frame it might swallow.
+    private static final long READER_HANDOVER_WAIT_MS = 2000L;
+
+    /// Registers this generation as the reader of {@code t}, waiting out any older one.
+    private void awaitSoleReader(MCPTransport t, int generation) {
+        synchronized (activeReaders) {
+            long deadline = System.currentTimeMillis() + READER_HANDOVER_WAIT_MS;
+            for (;;) {
+                Object[] found = null;
+                for (Object[] entry : activeReaders) {
+                    if (entry[0] == t) { // NOPMD identity: one reader per INSTANCE
+                        found = entry;
+                        break;
+                    }
+                }
+                if (found == null) {
+                    activeReaders.add(new Object[] {t, Integer.valueOf(generation)});
+                    return;
+                }
+                if (((Integer) found[1]).intValue() == generation) {
+                    return;
+                }
+                long remaining = deadline - System.currentTimeMillis();
+                if (remaining <= 0L) {
+                    // The previous reader is not coming back on its own. Taking the
+                    // registration over rather than leaving it to the departed generation
+                    // keeps a third restart waiting for THIS thread, which is the one
+                    // actually on the transport.
+                    found[1] = Integer.valueOf(generation);
+                    return;
+                }
+                try {
+                    activeReaders.wait(remaining);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+    }
+
+    private void releaseReader(MCPTransport t, int generation) {
+        synchronized (activeReaders) {
+            for (java.util.Iterator<Object[]> it = activeReaders.iterator(); it.hasNext();) {
+                Object[] entry = it.next();
+                if (entry[0] == t // NOPMD identity: one reader per INSTANCE
+                        && ((Integer) entry[1]).intValue() == generation) {
+                    it.remove();
+                    break;
+                }
+            }
+            activeReaders.notifyAll();
+        }
+    }
+
+    private Object acquireOpenLock(MCPTransport t) {
+        synchronized (openLocks) {
+            for (Object[] entry : openLocks) {
+                if (entry[0] == t) { // NOPMD identity: one lock per transport INSTANCE
+                    ((int[]) entry[2])[0]++;
+                    return entry[1];
+                }
+            }
+            Object lock = new Object();
+            openLocks.add(new Object[] {t, lock, new int[] {1}});
+            return lock;
+        }
+    }
+
+    private void releaseOpenLock(MCPTransport t) {
+        synchronized (openLocks) {
+            // Iterator.remove rather than List.remove during a foreach. The foreach
+            // version could not actually throw -- it returned before the iterator was
+            // touched again -- but that made its safety depend on a `return` three lines
+            // away, which is the kind of coupling a later edit breaks without anything
+            // saying so. This shape is safe on its own terms.
+            for (java.util.Iterator<Object[]> it = openLocks.iterator(); it.hasNext();) {
+                Object[] entry = it.next();
+                if (entry[0] == t) { // NOPMD identity: one lock per transport INSTANCE
+                    int[] users = (int[]) entry[2];
+                    users[0]--;
+                    if (users[0] <= 0) {
+                        it.remove();
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
+    private void runLoop(MCPTransport t, int generation) {
+        // Opening is deferred to this thread, so by the time it happens the server may
+        // already have been stopped or restarted. Either way stop()'s close() ran against a
+        // transport that had not opened yet and therefore released nothing, so opening now
+        // would leave a transport registered with nobody left to close it. That registration
+        // is process-wide: every later open() is refused on the grounds that an agent is
+        // already being served.
+        if (!isCurrent(t, generation)) {
+            return;
+        }
+        // Before opening, not after: a reader from the previous generation of this same
+        // transport instance may still be parked in readMessage(), and open() clears the
+        // flag that would have ended it. Opening first would put two readers on one
+        // stream, and the frame the new client sends can go to the one that no longer
+        // belongs to anybody.
+        awaitSoleReader(t, generation);
+        try {
+            if (!isCurrent(t, generation)) {
+                return;
+            }
+            if (!openSerialized(t, generation)) {
+                return;
+            }
+            readUntilClosed(t, generation);
+        } finally {
+            releaseReader(t, generation);
+        }
+        releaseAndCloseIfCurrent(t, generation);
+    }
+
+    private void readUntilClosed(MCPTransport t, int generation) {
+        while (isCurrent(t, generation)) {
+            String line;
+            try {
+                line = t.readMessage();
+            } catch (IOException ex) {
+                break;
+            }
+            // Re-checked on the far side of the read as well as the near side. A read
+            // blocks for as long as the client is quiet, which is most of the time, so
+            // "was this server current when the read started" says nothing about whether
+            // it still is when the read returns -- and handling a request for a server
+            // that has been stopped answers on a transport somebody else may now own.
+            if (!isCurrent(t, generation)) {
+                break;
+            }
+            if (line == null) {
+                break;
+            }
+            if (line.trim().length() == 0) {
+                continue;
+            }
+            String response = handleMessage(line);
+            if (response != null) {
+                try {
+                    t.writeMessage(response);
+                } catch (IOException ex) {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Handles one inbound JSON-RPC message and returns the response line, or null
+    /// when the message is a notification that warrants no reply. Never throws; every
+    /// failure is turned into a JSON-RPC error response.
+    public String handleMessage(String line) {
+        String response = handleMessageInternal(line);
+        logConversation(line, response);
+        return response;
+    }
+
+    private String handleMessageInternal(String line) {
+        Map<String, Object> request;
+        try {
+            request = MCPJson.parse(line);
+        } catch (Exception ex) {
+            return errorEnvelope(null, PARSE_ERROR, "Parse error");
+        }
+        if (request == null) {
+            return errorEnvelope(null, PARSE_ERROR, "Parse error");
+        }
+        boolean hasId = request.containsKey("id");
+        Object id = request.get("id");
+        try {
+            String method = JSONParser.getString(request, "method");
+            Map<String, Object> params = JSONParser.asMap(request.get("params"));
+            if (method == null) {
+                return hasId ? errorEnvelope(id, INVALID_REQUEST, "Invalid Request") : null;
+            }
+            if (!hasId) {
+                // A notification (no id) such as notifications/initialized needs no reply.
+                return null;
+            }
+            return dispatch(id, method, params);
+        } catch (Exception ex) {
+            return errorEnvelope(hasId ? id : null, INTERNAL_ERROR,
+                    "Internal error: " + messageOf(ex));
+        }
+    }
+
+    /// Echoes the exchange to the log according to the configured verbosity. Never throws.
+    private void logConversation(String request, String response) {
+        if (verbosity == MCPVerbosity.OFF) {
+            return;
+        }
+        try {
+            boolean isError = response != null && (response.indexOf("\"error\"") >= 0
+                    || response.indexOf("\"isError\":true") >= 0);
+            if (verbosity == MCPVerbosity.ERRORS && !isError) {
+                return;
+            }
+            if (verbosity.includes(MCPVerbosity.FULL)) {
+                Log.p("MCP >> " + request);
+                if (response != null) {
+                    Log.p("MCP << " + response);
+                }
+                return;
+            }
+            // SUMMARY / ERRORS: one concise line
+            Map<String, Object> req = MCPJson.parse(request);
+            String method = req == null ? "?" : JSONParser.getString(req, "method");
+            String detail = "";
+            Map<String, Object> params = req == null ? null : JSONParser.asMap(req.get("params"));
+            if (params != null && "tools/call".equals(method)) {
+                detail = " " + JSONParser.getString(params, "name");
+            }
+            Log.p("MCP " + method + detail + (isError ? " -> error" : " -> ok"));
+        } catch (Throwable ignored) {
+            // logging must never disrupt the protocol
+        }
+    }
+
+    private String dispatch(Object id, String method, Map<String, Object> params) throws Exception {
+        if ("initialize".equals(method)) {
+            return resultEnvelope(id, initializeResult(params));
+        }
+        if ("ping".equals(method)) {
+            return resultEnvelope(id, new LinkedHashMap<String, Object>());
+        }
+        if ("tools/list".equals(method)) {
+            return resultEnvelope(id, toolsList());
+        }
+        if ("tools/call".equals(method)) {
+            return toolsCall(id, params);
+        }
+        if ("resources/list".equals(method)) {
+            return resultEnvelope(id, resourcesList());
+        }
+        if ("resources/read".equals(method)) {
+            return resourcesRead(id, params);
+        }
+        return errorEnvelope(id, METHOD_NOT_FOUND, "Method not found: " + method);
+    }
+
+    private Map<String, Object> initializeResult(Map<String, Object> params) {
+        // Only echo a protocol version we actually implement. MCP requires an unsupported
+        // request to be answered with a version the server supports, not the client's.
+        String requested = params == null ? null : JSONParser.getString(params, "protocolVersion");
+        String protocol = isSupportedProtocol(requested) ? requested : DEFAULT_PROTOCOL_VERSION;
+        Map<String, Object> capabilities = new LinkedHashMap<String, Object>();
+        capabilities.put("tools", new LinkedHashMap<String, Object>());
+        capabilities.put("resources", new LinkedHashMap<String, Object>());
+        Map<String, Object> serverInfo = new LinkedHashMap<String, Object>();
+        serverInfo.put("name", serverName);
+        serverInfo.put("version", serverVersion);
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("protocolVersion", protocol);
+        result.put("capabilities", capabilities);
+        result.put("serverInfo", serverInfo);
+        return result;
+    }
+
+    private synchronized Map<String, Object> toolsList() {
+        List<Object> list = new ArrayList<Object>();
+        for (Tool tool : tools.values()) {
+            Map<String, Object> entry = new LinkedHashMap<String, Object>();
+            entry.put("name", tool.getName());
+            entry.put("description", tool.getDescription());
+            entry.put("inputSchema", JSONParser.rawJson(tool.getParametersJsonSchema()));
+            list.add(entry);
+        }
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("tools", list);
+        return result;
+    }
+
+    private String toolsCall(Object id, Map<String, Object> params) {
+        String name = params == null ? null : JSONParser.getString(params, "name");
+        if (name == null || name.length() == 0) {
+            return errorEnvelope(id, INVALID_PARAMS, "Missing tool name");
+        }
+        Tool tool;
+        synchronized (this) {
+            tool = tools.get(name);
+        }
+        if (tool == null) {
+            return errorEnvelope(id, METHOD_NOT_FOUND, "Unknown tool: " + name);
+        }
+        Object argObj = params.get("arguments");
+        String argumentsJson = argObj == null ? "{}" : MCPJson.toJson(argObj);
+        String text;
+        boolean isError;
+        try {
+            text = tool.invoke(argumentsJson);
+            isError = false;
+        } catch (Exception ex) {
+            text = messageOf(ex);
+            isError = true;
+        }
+        if (text == null) {
+            text = "";
+        }
+        Map<String, Object> content = new LinkedHashMap<String, Object>();
+        content.put("type", "text");
+        content.put("text", text);
+        List<Object> contentList = new ArrayList<Object>();
+        contentList.add(content);
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("content", contentList);
+        result.put("isError", Boolean.valueOf(isError));
+        return resultEnvelope(id, result);
+    }
+
+    private Map<String, Object> resourcesList() {
+        List<Object> list = new ArrayList<Object>();
+        if (screenshotEnabled) {
+            Map<String, Object> screen = new LinkedHashMap<String, Object>();
+            screen.put("uri", SCREEN_RESOURCE_URI);
+            screen.put("name", "Current screen");
+            screen.put("description", "A PNG screenshot of the current Codename One form.");
+            screen.put("mimeType", "image/png");
+            list.add(screen);
+        }
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("resources", list);
+        return result;
+    }
+
+    private String resourcesRead(Object id, Map<String, Object> params) {
+        String uri = params == null ? null : JSONParser.getString(params, "uri");
+        if (uri == null || uri.length() == 0) {
+            return errorEnvelope(id, INVALID_PARAMS, "Missing resource uri");
+        }
+        if (screenshotEnabled && SCREEN_RESOURCE_URI.equals(uri)) {
+            byte[] png = McpUiTools.screenshotPng();
+            if (png == null) {
+                return errorEnvelope(id, INTERNAL_ERROR, "No screen available to capture");
+            }
+            Map<String, Object> content = new LinkedHashMap<String, Object>();
+            content.put("uri", uri);
+            content.put("mimeType", "image/png");
+            content.put("blob", Base64.encodeNoNewline(png));
+            List<Object> contents = new ArrayList<Object>();
+            contents.add(content);
+            Map<String, Object> result = new LinkedHashMap<String, Object>();
+            result.put("contents", contents);
+            return resultEnvelope(id, result);
+        }
+        return errorEnvelope(id, RESOURCE_NOT_FOUND, "Unknown resource: " + uri);
+    }
+
+    private String resultEnvelope(Object id, Map<String, Object> result) {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + idJson(id)
+                + ",\"result\":" + JSONParser.toJson(result) + "}";
+    }
+
+    private String errorEnvelope(Object id, int code, String message) {
+        Map<String, Object> error = new LinkedHashMap<String, Object>();
+        error.put("code", Integer.valueOf(code));
+        error.put("message", message);
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + idJson(id)
+                + ",\"error\":" + JSONParser.toJson(error) + "}";
+    }
+
+    /// Serializes the JSON-RPC id, preserving integer form. The lenient CN1 parser reads
+    /// `1` as a double, but the id must be echoed exactly so strict hosts can correlate
+    /// the response, so an integral double is emitted without a fractional part.
+    private static String idJson(Object id) {
+        if (id instanceof Double || id instanceof Float) {
+            double d = ((Number) id).doubleValue();
+            if (!Double.isInfinite(d) && !Double.isNaN(d) && d == Math.floor(d)) {
+                return Long.toString((long) d);
+            }
+        }
+        return JSONParser.toJson(id);
+    }
+
+    private static String messageOf(Throwable ex) {
+        String m = ex.getMessage();
+        return m == null ? ex.getClass().getName() : m;
+    }
+}

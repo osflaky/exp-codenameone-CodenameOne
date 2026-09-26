@@ -1,0 +1,12 @@
+[[maven-project-workflow]]
+== Maven Project Workflow
+
+Codename One uses Maven as the standard way to create, run, and maintain applications. This chapter consolidates the workflow guidance that used to live in the standalone Maven manual so the developer guide provides a single source of truth for building apps, updating projects, and managing add-ons.
+
+include::Maven-Introduction.adoc[leveloffset=+1]
+include::Maven-Getting-Started.adoc[leveloffset=+1]
+include::Maven-Updating-Codename-One.adoc[leveloffset=+1]
+include::Maven-Project-Templates.adoc[leveloffset=+1]
+include::Maven-Creating-CN1Libs.adoc[leveloffset=+1]
+
+// The detailed Maven appendices now live alongside the other appendices at the end of the guide.

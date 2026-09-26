@@ -1,0 +1,1070 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+
+package com.codename1.properties;
+
+import com.codename1.io.Externalizable;
+import com.codename1.io.JSONParser;
+import com.codename1.io.Log;
+import com.codename1.io.Storage;
+import com.codename1.io.Util;
+import com.codename1.processing.Result;
+import com.codename1.ui.CN;
+import com.codename1.ui.EncodedImage;
+import com.codename1.ui.Image;
+import com.codename1.util.Base64;
+import com.codename1.util.regex.StringReader;
+import com.codename1.xml.Element;
+import com.codename1.xml.XMLWriter;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Date;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Hashtable;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+
+/// Maps the properties that are in a class/object and provides access to them so tools such as ORM
+/// can implicitly access them for us. This class also holds the class level meta-data for a specific property
+/// or class. It also provides utility level tools e.g. toString implementation etc.
+///
+/// @author Shai Almog
+public class PropertyIndex implements Iterable<PropertyBase> {
+    private static final Map<String, HashMap<String, Object>> metadata = new LinkedHashMap<String, HashMap<String, Object>>();
+    private final PropertyBase[] properties;
+    private final String name;
+    PropertyBusinessObject parent;
+
+    /// The constructor is essential for a proper property business object
+    ///
+    /// #### Parameters
+    ///
+    /// - `parent`: the parent object instance
+    ///
+    /// - `name`: the name of the parent class
+    ///
+    /// - `properties`: the list of properties in the object
+    public PropertyIndex(PropertyBusinessObject parent, String name, PropertyBase... properties) {
+        this.properties = properties;
+        this.parent = parent;
+        this.name = name;
+        for (PropertyBase p : properties) {
+            p.parent = this;
+        }
+    }
+
+    /// Writes the JSON string to storage, it's a shortcut for writing/generating the JSON
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the name of the storage file
+    ///
+    /// - `objs`: a list of business objects
+    public static void storeJSONList(String name, List<? extends PropertyBusinessObject> objs) {
+        OutputStream os = null; //NOPMD CloseResource
+        try {
+            os = Storage.getInstance().createOutputStream(name);
+            os.write(com.codename1.util.StringUtil.getBytes(toJSONList(objs)));
+        } catch (IOException err) {
+            Log.e(err);
+            throw new RuntimeException(err.toString(), err);
+        } finally {
+            Util.cleanup(os);
+        }
+    }
+
+    /// Creates a JSON string, containing the list of property business objects
+    ///
+    /// #### Parameters
+    ///
+    /// - `objs`: a list of business objects
+    ///
+    /// #### Returns
+    ///
+    /// the JSON string
+    public static String toJSONList(List<? extends PropertyBusinessObject> objs) {
+        StringBuilder b = new StringBuilder("[");
+        boolean first = true;
+        for (PropertyBusinessObject pb : objs) {
+            if (first) {
+                first = false;
+            } else {
+                b.append(",\n");
+            }
+            b.append(pb.getPropertyIndex().toJSON());
+        }
+        b.append("]");
+        return b.toString();
+    }
+
+    /// The name of the parent business object
+    ///
+    /// #### Returns
+    ///
+    /// a unique name for the parent
+    public String getName() {
+        return name;
+    }
+
+    /// Returns a property by its name
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the name of the property (case sensitive)
+    ///
+    /// #### Returns
+    ///
+    /// the property or null
+    public PropertyBase get(String name) {
+        for (PropertyBase p : properties) {
+            if (p.getName().equals(name)) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    /// Returns a property by its name regardless of case sensitivity for the name
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the name of the property (case insensitive)
+    ///
+    /// #### Returns
+    ///
+    /// the property or null
+    public PropertyBase getIgnoreCase(String name) {
+        for (PropertyBase p : properties) {
+            if (p.getName().equalsIgnoreCase(name)) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    /// Allows us to get an individual property within the object instance
+    ///
+    /// #### Parameters
+    ///
+    /// - `i`: the index of the property
+    ///
+    /// #### Returns
+    ///
+    /// the property instance
+    public PropertyBase get(int i) {
+        return properties[i];
+    }
+
+    /// The number of properties in the class
+    ///
+    /// #### Returns
+    ///
+    /// number of properties in the class
+    public int getSize() {
+        return properties.length;
+    }
+
+    /// Allows us to traverse the properties with a for-each statement
+    ///
+    /// #### Returns
+    ///
+    /// an iterator instance
+    @Override
+    public Iterator<PropertyBase> iterator() {
+        return new Iterator<PropertyBase>() {
+            int off = 0;
+
+            @Override
+            public boolean hasNext() {
+                return off < properties.length;
+            }
+
+            @Override
+            public void remove() {
+            }
+
+            @Override
+            public PropertyBase next() {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+                return properties[off++];
+            }
+        };
+    }
+
+    private HashMap<String, Object> getProps() {
+        HashMap<String, Object> m = metadata.get(parent.getClass().getName());
+        if (m == null) {
+            m = new HashMap<String, Object>();
+            metadata.put(parent.getClass().getName(), m);
+        }
+        return m;
+    }
+
+    /// Allows us to fetch class meta data not to be confused with standard properties
+    ///
+    /// #### Parameters
+    ///
+    /// - `meta`: the meta data unique name
+    ///
+    /// #### Returns
+    ///
+    /// the object instance
+    public Object getMetaDataOfClass(String meta) {
+        return getProps().get(meta);
+    }
+
+    /// Sets class specific metadata
+    ///
+    /// #### Parameters
+    ///
+    /// - `meta`: the name of the meta data
+    ///
+    /// - `o`: object value for the meta data
+    public void putMetaDataOfClass(String meta, Object o) {
+        if (o == null) {
+            getProps().remove(meta);
+        } else {
+            getProps().put(meta, o);
+        }
+    }
+
+    /// Returns a user readable printout of the property values which is useful for debugging
+    ///
+    /// #### Returns
+    ///
+    /// user readable printout of the property values which is useful for debugging
+    @Override
+    public String toString() {
+        return toString(true);
+    }
+
+    /// Returns a user readable printout of the property values which is useful for debugging
+    ///
+    /// #### Parameters
+    ///
+    /// - `includeNewline`: true to indicate that newline characters should be included
+    ///
+    /// #### Returns
+    ///
+    /// user readable printout of the property values which is useful for debugging
+    public String toString(boolean includeNewline) {
+        StringBuilder b = new StringBuilder(name);
+        b.append(" : {");
+        if (includeNewline) {
+            b.append('\n');
+        }
+        for (PropertyBase p : this) {
+            b.append(p.getName());
+            b.append(" = ");
+            b.append(p);
+            if (includeNewline) {
+                b.append('\n');
+            }
+        }
+        b.append("}");
+        return b.toString();
+    }
+
+    /// This is useful for JSON parsing, it allows converting JSON map data to objects
+    ///
+    /// #### Parameters
+    ///
+    /// - `m`: the map
+    public void populateFromMap(Map<String, Object> m) {
+        populateFromMap(m, null);
+    }
+
+    private Object listParse(List l, Class<? extends PropertyBusinessObject> recursiveType) throws InstantiationException, IllegalAccessException {
+        ArrayList al = new ArrayList();
+        for (Object o : l) {
+            if (o instanceof Map) {
+                PropertyBusinessObject po = (PropertyBusinessObject) recursiveType.newInstance();
+                po.getPropertyIndex().populateFromMap((Map<String, Object>) o, recursiveType);
+                al.add(po);
+                continue;
+            }
+            if (o instanceof List) {
+                al.add(listParse((List) o, recursiveType));
+                continue;
+            }
+            al.add(o);
+        }
+        return al;
+    }
+
+    /// Sets one of the builtin simple objects into a property
+    ///
+    /// #### Parameters
+    ///
+    /// - `p`: the property base
+    ///
+    /// - `val`: the object value
+    ///
+    /// #### Returns
+    ///
+    /// true if successful
+    public boolean setSimpleObject(PropertyBase p, Object val) {
+        if (val == null) {
+            p.setImpl(null);
+            return true;
+        }
+        if (p.getGenericType() == null || p.getGenericType() == String.class) {
+            p.setImpl(val.toString());
+            return true;
+        }
+        if (p instanceof IntProperty) {
+            p.setImpl(Util.toIntValue(val));
+            return true;
+        }
+        if (p instanceof BooleanProperty) {
+            p.setImpl(Util.toBooleanValue(val));
+            return true;
+        }
+        if (p instanceof LongProperty) {
+            p.setImpl(Util.toLongValue(val));
+            return true;
+        }
+        if (p instanceof FloatProperty) {
+            p.setImpl(Util.toFloatValue(val));
+            return true;
+        }
+        if (p instanceof DoubleProperty) {
+            p.setImpl(Util.toDoubleValue(val));
+            return true;
+        }
+        if (p.getGenericType() == Image.class || p.getGenericType() == EncodedImage.class) {
+            if (val instanceof Image) {
+                p.setImpl(val);
+            } else {
+                if (val instanceof byte[]) {
+                    p.setImpl(EncodedImage.create((byte[]) val));
+                } else {
+                    p.setImpl(EncodedImage.create(Base64.decode(com.codename1.util.StringUtil.getBytes((String) val))));
+                }
+            }
+            return true;
+        }
+        if (p.getGenericType() == Date.class) {
+            p.setImpl(Util.toDateValue(val));
+            return true;
+        }
+        return false;
+    }
+
+    /// This is useful for JSON parsing, it allows converting JSON map data to objects
+    ///
+    /// #### Parameters
+    ///
+    /// - `m`: the map
+    ///
+    /// - `recursiveType`: when running into map types we create this object type
+    public void populateFromMap(Map<String, Object> m, Class<? extends PropertyBusinessObject> recursiveType) {
+        try {
+            for (PropertyBase p : this) {
+                MapAdapter ma = MapAdapter.checkInstance(p);
+                if (ma != null) {
+                    ma.setFromMap(p, m);
+                    continue;
+                }
+                Object val = m.get(p.getName());
+                if (val != null) {
+                    if (val instanceof List) {
+                        if (p instanceof CollectionProperty) {
+                            if (recursiveType != null) {
+                                ((CollectionProperty) p).clear();
+                                for (Object e : (Collection) val) {
+                                    if (e instanceof Map) {
+                                        Class eType = p.getGenericType();
+                                        // maybe don't use recursiveType here anymore???
+                                        // elementType is usually sufficient...
+                                        Class type = (eType == null) ? recursiveType : eType;
+                                        PropertyBusinessObject po = (PropertyBusinessObject) type.newInstance();
+                                        po.getPropertyIndex().populateFromMap((Map<String, Object>) e, type);
+                                        ((CollectionProperty) p).add(po);
+                                        continue;
+                                    }
+                                    if (e instanceof List) {
+                                        ((CollectionProperty) p).add(listParse((List) e, recursiveType));
+                                        continue;
+                                    }
+                                    ((CollectionProperty) p).add(e);
+                                }
+                            } else {
+                                List l = (List) val;
+                                if (!l.isEmpty()) {
+                                    if (l.get(0) instanceof PropertyBusinessObject
+                                            || l.get(0) instanceof String
+                                            || l.get(0) instanceof Character
+                                            || l.get(0) instanceof Boolean
+                                            || l.get(0) instanceof Integer
+                                            || l.get(0) instanceof Long
+                                            || l.get(0) instanceof Float
+                                            || l.get(0) instanceof Double
+                                            || l.get(0) instanceof Byte
+                                            || l.get(0) instanceof Short
+                                            || p.getGenericType() == null) {
+                                        ((CollectionProperty) p).set((Collection) val);
+                                    } else {
+                                        Class eType = p.getGenericType();
+                                        for (Object e : l) {
+                                            PropertyBusinessObject po = (PropertyBusinessObject) eType.newInstance();
+                                            po.getPropertyIndex().populateFromMap((Map<String, Object>) e, eType);
+                                            ((CollectionProperty) p).add(po);
+                                        }
+                                    }
+                                } else {
+                                    ((CollectionProperty) p).set((Collection) val);
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
+                    if (val instanceof Map) {
+                        if (p instanceof MapProperty) {
+                            ((MapProperty) p).clear();
+                            Map mapVal = (Map) val;
+                            for (Object entryObj : mapVal.entrySet()) {
+                                Map.Entry entry = (Map.Entry) entryObj;
+                                Object k = entry.getKey();
+                                Object value = entry.getValue();
+                                Class keyType = ((MapProperty) p).getKeyType();
+                                if (keyType != null &&
+                                        PropertyBusinessObject.class.isAssignableFrom(keyType)) {
+                                    PropertyBusinessObject po = (PropertyBusinessObject) keyType.newInstance();
+                                    po.getPropertyIndex().populateFromMap((Map<String, Object>) val, keyType);
+                                    k = po;
+                                }
+                                Class valueType = ((MapProperty) p).getValueType();
+                                if (valueType != null &&
+                                        PropertyBusinessObject.class.isAssignableFrom(valueType)) {
+                                    Map<String, Object> contentMap = (Map<String, Object>) val;
+                                    for (Map.Entry<String, Object> contentEntry : contentMap.entrySet()) {
+                                        String kk = contentEntry.getKey();
+                                        PropertyBusinessObject po = (PropertyBusinessObject) valueType.newInstance();
+                                        Map<String, Object> vv = (Map<String, Object>) contentEntry.getValue();
+                                        po.getPropertyIndex().populateFromMap(vv, valueType);
+                                        ((MapProperty) p).set(kk, po);
+                                    }
+                                    continue;
+                                } else {
+                                    if (value instanceof Map) {
+                                        PropertyBusinessObject po = (PropertyBusinessObject) p.get();
+                                        po.getPropertyIndex().populateFromMap((Map<String, Object>) value, recursiveType);
+                                        ((MapProperty) p).set(k, po);
+                                        continue;
+                                    }
+                                    if (value instanceof List) {
+                                        ((MapProperty) p).set(k, listParse((List) value, recursiveType));
+                                        continue;
+                                    }
+                                }
+                                ((MapProperty) p).set(k, value);
+                            }
+                            continue;
+                        } else {
+                            if (p.get() instanceof PropertyBusinessObject) {
+                                PropertyBusinessObject po = (PropertyBusinessObject) p.get();
+                                po.getPropertyIndex().populateFromMap((Map<String, Object>) val, recursiveType);
+                            } else {
+                                if (p.getGenericType() != null) {
+                                    Object o = p.getGenericType().newInstance();
+                                    if (o instanceof PropertyBusinessObject) {
+                                        ((PropertyBusinessObject) o).getPropertyIndex().populateFromMap((Map<String, Object>) val);
+                                        p.setImpl(o);
+                                    }
+                                } else {
+                                    if (recursiveType != null) {
+                                        PropertyBusinessObject po = (PropertyBusinessObject) recursiveType.newInstance();
+                                        po.getPropertyIndex().populateFromMap((Map<String, Object>) val, recursiveType);
+                                        p.setImpl(po);
+                                    }
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                    if (setSimpleObject(p, val)) {
+                        continue;
+                    }
+                    p.setImpl(val);
+                }
+            }
+        } catch (InstantiationException err) {
+            Log.e(err);
+            throw new RuntimeException("Can't create instanceof class: " + err, err);
+        } catch (IllegalAccessException err) {
+            Log.e(err);
+            throw new RuntimeException("Can't create instanceof class: " + err, err);
+        }
+    }
+
+    /// This is useful in converting a property object to JSON
+    ///
+    /// #### Returns
+    ///
+    /// a map representation of the properties
+    public Map<String, Object> toMapRepresentation() {
+        return toMapRepresentationImpl("mapExclude");
+    }
+
+    /// This is useful in converting a property object to JSON
+    ///
+    /// #### Returns
+    ///
+    /// a map representation of the properties
+    private Map<String, Object> toMapRepresentationImpl(String excludeFlag) {
+        Map<String, Object> m = new LinkedHashMap<String, Object>();
+        for (PropertyBase p : this) {
+            if (p.getClientProperty(excludeFlag) != null) {
+                continue;
+            }
+            MapAdapter ma = MapAdapter.checkInstance(p);
+            if (ma != null) {
+                ma.placeInMap(p, m);
+                continue;
+            }
+            if (p instanceof MapProperty) {
+                MapProperty pp = (MapProperty) p;
+                m.put(p.getName(), pp.asExplodedMap());
+                continue;
+            }
+            if (p instanceof CollectionProperty) {
+                CollectionProperty pp = (CollectionProperty) p;
+                m.put(p.getName(), pp.asExplodedList());
+                continue;
+            }
+            if (p instanceof Property) {
+                Property pp = (Property) p;
+                if (pp.get() != null) {
+                    if (pp.getGenericType() != null && PropertyBusinessObject.class.isAssignableFrom(pp.getGenericType())) {
+                        m.put(p.getName(), ((PropertyBusinessObject) pp.get()).getPropertyIndex().toMapRepresentationImpl(excludeFlag));
+                    } else {
+                        m.put(p.getName(), pp.get());
+                    }
+                }
+            }
+        }
+        return m;
+    }
+
+    /// Converts the object to a JSON representation
+    ///
+    /// #### Returns
+    ///
+    /// a JSON String
+    public String toJSON() {
+        return Result.fromContent(toMapRepresentationImpl("jsonExclude")).toString();
+    }
+
+    /// Returns an element object mapping to the current object hierarchy similar
+    /// to the map object
+    ///
+    /// #### Returns
+    ///
+    /// an XML parser element
+    public Element asElement() {
+        return new PropertyXMLElement(this);
+    }
+
+    /// Converts the object to an XML representation
+    ///
+    /// #### Returns
+    ///
+    /// an XML String
+    public String toXML() {
+        XMLWriter w = new XMLWriter(true);
+        return w.toXML(asElement());
+    }
+
+    /// Toggles whether a given property should act as a text element for this
+    /// object
+    ///
+    /// #### Parameters
+    ///
+    /// - `p`: the property that should act as a text element
+    ///
+    /// - `t`: true to activate the text element false to remove it
+    public void setXmlTextElement(PropertyBase p, boolean t) {
+        if (t) {
+            p.putClientProperty("xmlTextElement", Boolean.TRUE);
+        } else {
+            p.putClientProperty("xmlTextElement", null);
+        }
+    }
+
+    /// Toggles whether a given property should act as a text element for this
+    /// object
+    ///
+    /// #### Parameters
+    ///
+    /// - `p`: the property
+    ///
+    /// #### Returns
+    ///
+    /// true if this is a text element
+    public boolean isXmlTextElement(PropertyBase p) {
+        Boolean b = (Boolean) p.getClientProperty("xmlTextElement");
+        return b != null && b.booleanValue();
+    }
+
+    /// Returns the property that contains the XML text e.g. `property value`
+    ///
+    /// #### Returns
+    ///
+    /// the property representing text XML or null if no such property was set
+    public PropertyBase getXmlTextElement() {
+        for (PropertyBase b : this) {
+            if (isXmlTextElement(b)) {
+                return b;
+            }
+        }
+        return null;
+    }
+
+    /// Converts the XML element to this object hierarchy
+    ///
+    /// #### Parameters
+    ///
+    /// - `e`: the element
+    public void fromXml(Element e) {
+        Hashtable atts = e.getAttributes();
+        if (atts != null) {
+            for (Enumeration keys = atts.keys(); keys.hasMoreElements(); ) {
+                Object a = keys.nextElement();
+                PropertyBase pb = get((String) a);
+                if (pb != null) {
+                    setSimpleObject(pb, atts.get(a));
+                }
+            }
+        }
+        int cc = e.getNumChildren();
+        for (int iter = 0; iter < cc; iter++) {
+            Element chld = e.getChildAt(iter);
+            if (chld.isTextElement()) {
+                PropertyBase pt = getXmlTextElement();
+                if (pt != null) {
+                    String t = chld.getText();
+                    pt.setImpl(t);
+                }
+                continue;
+            }
+            PropertyBase pb = get(chld.getTagName());
+            Class cls = pb.getGenericType();
+            if (cls.isAssignableFrom(PropertyBusinessObject.class)) {
+                try {
+                    PropertyBusinessObject business = (PropertyBusinessObject) cls.newInstance();
+                    business.getPropertyIndex().fromXml(chld);
+                    if (pb instanceof ListProperty) {
+                        ((ListProperty) pb).add(business);
+                    } else {
+                        pb.setImpl(business);
+                    }
+                } catch (InstantiationException ex) {
+                    Log.e(ex);
+                } catch (IllegalAccessException ex) {
+                    Log.e(ex);
+                }
+            }
+        }
+    }
+
+    /// This method works similarly to a constructor, it accepts the values for the properties in the order
+    /// they appear within the index
+    ///
+    /// #### Parameters
+    ///
+    /// - `values`: values of properties in the order they appear in the index
+    public void init(Object... values) {
+        int offset = 0;
+        for (PropertyBase pb : properties) {
+            if (pb instanceof CollectionProperty) {
+                if (values[offset] instanceof Object[]) {
+                    ((CollectionProperty) pb).addAll(Arrays.asList((Object[]) values[offset]));
+                } else {
+                    ((CollectionProperty) pb).addAll((Collection) values[offset]);
+                }
+            } else {
+                pb.setImpl(values[offset]);
+            }
+            offset++;
+        }
+    }
+
+    /// Writes the JSON string to storage, it's a shortcut for writing/generating the JSON
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the name of the storage file
+    public void storeJSON(String name) {
+        OutputStream os = null; //NOPMD CloseResource
+        try {
+            os = Storage.getInstance().createOutputStream(name);
+            os.write(toJSON().getBytes("UTF-8"));
+        } catch (IOException err) {
+            Log.e(err);
+            throw new RuntimeException(err.toString(), err);
+        } finally {
+            Util.cleanup(os);
+        }
+    }
+
+    /// Loads JSON containing a list of property objects of this type
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the name of the storage
+    ///
+    /// #### Returns
+    ///
+    /// list of property objects matching this type
+    public <X extends PropertyBusinessObject> List<X> loadJSONList(String name) {
+        InputStream is = null; //NOPMD CloseResource
+        try {
+            if (Storage.getInstance().exists(name)) {
+                is = Storage.getInstance().createInputStream(name);
+                return loadJSONList(is);
+            }
+            is = CN.getResourceAsStream("/" + name);
+            return loadJSONList(is);
+        } catch (IOException err) {
+            Log.e(err);
+            throw new RuntimeException(err.toString(), err);
+        } finally {
+            Util.cleanup(is);
+        }
+    }
+
+    /// Loads JSON containing a list of property objects of this type
+    ///
+    /// #### Parameters
+    ///
+    /// - `stream`: the input stream
+    ///
+    /// #### Returns
+    ///
+    /// list of property objects matching this type
+    public <X extends PropertyBusinessObject> List<X> loadJSONList(InputStream stream)
+            throws IOException {
+        JSONParser jp = new JSONParser();
+        jp.setUseBooleanInstance(true);
+        jp.setUseLongsInstance(true);
+        List<X> response = new ArrayList<X>();
+        Map<String, Object> result = jp.parseJSON(new InputStreamReader(stream, "UTF-8"));
+        List<Map> entries = (List<Map>) result.get("root");
+        for (Map m : entries) {
+            X pb = (X) newInstance();
+            pb.getPropertyIndex().populateFromMap(m, parent.getClass());
+            response.add(pb);
+        }
+        return response;
+    }
+
+    /// Creates a new instance of the parent class
+    ///
+    /// #### Returns
+    ///
+    /// an instance of the parent class or null if this failed
+    public PropertyBusinessObject newInstance() {
+        try {
+            // the type test is deliberate rather than letting the cast fail into the
+            // catch: ParparVM does not throw on a bad cast, so on iOS a parent that
+            // is not a PropertyBusinessObject would be returned as one
+            Object instance = parent.getClass().newInstance();
+            if (instance instanceof PropertyBusinessObject) {
+                return (PropertyBusinessObject) instance;
+            }
+            return null;
+        } catch (Exception err) {
+            Log.e(err);
+            return null;
+        }
+    }
+
+    /// Populates the object from a JSON string
+    ///
+    /// #### Parameters
+    ///
+    /// - `jsonString`: the JSON String
+    public void fromJSON(String jsonString) {
+        StringReader r = null; //NOPMD CloseResource
+        try {
+            r = new StringReader(jsonString);
+            JSONParser jp = new JSONParser();
+            jp.setUseBooleanInstance(true);
+            jp.setUseLongsInstance(true);
+            populateFromMap(jp.parseJSON(r), parent.getClass());
+        } catch (IOException err) {
+            Log.e(err);
+            throw new RuntimeException(err.toString(), err);
+        } finally {
+            Util.cleanup(r);
+        }
+    }
+
+    /// Loads JSON for the object from storage with the given name if it exists. If the storage
+    /// file doesn't exist getResources() will be used to find a default JSON file in the root
+    /// of the package
+    ///
+    /// #### Parameters
+    ///
+    /// - `name`: the name of the storage
+    public void loadJSON(String name) {
+        InputStream is = null; //NOPMD CloseResource
+        try {
+            if (Storage.getInstance().exists(name)) {
+                is = Storage.getInstance().createInputStream(name);
+                loadJSON(is);
+            } else {
+                is = CN.getResourceAsStream("/" + name);
+                if (is != null) {
+                    loadJSON(is);
+                } else {
+                    throw new IOException("Storage file not found: " + name);
+                }
+            }
+        } catch (IOException err) {
+            Log.e(err);
+            throw new RuntimeException(err.toString(), err);
+        } finally {
+            Util.cleanup(is);
+        }
+    }
+
+    /// Loads JSON for the object from the given input stream
+    ///
+    /// #### Parameters
+    ///
+    /// - `stream`: the input stream containing the JSON file
+    public void loadJSON(InputStream stream) throws IOException {
+        JSONParser jp = new JSONParser();
+        jp.setUseBooleanInstance(true);
+        jp.setUseLongsInstance(true);
+        populateFromMap(jp.parseJSON(new InputStreamReader(stream, "UTF-8")), parent.getClass());
+    }
+
+    /// Returns true if the given object equals the property index
+    ///
+    /// #### Parameters
+    ///
+    /// - `o`: the object
+    ///
+    /// #### Returns
+    ///
+    /// true if equals
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof PropertyIndex) {
+            PropertyIndex other = (PropertyIndex) o;
+            if (parent == other.parent) { //NOPMD CompareObjectsWithEquals
+                return true;
+            }
+            if (parent.getClass() != other.parent.getClass()) {
+                return false;
+            }
+            if (properties.length == other.properties.length) {
+                int index = 0;
+                for (PropertyBase property : properties) {
+                    if (!property.equals(other.properties[index])) {
+                        return false;
+                    }
+                    index++;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// The hashcode of the object
+    ///
+    /// #### Returns
+    ///
+    /// a composite of the hashcodes of the properties
+    @Override
+    public int hashCode() {
+        int value = 0;
+        for (PropertyBase property : properties) {
+            if (property instanceof Property) {
+                Object v = property.get();
+                if (v != null) {
+                    int b = v.hashCode();
+                    value = 31 * value + b;
+                }
+            }
+        }
+        return value;
+    }
+
+    /// Allows us to exclude a specific property from the toJSON process
+    ///
+    /// #### Parameters
+    ///
+    /// - `pb`: the property
+    ///
+    /// - `exclude`: true to exclude and false to reinclude
+    public void setExcludeFromJSON(PropertyBase pb, boolean exclude) {
+        if (exclude) {
+            pb.putClientProperty("jsonExclude", Boolean.TRUE);
+        } else {
+            pb.putClientProperty("jsonExclude", null);
+        }
+    }
+
+    /// Indicates whether the given property is excluded from the `#toMapRepresentation()`
+    /// method output
+    ///
+    /// #### Parameters
+    ///
+    /// - `pb`: the property
+    ///
+    /// #### Returns
+    ///
+    /// true if the property is excluded and false otherwise
+    public boolean isExcludeFromMap(PropertyBase pb) {
+        return pb.getClientProperty("mapExclude") != null;
+    }
+
+    /// Allows us to exclude a specific property from the `#toMapRepresentation()` process
+    ///
+    /// #### Parameters
+    ///
+    /// - `pb`: the property
+    ///
+    /// - `exclude`: true to exclude and false to reinclude
+    public void setExcludeFromMap(PropertyBase pb, boolean exclude) {
+        if (exclude) {
+            pb.putClientProperty("mapExclude", Boolean.TRUE);
+        } else {
+            pb.putClientProperty("jsonExclude", null);
+        }
+    }
+
+    /// Indicates whether the given property is excluded from the `#toJSON()` method output
+    ///
+    /// #### Parameters
+    ///
+    /// - `pb`: the property
+    ///
+    /// #### Returns
+    ///
+    /// true if the property is excluded and false otherwise
+    public boolean isExcludeFromJSON(PropertyBase pb) {
+        return pb.getClientProperty("jsonExclude") != null;
+    }
+
+    /// Invoking this method will allow a property object to be serialized seamlessly
+    public void registerExternalizable() {
+        Util.register(getName(), parent.getClass());
+    }
+
+    /// Returns an externalizable object for serialization of this business object, unlike regular
+    /// externalizables this implementation is robust to changes, additions and removals of
+    /// properties
+    ///
+    /// #### Returns
+    ///
+    /// an externalizable instance
+    public Externalizable asExternalizable() {
+        return new Externalizable() {
+            @Override
+            public int getVersion() {
+                return 1;
+            }
+
+            @Override
+            public void externalize(DataOutputStream out) throws IOException {
+                out.writeInt(getSize());
+                for (PropertyBase b : PropertyIndex.this) {
+                    out.writeUTF(b.getName());
+                    if (b instanceof CollectionProperty) {
+                        out.writeByte(2);
+                        Util.writeObject(((CollectionProperty) b).asList(), out);
+                        continue;
+                    }
+                    if (b instanceof MapProperty) {
+                        out.writeByte(3);
+                        Util.writeObject(((MapProperty) b).asMap(), out);
+                        continue;
+                    }
+                    if (b instanceof Property) {
+                        out.writeByte(1);
+                        Util.writeObject(b.get(), out);
+                        continue;
+                    }
+                }
+            }
+
+            @Override
+            public void internalize(int version, DataInputStream in) throws IOException {
+                int size = in.readInt();
+                for (int iter = 0; iter < size; iter++) {
+                    String pname = in.readUTF();
+                    int type = in.readByte();
+                    Object data = Util.readObject(in);
+                    PropertyBase pb = get(pname);
+                    switch (type) {
+                        case 1: // Property
+                            if (pb instanceof Property) {
+                                ((Property) pb).set(data);
+                            }
+                            break;
+
+                        case 2: // CollectionProperty
+                            if (pb instanceof CollectionProperty) {
+                                ((CollectionProperty) pb).set((List) data);
+                            }
+                            break;
+
+                        case 3: // MapProperty
+                            if (pb instanceof MapProperty) {
+                                ((MapProperty) pb).setMap((Map) data);
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+
+            @Override
+            public String getObjectId() {
+                return getName();
+            }
+        };
+    }
+}

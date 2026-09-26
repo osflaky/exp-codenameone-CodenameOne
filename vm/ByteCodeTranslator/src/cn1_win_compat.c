@@ -1,0 +1,419 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+/*
+ * Win32 implementation of the minimal POSIX surface declared in
+ * cn1_win_compat.h. See that header for the rationale. Entirely gated on
+ * _WIN32 so this is an empty translation unit on every other platform (it is
+ * always copied into the generated "clean" project, and compiled away
+ * elsewhere).
+ */
+
+#ifdef _WIN32
+
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <process.h>   /* _beginthreadex */
+#include <stdlib.h>
+#include <errno.h>
+
+#include "cn1_win_compat.h"
+
+/* Longest single SleepConditionVariableSRW timeout, ~24.8 days. Comfortably
+   below INFINITE (0xFFFFFFFF), so a long wait is never mistaken for one that
+   must not expire. */
+#define CN1_WIN_MAX_WAIT_CHUNK_MS 0x7FFFFFFFu
+
+/* The mirror structs in the header must match the real Win32 types exactly. */
+_Static_assert(sizeof(cn1_srwlock_t) == sizeof(SRWLOCK), "SRWLOCK layout mismatch");
+_Static_assert(sizeof(cn1_condvar_t) == sizeof(CONDITION_VARIABLE), "CONDITION_VARIABLE layout mismatch");
+
+/* one-time init: double-checked CAS on the state word (0=idle 1=running 2=done) */
+int pthread_once(pthread_once_t* once_control, void (*init_routine)(void)) {
+    if (InterlockedCompareExchange((volatile LONG*)&once_control->state, 1, 0) == 0) {
+        init_routine();
+        InterlockedExchange((volatile LONG*)&once_control->state, 2);
+    } else {
+        while (InterlockedCompareExchange((volatile LONG*)&once_control->state, 2, 2) != 2) {
+            Sleep(0);
+        }
+    }
+    return 0;
+}
+
+/* --- mutex (non-recursive, like a default pthread mutex) --- */
+int pthread_mutex_init(pthread_mutex_t* mutex, const void* attr) {
+    (void)attr;
+    InitializeSRWLock((PSRWLOCK)&mutex->lock);
+    return 0;
+}
+
+int pthread_mutex_destroy(pthread_mutex_t* mutex) {
+    (void)mutex; /* SRWLOCKs need no teardown */
+    return 0;
+}
+
+int pthread_mutex_lock(pthread_mutex_t* mutex) {
+    AcquireSRWLockExclusive((PSRWLOCK)&mutex->lock);
+    return 0;
+}
+
+/* Used by monitorEnter to find out whether a monitor is free WITHOUT blocking:
+ * a thread that does not block never has to announce itself to the collector.
+ * EBUSY on failure, like pthread_mutex_trylock, and TryAcquireSRWLockExclusive
+ * is its exact counterpart -- it takes the lock or reports that it could not,
+ * and never waits. */
+int pthread_mutex_trylock(pthread_mutex_t* mutex) {
+    return TryAcquireSRWLockExclusive((PSRWLOCK)&mutex->lock) ? 0 : EBUSY;
+}
+
+int pthread_mutex_unlock(pthread_mutex_t* mutex) {
+    ReleaseSRWLockExclusive((PSRWLOCK)&mutex->lock);
+    return 0;
+}
+
+/* --- condition variable --- */
+int pthread_cond_init(pthread_cond_t* cond, const void* attr) {
+    (void)attr;
+    InitializeConditionVariable((PCONDITION_VARIABLE)&cond->cond);
+    return 0;
+}
+
+int pthread_cond_destroy(pthread_cond_t* cond) {
+    (void)cond;
+    return 0;
+}
+
+int pthread_cond_wait(pthread_cond_t* cond, pthread_mutex_t* mutex) {
+    SleepConditionVariableSRW((PCONDITION_VARIABLE)&cond->cond, (PSRWLOCK)&mutex->lock, INFINITE, 0);
+    return 0;
+}
+
+int pthread_cond_timedwait(pthread_cond_t* cond, pthread_mutex_t* mutex, const struct timespec* abstime) {
+    /* pthread passes an absolute CLOCK_REALTIME deadline; Win32 wants a
+       relative millisecond timeout, so convert against the current time. */
+    /* The deadline is 64-bit milliseconds and the Win32 timeout is a 32-bit
+       DWORD, so it cannot simply be narrowed. Object.wait(Long.MAX_VALUE) -- the
+       usual "park until notified" idiom -- produces a wait of ~292 million
+       years; truncating that to 32 bits yields an arbitrary short timeout, and a
+       value whose low word happens to be 0xFFFFFFFF becomes Win32's INFINITE
+       sentinel, so the wait either returns early or never expires at all. Wait
+       in bounded chunks instead and only report a timeout once the ABSOLUTE
+       deadline has genuinely passed. */
+    struct timeval now;
+    long long now_ms, abs_ms, wait_ms;
+    abs_ms = (long long)abstime->tv_sec * 1000 + abstime->tv_nsec / 1000000;
+    for (;;) {
+        DWORD chunk;
+        gettimeofday(&now, NULL);
+        now_ms = (long long)now.tv_sec * 1000 + now.tv_usec / 1000;
+        wait_ms = abs_ms - now_ms;
+        if (wait_ms <= 0) {
+            return ETIMEDOUT;
+        }
+        chunk = wait_ms > (long long)CN1_WIN_MAX_WAIT_CHUNK_MS
+                ? CN1_WIN_MAX_WAIT_CHUNK_MS : (DWORD)wait_ms;
+        if (SleepConditionVariableSRW((PCONDITION_VARIABLE)&cond->cond,
+                                      (PSRWLOCK)&mutex->lock, chunk, 0)) {
+            /* Signalled. A spurious wake reports success too, which is correct:
+               every caller re-tests its predicate. */
+            return 0;
+        }
+        if (GetLastError() != ERROR_TIMEOUT) {
+            return 0;
+        }
+        /* A chunk expired. Loop to find out whether the real deadline did. */
+    }
+}
+
+int pthread_cond_signal(pthread_cond_t* cond) {
+    WakeConditionVariable((PCONDITION_VARIABLE)&cond->cond);
+    return 0;
+}
+
+int pthread_cond_broadcast(pthread_cond_t* cond) {
+    WakeAllConditionVariable((PCONDITION_VARIABLE)&cond->cond);
+    return 0;
+}
+
+/* --- thread local storage ---
+   Keys are stored as (TLS index + 1) so that a zero-initialised key reliably
+   reads as "uninitialised" (TLS index 0 is itself a valid slot). */
+int pthread_key_create(pthread_key_t* key, void (*destructor)(void*)) {
+    DWORD idx;
+    (void)destructor; /* per-key destructors are not supported */
+    idx = TlsAlloc();
+    if (idx == TLS_OUT_OF_INDEXES) {
+        return EAGAIN;
+    }
+    *key = (pthread_key_t)(idx + 1);
+    return 0;
+}
+
+int pthread_key_delete(pthread_key_t key) {
+    if (key == 0) {
+        return EINVAL;
+    }
+    return TlsFree((DWORD)(key - 1)) ? 0 : EINVAL;
+}
+
+void* pthread_getspecific(pthread_key_t key) {
+    if (key == 0) {
+        return NULL;
+    }
+    return TlsGetValue((DWORD)(key - 1));
+}
+
+int pthread_setspecific(pthread_key_t key, const void* value) {
+    if (key == 0) {
+        return EINVAL;
+    }
+    return TlsSetValue((DWORD)(key - 1), (LPVOID)value) ? 0 : EINVAL;
+}
+
+/* --- threads --- */
+struct cn1_thread_start {
+    void* (*start)(void*);
+    void* arg;
+};
+
+static unsigned __stdcall cn1_thread_trampoline(void* p) {
+    struct cn1_thread_start s = *(struct cn1_thread_start*)p;
+    free(p);
+    s.start(s.arg);
+    return 0;
+}
+
+int pthread_attr_init(pthread_attr_t* attr) {
+    attr->detachstate = PTHREAD_CREATE_JOINABLE;
+    return 0;
+}
+
+int pthread_attr_destroy(pthread_attr_t* attr) {
+    (void)attr;
+    return 0;
+}
+
+int pthread_attr_setdetachstate(pthread_attr_t* attr, int detachstate) {
+    attr->detachstate = detachstate;
+    return 0;
+}
+
+int pthread_create(pthread_t* thread, const pthread_attr_t* attr, void* (*start_routine)(void*), void* arg) {
+    struct cn1_thread_start* s;
+    uintptr_t h;
+    unsigned tid = 0;
+    s = (struct cn1_thread_start*)malloc(sizeof(struct cn1_thread_start));
+    if (s == NULL) {
+        return EAGAIN;
+    }
+    s->start = start_routine;
+    s->arg = arg;
+    /* The ParparVM clean target generates large per-method C stack frames, so
+     * deep Codename One paint/layout recursion (complex forms, nested containers,
+     * text wrapping in ChatView/TextArea) overflows the Win32 default 1MB thread
+     * stack -> access violation. Reserve a generous 16MB stack for spawned
+     * threads (notably the EDT, which performs the rendering). */
+    h = _beginthreadex(NULL, (unsigned)(16 * 1024 * 1024), cn1_thread_trampoline, s, 0, &tid);
+    if (h == 0) {
+        free(s);
+        return EAGAIN;
+    }
+    thread->handle = (void*)h;
+    thread->id = tid;
+    if (attr != NULL && attr->detachstate == PTHREAD_CREATE_DETACHED) {
+        CloseHandle((HANDLE)h);
+        thread->handle = NULL;
+    }
+    return 0;
+}
+
+int pthread_detach(pthread_t thread) {
+    /* joins are unsupported in this shim anyway; detaching = releasing the
+       handle so the kernel object dies with the thread (GC mark workers) */
+    if (thread.handle != NULL && thread.handle != GetCurrentThread()) {
+        CloseHandle((HANDLE)thread.handle);
+    }
+    return 0;
+}
+
+pthread_t pthread_self(void) {
+    pthread_t t;
+    t.handle = GetCurrentThread(); /* pseudo-handle, valid for priority calls */
+    t.id = GetCurrentThreadId();
+    return t;
+}
+
+int pthread_getschedparam(pthread_t thread, int* policy, struct sched_param* param) {
+    HANDLE h = thread.handle ? (HANDLE)thread.handle : GetCurrentThread();
+    if (policy != NULL) {
+        *policy = SCHED_OTHER;
+    }
+    if (param != NULL) {
+        param->sched_priority = GetThreadPriority(h);
+    }
+    return 0;
+}
+
+int pthread_setschedparam(pthread_t thread, int policy, const struct sched_param* param) {
+    HANDLE h = thread.handle ? (HANDLE)thread.handle : GetCurrentThread();
+    (void)policy;
+    if (param != NULL) {
+        SetThreadPriority(h, param->sched_priority);
+    }
+    return 0;
+}
+
+/* --- <unistd.h> / <sys/time.h> replacements --- */
+int usleep(unsigned int usec) {
+    /* Millisecond granularity is sufficient for the runtime's polling loops. */
+    Sleep((DWORD)((usec + 999) / 1000));
+    return 0;
+}
+
+long long cn1_monotonic_micros(void) {
+    /* QPC is Win32's monotonic clock. The divide is split so ticks * 1e6
+       cannot overflow 64 bits at multi-GHz tick rates over long uptimes.
+       No cached static for the frequency: QueryPerformanceFrequency is a
+       cheap userspace read of a boot constant, and a lazily-written shared
+       static would be a formal C data race across concurrent sleepers. */
+    LARGE_INTEGER freq;
+    LARGE_INTEGER count;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&count);
+    return (count.QuadPart / freq.QuadPart) * 1000000LL
+         + ((count.QuadPart % freq.QuadPart) * 1000000LL) / freq.QuadPart;
+}
+
+int gettimeofday(struct timeval* tv, void* tz) {
+    FILETIME ft;
+    ULARGE_INTEGER li;
+    unsigned long long t;
+    (void)tz;
+    GetSystemTimePreciseAsFileTime(&ft); /* 100ns ticks since 1601-01-01 */
+    li.LowPart = ft.dwLowDateTime;
+    li.HighPart = ft.dwHighDateTime;
+    t = li.QuadPart - 116444736000000000ULL; /* shift to the Unix epoch */
+    tv->tv_sec = (long)(t / 10000000ULL);
+    tv->tv_usec = (long)((t % 10000000ULL) / 10);
+    return 0;
+}
+
+/*
+ * IANA time zone offsets.
+ *
+ * The Microsoft C runtime only understands the "EST5EDT" form of TZ, not an
+ * IANA identifier, and its struct tm carries no GMT offset at all -- so the
+ * POSIX path the runtime uses elsewhere reports zero for every named zone.
+ * Windows ships ICU as icu.dll (Windows 10 1703 and later), whose calendar
+ * speaks IANA identifiers directly and knows the daylight rules for the
+ * instant being asked about.
+ *
+ * ICU is resolved at runtime rather than linked: the clean target builds
+ * against a minimal SDK layout that need not carry icu.lib or <icu.h>, and a
+ * host without ICU degrades to the caller's fallback instead of failing to
+ * load. The two enum values used here are fixed by ICU's stable C API --
+ * UCAL_GREGORIAN, and the ZONE_OFFSET / DST_OFFSET calendar fields.
+ */
+#define CN1_UCAL_GREGORIAN 1
+#define CN1_UCAL_ZONE_OFFSET 15
+#define CN1_UCAL_DST_OFFSET 16
+
+typedef void* CN1UCalendar;
+
+static CN1UCalendar (__cdecl *cn1_ucal_open)(const WCHAR*, int32_t, const char*, int32_t, int32_t*);
+static void (__cdecl *cn1_ucal_setMillis)(CN1UCalendar, double, int32_t*);
+static int32_t (__cdecl *cn1_ucal_get)(const CN1UCalendar, int32_t, int32_t*);
+static void (__cdecl *cn1_ucal_close)(CN1UCalendar);
+static int cn1IcuResolved;
+/* Resolution runs under a lock, and cn1IcuResolved is written only once the
+ * function pointers are in place. Publishing "in progress" first, as a plain
+ * flag test would, lets a second thread asking for a zone at startup see a
+ * nonzero value, conclude ICU is unavailable and fall through to the CRT --
+ * which cannot read IANA identifiers, so that one query intermittently
+ * answers UTC. */
+static SRWLOCK cn1IcuLock = SRWLOCK_INIT;
+
+static int cn1IcuAvailable(void) {
+    int resolved;
+    AcquireSRWLockExclusive(&cn1IcuLock);
+    if (cn1IcuResolved == 0) {
+        HMODULE icu = LoadLibraryA("icu.dll");
+        int ok = 0;
+        if (icu != NULL) {
+            cn1_ucal_open = (CN1UCalendar (__cdecl *)(const WCHAR*, int32_t, const char*, int32_t, int32_t*))
+                    GetProcAddress(icu, "ucal_open");
+            cn1_ucal_setMillis = (void (__cdecl *)(CN1UCalendar, double, int32_t*))
+                    GetProcAddress(icu, "ucal_setMillis");
+            cn1_ucal_get = (int32_t (__cdecl *)(const CN1UCalendar, int32_t, int32_t*))
+                    GetProcAddress(icu, "ucal_get");
+            cn1_ucal_close = (void (__cdecl *)(CN1UCalendar)) GetProcAddress(icu, "ucal_close");
+            ok = cn1_ucal_open != 0 && cn1_ucal_setMillis != 0
+                    && cn1_ucal_get != 0 && cn1_ucal_close != 0;
+        }
+        cn1IcuResolved = ok ? 1 : -1;
+    }
+    resolved = cn1IcuResolved;
+    ReleaseSRWLockExclusive(&cn1IcuLock);
+    return resolved > 0;
+}
+
+int cn1_win_zone_offset_millis(const char* zoneId, long long millis, int* offsetOut,
+                               int* dstOut, int* rawOut) {
+    WCHAR zone[128];
+    CN1UCalendar cal;
+    int32_t status = 0;
+    int32_t zoneOffset, dstOffset;
+    if (zoneId == 0 || zoneId[0] == 0 || !cn1IcuAvailable()) {
+        return 0;
+    }
+    if (MultiByteToWideChar(CP_UTF8, 0, zoneId, -1, zone,
+                            (int) (sizeof(zone) / sizeof(zone[0]))) == 0) {
+        return 0;
+    }
+    cal = cn1_ucal_open(zone, -1, "en_US", CN1_UCAL_GREGORIAN, &status);
+    if (status > 0 || cal == 0) {
+        return 0;
+    }
+    cn1_ucal_setMillis(cal, (double) millis, &status);
+    zoneOffset = cn1_ucal_get(cal, CN1_UCAL_ZONE_OFFSET, &status);
+    dstOffset = cn1_ucal_get(cal, CN1_UCAL_DST_OFFSET, &status);
+    cn1_ucal_close(cal);
+    if (status > 0) {
+        return 0;
+    }
+    if (offsetOut != 0) {
+        *offsetOut = (int) (zoneOffset + dstOffset);
+    }
+    if (dstOut != 0) {
+        *dstOut = dstOffset != 0;
+    }
+    if (rawOut != 0) {
+        /* UCAL_ZONE_OFFSET is the standard-time offset on its own; the daylight
+         * adjustment is the separate UCAL_DST_OFFSET field. */
+        *rawOut = (int) zoneOffset;
+    }
+    return 1;
+}
+
+#endif /* _WIN32 */

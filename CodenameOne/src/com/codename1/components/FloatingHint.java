@@ -1,0 +1,222 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.components;
+
+import com.codename1.ui.Button;
+import com.codename1.ui.Component;
+import com.codename1.ui.Container;
+import com.codename1.ui.Display;
+import com.codename1.ui.Label;
+import com.codename1.ui.TextArea;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+import com.codename1.ui.events.FocusListener;
+import com.codename1.ui.layouts.BorderLayout;
+import com.codename1.ui.layouts.LayeredLayout;
+import com.codename1.ui.TopLevelContainer;
+import com.codename1.ui.Window;
+
+/// A floating hint is similar to a text field with a hint. However, when the text field has text in it the hint appears
+/// above the text field instead including an animation when focus hits the text field see
+/// [Googles take on this](http://www.google.com/design/spec/components/text-fields.html#text-fields-floating-labels).
+///
+/// ```java
+/// Form hi = new Form("Floating Hint", BoxLayout.y());
+/// TextField first = new TextField("", "First Field");
+/// TextField second = new TextField("", "Second Field");
+/// hi.add(new FloatingHint(first)).
+///         add(new FloatingHint(second)).
+///         add(new Button("Go"));
+/// hi.show();
+/// ```
+///
+/// The animation effect
+///
+/// @author Shai Almog
+///
+/// #### Deprecated
+///
+/// this class is superceded by `com.codename1.ui.TextComponent` which includes a more thorough implementation of the functionality and improved API
+public class FloatingHint extends Container {
+    private final TextArea tf;
+    private final Button hintButton;
+    private final Label hintLabel;
+
+    /// Wraps a text field in a floating hint
+    ///
+    /// #### Parameters
+    ///
+    /// - `tf`: the text field
+    public FloatingHint(final TextArea tf) {
+        super(new LayeredLayout());
+        this.tf = tf;
+        Container content = new Container(new BorderLayout());
+        add(content);
+        hintButton = new HintButtonImpl(tf);
+        hintLabel = new Label(tf.getHint());
+        tf.setHint("");
+        hintButton.setFocusable(false);
+        hintButton.setUIID("FloatingHint");
+        hintLabel.setUIID("TextHint");
+        tf.setLabelForComponent(hintButton);
+
+        // we block user initiated editing to allow the animation time to complete
+        tf.setEditable(false);
+
+        add(BorderLayout.north(new Label(" ")).
+                add(BorderLayout.CENTER, tf));
+
+        add(BorderLayout.north(hintButton).
+                add(BorderLayout.CENTER, hintLabel));
+
+        hintButton.addActionListener(new HintButtonActionListener(tf));
+        if (tf.getText() == null || tf.getText().length() == 0) {
+            hintButton.setVisible(false);
+        } else {
+            hintLabel.setVisible(false);
+        }
+        FocusListener fl = new FocusListener() {
+            @Override
+            public void focusGained(Component cmp) {
+                focusGainedImpl();
+            }
+
+            @Override
+            public void focusLost(Component cmp) {
+                focusLostImpl();
+            }
+        };
+        tf.addFocusListener(fl);
+    }
+
+    /// Revalidates the surface a component lives in, whether that is a form or a
+    /// window.
+    private static void revalidateTopLevel(Component c) {
+        TopLevelContainer top = c.getTopLevelContainer();
+        if (top != null) {
+            top.asContainer().revalidate();
+        }
+    }
+
+    private void focusGainedImpl() {
+        if (isInitializedImpl()) {
+            hintButton.setFocus(true);
+            if (!hintButton.isVisible()) {
+                hintButton.setVisible(true);
+                TopLevelContainer top = getTopLevelContainer();
+                if (top != null && top.grabAnimationLock()) {
+                    morphAndWait(hintLabel, hintButton, 150);
+                    top.releaseAnimationLock();
+                }
+                hintLabel.setVisible(false);
+                revalidateTopLevel(tf);
+                tf.setEditable(true);
+                tf.startEditingAsync();
+            } else {
+                tf.setEditable(true);
+                tf.startEditingAsync();
+            }
+        } else {
+            boolean t = tf.getText() == null || tf.getText().length() == 0;
+            hintButton.setVisible(t);
+            hintLabel.setVisible(!t);
+            revalidate();
+        }
+    }
+
+    /// True when this hint is attached to the surface currently on screen.
+    ///
+    /// Comparing `Display#getCurrent()` -- which only ever names a `Form` -- against
+    /// `getComponentForm()`, null inside a `Window`, was false for every floating hint
+    /// in a window, so the animated hint silently degraded to the plain branch there.
+    private boolean isInitializedImpl() {
+        if (!isInitialized()) {
+            return false;
+        }
+        TopLevelContainer top = getTopLevelContainer();
+        if (top == null) {
+            return false;
+        }
+        if (top instanceof Window) {
+            return ((Window) top).isWindowShowing();
+        }
+        return Display.getInstance().getCurrent() == top; //NOPMD CompareObjectsWithEquals
+    }
+
+    private void focusLostImpl() {
+        if (isInitializedImpl()) {
+            hintButton.setFocus(false);
+            if (tf.getText().length() == 0) {
+                hintLabel.setVisible(true);
+                TopLevelContainer top = getTopLevelContainer();
+                if (top != null && top.grabAnimationLock()) {
+                    morphAndWait(hintButton, hintLabel, 150);
+                    top.releaseAnimationLock();
+                }
+                hintButton.setVisible(false);
+                revalidateTopLevel(tf);
+                revalidate();
+                tf.setEditable(false);
+            }
+        } else {
+            boolean t = tf.getText() == null || tf.getText().length() == 0;
+            hintButton.setVisible(!t);
+            hintLabel.setVisible(t);
+            revalidate();
+        }
+    }
+
+    @Override
+    protected void initComponent() {
+        super.initComponent();
+        if (tf.hasFocus()) {
+            focusGainedImpl();
+        }
+
+    }
+
+
+    private static class HintButtonImpl extends Button {
+        public HintButtonImpl(TextArea tf) {
+            super(tf.getHint());
+        }
+
+        @Override
+        protected boolean shouldRenderComponentSelection() {
+            return true;
+        }
+    }
+
+    private static class HintButtonActionListener implements ActionListener<ActionEvent> {
+        private final TextArea tf;
+
+        public HintButtonActionListener(TextArea tf) {
+            this.tf = tf;
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent evt) {
+            tf.startEditingAsync();
+        }
+    }
+}

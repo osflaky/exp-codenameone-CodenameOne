@@ -1,0 +1,112 @@
+{{- /* theme-toggle is enabled */}}
+{{- if (not site.Params.disableThemeToggle) }}
+{{- /* theme is light */}}
+{{- if (eq site.Params.defaultTheme "light") }}
+<script>
+    if (localStorage.getItem("pref-theme") === "dark") {
+        document.body.classList.add('dark');
+    }
+
+</script>
+{{- /* theme is dark */}}
+{{- else if (eq site.Params.defaultTheme "dark") }}
+<script>
+    if (localStorage.getItem("pref-theme") === "light") {
+        document.body.classList.remove('dark')
+    }
+
+</script>
+{{- else }}
+{{- /* theme is auto */}}
+<script>
+    if (localStorage.getItem("pref-theme") === "dark") {
+        document.body.classList.add('dark');
+    } else if (localStorage.getItem("pref-theme") === "light") {
+        document.body.classList.remove('dark')
+    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.body.classList.add('dark');
+    }
+
+</script>
+{{- end }}
+{{- /* theme-toggle is disabled and theme is auto */}}
+{{- else if (and (ne site.Params.defaultTheme "light") (ne site.Params.defaultTheme "dark"))}}
+<script>
+    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.body.classList.add('dark');
+    }
+
+</script>
+{{- end }}
+
+<header class="header cn1-header">
+    <nav class="nav cn1-nav" aria-label="Primary navigation">
+        <div class="logo">
+            {{- $label_text := (site.Params.label.text | default site.Title) }}
+            {{- if site.Title }}
+            <a href="/" accesskey="h" title="{{ $label_text }} (Alt + H)">
+                <img class="cn1-brand-logo" src="/uploads/Codename-One-White-Logo.png" alt="{{ $label_text }}">
+            </a>
+            {{- end }}
+        </div>
+        <button type="button" id="cn1-nav-toggle" class="cn1-nav-toggle-btn" aria-label="Toggle menu" aria-expanded="false" aria-controls="cn1-primary-menu">
+            <svg class="cn1-nav-toggle-btn__open" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+            <svg class="cn1-nav-toggle-btn__close" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+        <div class="cn1-nav-links" id="cn1-primary-menu">
+            <ul id="menu">
+                {{- range site.Menus.main }}
+                {{- if and (not .Parent) (ne .Identifier "create-project") }}
+                <li class="{{ if eq .Identifier "dashboard" }}cn1-mobile-dashboard-item{{ else if .HasChildren }}has-children{{ end }}">
+                    {{- if .HasChildren }}
+                    <button class="cn1-menu-trigger" type="button" aria-expanded="false" aria-haspopup="true">
+                        <span>{{- .Name -}}</span>
+                    </button>
+                    <ul class="sub-menu">
+                        {{- range .Children }}
+                        <li>
+                            <a href="{{ .URL }}">
+                                <span>{{- .Name -}}</span>
+                            </a>
+                        </li>
+                        {{- end }}
+                    </ul>
+                    {{- else }}
+                    {{- if eq .Identifier "search" }}
+                    <a class="cn1-menu-search-link" href="{{ .URL | relLangURL }}" aria-label="Search">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg>
+                    </a>
+                    {{- else }}
+                    <a href="{{ .URL | relLangURL }}">
+                        <span>{{- .Name -}}</span>
+                    </a>
+                    {{- end }}
+                    {{- end }}
+                </li>
+                {{- end }}
+                {{- end }}
+            </ul>
+        </div>
+        <div class="cn1-theme-controls">
+            <button class="cn1-theme-toggle-btn" type="button" data-cn1-theme-toggle accesskey="t" aria-label="Switch color theme">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9c0-.7-.08-1.38-.23-2.03A7 7 0 0 1 12 3Z"/></svg>
+            </button>
+        </div>
+        {{- range site.Menus.main }}
+        {{- if eq .Identifier "dashboard" }}
+        <a class="cn1-dashboard-link" href="{{ .URL }}" title="{{ .Title | default .Name }}" aria-label="{{ .Title | default .Name }}">
+            <span>{{- .Name -}}</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
+        </a>
+        {{- end }}
+        {{- end }}
+        {{- range site.Menus.main }}
+        {{- if eq .Identifier "create-project" }}
+        <a class="cn1-create-project-link" href="{{ .URL }}" title="{{ .Title | default .Name }}">
+            <span>{{- .Name -}}</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        {{- end }}
+        {{- end }}
+    </nav>
+</header>

@@ -1,0 +1,1186 @@
+/*
+ * Copyright (c) 2012, Codename One and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Codename One designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Codename One through http://www.codenameone.com/ if you
+ * need additional information or have any questions.
+ */
+package com.codename1.tools.translator;
+
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+
+/**
+ * Steady-state gate for the collector (issue #5537).
+ *
+ * <p>Every other GC test here measures a PEAK under load, and a peak cannot express the
+ * failure this issue reported. {@code GcOverflowSpiralIntegrationTest} asserts peak &lt; 2GB
+ * over 50 bounded rounds; a heap that grows forever at a modest rate passes it. The
+ * reporter's build climbed 500MB to 5GB over five minutes against a live set of a few
+ * hundred objects, with GC pauses lengthening until they were continuous -- so the property
+ * that had to be asserted, and never was, is that the growth STOPS.</p>
+ *
+ * <p>The mechanism found underneath it: the SATB write barrier logged a reference on every
+ * object store during a mark, and on a churn workload essentially every logged reference
+ * was to a FRESH object -- one allocated after the snapshot was taken, which the sweep's
+ * grace rule keeps regardless. The log's size is therefore mutation rate x cycle duration,
+ * and draining it is part of the cycle, so a longer cycle produced a longer log which
+ * produced a longer cycle. Measured before the fix: 2,718,413 fresh references of
+ * 2,718,448 logged in one cycle, 282ms of a 327ms mark, page count climbing without bound.
+ * Both symptoms fall out of that one loop.</p>
+ *
+ * <p>This gate builds the workload with {@code -DCN1_GC_CONFORM}, which adds the
+ * {@code [GCPROBE]} series and changes no allocator behaviour -- deliberately NOT
+ * {@code CN1_GC_VERIFY}, which forces {@code cn1BibopReleaseOffset()} to 0 and so compiles
+ * out the page-release and major-sweep paths this measurement depends on.</p>
+ *
+ * <p>Two assertions, one on the mechanism and one on the outcome, and then a second run
+ * that re-injects the defect ({@code -DCN1_SATB_LOG_FRESH}) and requires both to fail. A
+ * gate that has never been watched failing proves nothing.</p>
+ */
+@Tag("benchmark")
+class GcSteadyStateIntegrationTest {
+
+    /**
+     * Logged references per cycle, as a multiple of the live legacy population. The barrier
+     * should only see references the snapshot actually needs, which is bounded by the live
+     * set; before the fix it was bounded by the ALLOCATION RATE and ran to millions. The
+     * multiple is deliberately loose -- the two regimes are five orders of magnitude apart,
+     * so this cannot be made tight enough to flake without also being wrong.
+     */
+    private static final double MAX_SATB_REFS_PER_LIVE_OBJECT = 4.0;
+
+    /**
+     * How much the page heap may still grow in the second half of the run, relative to the
+     * first. Zero would be wrong: a run reaches its working set at its own pace and a
+     * partially-filled arena is 64 pages. A COMPOUNDING heap doubles here.
+     *
+     * <p>This is the OUTCOME check, and unlike the other three assertions it deliberately
+     * has no fault twin. The obvious one -- requiring the -DCN1_SATB_LOG_FRESH build to
+     * exceed this bound -- was measured and rejected: across two runs of that build the
+     * second-half growth came out 0.446 and then 0.033, because a runaway's page pool
+     * sometimes saturates before the midpoint and the ratio then reads flat while the heap
+     * is enormous. Asserting it would fail about half the time, and a coin-flip gate is
+     * worse than the inertness it would be guarding against.</p>
+     *
+     * <p>What has teeth is the MECHANISM check above: the same faulted build separates
+     * from the fixed one by five orders of magnitude on satbRefs per live object, every
+     * time. Both series are printed on every run so this ratio stays auditable rather than
+     * merely asserted.</p>
+     */
+    private static final double MAX_SECOND_HALF_PAGE_GROWTH = 0.25;
+
+    /**
+     * Ceiling on one translated run. A stalled collector is one of the failure modes this
+     * gate exists to catch, and reading the child's output to EOF on this thread would
+     * block until it closed stdout -- so a stall would hang the surefire fork until the
+     * CI job's global timeout, and the guard would stop reporting a regression and start
+     * eating the build. Generous: the four runs here are a fixed 24 rounds each, a few
+     * minutes on a slow runner.
+     */
+    private static final long VM_RUN_TIMEOUT_SECONDS = 600;
+
+    /** Cycles needed before the comparison means anything. Anti-vacuousness. */
+    private static final int MIN_CYCLES = 24;
+
+    /**
+     * Wall-clock samples needed before the second series means anything. The emitter runs
+     * at 1Hz, so this is a floor on how long the fixture must run and not a target.
+     *
+     * <p>The fixture's ROUNDS was raised from 24 to 44 to keep it above this line: making
+     * the collector faster made the fixed round count finish in nine seconds, and this
+     * assertion failed on the SUCCESS. The floor is what makes the wall-clock series
+     * non-vacuous, so the right answer was to lengthen the workload, not to lower it --
+     * but note the coupling, because the next improvement will hit it again.</p>
+     */
+    private static final int MIN_WALL_ROWS = 10;
+
+    /**
+     * Synthetic per-process budget for the ceiling scenario.
+     *
+     * Deliberately TIGHT rather than device-sized. The fourth scenario needs the
+     * no-reserve build to actually reach its ceiling, and how far a mutator outruns the
+     * collector depends on how many cores it has to itself -- on a two-core runner the
+     * single collector thread competes far better than it does on a developer's machine,
+     * so a 1.4GB budget is reached locally and might not be in CI. A budget this size is
+     * reached by any runner that can run the workload at all, because admission converges
+     * on ceiling-minus-margin by construction rather than by winning a race.
+     *
+     * Still comfortably above CN1_PACING_HEADROOM_MARGIN x 4, so the reserve is a
+     * meaningful figure and not swallowed by the admission margin.
+     */
+    private static final long CEILING_MB = 768;
+
+    /**
+     * The reserve the collector should defend at that budget (CN1_PACING_RESERVE_SHIFT).
+     */
+    private static final long RESERVE_MB = CEILING_MB / 4;
+
+    /**
+     * The line below which a process is on the bare admission margin rather than
+     * defending anything. Twice CN1_PACING_HEADROOM_MARGIN, i.e. an ABSOLUTE figure --
+     * the margin does not scale with the budget, so a proportional threshold silently
+     * stops separating the regimes as the budget shrinks.
+     *
+     * <p>Used only for the no-reserve build, to establish that the environment really
+     * does pressure the process. See the scenario-3 comment for why the reserve build is
+     * NOT held to an absolute headroom figure.</p>
+     */
+    private static final long HEADROOM_THRESHOLD_MB = 128;
+
+    /**
+     * Share of collection cycles the collector started because one was owed, below which
+     * it is idling through demand. Deliberately loose: the fixed build measures 0.99 on a
+     * developer machine and the faulted one measures 0.00, so anything in between is a
+     * regression and nothing legitimate lands near the line.
+     */
+    private static final double MIN_ON_DEMAND_SHARE = 0.5;
+
+
+    /**
+     * Free-memory reading to pin for the pending-table scenarios. Every threshold in
+     * init_gc_thresholds is derived from this number divided by an assumed 128-byte
+     * average allocation, so a developer machine's reading puts them in the tens of
+     * millions of slots and the path is unreachable. 16MB is a plausible reading for a
+     * memory-tight device and puts the per-thread cap in the tens of thousands.
+     */
+    private static final long DEVICE_FREE_MB = 16;
+
+    /**
+     * Ints in the fixture's per-node throwaway array for the legacy-path scenarios. 160 =
+     * 640 bytes, over CN1_BIBOP_MAX_OBJECT, so every node's array takes the legacy
+     * calloc + allObjectsInHeap + per-thread-pending-table path.
+     */
+    private static final int LEGACY_CHURN_INTS = 160;
+
+    /**
+     * How much bigger the unfiltered SATB log must be than the filtered one. Measured
+     * 138,338,136 against 676 -- five orders of magnitude -- so 1000 is a floor nothing
+     * legitimate lands near, and unlike a per-cycle figure it does not move when the
+     * collector's cadence changes.
+     */
+    private static final long MIN_SATB_FAULT_RATIO = 1000;
+
+
+    /**
+     * The [GCSTALL] rescan report: what gcMarkDrain's linear walk of allObjectsInHeap
+     * cost, and what it found.
+     *
+     * <p>{@code useful} is the number of full passes that marked something new, i.e. the
+     * number of times the walk was load-bearing rather than a repeat. It is the figure
+     * that decides whether skipping the walk when no overflow occurred is sound, so
+     * scenario 8 asserts it stays zero even in the arm that always walks.</p>
+     */
+    private static final class Rescan {
+        boolean reported;
+        long passes;
+        long useful;
+        long slots;
+        long pushes;
+        long overflowCycles;
+
+        static Rescan parse(String output) {
+            Rescan r = new Rescan();
+            for (String line : output.split("\\R")) {
+                if (line.startsWith("[GCSTALL]") && line.contains("rescanPasses=")) {
+                    r.reported = true;
+                    r.passes = Stalls.field(line, "rescanPasses=");
+                    r.useful = Stalls.field(line, "rescanUseful=");
+                    r.slots = Stalls.field(line, "rescanSlots=");
+                    r.pushes = Stalls.field(line, "rescanPushes=");
+                } else if (line.startsWith("[GCPROBE]") && line.contains("ovfCycles=")) {
+                    // Any cycle that overflowed makes the rescan legitimately necessary.
+                    r.overflowCycles = Math.max(r.overflowCycles, Stalls.field(line, "ovfCycles="));
+                }
+            }
+            return r;
+        }
+
+        @Override
+        public String toString() {
+            return "rescanPasses=" + passes + " rescanUseful=" + useful
+                    + " rescanSlots=" + slots + " rescanPushes=" + pushes
+                    + " overflowCycles=" + overflowCycles;
+        }
+    }
+
+    /**
+     * The [GCSTALL] report: how long the MUTATOR threads were stopped, by cause, and how
+     * the collector decided to start each cycle.
+     *
+     * <p>Separate from {@link Series} because it answers the opposite question. Series
+     * reads [GCPROBE], which is the collector's own time and its partition of the
+     * footprint. This reads the mutator's: the pair of numbers that says whether an
+     * application using this VM can actually run.</p>
+     */
+    private static final class Stalls {
+        boolean reported;
+        long cyclesOnDemand;
+        long cyclesAfterIdle;
+        double dutyPct = -1;
+        long volumeParks;
+        long meanVolumeParkUs;
+        long maxVolumeParkUs;
+        long pendingFullParks;
+        long meanPendingFullUs;
+        long maxPendingFullUs;
+
+        static Stalls parse(String output) {
+            Stalls s = new Stalls();
+            for (String line : output.split("\\R")) {
+                if (!line.startsWith("[GCSTALL]")) {
+                    continue;
+                }
+                if (line.contains("cyclesOnDemand=")) {
+                    s.reported = true;
+                    s.cyclesOnDemand = field(line, "cyclesOnDemand=");
+                    s.cyclesAfterIdle = field(line, "cyclesAfterIdle=");
+                    s.dutyPct = doubleField(line, "dutyPct=");
+                } else if (line.contains("cause=pacingVolume")) {
+                    s.volumeParks = field(line, "count=");
+                    s.meanVolumeParkUs = field(line, "meanUs=");
+                    s.maxVolumeParkUs = field(line, "maxUs=");
+                } else if (line.contains("cause=pendingFull")) {
+                    s.pendingFullParks = field(line, "count=");
+                    s.meanPendingFullUs = field(line, "meanUs=");
+                    s.maxPendingFullUs = field(line, "maxUs=");
+                }
+            }
+            return s;
+        }
+
+        /** 1.0 means every cycle answered a pending request; 0.0 means none did. */
+        double onDemandShare() {
+            long total = cyclesOnDemand + cyclesAfterIdle;
+            return total == 0 ? 0 : (double) cyclesOnDemand / total;
+        }
+
+        @Override
+        public String toString() {
+            return "cyclesOnDemand=" + cyclesOnDemand + " cyclesAfterIdle=" + cyclesAfterIdle
+                    + " onDemandShare=" + String.format("%.2f", onDemandShare())
+                    + " dutyPct=" + String.format("%.1f", dutyPct)
+                    + " volumeParks=" + volumeParks
+                    + " meanParkUs=" + meanVolumeParkUs
+                    + " maxParkUs=" + maxVolumeParkUs
+                    + " pendingFullParks=" + pendingFullParks
+                    + " meanPendingUs=" + meanPendingFullUs
+                    + " maxPendingUs=" + maxPendingFullUs;
+        }
+
+        static long field(String line, String key) {
+            int at = line.indexOf(key);
+            if (at < 0) {
+                return -1;
+            }
+            String rest = line.substring(at + key.length());
+            int end = 0;
+            if (end < rest.length() && rest.charAt(end) == '-') {
+                end++;
+            }
+            while (end < rest.length() && Character.isDigit(rest.charAt(end))) {
+                end++;
+            }
+            return end > 0 ? Long.parseLong(rest.substring(0, end)) : -1;
+        }
+
+        private static double doubleField(String line, String key) {
+            int at = line.indexOf(key);
+            if (at < 0) {
+                return -1;
+            }
+            String rest = line.substring(at + key.length());
+            int end = 0;
+            if (end < rest.length() && rest.charAt(end) == '-') {
+                end++;
+            }
+            while (end < rest.length()
+                    && (Character.isDigit(rest.charAt(end)) || rest.charAt(end) == '.')) {
+                end++;
+            }
+            return end > 0 ? Double.parseDouble(rest.substring(0, end)) : -1;
+        }
+    }
+
+    @Test
+    void aChurningWorkloadReachesAWorkingSetAndStaysThere() throws Exception {
+        Parser.cleanup();
+        List<Path> tempDirs = new ArrayList<>();
+        try {
+            runGate(tempDirs);
+        } finally {
+            for (Path dir : tempDirs) {
+                deleteRecursively(dir);
+            }
+        }
+    }
+
+    private void runGate(List<Path> tempDirs) throws Exception {
+        Path sourceDir = Files.createTempDirectory("gc-steady-sources");
+        Path classesDir = Files.createTempDirectory("gc-steady-classes");
+        Path javaApiDir = Files.createTempDirectory("gc-steady-javaapi");
+        tempDirs.add(sourceDir);
+        tempDirs.add(classesDir);
+        tempDirs.add(javaApiDir);
+
+        Path source = sourceDir.resolve("GcSteadyStateApp.java");
+        Files.write(source, loadAppSource().getBytes(StandardCharsets.UTF_8));
+
+        CompilerHelper.CompilerConfig config = selectCompiler();
+        if (config == null) {
+            fail("No compatible compiler available for the GC steady-state test");
+        }
+        CompilerHelper.compileJavaAPI(javaApiDir, config);
+
+        List<String> compileArgs = new ArrayList<>();
+        compileArgs.add("-source");
+        compileArgs.add(config.targetVersion);
+        compileArgs.add("-target");
+        compileArgs.add(config.targetVersion);
+        if (CompilerHelper.useClasspath(config)) {
+            compileArgs.add("-classpath");
+            compileArgs.add(javaApiDir.toString());
+        } else {
+            compileArgs.add("-bootclasspath");
+            compileArgs.add(javaApiDir.toString());
+            compileArgs.add("-Xlint:-options");
+        }
+        compileArgs.add("-d");
+        compileArgs.add(classesDir.toString());
+        compileArgs.add(source.toString());
+        assertEquals(0, CompilerHelper.compile(config.jdkHome, compileArgs),
+                "GcSteadyStateApp should compile. " + CompilerHelper.getLastErrorLog());
+
+        String javaResult = extractLine(runJavaMain(config, classesDir, javaApiDir), "RESULT=");
+        assertTrue(javaResult.startsWith("RESULT="), "JavaSE should produce RESULT=");
+
+        CompilerHelper.copyDirectory(javaApiDir, classesDir);
+        Path outputDir = Files.createTempDirectory("gc-steady-output");
+        tempDirs.add(outputDir);
+        CleanTargetIntegrationTest.runTranslator(classesDir, outputDir, "GcSteadyStateApp");
+        Path distDir = outputDir.resolve("dist");
+        Path cmakeLists = distDir.resolve("CMakeLists.txt");
+        assertTrue(Files.exists(cmakeLists), "Translator should emit a CMake project");
+        CleanTargetIntegrationTest.replaceLibraryWithExecutableTarget(cmakeLists, "GcSteadyStateApp-src");
+
+        // ---- 1. the gate ------------------------------------------------------
+        Path fixed = build(distDir, tempDirs, "fixed", "-DCN1_GC_CONFORM");
+        Run clean = run(fixed, distDir);
+        assertEquals(0, clean.exit, "The workload must finish. Output: " + tail(clean.output));
+        assertTrue(clean.output.contains("GC_STEADY_STATE_DONE"),
+                "The workload should run to completion. Output: " + tail(clean.output));
+        assertEquals(javaResult, extractLine(clean.output, "RESULT="),
+                "JavaSE and ParparVM should agree on the workload result");
+        Series good = Series.parse(clean.output);
+        assertTrue(good.cycles >= MIN_CYCLES,
+                "Only " + good.cycles + " collection cycles ran, so the comparison below "
+                        + "measured nothing. Output: " + tail(clean.output));
+        assertTrue(good.satbRefsPerLiveObject() <= MAX_SATB_REFS_PER_LIVE_OBJECT,
+                describe("The SATB log is sized by the allocation rate, not by the live set",
+                        good));
+        assertTrue(good.secondHalfPageGrowth() <= MAX_SECOND_HALF_PAGE_GROWTH,
+                describe("The page heap is still compounding in the second half of the run",
+                        good));
+
+        // The per-cycle series above is blind to the shape this whole gate is really
+        // about: a collector that completes its early cycles and then never finishes
+        // another. [GCPROBE] stops emitting at that point, so its rows can end while the
+        // heap is still growing, and the generated main returns as soon as the workers do
+        // -- the process exits cleanly, prints the marker, and the stall goes unrecorded.
+        // [GCPROBE-T] is 1Hz off atomics and keeps sampling through exactly that state,
+        // which is why it was added; checking it here is what makes it a gate rather than
+        // a convenience.
+        int wallRows = wallSampleCount(clean.output);
+        assertTrue(wallRows >= MIN_WALL_ROWS,
+                "Only " + wallRows + " [GCPROBE-T] samples: the wall-clock emitter did not"
+                        + " run, so the stalled-collector check below measured nothing.");
+        double wallGrowth = wallSecondHalfPageGrowth(clean.output);
+        assertTrue(wallGrowth <= MAX_SECOND_HALF_PAGE_GROWTH,
+                "The page heap is still compounding on the WALL-CLOCK series (second-half"
+                        + " growth " + String.format("%.3f", wallGrowth) + " over " + wallRows
+                        + " samples), which the per-cycle series cannot see if the collector"
+                        + " stopped completing cycles.");
+
+        // ---- 2. proof that the gate can fail ----------------------------------
+        // CN1_SATB_LOG_FRESH is the escape hatch that restores the pre-fix barrier, so it
+        // doubles as the fault injection: without this half, a build in which the probe or
+        // the filter silently compiled out would pass part 1 forever.
+        Path faulty = build(distDir, tempDirs, "faulted", "-DCN1_GC_CONFORM -DCN1_SATB_LOG_FRESH");
+        Run faulted = run(faulty, distDir);
+        assertHealthy(faulted, "the -DCN1_SATB_LOG_FRESH build", javaResult);
+        Series bad = Series.parse(faulted.output);
+        assertTrue(bad.cycles >= MIN_CYCLES,
+                "The faulted build produced no [GCPROBE] series, so CN1_GC_CONFORM is not "
+                        + "active and the clean run above proved nothing. Output: " + tail(faulted.output));
+        // The faulted arm is checked on the log's TOTAL size, not on its per-cycle size.
+        //
+        // satbRefsPerLiveObject divides by the number of cycles, so it moves with how often
+        // the collector runs -- and answering the collector's demand signal roughly tripled
+        // that (533 cycles here before, 1485 after) for the same workload. The same
+        // unfiltered barrier therefore spreads the same log over three times as many
+        // cycles and measured 2.4 against a threshold of 4, which would have read as "the
+        // fault was not re-injected" when the fault was re-injected and logged 138 MILLION
+        // references against the fixed build's 700.
+        //
+        // The fixed arm keeps the per-cycle budget unchanged -- that assertion is the one
+        // that states the property, and it is not affected because its numerator is ~0
+        // either way. For the fault twin the total is both the honest measure and a far
+        // stronger one: five orders of magnitude rather than a factor of ten.
+        assertTrue(bad.satbRefsTotal > good.satbRefsTotal * MIN_SATB_FAULT_RATIO,
+                "Re-injecting the unfiltered SATB barrier did NOT blow the log, so this gate"
+                        + " is inert. " + describe("fixed", good) + " "
+                        + describe("faulted", bad));
+        System.err.println("[GcSteadyState] " + describe("fixed", good));
+        System.err.println("[GcSteadyState] " + describe("faulted", bad));
+
+        // ---- 3. under a per-process ceiling, the collector defends a reserve ----
+        // Budget headroom is not a footprint bound: admission answers "is there budget
+        // left", so on its own it keeps saying yes until the budget is gone and the
+        // process converges on ceiling-minus-margin however small its live set is. That
+        // is survivable only until something else spends out of the same budget, which
+        // on iOS the renderer does.
+        Map<String, String> ceiling = new HashMap<>();
+        ceiling.put("CN1_SIMULATE_PROC_MEMORY_LIMIT", Long.toString(CEILING_MB * 1024 * 1024));
+        Run bounded = run(fixed, distDir, ceiling);
+        assertHealthy(bounded, "the run under a simulated ceiling", javaResult);
+        long boundedHeadroomMb = minHeadroomMb(bounded.output);
+        assertTrue(boundedHeadroomMb >= 0,
+                "No [PACING] report under a simulated ceiling -- the budgeted path never "
+                        + "ran, so this scenario measured nothing. Output: " + tail(bounded.output));
+        // ASSERT THE MECHANISM, REPORT THE OUTCOME.
+        //
+        // The first version of this demanded an absolute headroom figure and failed on the
+        // Linux runner with 62MB. The evidence said the bound was working exactly as
+        // designed -- volumeParks=879, so it engaged and parked repeatedly -- and that the
+        // footprint it could not claw back was entirely the Java heap (residKb=7MB of a
+        // 518MB footprint, so no allocator retention involved). What that runner cannot do
+        // is COLLECT fast enough for the reserve line to be reachable: mark ran 407-545ms
+        // per cycle, of which 235ms was the conservative stack scan and 122-252ms was
+        // waiting for mutators to reach a safepoint, while the mutator allocated ~170MB
+        // per cycle. With the grace rule holding a cycle's allocation for two more cycles,
+        // the smallest working set that machine can hold is already above the reserve line
+        // at this budget.
+        //
+        // So an absolute headroom assertion tests the runner, not the collector. What is
+        // true on every machine is the contract itself: either the process never entered
+        // the reserve, or the bound engaged when it did. Both halves are checked, and the
+        // headroom actually achieved is printed either way, so a regression that stops the
+        // bound engaging fails here and a machine that is merely slow does not.
+        long volumeParks = pacingCounter(bounded.output, "volumeParks=");
+        assertTrue(volumeParks >= 0,
+                "No [PACING] volumeParks counter -- the tracer did not run, so this "
+                        + "scenario measured nothing." + evidence(bounded));
+        assertTrue(boundedHeadroomMb >= RESERVE_MB || volumeParks > 0,
+                "The process spent time inside its " + RESERVE_MB + "MB reserve (smallest "
+                        + "headroom " + boundedHeadroomMb + "MB) and the volume bound never "
+                        + "engaged -- volumeParks=" + volumeParks + "." + evidence(bounded));
+        System.err.println("[GcSteadyState] ceiling: budget=" + CEILING_MB + "MB reserve="
+                + RESERVE_MB + "MB smallestHeadroom=" + boundedHeadroomMb + "MB volumeParks="
+                + volumeParks);
+
+        // ---- 4. proof that scenario 3 can fail ---------------------------------
+        Path noReserve = build(distDir, tempDirs, "noreserve",
+                "-DCN1_GC_CONFORM -DCN1_PACING_NO_RESERVE");
+        Run unbounded = run(noReserve, distDir, ceiling);
+        assertHealthy(unbounded, "the -DCN1_PACING_NO_RESERVE build", javaResult);
+        long unboundedHeadroomMb = minHeadroomMb(unbounded.output);
+        assertTrue(unboundedHeadroomMb >= 0,
+                "No [PACING] report from the no-reserve build. Output: " + tail(unbounded.output));
+        // The fault twin, and what keeps scenario 3 non-vacuous: with the bound compiled
+        // out the process must end up on the bare admission margin. If it does not, the
+        // environment is not pressuring it at all and scenario 3's "never entered the
+        // reserve" branch would be passing for the wrong reason.
+        assertTrue(unboundedHeadroomMb < HEADROOM_THRESHOLD_MB,
+                "Compiling the reserve out did NOT put the process back on the admission "
+                        + "margin (smallest headroom " + unboundedHeadroomMb + "MB), so the "
+                        + "ceiling is not pressuring this workload and scenario 3 proved "
+                        + "nothing." + evidence(unbounded));
+        assertEquals(0, pacingCounter(unbounded.output, "volumeParks="),
+                "The reserve was compiled out, so nothing may have parked on it."
+                        + evidence(unbounded));
+        System.err.println("[GcSteadyState] ceiling/no-reserve: smallestHeadroom="
+                + unboundedHeadroomMb + "MB");
+
+        // ---- 5. the mutator must be RUNNING, not waiting on the collector -------
+        // The four scenarios above all measure memory, and the reporter's build passed
+        // every one of them and was still unusable: "no long term memory buildup, and no
+        // crashes, but the pauses for GC become very frequent and very long". Nothing in
+        // this runtime measured a pause -- [GCPROBE] times the COLLECTOR, and [PACING]
+        // counts parks without recording how long any of them lasted -- so a build could
+        // stall every worker for most of the run and this gate would stay green.
+        //
+        // What it was: bibopBytesSinceGc is zeroed at cycle START, so under sustained
+        // churn a mutator re-crosses the collection trigger throughout every cycle, and
+        // cn1BibopMaybeGc discarded all of those crossings because a cycle was running.
+        // By the time one ended, every mutator was parked on the run-ahead cap and
+        // therefore allocating nothing, so no crossing was left to raise the request --
+        // and the GC thread, seeing no demand, took its 200ms idle wait with the whole
+        // application blocked on it. Measured mark 40ms, measured mutator park 212ms.
+        //
+        // ASSERT THE MECHANISM, REPORT THE OUTCOME, exactly as scenario 3 does. The
+        // outcome (duty cycle, park duration) is a function of how many cores the runner
+        // gives the collector; the mechanism is not. cyclesOnDemand counts cycles the
+        // collector started because a collection was owed, cyclesAfterIdle counts cycles
+        // it started after idling first. A collector keeping up with a workload that
+        // parks its mutators must be answering demand, on any machine.
+        Stalls goodStalls = Stalls.parse(clean.output);
+        assertTrue(goodStalls.reported,
+                "No [GCSTALL] report from the fixed build, so the stall instrument did not"
+                        + " run and scenarios 5 and 6 measure nothing. Output: " + tail(clean.output));
+        assertTrue(goodStalls.volumeParks > 0,
+                "The workload never parked on the run-ahead cap, so it never depended on the"
+                        + " collector's responsiveness and this scenario proves nothing. "
+                        + goodStalls);
+        assertTrue(goodStalls.cyclesOnDemand + goodStalls.cyclesAfterIdle >= MIN_CYCLES,
+                "Too few collection cycles to judge how they were scheduled. " + goodStalls);
+        assertTrue(goodStalls.onDemandShare() >= MIN_ON_DEMAND_SHARE,
+                "The collector idled before " + String.format("%.0f%%", 100 * (1 - goodStalls.onDemandShare()))
+                        + " of its cycles while mutators were parked waiting for it. " + goodStalls);
+        System.err.println("[GcSteadyState] stalls/fixed: " + goodStalls);
+
+        // ---- 6. proof that scenario 5 can fail ---------------------------------
+        // CN1_GC_NO_DEMAND_SIGNAL restores both halves of the defect: the suppressed
+        // request in cn1BibopMaybeGc and the discarded one in gcIdleWaitMillis. They are
+        // one defect -- a demand signal that is never raised and, if raised, never
+        // answered -- so one macro re-injects both.
+        Path noDemand = build(distDir, tempDirs, "nodemand",
+                "-DCN1_GC_CONFORM -DCN1_GC_NO_DEMAND_SIGNAL");
+        Run starved = run(noDemand, distDir);
+        assertHealthy(starved, "the -DCN1_GC_NO_DEMAND_SIGNAL build", javaResult);
+        Stalls badStalls = Stalls.parse(starved.output);
+        assertTrue(badStalls.reported,
+                "No [GCSTALL] report from the faulted build. Output: " + tail(starved.output));
+        assertEquals(0, badStalls.cyclesOnDemand,
+                "The demand signal was compiled out, so no cycle may have started on demand."
+                        + " This arm is not actually faulted and scenario 5 proved nothing. "
+                        + badStalls);
+        // The outcome, asserted RELATIVE to the same machine in the same session: the
+        // faulted build must stall its mutators materially longer. An absolute pause
+        // threshold would be testing the runner -- a two-core machine legitimately runs
+        // cycles several times longer than a developer's, and a park cannot be shorter
+        // than the cycle it is waiting for.
+        assertTrue(badStalls.volumeParks > 0,
+                "The faulted build never parked either, so there is nothing to compare. "
+                        + badStalls);
+        // DIRECTION is asserted; MAGNITUDE is reported. The mechanism above
+        // (cyclesOnDemand 0 against non-zero) is what makes this twin non-vacuous, and it
+        // separates the arms perfectly on any machine. The stall RATIO does not, and this
+        // gate learned that the expensive way: it demanded 2x and CI measured 1.74x, on a
+        // run where the two arms completed 947 and 946 cycles -- a two-core runner with
+        // four workers is CPU-saturated rather than demand-starved, so answering the demand
+        // signal cannot shorten a park that is already just "one cycle". A developer
+        // machine measures 10x. Asserting the ratio was asserting the runner, which is
+        // exactly what scenario 3's comment argues against; only the SIGN of the difference
+        // is a property of the collector.
+        assertTrue(badStalls.meanVolumeParkUs >= goodStalls.meanVolumeParkUs,
+                "The starved demand signal made the mutator's stalls SHORTER, which inverts"
+                        + " the effect this whole change is about. fixed=" + goodStalls
+                        + " faulted=" + badStalls);
+        System.err.println("[GcSteadyState] stall ratio faulted/fixed: "
+                + String.format("%.2f", goodStalls.meanVolumeParkUs == 0 ? 0.0
+                        : (double) badStalls.meanVolumeParkUs / goodStalls.meanVolumeParkUs));
+        System.err.println("[GcSteadyState] stalls/faulted: " + badStalls);
+
+        // ---- 7. the mark's cost must not be paid on work that finds nothing ------
+        // gcMarkDrain ends every call with a linear rescan of allObjectsInHeap that
+        // re-pushes each already-marked legacy object so its mark function runs again.
+        // That is an OVERFLOW recovery -- gcMarkObject pushes every object it marks, and a
+        // push is dropped only when the worklist overflows -- but it ran unconditionally,
+        // on every one of the (threads + 3 + SATB rounds) calls a cycle makes. Measured on
+        // the churn workload before the gate: 8.9 passes per cycle over a 1.9M-slot table,
+        // 16.5 MILLION slot visits and 290,000 mark functions re-run per cycle, and across
+        // 883 passes it found something new exactly ZERO times.
+        //
+        // The assertion is again on the mechanism and not on a duration: with no overflow
+        // there must be no rescan at all. rescanUseful is reported rather than asserted --
+        // it is 0 here, but a workload that overflows legitimately makes it non-zero.
+        Rescan goodRescan = Rescan.parse(clean.output);
+        assertTrue(goodRescan.reported,
+                "No [GCSTALL] rescan report from the fixed build. Output: " + tail(clean.output));
+        assertEquals(0, goodRescan.overflowCycles,
+                "This workload overflowed the mark worklist, so the rescan is legitimately"
+                        + " required and scenario 7 cannot distinguish the fix from the bug. "
+                        + goodRescan);
+        assertEquals(0, goodRescan.slots,
+                "The legacy table was rescanned even though no cycle overflowed the mark"
+                        + " worklist, so the rescan is running on work that cannot find"
+                        + " anything. " + goodRescan);
+        System.err.println("[GcSteadyState] rescan/fixed: " + goodRescan);
+
+        // ---- 8. proof that scenario 7 can fail ---------------------------------
+        Path alwaysRescan = build(distDir, tempDirs, "alwaysrescan",
+                "-DCN1_GC_CONFORM -DCN1_GC_ALWAYS_RESCAN_LEGACY");
+        Run rescanning = run(alwaysRescan, distDir);
+        assertHealthy(rescanning, "the -DCN1_GC_ALWAYS_RESCAN_LEGACY build", javaResult);
+        Rescan badRescan = Rescan.parse(rescanning.output);
+        assertTrue(badRescan.reported,
+                "No [GCSTALL] rescan report from the faulted build. Output: " + tail(rescanning.output));
+        assertTrue(badRescan.slots > 0,
+                "Restoring the unconditional rescan produced no table walks at all, so"
+                        + " scenario 7 is inert. " + badRescan);
+        assertEquals(0, badRescan.useful,
+                "The unconditional rescan found something new, which would mean the drain's"
+                        + " worklist is NOT a fixed point without it and the gate above is"
+                        + " unsound. " + badRescan);
+        System.err.println("[GcSteadyState] rescan/faulted: " + badRescan);
+
+        // ---- 9. the extent sort, checked against libc qsort --------------------
+        // The sorted extent array backs the binary search that resolves INTERIOR pointers
+        // during the conservative scan, so a mis-ordered array does not crash -- it returns
+        // the wrong object, or none, and the collector frees something that is live. The
+        // randomised self-test compares the replacement against qsort element for element
+        // on the input shapes that break naive quicksorts, which is the only check here
+        // that would catch an ordering bug deterministically.
+        Map<String, String> sortTest = new HashMap<>();
+        sortTest.put("CN1_CONS_EXT_SORT_TEST", "1");
+        Run sorted = run(fixed, distDir, sortTest);
+        assertHealthy(sorted, "the extent-sort self-test run", javaResult);
+        String sortLine = null;
+        for (String line : sorted.output.split("\\R")) {
+            if (line.startsWith("[SORTTEST]")) {
+                sortLine = line;
+            }
+        }
+        assertNotNull(sortLine,
+                "The extent-sort self-test did not run. Output: " + tail(sorted.output));
+        assertTrue(sortLine.contains("result=PASS"),
+                "The extent sort disagreed with libc qsort: " + sortLine);
+        System.err.println("[GcSteadyState] " + sortLine);
+
+        // ---- 10. a mutator must not wait a whole collection for table space -----
+        // Legacy allocations land in a per-thread pending table that only the collector
+        // empties, at mark start. When the table fills, the thread has to wait for a
+        // migration -- but it was written to wait for a whole COLLECTION: park until any
+        // running cycle FINISHED, then request another and wait for that one too. A cycle
+        // that is already running is precisely the thing that migrates the table, so that
+        // cost a full extra cycle every time.
+        //
+        // Both thresholds involved come from one free-RAM reading taken at the first
+        // collection, which is tens of millions of slots on any machine CI runs on and
+        // small on a memory-tight device -- so this path is unreachable in every
+        // environment that could have caught it. CN1_SIMULATE_FREE_MEMORY pins that
+        // reading, exactly as CN1_SIMULATE_PROC_MEMORY_LIMIT pins the process budget for
+        // scenario 3, and is what makes the device regime testable here at all.
+        Map<String, String> deviceMemory = new HashMap<>();
+        deviceMemory.put("CN1_SIMULATE_FREE_MEMORY", Long.toString(DEVICE_FREE_MB * 1024 * 1024));
+        Path legacyDist = buildLegacyChurnVariant(tempDirs, config, javaApiDir, javaResult);
+        Path legacyFixed = build(legacyDist, tempDirs, "legacyfixed", "-DCN1_GC_CONFORM");
+        Run tight = run(legacyFixed, legacyDist, deviceMemory);
+        assertHealthy(tight, "the run under a device-sized free-memory reading", javaResult);
+        Stalls tightStalls = Stalls.parse(tight.output);
+        assertTrue(tightStalls.reported,
+                "No [GCSTALL] report under the pinned free-memory reading. Output: "
+                        + tail(tight.output));
+        assertTrue(tightStalls.pendingFullParks > 0,
+                "Pinning the free-memory reading to " + DEVICE_FREE_MB + "MB did not make the"
+                        + " per-thread pending table fill, so this scenario and its twin"
+                        + " measure nothing. " + tightStalls);
+        System.err.println("[GcSteadyState] pending/fixed: " + tightStalls);
+
+        // ---- 11. proof that scenario 10 can fail --------------------------------
+        Path fullCycleWait = build(legacyDist, tempDirs, "pendingfullcycle",
+                "-DCN1_GC_CONFORM -DCN1_GC_PENDING_WAIT_FULL_CYCLE");
+        Run waiting = run(fullCycleWait, legacyDist, deviceMemory);
+        assertHealthy(waiting, "the -DCN1_GC_PENDING_WAIT_FULL_CYCLE build", javaResult);
+        Stalls waitStalls = Stalls.parse(waiting.output);
+        assertTrue(waitStalls.pendingFullParks > 0,
+                "The faulted build never filled its pending table either, so there is"
+                        + " nothing to compare. " + waitStalls);
+        // The WORST stall is what this fix is about: waiting for a whole extra cycle does
+        // not change the mean nearly as much as it changes the tail. Asserted relative to
+        // the same machine in the same session, for the reason scenario 6 gives.
+        // Same treatment, same reason. What scenario 10 asserts hard is that the path is
+        // EXERCISED at all under a device-sized free-memory reading -- the thing that was
+        // untestable off-device until CN1_SIMULATE_FREE_MEMORY covered init_gc_thresholds.
+        // The tail ratio is 17x on a developer machine, and it is a duration, so it is
+        // subject to the same saturation as scenario 6's.
+        //
+        // A mechanism counter was tried and REJECTED rather than assumed: collection epochs
+        // spanned per pending-table wait, on the theory that the old shape waits a running
+        // cycle out and then asks for another, so it should span two where the fix spans
+        // one. Measured 1.04 against 1.00 -- the old shape's while(gcCurrentlyRunning) exits
+        // immediately whenever no cycle happens to be running, so epochs do not separate the
+        // arms. The counter was removed rather than shipped inert.
+        assertTrue(waitStalls.maxPendingFullUs >= tightStalls.maxPendingFullUs,
+                "Restoring the wait-out-the-whole-cycle shape made the worst pending-table"
+                        + " stall SHORTER, which inverts the effect. fixed=" + tightStalls
+                        + " faulted=" + waitStalls);
+        System.err.println("[GcSteadyState] pending tail ratio faulted/fixed: "
+                + String.format("%.2f", tightStalls.maxPendingFullUs == 0 ? 0.0
+                        : (double) waitStalls.maxPendingFullUs / tightStalls.maxPendingFullUs));
+        System.err.println("[GcSteadyState] pending/faulted: " + waitStalls);
+    }
+
+    /**
+     * Translate a second copy of the fixture with BIG_ARRAY_INTS rewritten, and return its
+     * dist directory.
+     *
+     * <p>The legacy-path scenarios need a program that churns through allObjectsInHeap, and
+     * the rest of the gate needs one that does not -- scenario 2's SATB budget is expressed
+     * per live object with the legacy population as its denominator, so turning the churn
+     * on for everyone would silently make that assertion unfalsifiable rather than find
+     * anything. Two programs, one source file, one constant apart.</p>
+     *
+     * <p>Its host-JVM RESULT is computed here too: the throwaway arrays are deliberately
+     * not folded into the checksum, so this must agree with the base fixture's answer, and
+     * checking that is a free test of exactly that claim.</p>
+     */
+    private Path buildLegacyChurnVariant(List<Path> tempDirs, CompilerHelper.CompilerConfig config,
+                                         Path javaApiDir, String expectedResult) throws Exception {
+        Path sourceDir = Files.createTempDirectory("gc-steady-legacy-sources");
+        Path classesDir = Files.createTempDirectory("gc-steady-legacy-classes");
+        tempDirs.add(sourceDir);
+        tempDirs.add(classesDir);
+
+        String rewritten = loadAppSource().replace(
+                "private static final int BIG_ARRAY_INTS = 0;",
+                "private static final int BIG_ARRAY_INTS = " + LEGACY_CHURN_INTS + ";");
+        assertTrue(rewritten.contains("BIG_ARRAY_INTS = " + LEGACY_CHURN_INTS),
+                "The fixture no longer declares BIG_ARRAY_INTS the way this rewrite expects,"
+                        + " so the legacy-path scenarios would silently run the base shape.");
+        Path source = sourceDir.resolve("GcSteadyStateApp.java");
+        Files.write(source, rewritten.getBytes(StandardCharsets.UTF_8));
+
+        List<String> args = new ArrayList<>();
+        args.add("-source");
+        args.add(config.targetVersion);
+        args.add("-target");
+        args.add(config.targetVersion);
+        if (CompilerHelper.useClasspath(config)) {
+            args.add("-classpath");
+            args.add(javaApiDir.toString());
+        } else {
+            args.add("-bootclasspath");
+            args.add(javaApiDir.toString());
+            args.add("-Xlint:-options");
+        }
+        args.add("-d");
+        args.add(classesDir.toString());
+        args.add(source.toString());
+        assertEquals(0, CompilerHelper.compile(config.jdkHome, args),
+                "The legacy-churn variant should compile. " + CompilerHelper.getLastErrorLog());
+        assertEquals(expectedResult, extractLine(runJavaMain(config, classesDir, javaApiDir), "RESULT="),
+                "The legacy-churn variant must compute the same answer as the base fixture --"
+                        + " its throwaway arrays are not part of the checksum, and if that ever"
+                        + " stops being true the ParparVM parity checks below compare two"
+                        + " different programs.");
+
+        CompilerHelper.copyDirectory(javaApiDir, classesDir);
+        Path outputDir = Files.createTempDirectory("gc-steady-legacy-output");
+        tempDirs.add(outputDir);
+        CleanTargetIntegrationTest.runTranslator(classesDir, outputDir, "GcSteadyStateApp");
+        Path distDir = outputDir.resolve("dist");
+        CleanTargetIntegrationTest.replaceLibraryWithExecutableTarget(
+                distDir.resolve("CMakeLists.txt"), "GcSteadyStateApp-src");
+        return distDir;
+    }
+
+    /**
+     * A run's measurements are only admissible if the run itself was healthy AND still
+     * computed the right answer.
+     *
+     * <p>Exit status and the completion marker rule out a build that crashed or was
+     * OOM-killed after emitting enough probe rows, which would otherwise satisfy the
+     * cycle and inflated-SATB assertions and turn a memory-safety regression into a green
+     * gate. None of the variants here changes what the program computes -- the faults are
+     * a barrier filter and a pacing bound -- so RESULT must match the host JVM in every
+     * one of them.</p>
+     *
+     * <p>That last check is what covers the ceiling scenarios. They run the budgeted
+     * pacing path, which is the code this change touches most, under an environment the
+     * clean run never sees; without a parity check a worker could die early or compute
+     * the wrong sum while the process still exited cleanly and emitted plenty of
+     * [PACING] telemetry for the policy assertions to pass.</p>
+     */
+    private void assertHealthy(Run r, String which, String expectedResult) {
+        assertEquals(0, r.exit, which + " must still exit cleanly. Output: " + tail(r.output));
+        assertTrue(r.output.contains("GC_STEADY_STATE_DONE"),
+                which + " must run to completion. Output: " + tail(r.output));
+        assertEquals(expectedResult, extractLine(r.output, "RESULT="),
+                which + " must still compute the same answer as the host JVM. Output: "
+                        + tail(r.output));
+    }
+
+    /** A counter from the [PACING] line, or -1 if the tracer never reported. */
+    private long pacingCounter(String output, String key) {
+        for (String line : output.split("\\R")) {
+            int at = line.indexOf(key);
+            if (at < 0 || !line.startsWith("[PACING]")) {
+                continue;
+            }
+            String rest = line.substring(at + key.length());
+            int end = 0;
+            if (end < rest.length() && rest.charAt(end) == '-') {
+                end++;
+            }
+            while (end < rest.length() && Character.isDigit(rest.charAt(end))) {
+                end++;
+            }
+            return end > 0 ? Long.parseLong(rest.substring(0, end)) : -1;
+        }
+        return -1;
+    }
+
+    /** Smallest headroom the pacing tracer saw, in MB, or -1 if it never reported. */
+    private long minHeadroomMb(String output) {
+        for (String line : output.split("\\R")) {
+            int at = line.indexOf("minHeadroomKb=");
+            if (at < 0) {
+                continue;
+            }
+            String rest = line.substring(at + "minHeadroomKb=".length());
+            int end = 0;
+            if (end < rest.length() && rest.charAt(end) == '-') {
+                end++;
+            }
+            while (end < rest.length() && Character.isDigit(rest.charAt(end))) {
+                end++;
+            }
+            long kb = Long.parseLong(rest.substring(0, end));
+            return kb < 0 ? -1 : kb / 1024;
+        }
+        return -1;
+    }
+
+    /** One build of the already-translated project, with its own flags and build dir. */
+    private Path build(Path distDir, List<Path> tempDirs, String name, String cFlags) throws Exception {
+        Path buildDir = Files.createTempDirectory("gc-steady-build-" + name);
+        tempDirs.add(buildDir);
+        List<String> cmake = new ArrayList<>(Arrays.asList(
+                "cmake", "-S", distDir.toString(), "-B", buildDir.toString(),
+                "-DCMAKE_BUILD_TYPE=Release"));
+        cmake.addAll(CompilerHelper.cmakeToolchainArgs());
+        // CMAKE_C_FLAGS composes with the target's own options, so the mandatory
+        // -fwrapv / -fno-strict-aliasing the generated project adds are kept.
+        cmake.add(CompilerHelper.cFlagsArg("") + cFlags);
+        CleanTargetIntegrationTest.runCommand(cmake, distDir);
+        CleanTargetIntegrationTest.runCommand(
+                Arrays.asList("cmake", "--build", buildDir.toString()), distDir);
+        Path exe = buildDir.resolve(CompilerHelper.executableName("GcSteadyStateApp"));
+        assertTrue(Files.exists(exe), "ParparVM build should produce a runnable executable at " + exe);
+        return exe;
+    }
+
+    /** The [GCPROBE] series, reduced to the two things this gate decides on. */
+    private static final class Series {
+        int cycles;
+        long satbRefsTotal;
+        long liveObjectsMax;
+        long pagesAtStart;
+        long pagesAtMid;
+        long pagesAtEnd;
+
+        static Series parse(String output) {
+            List<Map<String, Long>> rows = new ArrayList<>();
+            for (String line : output.split("\\R")) {
+                if (!line.startsWith("[GCPROBE] v=1")) {
+                    continue;
+                }
+                Map<String, Long> row = new HashMap<>();
+                for (String token : line.split("\\s+")) {
+                    int eq = token.indexOf('=');
+                    if (eq <= 0) {
+                        continue;
+                    }
+                    try {
+                        row.put(token.substring(0, eq),
+                                (long) Double.parseDouble(token.substring(eq + 1)));
+                    } catch (NumberFormatException ignored) {
+                        // v=1 and any future non-numeric field
+                    }
+                }
+                rows.add(row);
+            }
+            Series s = new Series();
+            s.cycles = rows.size();
+            if (rows.isEmpty()) {
+                return s;
+            }
+            // The first fifth is start-up: the retained population is still being built and
+            // the page pool has not reached its working set, so it describes neither regime.
+            int from = rows.size() / 5;
+            int mid = (from + rows.size()) / 2;
+            for (int i = from; i < rows.size(); i++) {
+                s.satbRefsTotal += rows.get(i).getOrDefault("satbRefs", 0L);
+                s.liveObjectsMax = Math.max(s.liveObjectsMax, rows.get(i).getOrDefault("legUsed", 0L));
+            }
+            s.pagesAtStart = rows.get(from).getOrDefault("pgTotal", 0L);
+            s.pagesAtMid = rows.get(mid).getOrDefault("pgTotal", 0L);
+            s.pagesAtEnd = rows.get(rows.size() - 1).getOrDefault("pgTotal", 0L);
+            return s;
+        }
+
+        /** Logged references per cycle, per live object. Bounded by the live set once the
+         * barrier stops logging things the snapshot never contained. */
+        double satbRefsPerLiveObject() {
+            if (cycles == 0 || liveObjectsMax == 0) {
+                return Double.MAX_VALUE;
+            }
+            return ((double) satbRefsTotal / cycles) / liveObjectsMax;
+        }
+
+        /** Second-half page growth as a fraction of first-half page growth's endpoint. A
+         * heap that has reached a working set adds almost nothing here; a compounding one
+         * adds at least as much as it did in the first half. */
+        double secondHalfPageGrowth() {
+            if (pagesAtMid == 0) {
+                return Double.MAX_VALUE;
+            }
+            return (double) (pagesAtEnd - pagesAtMid) / pagesAtMid;
+        }
+    }
+
+    /**
+     * The evidence a failing ceiling assertion needs: what the pacing tracer counted, and
+     * the last footprint partition the probe emitted.
+     *
+     * <p>Without this the only ceiling assertion that can fail reports a single number and
+     * nothing to explain it -- which is how the first CI failure of this gate arrived, and
+     * the probe rows it would have needed were captured and then discarded.</p>
+     */
+    private String evidence(Run r) {
+        StringBuilder sb = new StringBuilder("\n--- evidence ---\n");
+        String pacing = null;
+        String lastProbe = null;
+        for (String line : r.output.split("\\R")) {
+            if (line.startsWith("[PACING]")) {
+                pacing = line;
+            } else if (line.startsWith("[GCPROBE] v=1")) {
+                lastProbe = line;
+            }
+        }
+        sb.append(pacing == null ? "(no [PACING] line)" : pacing).append('\n');
+        sb.append(lastProbe == null ? "(no [GCPROBE] rows)" : lastProbe).append('\n');
+        sb.append("wall samples=").append(wallSampleCount(r.output))
+          .append(" secondHalfPageGrowth=")
+          .append(String.format("%.3f", wallSecondHalfPageGrowth(r.output))).append('\n');
+        sb.append(tail(r.output));
+        return sb.toString();
+    }
+
+    /** pgTotal from the 1Hz [GCPROBE-T] series, in emission order. */
+    private static List<Long> wallPages(String output) {
+        List<Long> pages = new ArrayList<>();
+        for (String line : output.split("\\R")) {
+            if (!line.startsWith("[GCPROBE-T] v=1")) {
+                continue;
+            }
+            for (String token : line.split("\\s+")) {
+                if (token.startsWith("pgTotal=")) {
+                    try {
+                        pages.add(Long.parseLong(token.substring("pgTotal=".length())));
+                    } catch (NumberFormatException ignored) {
+                        // a malformed row is not a measurement; skip it
+                    }
+                }
+            }
+        }
+        return pages;
+    }
+
+    private int wallSampleCount(String output) {
+        return wallPages(output).size();
+    }
+
+    /** Second-half page growth measured on wall-clock time rather than on cycles. */
+    private double wallSecondHalfPageGrowth(String output) {
+        List<Long> pages = wallPages(output);
+        if (pages.size() < MIN_WALL_ROWS) {
+            return Double.MAX_VALUE;
+        }
+        // Same windowing as the per-cycle series: drop the first fifth as start-up.
+        int from = pages.size() / 5;
+        int mid = (from + pages.size()) / 2;
+        long atMid = pages.get(mid);
+        if (atMid == 0) {
+            return Double.MAX_VALUE;
+        }
+        return (double) (pages.get(pages.size() - 1) - atMid) / atMid;
+    }
+
+    private String describe(String what, Series s) {
+        return what + ": cycles=" + s.cycles
+                + " satbRefs/cycle/liveObject=" + String.format("%.3f", s.satbRefsPerLiveObject())
+                + " (total=" + s.satbRefsTotal + ", live=" + s.liveObjectsMax + ")"
+                + " pages " + s.pagesAtStart + " -> " + s.pagesAtMid + " -> " + s.pagesAtEnd
+                + " (second-half growth " + String.format("%.3f", s.secondHalfPageGrowth()) + ")";
+    }
+
+    private static final class Run {
+        final int exit;
+        final String output;
+
+        Run(int exit, String output) {
+            this.exit = exit;
+            this.output = output;
+        }
+    }
+
+    private Run run(Path executable, Path workingDir) throws Exception {
+        return run(executable, workingDir, new HashMap<String, String>());
+    }
+
+    private Run run(Path executable, Path workingDir, Map<String, String> env) throws Exception {
+        ProcessBuilder builder = new ProcessBuilder(executable.toString());
+        builder.directory(workingDir.toFile());
+        // A developer debugging the collector has CN1_* knobs exported, and several of them
+        // (CN1_SIMULATE_FREE_MEMORY, CN1_GC_FAULT) would invert this result rather than fail
+        // loudly. Start the child from a known state and give it only what this test sets.
+        builder.environment().keySet().removeIf(key -> key.startsWith("CN1_"));
+        builder.environment().put("CN1_GC_PROBE", "1");
+        builder.environment().put("CN1_LOG_PACING_PARKS", "1");
+        builder.environment().putAll(env);
+        builder.redirectErrorStream(true);
+        final Process process = builder.start();
+
+        // Drained CONCURRENTLY and waited for with a bound, as GcOverflowSpiralIntegration
+        // Test and ProcessBudgetPacingIntegrationTest already do. Concurrently, because a
+        // child that fills the pipe buffer blocks in write() while we block in waitFor();
+        // bounded, because a stalled collector is a thing this gate is meant to CATCH, and
+        // blocking on EOF would turn that into a hung build instead of a failed test.
+        // Draining as we go also means a killed run still yields whatever it printed, which
+        // is the only diagnostic a stalled run leaves behind.
+        final StringBuilder captured = new StringBuilder();
+        Thread drain = new Thread(() -> {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    synchronized (captured) {
+                        captured.append(line).append('\n');
+                    }
+                }
+            } catch (Exception e) {
+                // The stream ends abruptly when a timed-out child is destroyed. Whatever
+                // was captured before that is exactly what should be reported.
+            }
+        });
+        drain.setDaemon(true);
+        drain.start();
+
+        boolean exited = process.waitFor(VM_RUN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        if (!exited) {
+            process.destroyForcibly();
+            process.waitFor(10, TimeUnit.SECONDS);
+        }
+        drain.join(10_000);
+        String output;
+        synchronized (captured) {
+            output = captured.toString();
+        }
+        assertTrue(exited,
+                "The workload did not finish within " + VM_RUN_TIMEOUT_SECONDS + "s (env "
+                        + env + "). For this gate that is a result and not an"
+                        + " infrastructure problem -- a collector that stops finishing"
+                        + " cycles is one of the regressions it watches for. Output so far:\n"
+                        + tail(output));
+        return new Run(exited ? process.exitValue() : -1, output);
+    }
+
+    private String tail(String output) {
+        String[] lines = output.split("\\R");
+        int from = Math.max(0, lines.length - 25);
+        return String.join("\n", Arrays.copyOfRange(lines, from, lines.length));
+    }
+
+    private String loadAppSource() throws Exception {
+        java.io.InputStream in = GcSteadyStateIntegrationTest.class
+                .getResourceAsStream("/com/codename1/tools/translator/GcSteadyStateApp.java");
+        assertNotNull(in, "GcSteadyStateApp.java test resource should exist");
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+            return reader.lines().collect(Collectors.joining("\n")) + "\n";
+        }
+    }
+
+    private String runJavaMain(CompilerHelper.CompilerConfig config, Path classesDir, Path javaApiDir)
+            throws Exception {
+        String javaExe = config.jdkHome.resolve("bin").resolve("java").toString();
+        if (System.getProperty("os.name").toLowerCase().contains("win")) {
+            javaExe += ".exe";
+        }
+        ProcessBuilder pb = new ProcessBuilder(javaExe, "-cp",
+                classesDir + System.getProperty("path.separator") + javaApiDir, "GcSteadyStateApp");
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        String output;
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            output = reader.lines().collect(Collectors.joining("\n"));
+        }
+        assertEquals(0, process.waitFor(), "JVM run should exit cleanly. Output: " + output);
+        return output;
+    }
+
+    private String extractLine(String output, String prefix) {
+        for (String line : output.split("\\R")) {
+            if (line.startsWith(prefix)) {
+                return line.trim();
+            }
+        }
+        return "";
+    }
+
+    private CompilerHelper.CompilerConfig selectCompiler() {
+        String[] preferredTargets = {"11", "17", "21", "25", "1.8"};
+        for (String target : preferredTargets) {
+            for (CompilerHelper.CompilerConfig config : CompilerHelper.getAvailableCompilers(target)) {
+                if (CompilerHelper.isJavaApiCompatible(config)) {
+                    return config;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static void deleteRecursively(Path root) {
+        if (root == null || !Files.exists(root)) {
+            return;
+        }
+        try (java.util.stream.Stream<Path> walk = Files.walk(root)) {
+            walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (java.io.IOException ignored) {
+                    // best effort; the OS reclaims the temp tree
+                }
+            });
+        } catch (java.io.IOException ignored) {
+            // best effort
+        }
+    }
+
+
+}

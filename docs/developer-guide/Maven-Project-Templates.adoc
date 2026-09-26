@@ -1,0 +1,39 @@
+[#creating-project-templates]
+== Creating project templates
+
+A project template is a Codename One application project that can be used as a starting point for building a Codename One application. https://www.codenameone.com/initializr[Codename One initializr] uses project templates to generate starter projects for Codename One applications. You can also use the <<generate-app-project>> goal to generate starter projects from templates directly in Maven.
+
+Any Codename One project can be converted into a project template.
+
+=== Converting a Codename One application project into a project template
+
+If you have an existing maven Codename One application project, you can convert it into a project template by adding a file named `generate-app-project.rpf` in the root directory of the project.
+
+The contents of this file should look like:
+
+[source,rpf]
+----
+include::../demos/common/src/main/snippets/developer-guide/maven-project-templates.txt[tag=maven-project-templates-rpf-001,indent=0]
+----
+
+Where you make the following substitutions:
+
+$YOUR_PROJECT_MAIN_NAME::
+This should be the value of the `codename1.mainName` property in the project's `codenameone_settings.properties` file.
+
+$YOUR_PROJECT_PACKAGE_NAME::
+This should be the value of the `codename1.packageName` property in the project's `codenameone_settings.properties` file.
+
+... YOUR PROJECT MAVEN DEPENDENCIES...::
+Paste any maven dependencies that the project requires into this section. _These will be injected into the `<dependencies>` section of the common/pom.xml file_.
+
+... YOUR PARENT PROJECT MAVEN DEPENDENCIES...::
+Paste any maven dependencies that the parent project requires into this section. _These will be injected into the `<dependencies>` section of the pom.xml file_.
+
+See <<sample-generate-app-project-file>> for a more concrete example of the `generate-app-project.rpf`.
+
+=== Test your project template
+
+You can test your project template by using it as the `sourceProject` parameter for the `generate-app-project` goal. See <<generate-app-project>>.
+
+
